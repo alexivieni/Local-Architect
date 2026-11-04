@@ -1,4 +1,73 @@
-# Architect: design, build, secure, test, optimise and fix software with your own models
+# Local Architect
+
+**An AI engineering team that runs entirely on your own computer.** Describe what you want in plain words; local models plan it,
+write the code, and run real tests, and only work that passes the checks is kept. No cloud, no account, no subscription: your code
+never leaves your machine unless you turn on the optional Claude step.
+
+- **Builds, fixes, tests, refactors, secures and reviews** code through 19 workflows (build, bugfix, feature, test, refactor, secure, ...).
+- **Code decides what passes**, not the model: tests, syntax checks, a fake-code detector and scanners gate every change, and every run can be undone.
+- **Uses your whole machine**: a small router model on the processor, a fast worker on the graphics card, a larger "heavy" model beside it,
+  tests on the efficiency cores, run records archived to a second drive.
+- **Shows its work**: a web hub with live typing, the plan, every check, which model did what, and a one-page receipt per run.
+- **Gets better with use**: verified runs become training data for your own models.
+- **Optional Claude step**: when every local model is stuck, one step can be handed to Claude (off by default, spend-capped, never used as training data).
+
+## Requirements
+
+- Windows 10/11, macOS or Linux; Python 3.10+ (3.12 recommended). Standard library only.
+- [Ollama](https://ollama.com) with at least one model (e.g. `ollama pull qwen3:4b`). A graphics card helps but is not required.
+- Recommended: `python -m pip install pytest` (so the harness can run your tests).
+
+## Getting started
+
+1. Download or clone this repository:
+
+   ```bash
+   git clone https://github.com/alexivieni/Local-Architect.git
+   cd Local-Architect
+   ```
+
+2. Start it: double-click `START_HUB.bat` on Windows, or run:
+
+   ```bash
+   python architect.py start
+   ```
+
+   This detects your machine, starts the local model servers, and opens the hub in your browser.
+
+3. First time only, let it set itself up for your computer (picks models per tier, measures speed, runs a small proof):
+
+   ```bash
+   python architect.py ready
+   ```
+
+4. In the hub: **Projects > Start a project** to create something new (pick a starter, describe it, name it), or
+   **Workspace > Console** to ask for a change in an existing folder. Watch the plan, the checks and the result on the right.
+
+Command line instead of the hub:
+
+```bash
+python architect.py run "Add rate limiting to the login endpoint, with tests"
+python architect.py selftest --suite full     # the app's own checks; no models needed
+```
+
+## Optional: Claude as the last step
+
+Off by default. To use it:
+
+1. `python -m pip install anthropic`
+2. Set your key in your environment (never in a file in this repo), e.g. on Windows: `setx ANTHROPIC_API_KEY "your-key"`, then restart the hub.
+3. In the hub, **Settings > Online**: turn on *Allow online features* and set *Claude as the last step* to `escalation`.
+   Choose the model and the spend cap per run there.
+
+## Privacy
+
+Everything runs locally. Measurements, run traces and your settings stay in `hub_data/` and each project's `.arch/` folder, which
+this repository ignores. Nothing is sent anywhere unless you turn on online features.
+
+---
+
+# Details and release notes
 
 Standalone sibling of the security-focused coding agent (same Model Hub idea, general IT work). Python 3.10+, standard library only; pytest recommended (`python -m pip install pytest`). Runs on Ollama.
 
