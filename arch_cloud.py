@@ -44,9 +44,9 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 
 def effort_for(text, chosen=None):
-    """'ultrathink' (or 'think harder') anywhere in the message = max effort; else what the person picked; else high."""
+    """'ultrathink' / 'ultracode' (or 'think harder') anywhere in the message = max effort; else what the person picked; else high."""
     import re as _re
-    if _re.search(r"\bultra-?think\b|\bthink (?:harder|really hard)\b", str(text or ""), _re.I):
+    if _re.search(r"\bultra-?(?:think|code)\b|\bthink (?:harder|really hard)\b", str(text or ""), _re.I):
         return "max"
     return chosen if chosen in EFFORTS else "high"
 

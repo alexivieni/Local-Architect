@@ -1228,7 +1228,7 @@ function modelPicker(){
 }
 function chatKnobs(){
   const cl=store.get("chatUse","local").startsWith("claude");
-  const eff=h("select",{class:"mpick knob",id:"kEff","aria-label":"Effort",title:"How hard Claude thinks. Higher = better on hard problems, slower and pricier. Typing 'ultrathink' in a message uses max for that message.",
+  const eff=h("select",{class:"mpick knob",id:"kEff","aria-label":"Effort",title:"How hard Claude thinks. Higher = better on hard problems, slower and pricier. Typing 'ultrathink' or 'ultracode' in a message uses max for that message.",
       style:cl?"":"display:none",onchange:e=>store.set("chatEffort",e.target.value)},
     ...[["low","Effort: low"],["medium","Effort: medium"],["high","Effort: high"],["xhigh","Effort: x-high"],["max","Effort: max"]].map(([v,l])=>h("option",{value:v,selected:store.get("chatEffort","high")===v},l)));
   const ctx=h("select",{class:"mpick knob",id:"kCtx","aria-label":"Context",title:"How much of the project goes with your message. Local models are capped at their own window; Claude can take the large sizes.",
