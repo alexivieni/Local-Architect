@@ -1,0 +1,59 @@
+id: bugfix
+title: Bug fix
+kind: plan_execute_verify
+blurb: "Bug report -> failing reproduction test -> locate -> minimal fix -> full tests -> review notes. Every step is checked by code; a step whose checks cannot run ends in 'not sure', never a guess."
+domains: [api, data, web]
+produces: ["tests/test_repro_*.py", "fixed source files"]
+uses_roles: [generator, reviewer]
+budget: {calls: 24, tokens: 160000, seconds: 1800, heavy_calls: 2}
+context: {chars: 12000}
+overrides:
+  cpu8: {budget: {seconds: 3600, tokens: 90000}, skip: [review]}
+  cpu16: {budget: {seconds: 3600}}
+steps:
+  - id: locate
+    kind: code
+    title: "Locate (traceback + ranking)"
+    gate: suspect_files
+
+  - id: repro
+    kind: generate
+    title: "Write a failing reproduction test"
+    role: generator
+    tier: worker
+    prompt: repro
+    when: "env.can_test and params.repro is None"
+    context: {chars: 12000, query: "{goal}"}
+    apply: {expect_new_under: "tests/"}
+    verify: {gate: repro_fails_right_reason}
+    retries: 1
+    on_fail: continue
+    budget: {tokens: 30000, seconds: 420}
+
+  - id: fix
+    kind: generate
+    title: "Minimal fix, loop on failure"
+    role: generator
+    tier: worker
+    prompt: fix
+    context: {always: ["ctx:scope"], max_always: 3, query: "{goal}"}
+    apply: {deny: ["{repro_path}"]}
+    verify: {gate: verify_files, run_tests: true}
+    loop: {max: 3, coach: true, escalate: [heavy]}
+    on_fail: not_sure
+    budget: {tokens: 90000, seconds: 900}
+
+  - id: review
+    kind: generate
+    title: "Risk review (advice only)"
+    role: reviewer
+    tier: worker
+    prompt: review
+    when: "fix.ok and cfg.behavior.evaluator != 'off'"
+    context: {chars: 7000, always: ["ctx:scope"], max_always: 3}
+    store_text: review_notes
+    budget: {tokens: 20000, seconds: 300}
+
+verdict:
+  pass_if: "fix.ok"
+  not_sure_if: "fix.ok and not repro.ok and env.can_test"

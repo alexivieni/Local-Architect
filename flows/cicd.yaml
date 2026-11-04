@@ -1,0 +1,47 @@
+id: cicd
+title: CI/CD pipeline
+kind: plan_execute_verify
+blurb: "Verifies the pipeline files against this repository (parsing, pinned actions, permissions, script injection, fake-green patterns, commands that point at nothing), then the CI/CD engineer fixes exactly what the verifier reported -- and the verifier has to agree."
+produces: [".github/workflows/*.yml", "docs/ci.md"]
+uses_roles: [ci_engineer]
+budget: {calls: 20, tokens: 120000, seconds: 1500}
+steps:
+  - id: check
+    kind: code
+    title: "Verify the pipeline files"
+    gate: ci_check
+    on_fail: stop
+
+  - id: fix
+    kind: generate
+    title: "Fix what the verifier reported (loop)"
+    role: ci_engineer
+    tier: worker
+    prompt: fix
+    when: "check.blocking > 0"
+    vars: {findings: "{findings_text}"}
+    context: {always: ["ctx:scope"], max_always: 4}
+    verify: {gate: ci_no_blocking, run_tests: false}
+    loop: {max: 3, coach: true, escalate: [heavy]}
+    on_fail: continue
+    budget: {tokens: 90000, seconds: 1200}
+
+  - id: write
+    kind: report
+    title: "Write docs/ci.md"
+    path: docs/ci.md
+    label: ci report
+    template: |
+      # CI/CD
+
+      Pipelines: {check.pipelines}
+
+      ## Blocking findings before: {check.blocking}
+
+      {findings_text}
+
+      ## Blocking findings after: {fix.blocking}
+
+verdict:
+  pass_if: "check.blocking == 0 or fix.ok"
+  not_sure_if: "check.unsure or fix.unsure"

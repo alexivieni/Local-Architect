@@ -1,0 +1,62 @@
+id: network
+title: Network / firewall plan
+kind: plan_execute_verify
+blurb: "Checks a network/CIDR plan and firewall rules against real math (overlaps, capacity, default-deny, admin ports, shadowed rules), then the network engineer fixes them -- re-checked by the same math. No network is ever touched."
+domains: [api]
+produces: ["corrected plan JSON", "docs/network.md"]
+uses_roles: [network_engineer]
+budget: {calls: 16, tokens: 90000, seconds: 1200}
+steps:
+  - id: scan
+    kind: code
+    title: "Check the plan with real math"
+    gate: cidr_scan
+    on_fail: stop
+
+  - id: fixes
+    kind: foreach
+    title: "Plan file"
+    over: scope
+    max: 4
+    stop_on_fail: false
+    steps:
+      - id: fix
+        kind: generate
+        title: "Correct the plan"
+        role: network_engineer
+        tier: worker
+        prompt: fix
+        vars: {problems: "{findings_text}", file: "{item}"}
+        context: {always: ["ctx:scope"], max_always: 4}
+        store_text: reply
+        apply: null
+        verify: {gate: json_plan_fix}
+        loop: {max: 3, coach: false}
+        on_fail: continue
+        budget: {tokens: 60000, seconds: 900}
+
+  - id: recheck
+    kind: code
+    title: "Re-check the math"
+    gate: cidr_fewer
+    on_fail: continue
+
+  - id: write
+    kind: report
+    title: "Write docs/network.md"
+    path: docs/network.md
+    label: network report
+    template: |
+      # Network design
+
+      Checked: {scan.files} file(s)
+
+      ## Problems before: {scan.findings}
+
+      {findings_text}
+
+      ## Problems after: {recheck.after}
+
+verdict:
+  pass_if: "scan.findings == 0 or recheck.ok"
+  not_sure_if: "scan.unsure"

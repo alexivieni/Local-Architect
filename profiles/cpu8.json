@@ -1,0 +1,40 @@
+{
+ "name": "cpu8",
+ "label": "no usable graphics card, 8 GB memory",
+ "plain": "A small 3B worker runs on the processor with a short memory. Slow but honest: expect a minute or more per step. Bug fixes and small builds work; the heavy model is off.",
+ "ctx": 4096,
+ "kv": "q8_0",
+ "draft": "off",
+ "router_cpu": true,
+ "tiers": {
+  "router": {
+   "model": "qwen2.5:0.5b",
+   "ctx": 2048,
+   "cpu": true
+  },
+  "worker": {
+   "model": "qwen2.5-coder:3b",
+   "ctx": 4096,
+   "ngl": 0
+  },
+  "heavy": {
+   "model": "",
+   "use": "off"
+  },
+  "draft": {
+   "model": "",
+   "enabled": "off"
+  }
+ },
+ "budgets": {
+  "calls": 30,
+  "tokens": 60000,
+  "seconds": 3600
+ },
+ "flows_skip": [
+  "hunt",
+  "ship"
+ ],
+ "as_of": "2026-11-02",
+ "evidence": "researched defaults; `tune` measures this machine and may step the worker's quant or context down until it is fully on the GPU"
+}

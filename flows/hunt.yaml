@@ -1,0 +1,49 @@
+id: hunt
+title: Bug hunt
+kind: direct
+blurb: "A bug hunter reads the code adversarially. Every suspicion must be proven by a failing test or it is discarded; proven bugs are listed in docs/bugs.md and can be fixed automatically."
+produces: ["tests/hunt/test_*.py (confirmed bugs only)", "docs/bugs.md"]
+uses_roles: [bug_hunter, generator, reviewer]
+budget: {calls: 24, tokens: 160000, seconds: 1800}
+steps:
+  - id: scan
+    kind: code
+    title: "Choose files + static bug patterns"
+    gate: static_facts
+    n: 4
+    on_fail: stop
+
+  - id: hunt
+    kind: generate
+    title: "One proving test per suspicion"
+    role: bug_hunter
+    tier: worker
+    prompt: hunt
+    vars: {n: "{cfg.behavior.hunt_findings}", hints: "{hints}"}
+    context: {always: ["ctx:scope"], max_always: 4}
+    apply: {expect_new_under: "tests/hunt/", deny_ctx: existing_tests}
+    verify: {gate: hunt_confirm}
+    budget: {tokens: 90000, seconds: 900}
+
+  - id: write
+    kind: report
+    title: "Write docs/bugs.md"
+    path: docs/bugs.md
+    label: bug report
+    template: |
+      # Bug hunt
+
+      Scope: {scope}
+
+      ## Confirmed bugs ({hunt.confirmed})
+
+      {confirmed_text}
+
+      ## Discarded suspicions: {hunt.rejected}
+
+      ## Static findings (unproven hints)
+
+      {facts}
+
+verdict:
+  pass_if: "write.ok"

@@ -1,0 +1,41 @@
+{
+ "name": "cpu16",
+ "label": "no usable graphics card, 16 GB memory",
+ "plain": "The 7B worker runs on the processor with a short memory (several seconds per sentence). The small helper may speed it up; the heavy model is used once per task at most.",
+ "ctx": 4096,
+ "kv": "q8_0",
+ "draft": "measure",
+ "router_cpu": true,
+ "tiers": {
+  "router": {
+   "model": "qwen2.5:1.5b",
+   "ctx": 2048,
+   "cpu": true
+  },
+  "worker": {
+   "model": "qwen2.5-coder:7b",
+   "ctx": 4096,
+   "ngl": 0
+  },
+  "heavy": {
+   "model": "qwen2.5-coder:14b",
+   "ctx": 4096,
+   "use": "cascade_only",
+   "max_calls_per_run": 1
+  },
+  "draft": {
+   "model": "hf.co/bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF:Q8_0",
+   "enabled": "measure"
+  }
+ },
+ "budgets": {
+  "calls": 40,
+  "tokens": 90000,
+  "seconds": 3600
+ },
+ "flows_skip": [
+  "hunt"
+ ],
+ "as_of": "2026-11-02",
+ "evidence": "researched defaults; `tune` measures this machine and may step the worker's quant or context down until it is fully on the GPU"
+}

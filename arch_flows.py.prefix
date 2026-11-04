@@ -1,0 +1,963 @@
+"""Flows: the workflows the Architect can run. Each is a fixed, inspectable sequence of steps (planner ->
+contract -> generator -> code checks -> judge), not a free-running agent: fixed workflows are more
+predictable, cheaper and easier to test, which is what the current guidance recommends until a free agent
+demonstrably does better. Every step records which role/model did it, so runs can become training data.
+
+Flows: design, build, bugfix, refactor.   Router: route().
+"""
+import abc
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+import arch_checks as ck
+import arch_fakecode
+import arch_core as core
+import arch_progress
+import arch_schemas
+from arch_core import BudgetExceeded, LLMError, LoopDetected
+
+DOMAINS = {"web": "Web front end", "api": "Backend / API", "data": "Data / SQL"}
+
+
+# ------------------------------------------------------------------------------------------ helpers
+def detect_domains(e, goal):
+    g = goal.lower()
+    d = set()
+    if re.search(r"\b(web ?page|website|front.?end|ui|ux|html|css|dashboard|form|responsive|landing|react|component|page)\b", g):
+        d.add("web")
+    if re.search(r"\b(api|endpoint|rest|openapi|backend|service|server|flask|fastapi|django|express|route|auth|microservice|webhook)\b", g):
+        d.add("api")
+    if re.search(r"\b(sql|database|schema|table|query|queries|migration|postgres|sqlite|mysql|etl|pipeline|warehouse|analytics|index)\b", g):
+        d.add("data")
+    files = core.list_files(e.root, e.cfg)
+    if not d:
+        if any(f.endswith((".html", ".css", ".js")) for f in files):
+            d.add("web")
+        if any(f.endswith(".py") for f in files):
+            d.add("api")
+        if any(f.endswith(".sql") for f in files):
+            d.add("data")
+    return sorted(d) or ["api"]
+
+
+def gen_role_for(files, domains=None):
+    files = list(files or [])
+    if files and all(f.lower().endswith((".html", ".htm", ".css", ".js", ".mjs", ".jsx", ".tsx", ".ts")) for f in files):
+        return "generator_ui"
+    if files and all(f.lower().endswith(".sql") for f in files):
+        return "generator_sql"
+    if not files and domains == ["web"]:
+        return "generator_ui"
+    if not files and domains == ["data"]:
+        return "generator_sql"
+    return "generator"
+
+
+def verify(e, files, run_tests=True, targets=None):
+    """Code checks on the given files plus the project's tests. -> dict(ok, text, results, tests).
+
+    Every individual check is also written to the trace as its own record, so a watching interface can show "tests passed, linter passed,
+    fake-code check failed" while the run is still going, instead of waiting for a report and parsing prose out of it.
+    """
+    t_v = time.time()
+    results = ck.check_files(e.root, files, e.cfg, e.run_dir)
+    mine = set(e.changed_files) | set(e.created)                      # legacy code the run did not touch is never failed for being a stub
+    results += arch_fakecode.check(e.root, [f for f in files if f in mine], e.cfg["behavior"].get("fake_code", "fail"))
+    import arch_deps
+    miss = arch_deps.missing(e.root, [f for f in files if f in mine])
+    if miss:
+        results.append(ck.R("imports are installed", False, arch_deps.feedback(miss)))
+    tests = ("none", "")
+    if run_tests:
+        fast = related_tests(e, files) if (targets is None and e.cfg["behavior"].get("fast_tests", "on") == "on") else None
+        if fast:                                                          # the tests for the changed files first: a failure comes back in seconds
+            quick = core.run_tests(e.root, e.cfg, fast)
+            if quick[0] == "fail":
+                results.append(ck.R("project tests pass", False, f"(related tests first: {', '.join(fast)})\n" + quick[1][-1400:]))
+                s = ck.summarize(results)
+                return {"ok": False, "text": s["failures"], "results": results, "tests": quick, "passed": s["passed"], "total": s["total"]}
+        tests = core.run_tests(e.root, e.cfg, targets)
+        if tests[0] == "fail":
+            results.append(ck.R("project tests pass", False, tests[1][-1400:]))
+        elif tests[0] == "pass":
+            results.append(ck.R("project tests pass", True))
+    try:                                   # the project's own hooks run here, so a blocking one fails the step exactly like a failing test
+        import arch_hooks
+        hk = arch_hooks.fire(e, "after_apply", files=files, step=e.step_name())
+        if hk["blocked"]:
+            results.append(ck.R("the project's own hooks pass", False, hk["blocked"]))
+    except Exception:
+        pass
+    s = ck.summarize(results)
+    _trace_checks(e, results, t_v)
+    return {"ok": s["ok"], "text": s["failures"], "results": results, "tests": tests, "passed": s["passed"], "total": s["total"]}
+
+
+def _trace_checks(e, results, t0):
+    """One record per check that ran, named the way a person would name it. Never raises: reporting must not break a run."""
+    try:
+        secs = round(time.time() - t0, 1)
+        for r in results or []:
+            name = getattr(r, "name", None) or (r.get("name") if isinstance(r, dict) else None) or "check"
+            ok = getattr(r, "ok", None)
+            if ok is None and isinstance(r, dict):
+                ok = r.get("ok")
+            text = getattr(r, "detail", None) or getattr(r, "text", None) or (r.get("detail") if isinstance(r, dict) else "") or ""
+            e._trace({"type": "check", "t": time.time(), "flow": e.flow, "step": e.step_name(), "gate": str(name),
+                      "ok": (None if ok is None else bool(ok)), "text": str(text)[:2000], "metrics": {}, "secs": secs})
+    except Exception:
+        pass
+
+
+_NAMED = re.compile(r"(?<![\w/.-])((?:[\w.-]+/)*[\w-]+\.(?:py|js|mjs|ts|tsx|jsx|html|css|sql|json|md|ya?ml|toml|sh))\b")
+
+
+def named_files(goal):
+    """Relative file paths a request names outright ("create cart.py ... tests in tests/test_cart.py"). A request that names a file
+    means it; these are added to the plan when the planner forgets them, and checked for before a sprint counts as done."""
+    out = []
+    text = re.sub(r"`[^`]*\s[^`]*`", " ", goal or "")                   # `python -m tool IN.csv OUT.md` is a command example, not a file to create
+    for m in _NAMED.finditer(text):
+        p = m.group(1).strip("./")
+        if os.path.basename(p) in ("__init__.py", "__main__.py") and "/" not in p:
+            continue                                                    # "a folder with __init__.py" names no particular path
+        if p and ".." not in p and not p.startswith("/") and p not in out and not re.match(r"^\d+(\.\d+)+$", p):
+            out.append(p)
+    return out
+
+
+_SPAN = re.compile(r"`([^`\n]{3,200})`")
+_FROM = re.compile(r"^from\s+([A-Za-z_][\w.]*)\s+import\s+([A-Za-z_][\w, ]*)$")
+_CALL = re.compile(r"^(?:[A-Za-z_]\w*\s*=\s*)?([A-Za-z_]\w*)\(([^()]*)\)$")
+_MAIN = re.compile(r"^python3?\s+-m\s+([A-Za-z_][\w.]*)\b")
+_METH = re.compile(r"^(?:[A-Za-z_]\w*\s*=\s*)?([A-Za-z_]\w*)\.([A-Za-z_]\w*)\(([^()]*)\)$")
+_ASSIGN = re.compile(r"^([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\(")
+
+
+def interface_contract(goal):
+    """The interface a request spells out in backticks: `from pkg import Name`, `Name(path)`, `python -m pkg ...`.
+    -> {"imports": [(module, name)], "calls": [(name, n_positional, [keywords], text)], "mains": [module]}. Empty when it names none."""
+    imports, calls, mains, methods, var_of = [], [], [], [], {}
+    for span in _SPAN.findall(goal or ""):
+        s = span.strip().rstrip(";")
+        m = _FROM.match(s)
+        if m:
+            imports += [(m.group(1), n.strip()) for n in m.group(2).split(",") if n.strip()]
+            continue
+        m = _MAIN.match(s)
+        if m:
+            mains.append(m.group(1))
+            continue
+        m = _METH.match(s)
+        if m:                                       # `s.shorten(url)`: a method on something the request built earlier
+            args = [a.strip() for a in m.group(3).split(",") if a.strip()]
+            methods.append((m.group(1), m.group(2), len([a for a in args if "=" not in a]),
+                            [a.split("=", 1)[0].strip() for a in args if "=" in a], s))
+            continue
+        a = _ASSIGN.match(s)
+        if a:
+            var_of[a.group(1)] = a.group(2)
+        m = _CALL.match(s)
+        if m:
+            args = [a.strip() for a in m.group(2).split(",") if a.strip()]
+            pos = [a for a in args if "=" not in a]
+            kws = [a.split("=", 1)[0].strip() for a in args if "=" in a]
+            calls.append((m.group(1), len(pos), kws, s))
+    meths = [(var_of[v], meth, n, k, t) for v, meth, n, k, t in methods if v in var_of]
+    return {"imports": imports, "calls": calls, "mains": mains, "methods": meths}
+
+
+def contract_check(e, goal):
+    """Does the code expose the interface the request names? Imports each name, and checks each named call accepts those arguments
+    (by signature, without running it). -> (ok, text). (True, "") when the request names no interface.
+
+    Small models routinely build something that works but is shaped differently from what was asked -- a constructor without the path
+    argument, a function left out of the package's __init__. Their own tests pass, so nothing catches it until a user does."""
+    c = interface_contract(goal)
+    if not (c["imports"] or c["mains"]):
+        return True, ""
+    lines = ["import importlib, inspect, sys", "bad = []", "names = {}"]
+    for mod, name in c["imports"]:
+        lines.append(f"try:\n    names[{name!r}] = getattr(importlib.import_module({mod!r}), {name!r})\n"
+                     f"except Exception as ex:\n    bad.append('`from {mod} import {name}` fails: %s: %s' % (type(ex).__name__, ex))")
+    for name, npos, kws, text in c["calls"]:
+        args = ", ".join(["None"] * npos + [f"{k}=None" for k in kws])
+        lines.append(f"if {name!r} in names:\n    try:\n        inspect.signature(names[{name!r}]).bind({args})\n"
+                     f"    except TypeError as ex:\n        bad.append('`{text}` does not fit the signature: %s' % ex)\n"
+                     f"    except ValueError:\n        pass")
+    for cls, meth, npos, kws, text in c.get("methods") or []:
+        args = ", ".join(["None"] * npos + [f"{k}=None" for k in kws])
+        lines.append(f"if {cls!r} in names and isinstance(names[{cls!r}], type):\n"
+                     f"    _f = getattr(names[{cls!r}], {meth!r}, None)\n"
+                     f"    if _f is None:\n        bad.append('`{text}`: {cls} has no method {meth}')\n"
+                     f"    else:\n        _ok = False\n"
+                     f"        for _self in ((None,), ()):\n"
+                     f"            try:\n                inspect.signature(_f).bind(*_self{', ' + args if args else ''})\n"
+                     f"                _ok = True\n                break\n"
+                     f"            except (TypeError, ValueError):\n                pass\n"
+                     f"        if not _ok:\n            bad.append('`{text}` does not fit the signature of {cls}.{meth}')")
+    for mod in c["mains"]:
+        # A package runs under -m only through its __main__.py; a plain module runs as itself.
+        lines.append(f"try:\n    _s = importlib.util.find_spec({mod!r})\n"
+                     f"    if _s is None:\n        bad.append('`python -m {mod}`: there is no {mod} to run')\n"
+                     f"    elif _s.submodule_search_locations is not None and importlib.util.find_spec({mod!r} + '.__main__') is None:\n"
+                     f"        bad.append('`python -m {mod}`: the package has no __main__.py, so -m has nothing to run')\n"
+                     f"except Exception as ex:\n    bad.append('`python -m {mod}` cannot be found: %s' % ex)")
+    lines.append("import importlib.util")
+    lines.insert(1, "import importlib.util")
+    lines.append("print('\\n'.join(bad)); sys.exit(1 if bad else 0)")
+    try:
+        env = dict(core.guard_env(True), PYTHONPATH=e.root, PYTHONDONTWRITEBYTECODE="1")
+        p = subprocess.run([sys.executable, "-B", "-c", "\n".join(lines)], cwd=e.root, capture_output=True, text=True, timeout=60, env=env)
+    except (OSError, subprocess.SubprocessError) as ex:
+        return True, f"(the interface check could not run: {ex})"
+    if p.returncode == 0:
+        return True, ""
+    out = (p.stdout.strip() or p.stderr.strip()[-600:])
+    return False, ("The request names this interface exactly, and the code does not match it yet:\n" + out +
+                   "\nChange the code (not the request) so these work as written.")
+
+
+def related_tests(e, files):
+    """Test files that belong to the changed files: the changed tests themselves, plus tests/test_<module>.py for each changed module.
+    -> list of relative paths that exist, or [] (then the full suite runs as before)."""
+    out = []
+    for f in files or []:
+        if f.startswith("tests/") and f.endswith(".py"):
+            out.append(f)
+        elif f.endswith(".py"):
+            stem = os.path.splitext(os.path.basename(f))[0]
+            for cand in (f"tests/test_{stem}.py", f"tests/{stem}_test.py", f"test_{stem}.py"):
+                if os.path.isfile(os.path.join(e.root, cand)):
+                    out.append(cand)
+    return sorted(set(out))
+
+
+def log_checks(e, title, v):
+    e.say(f"[check] {title}: {v['passed']}/{v['total']} passed" + ("" if v["ok"] else "\n" + v["text"]))
+    e.report(f"  - {title}: {v['passed']}/{v['total']} checks" + ("" if v["ok"] else " (failing: " + "; ".join(r['name'] for r in v['results'] if not r['ok'])[:300] + ")"))
+
+
+def parse_docs(text):
+    """DOC: path ... content (until the next DOC: line). A wrapping code fence is removed. -> {path: content}"""
+    docs, cur, buf = {}, None, []
+    for line in core.strip_think(text).replace("\r\n", "\n").split("\n"):
+        m = re.match(r"^\s*(?:#+\s*)?(?:\*\*)?DOC\s*:\s*`?([^\s`*]+)`?(?:\*\*)?\s*$", line)
+        if m:
+            if cur:
+                docs[cur] = "\n".join(buf)
+            cur, buf = m.group(1), []
+        elif cur is not None:
+            buf.append(line)
+    if cur:
+        docs[cur] = "\n".join(buf)
+    out = {}
+    for k, v in docs.items():
+        lines = v.strip("\n").split("\n")
+        if len(lines) > 2 and re.match(r"^```(?!mermaid)[\w+-]*\s*$", lines[0].strip()) and lines[-1].strip() == "```":
+            lines = lines[1:-1]               # the model wrapped the whole file in one code fence
+        out[k] = "\n".join(lines).strip("\n") + "\n"
+    return out
+
+
+def handoff_path(e):
+    return os.path.join(e.root, ".arch", "handoff.json")
+
+
+def read_handoff(e):
+    return core.load_json(handoff_path(e))
+
+
+def write_handoff(e, **fields):
+    h = read_handoff(e)
+    h.update(fields)
+    h["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    os.makedirs(os.path.dirname(handoff_path(e)), exist_ok=True)
+    with open(handoff_path(e), "w", encoding="utf-8") as f:
+        json.dump(h, f, indent=2)
+
+
+def handoff_text(e):
+    h = read_handoff(e)
+    return ("HANDOFF FROM EARLIER WORK (read this first):\n" + json.dumps(h, indent=1)[:4000] + "\n\n") if h else ""
+
+
+def judge(e, what, evidence, criteria):
+    """LLM judge for what code cannot decide. -> (verdict dict). Strict, evidence-based, JSON."""
+    prompt = (f"Judge this {what} against the criteria. Score each criterion 1-5 (5 = excellent). Be strict: a criterion with no "
+              f"supporting evidence in what you were shown scores 1. Decide pass only if every score is >= 3 and the average is >= 3.5.\n\n"
+              f"CRITERIA:\n{criteria}\n\nEVIDENCE:\n{evidence}\n\n"
+              'Answer ONLY JSON: {"scores": {"<criterion>": {"score": 1-5, "evidence": "..."}}, "verdict": "pass"|"fail", "issues": ["specific fix", "..."]}')
+    r, j = e.ask_json("evaluator", prompt, schema=arch_schemas.JUDGE)
+    if not isinstance(j, dict) or "scores" not in j:
+        return {"verdict": "unknown", "issues": ["the evaluator did not return usable JSON"], "call": r["id"], "avg": None}
+    vals = []
+    for v in (j.get("scores") or {}).values():
+        try:
+            vals.append(float(v["score"] if isinstance(v, dict) else v))
+        except (TypeError, ValueError, KeyError):
+            pass
+    avg = sum(vals) / len(vals) if vals else None
+    ok = bool(vals) and min(vals) >= 3 and avg >= 3.5          # we recompute: never trust the model's own verdict alone
+    return {"verdict": "pass" if ok else "fail", "issues": [str(x) for x in (j.get("issues") or [])][:8], "avg": avg, "call": r["id"],
+            "scores": j.get("scores")}
+
+
+# ------------------------------------------------------------------------------------------ flow base
+class Flow(abc.ABC):
+    id, title, blurb, domains = "", "", "", list(DOMAINS)
+    steps = []          # for the GUI: [{"id","title","role","kind":"llm|code|judge"}]
+    produces = []
+
+    @abc.abstractmethod
+    def run(self, e, params):
+        """Do the flow's work and return {"ok": bool, ...}. Every flow defines this."""
+
+
+def S(i, title, role, kind):
+    return {"id": i, "title": title, "role": role, "kind": kind}
+
+
+# ------------------------------------------------------------------------------------------ DESIGN
+DESIGN_SPEC = """Write the SPEC for this request as Markdown with exactly these headings:
+# Spec: <short name>
+## Goals
+## Non-goals
+## Users and key scenarios
+## Requirements   (numbered R1, R2, ... each one testable, one sentence)
+## Constraints and assumptions   (list every assumption you made instead of asking)
+## Risks and open questions
+Stay at the level of WHAT, not HOW. No TBD: make a reasonable assumption and write it down.
+
+REQUEST: {goal}
+
+{context}"""
+
+DESIGN_BUNDLE = """Write the design for the spec below. Output each file as:
+DOC: relative/path
+<file content, no code fence around the whole file>
+
+Required files:
+1. DOC: docs/architecture.md with headings: Overview, Components (a table: component | responsibility | owns data | talks to), Diagram (a ```mermaid flowchart or C4 diagram with at least 4 nodes and labelled edges), Data flow (numbered), Failure modes (what breaks, how we detect it, what happens), Testing strategy (what is tested how), Security and privacy basics.
+2. DOC: docs/adr/0001-<slug>.md (and 0002... for each other significant decision): headings Status, Context, Decision, Alternatives considered (at least two, with why rejected), Consequences (good and bad).
+{domain_files}
+Reference spec requirement ids (R1, R2...) where a component or decision satisfies them. Prefer the simplest design that meets the requirements; justify any extra moving part.
+
+SPEC:
+{spec}
+
+{context}"""
+
+DOMAIN_FILES = {
+    "api": "3. DOC: api/openapi.json : a complete OpenAPI 3.0 document in JSON (info, paths, components/schemas, every operation with operationId and a 2xx response, request bodies for POST/PUT/PATCH, consistent error schema, auth scheme if needed). Valid JSON only.",
+    "data": "4. DOC: db/schema.sql : portable SQL (runs on SQLite): tables with primary keys, NOT NULL / CHECK / UNIQUE constraints, foreign keys, and indexes on foreign keys and on columns used for lookups. Comment each table's purpose.",
+    "web": "5. DOC: docs/ui.md : headings Screens, Components (name, props/state, events), States (empty, loading, error, success for each screen), Accessibility (labels, focus order, contrast), Responsive behaviour.",
+}
+
+
+class DesignFlow(Flow):
+    id, title = "design", "Design"
+    blurb = "Request -> spec -> architecture, decision records, API contract and data model, verified by structure checks and a strict judge."
+    steps = [S("spec", "Write the spec", "planner", "llm"), S("design", "Design bundle", "architect", "llm"),
+             S("checks", "Structure checks (Mermaid, OpenAPI, SQL, ADR)", "-", "code"),
+             S("judge", "Strict judge", "evaluator", "judge"), S("revise", "Revise on failure (up to N)", "architect", "llm"),
+             S("handoff", "Write handoff for the build flow", "-", "code")]
+    produces = ["docs/spec.md", "docs/architecture.md", "docs/adr/*.md", "api/openapi.json", "db/schema.sql", "docs/ui.md", ".arch/handoff.json"]
+
+    def run(self, e, params):
+        goal, doms = e.goal, params.get("domains") or detect_domains(e, e.goal)
+        ctx = handoff_text(e) + ("EXISTING PROJECT (for context):\n" + e.context(goal, 8000) if core.list_files(e.root, e.cfg) else "")
+        e.report(f"- Domains: {', '.join(doms)}", "")
+        r = e.call("planner", DESIGN_SPEC.format(goal=goal, context=ctx), label="spec")
+        spec = r["text"].strip()
+        spec = re.sub(r"^```(?:markdown|md)?\n|\n```$", "", spec)
+        sp = e.put_file("docs/spec.md", spec, "spec")
+        sres = ck.check_spec(spec)
+        sv = ck.summarize(sres)
+        e.mark(r["id"], sv["ok"], sv["failures"])
+        e.say(f"[check] spec: {sv['passed']}/{sv['total']}" + ("" if sv["ok"] else "\n" + sv["failures"]))
+        if not sv["ok"]:
+            r2 = e.call("planner", DESIGN_SPEC.format(goal=goal, context=ctx) + "\n\nYour previous attempt failed these checks, fix them:\n" + sv["failures"] + "\n\nPREVIOUS:\n" + spec, label="spec-revise")
+            spec = re.sub(r"^```(?:markdown|md)?\n|\n```$", "", r2["text"].strip())
+            e.put_file("docs/spec.md", spec, "spec (revised)")
+            e.mark(r2["id"], ck.summarize(ck.check_spec(spec))["ok"])
+        bundle_prompt = DESIGN_BUNDLE.format(domain_files="\n".join(DOMAIN_FILES[d] for d in doms if d in DOMAIN_FILES), spec=spec, context=ctx)
+        r = e.call("architect", bundle_prompt, label="design")
+        feedback, written, verdict = "", [], None
+        for rev in range(e.cfg["limits"]["max_revisions"] + 1):
+            docs = parse_docs(r["text"])
+            if not docs:
+                feedback = "No DOC: files were found. Use the exact 'DOC: path' format."
+            else:
+                for path, content in docs.items():
+                    p = e.put_file(path, content, "design file")
+                    if p["status"] in ("applied", "identical") and path not in written:
+                        written.append(path)
+                v = verify(e, written, run_tests=False)
+                log_checks(e, f"design checks (round {rev + 1})", v)
+                ev = "\n".join(f"=== {w} ===\n{core.read_text(os.path.join(e.root, w), 12000)[0]}" for w in written if os.path.isfile(os.path.join(e.root, w)))
+                if not any(w.endswith("architecture.md") for w in written):
+                    v["ok"], v["text"] = False, v["text"] + "\n- docs/architecture.md is missing"
+                if not any("/adr/" in w for w in written):
+                    v["ok"], v["text"] = False, v["text"] + "\n- no ADR file under docs/adr/"
+                judged = None
+                if v["ok"] and e.cfg["behavior"]["evaluator"] != "off":
+                    judged = judge(e, "software design", f"SPEC:\n{spec}\n\n{ev}",
+                                   "traceability (every requirement R# is addressed by a named component or decision)\nsimplicity (no moving part without a stated reason)\n"
+                                   "failure_modes (realistic failures, detection and behaviour are described)\ntestability (how each component will be tested is clear)\n"
+                                   "decisions (alternatives are real and trade-offs are honest)")
+                    verdict = judged
+                    e.report(f"  - judge: {judged['verdict']} (avg {judged['avg']})")
+                    e.say(f"[judge] {judged['verdict']} avg={judged['avg']}")
+                ok = v["ok"] and (judged is None or judged["verdict"] in ("pass", "unknown"))
+                e.mark(r["id"], ok, v["text"] or "; ".join((judged or {}).get("issues", [])))
+                if ok:
+                    break
+                feedback = (v["text"] + "\n" + "\n".join("- " + i for i in (judged or {}).get("issues", []))).strip()
+            if rev >= e.cfg["limits"]["max_revisions"]:
+                e.say("[!] design still has open issues after the allowed revisions")
+                e.report("- Design finished with open issues: " + feedback[:500])
+                break
+            r = e.call("architect", bundle_prompt + "\n\nYour previous output was rejected. Fix ALL of these and resend every file in full:\n" + feedback + "\n\nPREVIOUS OUTPUT:\n" + r["text"][:9000], label=f"design-revise-{rev + 1}")
+        write_handoff(e, goal=goal, domains=doms, flow="design", spec="docs/spec.md", artifacts=written,
+                      decisions=[w for w in written if "/adr/" in w], next="build", design_verdict=(verdict or {}).get("verdict"))
+        e.report("", f"- Wrote: {', '.join(['docs/spec.md'] + written)}")
+        return {"ok": True, "files": ["docs/spec.md"] + written}
+
+
+# ------------------------------------------------------------------------------------------ BUILD
+BUILD_PLAN = """Plan the work as small SPRINTS that each leave the project working. Answer ONLY JSON:
+{{"sprints": [{{"name": "...", "kind": "backend|ui|sql|mixed", "goal": "one sentence", "files": ["paths you expect to create or change"],
+  "acceptance": [{{"id": "A1", "text": "observable, checkable criterion"}}]}}]}}
+Rules: at most {max_sprints} sprints; the first sprint is the thinnest working slice; every sprint has 2-5 acceptance criteria that a test or a script can check; backend code gets tests under tests/.
+
+GOAL: {goal}
+
+{context}"""
+
+BUILD_SPRINT = """Implement this sprint. Make the smallest complete change that satisfies the acceptance criteria, including tests for backend behaviour (under tests/, runnable with the project's test command).
+
+SPRINT {n}/{total}: {name}
+GOAL: {sgoal}
+FILES THIS SPRINT MUST CREATE OR CHANGE: {files}
+ACCEPTANCE CRITERIA (the contract):
+{criteria}
+
+PROJECT CONTEXT:
+{context}
+
+{feedback}"""
+
+
+class BuildFlow(Flow):
+    plan_prompt = None          # set by subclasses; None = BUILD_PLAN
+    all_role = None             # force one role for every sprint (the feature flow uses the full-stack role)
+    id, title = "build", "Build"
+    blurb = "Goal (or a finished design) -> sprints with acceptance contracts -> generator -> code checks and tests -> strict judge."
+    steps = [S("plan", "Plan sprints + contracts", "planner", "llm"), S("code", "Implement the sprint", "generator*", "llm"),
+             S("checks", "Syntax, HTML, SQL, OpenAPI checks + tests (+ browser)", "-", "code"),
+             S("fix", "Fix loop on failure (up to N)", "generator*", "llm"), S("judge", "Judge against the contract", "evaluator", "judge"),
+             S("handoff", "Save progress for the next session", "-", "code")]
+    produces = ["source files", "tests/", ".arch/contract.json", ".arch/handoff.json"]
+
+    def run(self, e, params):
+        goal = e.goal
+        doms = params.get("domains") or detect_domains(e, goal)
+        ho = handoff_text(e)
+        files0 = core.list_files(e.root, e.cfg)
+        ctx = ho + (e.context(goal, 9000, always=[x for x in ("docs/spec.md",) if os.path.isfile(os.path.join(e.root, x))]) if files0 else "(empty project)")
+        rs = params.get("resume") or {}
+        if rs.get("plan"):                                              # resuming: the saved plan, not a new one
+            r, plan = None, {"sprints": rs["plan"]}
+            e.say(f"[resume] continuing run {rs.get('from')}: {len(rs.get('done') or [])} sprint(s) already passed")
+            e.report(f"- Resumed from run `{rs.get('from')}`; sprints already passed are skipped: {', '.join(rs.get('done') or []) or 'none'}")
+        else:
+            r, plan = e.ask_json("planner", (self.plan_prompt or BUILD_PLAN).format(goal=goal, context=ctx, max_sprints=params.get("max_sprints") or e.cfg["limits"].get("max_sprints", 5)),
+                                 schema=arch_schemas.PLAN if self.plan_prompt is None else None)
+        sprints = (plan or {}).get("sprints") if isinstance(plan, dict) else None
+        sprints = [s for s in sprints if isinstance(s, dict)][:6] if isinstance(sprints, list) else []
+        named = named_files(goal)                                       # files the request names outright: they WILL be checked for
+        if not sprints:                                                 # checked AFTER filtering: a list of plain strings used to leave zero
+            sprints = [{"name": "implementation", "kind": "mixed", "goal": goal, "files": list(named),   # sprints, so nothing was built at all
+                        "acceptance": [{"id": "A1", "text": "the goal works and the tests pass"}]}]
+            e.say("[i] planner gave no usable sprint list; running one sprint")
+        planned = {str(f) for s in sprints for f in (s.get("files") or []) if isinstance(f, str)}
+        orphans = [f for f in named if f not in planned]
+        if orphans:                                                     # the plan forgot a file the request asked for: the last sprint owns it
+            sprints[-1]["files"] = [f for f in (sprints[-1].get("files") or []) if isinstance(f, str)] + orphans
+            e.report(f"- The plan left out {', '.join(orphans)}, which the request names; added to the last sprint")
+        if r:
+            e.mark(r["id"], bool(plan))
+        e.checkpoint(plan=sprints)
+        os.makedirs(os.path.join(e.root, ".arch"), exist_ok=True)
+        with open(os.path.join(e.root, ".arch", "contract.json"), "w", encoding="utf-8") as f:
+            json.dump({"goal": goal, "sprints": sprints}, f, indent=2)
+        e.report(f"- Sprints planned: {len(sprints)}", "")
+        done, all_files = [], list(rs.get("files") or [])
+        import arch_chain
+        defer, why = arch_chain.defer_judge(e)
+        deferred = []                                                   # (name, criteria, files) judged together after the loop
+        if defer:
+            e.say(f"[i] judge batched at the end: {why}")
+            e.report(f"- Judge batched at the end: {why}", "")
+        for n, sp in enumerate(sprints, 1):
+            name, sgoal = str(sp.get("name") or f"sprint {n}"), str(sp.get("goal") or goal)
+            if name in (rs.get("done") or []):
+                e.say(f"[resume] sprint {n}/{len(sprints)} '{name}' already passed: skipped")
+                done.append({"sprint": name, "ok": True, "files": []})
+                continue
+            acc = [a for a in (sp.get("acceptance") or []) if isinstance(a, dict)]
+            criteria = "\n".join(f"- {a.get('id', '?')}: {a.get('text', '')}" for a in acc) or "- the goal works and tests pass"
+            want = [str(x) for x in (sp.get("files") or []) if isinstance(x, str)]
+            role = self.all_role or {"ui": "generator_ui", "sql": "generator_sql", "backend": "generator"}.get(str(sp.get("kind")), gen_role_for(want, doms))
+            e.say(f"\n=== Sprint {n}/{len(sprints)}: {name}  (role: {role}) ===")
+            e.report(f"## Sprint {n}: {name}", f"- Role: {role}", f"- Contract:\n{criteria}")
+            feedback, ok, changed = "", False, []
+            coach = arch_progress.Coach(e, role)
+            for attempt in range(e.cfg["limits"]["max_revisions"] + 1):
+                cx = ho + e.context(sgoal + " " + " ".join(want), None, always=[x for x in ("docs/spec.md", "docs/architecture.md", "api/openapi.json", "db/schema.sql") if os.path.isfile(os.path.join(e.root, x))][:3])
+                r = e.call(role, BUILD_SPRINT.format(n=n, total=len(sprints), name=name, sgoal=sgoal, criteria=criteria, feedback=feedback, context=cx,
+                                                     files=", ".join(want) or "(your choice)"), label=f"sprint{n}-try{attempt + 1}")
+                res = e.apply(r["text"], f"sprint {n} try {attempt + 1}")
+                if any(x["status"] == "quit" for x in res):
+                    e.report("- Stopped by user.")
+                    return {"ok": False, "files": all_files, "stopped": True}
+                applied = [x["rel"] for x in res if x["status"] in ("applied", "identical")]
+                changed = sorted(set(changed + applied))
+                if e.review == "dry":
+                    e.mark(r["id"], False, "dry run")
+                    return {"ok": True, "files": all_files, "dry": True}
+                if not applied:
+                    feedback = "FEEDBACK: none of your changes could be applied:\n" + "\n".join(f"- {x['rel']}: {x['msg']}" for x in res if x["status"] == "error") + "\nResend using the exact FILE:/EDIT: formats.\n\n"
+                    e.mark(r["id"], False, feedback)
+                    feedback = coach.after(feedback, r["text"], feedback, [])
+                    continue
+                v = verify(e, changed)
+                missing = [f for f in want if f in named and not os.path.isfile(os.path.join(e.root, f))]
+                if missing and v["ok"]:                                 # everything that exists passes, but a file the request asked for is not there
+                    v = dict(v, ok=False, text="These files are required by the request and do not exist yet: " + ", ".join(missing)
+                             + ". Create them (with FILE: blocks) now.")
+                if n == len(sprints):                                   # the finished build must have the interface the request spelled out.
+                    cok, ctext = contract_check(e, goal)                # Checked even while tests fail: otherwise the model only ever hears
+                    if not cok:                                         # about its own (often wrong) tests and never about the shape asked for.
+                        v = dict(v, ok=False, text=(ctext + ("\n\n" + v["text"] if v.get("text") else "")))
+                        e._trace({"type": "check", "t": time.time(), "flow": e.flow, "step": f"sprint{n}", "gate": "interface_contract",
+                                  "ok": False, "text": ctext[:2000], "metrics": {}, "secs": 0})
+                log_checks(e, f"sprint {n} checks", v)
+                e.mark(r["id"], v["ok"], v["text"])
+                if v["ok"]:
+                    ok = True
+                    break
+                feedback = coach.after("FEEDBACK: your last change failed these checks. Fix them (smallest change):\n" + v["text"] + "\n\n", r["text"], v["text"], applied)
+            coach.close()
+            all_files = sorted(set(all_files + changed))
+            judged = None
+            if ok and e.cfg["behavior"]["evaluator"] == "each" and acc:
+                if defer:
+                    deferred.append((name, criteria, self._evidence(e, changed, v["tests"])))     # what a judge would see NOW; judged later from this
+                else:
+                    judged = self._judge(e, name, criteria, changed)
+            e.report(f"- Result: {'passed checks' if ok else 'FAILED checks'}" + (f"; judge {judged['verdict']}" if judged else "; judged at the end" if defer and ok and acc else ""), "")
+            done.append({"sprint": name, "ok": ok, "files": changed})
+            e.checkpoint(sprints_done=[d["sprint"] for d in done if d["ok"]], files=all_files)
+            write_handoff(e, goal=goal, domains=doms, flow="build", sprints_done=done, remaining=[s.get("name") for s in sprints[n:]], files=all_files,
+                          next=("continue with the next sprint" if ok else f"fix sprint '{name}': " + feedback[:300]))
+            if not ok:
+                e.say(f"[!] sprint '{name}' still failing; stopping so you can look at it")
+                break
+        if deferred and done and not all(d["ok"] for d in done):
+            e.report(f"- Deferred judge skipped: the build stopped at a failing sprint ({len(deferred)} passed sprint(s) not judged).")
+            deferred = []
+        for name, criteria, ev in deferred:                              # the batched per-sprint judgements: the same evidence, one model load
+            try:
+                j = self._judge(e, name, criteria, None, evidence=ev)
+            except core.BudgetExceeded as ex:
+                e.report(f"- Deferred judge stopped: {ex}")
+                break
+            e.report(f"- Judge for sprint '{name}': {j['verdict']} (avg {j['avg']})" + (f"; issues: {'; '.join(j['issues'])[:300]}" if j["issues"] else ""))
+        if e.cfg["behavior"]["evaluator"] == "final" and done and all(d["ok"] for d in done):
+            crit = "\n".join(f"{s.get('name')}: " + "; ".join(str(a.get("text")) for a in (s.get("acceptance") or []) if isinstance(a, dict)) for s in sprints)
+            j = self._judge(e, "whole build", crit, all_files)
+            e.report(f"- Final judge: {j['verdict']} (avg {j['avg']}); issues: {'; '.join(j['issues'])[:400]}")
+            if j["verdict"] == "fail" and j["issues"] and e.review != "dry":
+                role = self.all_role or gen_role_for(all_files, doms)
+                r = e.call(role, "Fix these issues found by review, with the smallest changes:\n" + "\n".join("- " + i for i in j["issues"]) + "\n\nPROJECT CONTEXT:\n" + e.context(" ".join(j["issues"]), None), label="final-fix")
+                res = e.apply(r["text"], "final fix")
+                v = verify(e, [x["rel"] for x in res if x["status"] == "applied"])
+                e.mark(r["id"], v["ok"], v["text"])
+                log_checks(e, "final fix checks", v)
+        ok_all = bool(done) and all(d["ok"] for d in done)
+        e.report("", f"- Build {'complete' if ok_all else 'incomplete'}: {len(done)}/{len(sprints)} sprints passed their checks.")
+        return {"ok": ok_all, "files": all_files}
+
+    def _evidence(self, e, files, tests=None):
+        """What the judge sees: the sprint's files as they are NOW and the test result (`tests` = (status, log) from the sprint's own checks when given, else a fresh run)."""
+        ev = "\n".join(f"=== {f} ===\n{core.read_text(os.path.join(e.root, f), 9000)[0]}" for f in files[:6] if os.path.isfile(os.path.join(e.root, f)))
+        t = tests if tests is not None else core.run_tests(e.root, e.cfg)
+        return ev + f"\n=== test result: {t[0]} ===\n{(t[1] or '')[-1500:]}"
+
+    def _judge(self, e, name, criteria, files, evidence=None):
+        ev = evidence if evidence is not None else self._evidence(e, files)
+        j = judge(e, f"implementation of '{name}'", ev, "each acceptance criterion below, one score each:\n" + criteria + "\nno_stubs (no placeholder or fake behaviour)")
+        e.say(f"[judge] {name}: {j['verdict']} avg={j['avg']}")
+        return j
+
+
+# ------------------------------------------------------------------------------------------ BUGFIX
+BUG_REPRO = """Write ONE focused pytest test that reproduces this bug. It must FAIL right now because of the bug (an assertion about behaviour; not an import error, typo or syntax error) and PASS once the bug is fixed. Put it in tests/test_repro_{slug}.py. Do not change application code in this step.
+
+BUG REPORT:
+{goal}
+
+{context}"""
+
+BUG_FIX = """Fix this bug with the smallest correct change. Change application code, not the reproduction test.
+
+BUG REPORT:
+{goal}
+
+CODE (most relevant first):
+{context}
+
+REPRODUCTION TEST ({repro}) CURRENTLY FAILS WITH:
+{failure}
+
+{feedback}"""
+
+
+def traceback_files(e, text):
+    out = []
+    for m in re.finditer(r'File "([^"]+)", line (\d+)', text):
+        p = m.group(1).replace("\\", "/")
+        if os.path.isabs(p) and p.startswith(e.root.replace("\\", "/")):
+            p = os.path.relpath(p, e.root).replace("\\", "/")
+        if os.path.isfile(os.path.join(e.root, p)) and p not in out and not p.startswith("tests/"):
+            out.append(p)
+    return out
+
+
+class BugfixFlow(Flow):
+    id, title = "bugfix", "Bug fix"
+    blurb = "Bug report -> failing reproduction test -> locate -> minimal fix -> full tests -> review notes."
+    domains = ["api", "data", "web"]
+    steps = [S("repro", "Write a failing test", "generator", "llm"), S("confirm", "Confirm it fails for the right reason", "-", "code"),
+             S("locate", "Locate (traceback + ranking)", "-", "code"), S("fix", "Minimal fix, loop on failure", "generator", "llm"),
+             S("validate", "Repro + full tests", "-", "code"), S("review", "Risk review (advice only)", "reviewer", "llm")]
+    produces = ["tests/test_repro_*.py", "fixed source files"]
+
+    def run(self, e, params):
+        goal = e.goal
+        slug = re.sub(r"[^a-z0-9]+", "_", goal.lower())[:28].strip("_") or "bug"
+        tb = traceback_files(e, goal)
+        files = core.list_files(e.root, e.cfg)
+        ranked = [f for f, s in core.rank_files(e.root, e.cfg, goal, files) if not f.startswith(("tests/", "docs/", "bench/")) and not f.endswith((".md", ".txt", ".json"))][:6]
+        focus = tb + [f for f in ranked if f not in tb]
+        e.say(f"[locate] suspect files: {', '.join(focus[:5]) or '(none found)'}")
+        e.report(f"- Suspect files: {', '.join(focus[:6])}", "")
+        repro_rel, failure = "", ""
+        if params.get("repro") and os.path.isfile(os.path.join(e.root, params["repro"])):        # the hunt flow already proved the bug with this test
+            repro_rel = params["repro"]
+            st, log = core.run_tests(e.root, e.cfg, [repro_rel])
+            failure = log[-1500:] if st == "fail" else ""
+            e.say(f"[repro] using {repro_rel}: {'fails as expected' if st == 'fail' else st}")
+        elif core.has_module("pytest") or e.cfg["tests"].get("command"):
+            ctx = e.context(goal, 12000)
+            r = e.call("generator", BUG_REPRO.format(goal=goal, slug=slug, context=ctx), label="repro")
+            e.deny_prefixes = []
+            res = e.apply(r["text"], "reproduction test")
+            new = [x["rel"] for x in res if x["status"] == "applied" and x["rel"].startswith("tests/")]
+            if e.review == "dry":
+                return {"ok": True, "dry": True}
+            if new:
+                repro_rel = new[0]
+                st, log = core.run_tests(e.root, e.cfg, [repro_rel])
+                bad_fail = re.search(r"SyntaxError|ModuleNotFoundError|ImportError|NameError|IndentationError", log)
+                if st == "fail" and not bad_fail:
+                    failure = log[-1500:]
+                    e.mark(r["id"], True, "fails for the right reason")
+                    e.say("[+] reproduction test fails as it should")
+                else:
+                    why = "it passes already (cannot reproduce)" if st == "pass" else "it fails for the wrong reason:\n" + log[-500:]
+                    e.mark(r["id"], False, why)
+                    e.say(f"[!] reproduction test is not usable: {why[:100]}")
+                    e.report(f"- Reproduction test not usable: {why[:200]}")
+                    repro_rel, failure = "", ""
+        else:
+            e.say("[i] pytest is not installed and no test command is set: skipping the reproduction test")
+        feedback, fixed = "", False
+        coach = arch_progress.Coach(e, "generator")
+        for attempt in range(e.cfg["limits"]["max_revisions"] + 1):
+            cx = e.context(goal + " " + failure[:500], None, always=focus[:3])
+            r = e.call("generator", BUG_FIX.format(goal=goal, repro=repro_rel or "(none)", failure=failure or "(no reproduction available; use the bug report)", feedback=feedback, context=cx), label=f"fix-try{attempt + 1}")
+            e.deny_prefixes = [repro_rel] if repro_rel else []
+            res = e.apply(r["text"], f"fix try {attempt + 1}")
+            if any(x["status"] == "quit" for x in res):
+                return {"ok": False, "stopped": True}
+            if e.review == "dry":
+                return {"ok": True, "dry": True}
+            changed = [x["rel"] for x in res if x["status"] in ("applied", "identical")]
+            if not changed:
+                feedback = "FEEDBACK: nothing could be applied:\n" + "\n".join(f"- {x['rel']}: {x['msg']}" for x in res) + "\n\n"
+                e.mark(r["id"], False, feedback)
+                feedback = coach.after(feedback, r["text"], feedback, [])
+                continue
+            v = verify(e, changed, run_tests=True)
+            log_checks(e, f"fix try {attempt + 1}", v)
+            e.mark(r["id"], v["ok"], v["text"])
+            if v["ok"]:
+                fixed = True
+                break
+            feedback = coach.after("FEEDBACK: after your last change this still fails:\n" + v["text"] + "\n\n", r["text"], v["text"], changed)
+        coach.close()
+        e.deny_prefixes = []
+        if fixed and e.cfg["behavior"]["evaluator"] != "off":
+            r = e.call("reviewer", "Review this bug fix for remaining risks (edge cases, regressions, other callers). Max 5 bullets, most severe first; say 'no concerns' if none.\n\nBUG: " + goal + "\n\nFILES CHANGED: " + ", ".join(e.changed_files) + "\n\n" + e.context(goal, 7000, always=e.changed_files[:3]), label="review")
+            e.report("- Reviewer notes (advice only):", *["  " + ln for ln in r["text"].splitlines()[:10]])
+        e.report("", f"- Bug {'fixed: repro and tests pass' if fixed else 'NOT fixed after the allowed attempts'}")
+        return {"ok": fixed, "files": e.changed_files}
+
+
+# ------------------------------------------------------------------------------------------ REFACTOR
+REF_CHAR = """Write CHARACTERIZATION tests that pin down what the code does TODAY, so a refactor can be proven safe. Test the public behaviour of these files, including edge cases and error cases, asserting the CURRENT actual outputs (even if you think they are odd). Do NOT change application code. Put tests in tests/characterization/test_<name>.py. They must pass on the unmodified code.
+
+REFACTOR GOAL (for context): {goal}
+FILES IN SCOPE: {files}
+
+CODE:
+{context}
+
+{feedback}"""
+
+REF_DO = """Refactor as described. Behaviour must NOT change: the characterization tests and all existing tests must still pass. Do not edit tests/characterization/. Prefer many small, mechanical edits over rewrites.
+
+REFACTOR GOAL: {goal}
+FILES IN SCOPE: {files}
+STRUCTURE BEFORE: {before}
+
+CODE:
+{context}
+
+{feedback}"""
+
+
+class RefactorFlow(Flow):
+    id, title = "refactor", "Refactor / migrate"
+    blurb = "Pin current behaviour with characterization tests -> refactor in small steps -> tests must stay green -> before/after structure report."
+    steps = [S("scope", "Choose files in scope", "-", "code"), S("pin", "Characterization tests (must pass today)", "generator", "llm"),
+             S("baseline", "Baseline metrics", "-", "code"), S("change", "Refactor, tests protected", "generator*", "llm"),
+             S("verify", "All tests + metrics after", "-", "code"), S("review", "Risk review (advice only)", "reviewer", "llm")]
+    produces = ["tests/characterization/*", "refactored source files"]
+
+    def run(self, e, params):
+        goal = e.goal
+        explicit = [m for m in re.findall(r"[\w./-]+\.(?:py|js|ts|sql|html|css)\b", goal) if os.path.isfile(os.path.join(e.root, m))]
+        files = explicit or [f for f, s in core.rank_files(e.root, e.cfg, goal) if not f.startswith("tests/") and s > 0][:4]
+        if not files:
+            e.say("[-] no files in scope; name the files in the goal")
+            e.report("- No files in scope found.")
+            return {"ok": False}
+        flist = ", ".join(files)
+        e.say(f"[scope] {flist}")
+        e.report(f"- In scope: {flist}", "")
+        can_test = core.has_module("pytest") or bool(e.cfg["tests"].get("command"))
+        py_scope = any(f.endswith(".py") for f in files)
+        pinned = False
+        if can_test and py_scope:
+            feedback = ""
+            for attempt in range(e.cfg["limits"]["max_revisions"] + 1):
+                r = e.call("generator", REF_CHAR.format(goal=goal, files=flist, feedback=feedback, context=e.context(goal, None, always=files[:3])), label=f"pin-try{attempt + 1}")
+                res = e.apply(r["text"], "characterization tests")
+                if e.review == "dry":
+                    return {"ok": True, "dry": True}
+                newt = [x["rel"] for x in res if x["status"] in ("applied", "identical") and x["rel"].startswith("tests/")]
+                if not newt:
+                    feedback = "FEEDBACK: no test file was written under tests/characterization/:\n" + "\n".join(f"- {x['rel']}: {x['msg']}" for x in res) + "\n\n"
+                    e.mark(r["id"], False, feedback)
+                    continue
+                st, log = core.run_tests(e.root, e.cfg)
+                e.mark(r["id"], st == "pass", log[-300:])
+                if st == "pass":
+                    pinned = True
+                    e.say("[+] current behaviour is pinned by passing tests")
+                    break
+                feedback = "FEEDBACK: the tests fail on the UNMODIFIED code, so they do not describe current behaviour. Fix the TESTS:\n" + log[-1400:] + "\n\n"
+            e.report(f"- Characterization tests: {'pinned (pass on current code)' if pinned else 'NOT established'}")
+            if not pinned:
+                e.say("[!] could not pin behaviour; refusing to refactor without a safety net")
+                e.report("- Stopped: no safety net. Add tests or set a test command, then retry.")
+                return {"ok": False}
+        elif can_test:
+            st, _ = core.run_tests(e.root, e.cfg)
+            pinned = st == "pass"
+            e.report(f"- Using the project's own tests as the safety net: {st}")
+            if st == "fail":
+                e.say("[!] existing tests already fail; fix them first")
+                return {"ok": False}
+        else:
+            e.say("[!] no test runner available: install pytest or set a test command in Settings. Refusing to refactor without a safety net.")
+            e.report("- Stopped: no test runner.")
+            return {"ok": False}
+        before = ck.metrics_python(e.root, files)
+        e.report(f"- Structure before: {before}")
+        e.deny_prefixes = ["tests/characterization/"]
+        role = gen_role_for(files)
+        feedback, ok = "", False
+        for attempt in range(e.cfg["limits"]["max_revisions"] + 1):
+            r = e.call(role, REF_DO.format(goal=goal, files=flist, before=before, feedback=feedback, context=e.context(goal, None, always=files[:3])), label=f"refactor-try{attempt + 1}")
+            res = e.apply(r["text"], f"refactor try {attempt + 1}")
+            if any(x["status"] == "quit" for x in res):
+                return {"ok": False, "stopped": True}
+            changed = [x["rel"] for x in res if x["status"] in ("applied", "identical")]
+            if not changed:
+                feedback = "FEEDBACK: nothing could be applied:\n" + "\n".join(f"- {x['rel']}: {x['msg']}" for x in res) + "\n\n"
+                e.mark(r["id"], False, feedback)
+                continue
+            v = verify(e, changed)
+            log_checks(e, f"refactor try {attempt + 1}", v)
+            e.mark(r["id"], v["ok"], v["text"])
+            if v["ok"]:
+                ok = True
+                break
+            feedback = "FEEDBACK: behaviour changed or checks failed. Make a smaller step that keeps every test green:\n" + v["text"] + "\n\n"
+        e.deny_prefixes = []
+        after = ck.metrics_python(e.root, files)
+        e.report(f"- Structure after: {after}")
+        worse = [k for k in ("longest_function", "max_nesting") if after[k] > before[k]]
+        if worse:
+            e.report(f"- Note: {', '.join(worse)} got worse; check that this matches your goal.")
+        if ok and e.cfg["behavior"]["evaluator"] != "off":
+            r = e.call("reviewer", "Review this refactor for behaviour changes the tests might not catch. Max 5 bullets; 'no concerns' if none.\n\nGOAL: " + goal + "\nBEFORE: " + str(before) + "\nAFTER: " + str(after) + "\n\n" + e.context(goal, 7000, always=e.changed_files[:3]), label="review")
+            e.report("- Reviewer notes (advice only):", *["  " + ln for ln in r["text"].splitlines()[:10]])
+        e.report("", f"- Refactor {'complete: tests green' if ok else 'NOT completed'}")
+        return {"ok": ok, "files": e.changed_files}
+
+
+FLOWS = {f.id: f for f in (DesignFlow(), BuildFlow(), BugfixFlow(), RefactorFlow())}
+
+
+# ------------------------------------------------------------------------------------------ router
+KEYWORDS = {
+    "design": r"\b(design|architect(?:ure)?|adr|decision record|spec(?:ification)?|plan the|blueprint|diagram|data model|api contract|openapi|propose|evaluate options|trade-?offs?)\b",
+    "bugfix": r"\b(bug|fix|broken|crash(?:es)?|error|exception|traceback|fails?|failing|regression|wrong|incorrect|doesn'?t work|not working)\b",
+    "refactor": r"\b(refactor|clean ?up|restructure|reorganize|simplify|rename|extract|deduplicate|migrate|upgrade|port|modernize|split (?:up|into))\b",
+    "build": r"\b(build|create|implement|add|write|make|develop|scaffold|generate|set ?up|new)\b",
+    "new": r"\b(from scratch|new project|bootstrap|start(?:ing)? (?:a|an|the) (?:new )?(?:project|app|service|site)|scaffold|boilerplate|starter|init(?:ialize)? a)\b",
+    "feature": r"\b(feature|end[- ]to[- ]end|full[- ]?stack|vertical slice|ui and api|screen and endpoint)\b",
+    "test": r"\b(add|write|improve|more|increase|missing|better)\b[^.]{0,30}\btests?\b|\bcoverage\b|\bmutation\b|\bunit tests?\b|\btest suite\b|\bflaky\b",
+    "optimize": r"\b(optimi[sz]e|optimi[sz]ation|faster|slow(?:er|ly)?|performance|speed ?up|latency|throughput|bottleneck|profil(?:e|ing)|n\+1|memory usage|too many queries)\b",
+    "hunt": r"\b(find bugs|hunt|bug hunt|audit|vulnerabilit\w*|look for bugs|what could break|edge cases?|sanity check|stress)\b",
+    "review": r"\b(code review|review (?:the|this|my)|critique|assess|health check)\b",
+    "secure": r"\b(secur(?:e|ity)|harden(?:ing)?|cwe|owasp|secrets? scan|injection|xss|csrf|insecure)\b",
+    "cicd": r"\b(ci/cd|cicd|ci pipeline|ci workflow|continuous (?:integration|delivery|deployment)|github actions?|gitlab[- ]ci|\.github/workflows|workflows?\.ya?ml|release (?:pipeline|automation|workflow)|deploy(?:ment)? pipeline|build pipeline|pipeline (?:fails?|failing|is red|broken)|ci\b)",
+    "config": r"\b(dockerfile|docker ?compose|yaml|\.toml|lint(?:ing)? config|config(?:uration)? harden\w*|pin(?:ned)? version)\b",
+    "network": r"\b(network plan|subnet|cidr|vlan|firewall|ingress|egress|port expos\w*|segmentation|topology)\b",
+    "ml": r"\b(ml pipeline|machine learning|model train(?:ing)?|dataset|feature engineering|data leak(?:age)?|inference|training pipeline)\b",
+    "pentest": r"\b(pentest|penetration test|red team|blue team|attack path|scope\.json|rules of engagement|authorized target)\b",
+    "a11y": r"\b(accessib\w*|a11y|screen ?readers?|alt text|aria[- ]labels?|wcag|keyboard (?:access\w*|navigation|users?))\b",
+    "types": r"\b(type hints?|type annotations?|annotate (?:the|every|all)|mypy|pyright)\b",
+    "document": r"\b(docstrings?|document (?:the|this|every|all|each)|write (?:the )?(?:docs|documentation)|documentation for)\b",
+    "harden": r"\b(error handling|bare except|swallow\w* (?:errors?|exceptions?)|fail (?:safely|loudly)|robust(?:ness)?|resilien\w*|add timeouts?|input validation)\b",
+    "migrate": r"\b(migrate (?:from|off|away)|switch(?:ing)? from \S+ to|move (?:off|away from)|replace (?:every|all) (?:uses?|calls?) of|port (?:from|off))\b",
+    "deps": r"\b(dependenc(?:y|ies) (?:audit|check|review)|audit (?:the )?dependenc\w+|unused (?:packages?|dependenc\w+)|requirements\.txt|unpinned)\b",
+}
+PRIORITY = ["pentest", "secure", "network", "cicd", "config", "ml", "a11y", "types", "document", "harden", "migrate", "deps", "bugfix", "refactor", "design", "hunt", "optimize", "test", "review", "feature", "new", "build"]
+
+
+def route(e, goal, forced=None):
+    """-> (flow_id, domains, why). The router MODEL decides (behavior.routing = model, the default); the keyword match is given to it as a hint and is
+    the fallback when no model answers. behavior.routing = keywords restores the old rule-first order (the model only breaks ties)."""
+    doms = detect_domains(e, goal)
+    if forced and forced in FLOWS:
+        return forced, doms, "chosen by you"
+    g = goal.lower()
+    empty = not core.list_files(e.root, e.cfg)
+    score = {k: len(re.findall(p, g)) for k, p in KEYWORDS.items()}
+    if "Traceback" in goal or re.search(r'File ".*", line \d+', goal):
+        score["bugfix"] += 3
+    if re.search(r"github actions?|gitlab[- ]ci|ci/cd|\bcicd\b|\.github/workflows|\.gitlab-ci", g):
+        score["cicd"] += 2                              # these name a pipeline outright: stronger evidence than one ordinary keyword
+    if empty:                                          # nothing to test, optimise or review yet; a plain "build" means: start the project
+        for k in ("test", "optimize", "hunt", "review"):
+            score[k] = 0
+        score["new"] += score["build"]
+        score["build"] = 0
+    ranked = sorted(score.items(), key=lambda kv: (-kv[1], PRIORITY.index(kv[0])))
+    top, second = ranked[0], ranked[1]
+    beats_build = second[0] == "build" and top[0] != "build" and top[1] >= second[1]      # "add tests" matches 'add' too: the specific flow wins
+    specific_wins = top[0] == "cicd" and second[0] in ("bugfix", "build", "refactor", "feature", "new", "test", "review") and top[1] >= second[1]   # "fix the failing GitHub Actions workflow" is a pipeline job
+    strong = top[1] > 0 and (top[1] >= second[1] + 2 or beats_build or specific_wins or second[1] == 0)
+    kw_why = f"keywords: {', '.join(m.group(0) for m in re.finditer(KEYWORDS[top[0]], g))[:80]}" if top[1] > 0 else ""
+    mode = (e.cfg.get("behavior") or {}).get("routing", "model")
+    if strong and mode == "keywords":
+        return top[0], doms, kw_why
+    hint = (f"\n\nA simple keyword matcher suggests: {top[0]} ({kw_why}). Treat that as a weak hint; decide from what the person actually wants." if top[1] > 0 else "") + \
+           ("\nThe project folder is empty." if empty else "\nThe project already has files.")
+    try:
+        r, j = e.ask_json("router", "Pick the workflow for this request. new = start a project from nothing (a template plus a first build); design = decide structure/architecture/contracts before code; "
+                                    "build = create new functionality; feature = one feature across data, API and UI; bugfix = something is broken; refactor = change structure without changing behaviour; "
+                                    "test = write better tests; optimize = make it faster; hunt = look for hidden bugs; review = assess code quality; "
+                                    "secure = fix security findings; config = harden Dockerfile/CI/config; network = fix a network/firewall plan; "
+                                    "ml = build/fix an ML pipeline; pentest = turn findings+scope you supply into a scope-checked attack-path write-up. "
+                                    'Answer ONLY JSON {"flow": "<one of: ' + "|".join(FLOWS) + '>", "why": "short"}.\n\nREQUEST: ' + goal + hint, schema=arch_schemas.router(FLOWS))
+        if isinstance(j, dict) and j.get("flow") in FLOWS:
+            pick = j["flow"]
+            if empty and pick in ("test", "optimize", "hunt", "review", "refactor", "bugfix"):
+                pick = "new"                                  # nothing exists to test, review or fix yet: start the project (checked in code)
+            agree = "agrees with" if pick == top[0] else "differs from"
+            return pick, doms, f"router model ({agree} the keyword hint): " + str(j.get("why", ""))[:100]
+    except (LLMError, BudgetExceeded, LoopDetected):
+        pass
+    if strong:
+        return top[0], doms, kw_why + " (no model answered)"
+    return (top[0] if top[1] > 0 else ("new" if empty else "build")), doms, "best keyword match" if top[1] > 0 else "default"
+
+
+def run_flow(e, flow_id, params=None):
+    params = params or {}
+    flow = FLOWS[flow_id]
+    t0 = time.time()
+    e.state["params"] = json.loads(json.dumps({k: v for k, v in params.items() if k != "resume"}, default=str))
+    e._write_state()
+    try:
+        out = flow.run(e, params)
+    except (LLMError, BudgetExceeded, LoopDetected) as ex:
+        e.say(f"[!] stopped: {ex}")
+        e.report("", f"- Stopped: {ex}")
+        out = {"ok": False, "error": str(ex)}
+    e.finish(out.get("ok"), out.get("error"))
+    try:                                                  # the run's own conclusion, as a record: the live view shows it without parsing prose
+        verdict = "not_sure" if out.get("unsure") else ("pass" if out.get("ok") else "fail")
+        e._trace({"type": "verdict", "t": time.time(), "flow": flow_id, "verdict": verdict,
+                  "why": str(out.get("error") or out.get("why") or "")[:400], "meter": dict(e.meter)})
+        import arch_hooks
+        arch_hooks.fire(e, "after_verdict", files=sorted(set(e.changed_files) | set(e.created)), verdict=verdict)
+    except Exception:
+        pass
+    e.report(f"- Models used: {dict(e.models_used)}", f"- Time: {round(time.time() - t0)}s, model calls: {e.calls}")
+    if out.get("ok") and not out.get("dry") and e.changed_files and e.cfg["behavior"].get("git") == "commit":
+        core.git_checkpoint(e.root, f"architect {flow_id}: {e.goal}", e.say)
+    return out
+
+
+import arch_flows_pro  # noqa: E402,F401  (registers the extra flows into FLOWS)
+import arch_flows_fake  # noqa: E402,F401  (registers the purge flow)
+import arch_flows_ci  # noqa: E402,F401  (registers the cicd flow)
+import arch_pipeline  # noqa: E402,F401  (registers the ship flow)
+
+try:                                                    # flows as data (flows/*.yaml): see arch_dataflow; which ones win is Settings > Flows > flows.engine
+    import arch_dataflow
+    DATA_FLOWS = arch_dataflow.register(FLOWS, (core.load_config().get("flows") or {}).get("engine", "legacy"), say=lambda m: None)
+except Exception as _ex:                                # a broken YAML must never take the engine down
+    DATA_FLOWS = []
+
+
+# [localintel-bridge] begin: app-specific layer (removed by apply_localintel_layer.py --remove)
+try:
+    import localintel_arch  # noqa: F401
+except ImportError:
+    pass
+# [localintel-bridge] end

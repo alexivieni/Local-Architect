@@ -1,0 +1,37 @@
+{
+ "name": "gpu12",
+ "label": "12 GB graphics card",
+ "plain": "The 14B model becomes the everyday worker, fully on the card, with the small helper beside it.",
+ "ctx": 12288,
+ "kv": "q8_0",
+ "draft": "measure",
+ "router_cpu": true,
+ "tiers": {
+  "router": {
+   "model": "qwen2.5:1.5b",
+   "ctx": 4096,
+   "cpu": true
+  },
+  "worker": {
+   "model": "qwen2.5-coder:14b",
+   "ctx": 12288
+  },
+  "heavy": {
+   "model": "",
+   "ctx": 8192,
+   "use": "cascade_only"
+  },
+  "draft": {
+   "model": "hf.co/bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF:Q8_0",
+   "enabled": "measure"
+  }
+ },
+ "budgets": {
+  "calls": 60,
+  "tokens": 200000,
+  "seconds": 2400
+ },
+ "flows_skip": [],
+ "as_of": "2026-11-02",
+ "evidence": "researched defaults; `tune` measures this machine and may step the worker's quant or context down until it is fully on the GPU"
+}

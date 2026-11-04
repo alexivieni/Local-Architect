@@ -1,0 +1,77 @@
+# Critic's notes on the proposal
+
+- **The MoE speed estimate (25-35 tok/s for UD-IQ4_XS) is not supported and probably too high.** Your own 14B run implies about 24 GB/s of real RAM bandwidth. IQ4_XS reads more bytes per token than IQ3. With most of about 1.5 GB of active expert bytes coming from RAM, the bandwidth limit is around 15-18 tok/s, unless the IQ3 CPU decode was the real bottleneck. The XDA and little-coder figures come from other RAM setups. Present it as a hypothesis with that limit worked out, and do not let it decide download #1.
+- **The RAM budget for that download does not add up.** The 17.7 GB file plus the worker, `--cache-ram`, the Docker/WSL VM, the OS and the page cache is more than about 28 GB usable on 32 GB. The machine map also says "MoE experts 14 GB", which contradicts 17.7 GB. Show the full sum, or prefer a smaller quant.
+- **"15.4 tok/s came from Ollama's slower placement" is not shown.** The code does confirm the heavy tier is never started in a run: `ensure()` starts only `resident` tiers (arch_server.py:947). But how the 15.4 figure was recorded is not cited. Check the after_upgrade or passport record before calling it the slow path.
+- **Missing coupling in W1.** `arch_progress.ready_now` offers escalation only when the heavy server already answers. Starting heavy on demand changes that gate: it must add the measured load cost to the 240 s `escalate_max_s` budget, or escalation will never fire, or will fire too late.
+- **Hidden download dependency in W1 and W2.** Serving the existing 35B through llama-server assumes the installed llama.cpp supports that architecture. It also assumes the Ollama blob is a plain GGUF that llama.cpp can load, and some newer Ollama-engine models are not. If either fails, W1's acceptance needs download #3. Say so, and check `--version` and that the blob loads before the night starts.
+- **The llama.cpp "sha256 checking first" has no trusted source named.** Upstream releases do not publish signed sums. Say what the hash is checked against, or call it trust-on-first-use.
+- **The overnight plan is far too big.** Twelve workstreams, each gated by `eval --quick` (19 flows × 10 tasks at 20-34 s, more with heavy), is 1-2 h of GPU per gate under one heavy lock. That alone fills the night before any code is written. Give each workstream a time budget, and use `eval --fake` for plumbing with a representative 17-task set for live checks.
+- **W4 + W5 + W7 + W10 is too much risky change for one night.** That is the planner core, the swap policy, the edit format in every flow, and a rewrite of most of the UI. Choose at most one high-risk item. The rest should be design or fixtures only.
+- **Some acceptance checks have no baseline or cannot pass tonight.**
+  - W5 "load seconds down 50%" and W6 "15% less wall time" need a baseline recorded first, and a paired sample large enough to beat noise.
+  - W8 needs two or more quants of the same model on disk, which is probably not true, so it is likely a no-op.
+  - W3 cannot measure the new NVMe, because it is not fitted.
+  - W2 "MoE VRAM within 10%" depends on W1 passing.
+- **The KLD pre-screen effectively needs a download.** It needs a higher-precision reference file, which is usually not on disk, plus the `llama-perplexity` binary, which may not be installed. A KLD pass on a 35B on the CPU also takes hours. Mark it as conditional.
+- **A paired 20-task slice with McNemar is underpowered.** It cannot tell neighbouring quants apart. Report "no detectable difference" rather than "equal". Seeds and temperature 0 must also be pinned.
+- **Two reads conflict with the warm cache.** Cache-bypassed drive reads and a prefetch of the heavy file both use the same RAM as the page cache. They can push out experts the running MoE is reading, if it is memory-mapped. Not addressed:
+  - mmap vs `--no-mmap` vs `--mlock`;
+  - the Windows standby list;
+  - whether the experts in RAM are page cache at all.
+- **Two overlap ideas clash with single-slot servers.**
+  - Prefix pre-warm with `n_predict 0` takes the only slot (`--parallel 1`), so a real call can be blocked behind it.
+  - Pipelined best-of-N needs a second slot, which doubles KV memory on a 6 GB card.
+
+  Decide how slots are counted before W6.
+- **Hardware classes are missing:**
+  - Apple unified memory: the min(GPU, RAM) bandwidth model is wrong when there is one memory pool;
+  - AMD and Intel GPUs on Linux (ROCm, Vulkan, SYCL);
+  - ARM Windows (Snapdragon X);
+  - laptops with a display switch (MUX, Advanced Optimus), which can move the display back onto the dGPU and change desktop VRAM;
+  - eGPU over Thunderbolt;
+  - two GPUs in one box (`--tensor-split`);
+  - CPU instruction sets (no AVX-512 on 13th-gen Intel, AVX-VNNI), which change which quants are fast on the CPU;
+  - sustained thermal throttling over a long night.
+- **Storage roles are missing:**
+  - network drives (SMB/NAS);
+  - SD cards;
+  - OneDrive or other cloud-synced folders (files-on-demand placeholders), since the code lives under Downloads;
+  - real-time antivirus scanning of model loads and pytest sandboxes, often the largest hidden cost on Windows. Adding an exclusion is a security setting, so explain it only.
+  - Also: an HDD-only machine needs mmap and load-time advice, not only a "slow" flag.
+- **Overnight running concerns are missing.** Windows sleep, lid close and the power plan (does the night stay awake?). The job lock protects GPU jobs, but not against the OS suspending. Checkpoint and resume after a sleep are not covered.
+- **The USB capacity check would take most of a day.** Filling 1 TB at about 20 MB/s writes takes around 14 h. It must test free space only and never touch existing files, and it should support a sampled quick mode. Say all of this in the yes prompt.
+- **The iGPU embedding or router idea conflicts with the current design.** Retrieval is FTS5 plus TF-IDF with no embedding model (CLAUDE.md). Adding one is a new model, so a download and a yes. Move it under "needs your yes" or drop it.
+- **LAN measurement and discovery is network traffic.** `arch_selftest_offline` fails on the first non-loopback connect. LAN probing must be opt-in, only to hosts the person added, and off the default path. mDNS or any auto-discovery is a rule change.
+- **The four places are not reconciled with the current hub.** CLAUDE.md says the hub opens on Console, and there are Health > Benchmarks, Studio and Autopilot pages. The proposal must say which place each of them moves into, or it quietly adds a fifth.
+- **UX states are missing:**
+  - first run with no server binary, no models, or Ollama down;
+  - model loading (the 503 during `/health`) with progress;
+  - "worker paused for the planner" (step-aside);
+  - queued or busy;
+  - on battery or throttled;
+  - stop mid-run;
+  - offline or error;
+  - the not_sure verdict on the Review screen;
+  - undo confirmation;
+  - text alternatives and keyboard access for the machine-map bars;
+  - colour-blind-safe device colours (teal and green are too close).
+
+  The "five clicks" check needs a defined starting state.
+- **Wording to fix:**
+  - "UD-Q2_K_XL" is one uploader's name, so state the floor in bits per weight;
+  - "one heavy job at a time" (the OS lock) and "the heavy tier" (the model) are two meanings of one word, so rename one in plain words;
+  - "re-plan applies between steps" must never change which model holds a tier. Only the placement may change, with undo.
+- **The NVIDIA swap and vLLM figures are not this machine.** They come from datacenter GPUs and 27-42 GB FP32 models. Use them only to explain the four states, never as costs. The source for the PR #21038 and Qwen3.6/3.8 claims is a researcher, not a check against your installed build. Keep them labelled until checked against the local `--help` and `--version`.
+- **Tests are missing:**
+  - an offline-seal test for `arch_resources.py` and the drive probe;
+  - property tests for the placement solver (never over the limit on any device; total equals the parts);
+  - a selftest that the W1 heavy start falls back to Ollama on failure;
+  - a hub-check that there are still four places;
+  - a test that pre-warm never blocks a real call;
+  - a regression test for the known escalation `role_hosts` bug.
+- **These code claims are confirmed:**
+  - KV flags are passed only when flash attention is on and `ngl > 0` (arch_server.py:489-495), so CPU tiers are sized as quantized but run f16;
+  - bandwidth constants are 192 and 50 GB/s (arch_modelmath.py:62, model_hub.py:161);
+  - `--slot-save-path` is set, but nothing saves or restores slots;
+  - the arithmetic checks out (standard error ±3.8, 4.5-5.6 s raw read of 9 GB, about 7 min over USB, 4-5 layers per GB of KV).

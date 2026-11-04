@@ -1,0 +1,63 @@
+id: refactor
+title: Refactor / migrate
+kind: plan_execute_verify
+blurb: "Pin current behaviour with characterization tests -> refactor in small steps -> tests must stay green -> before/after structure report."
+produces: ["tests/characterization/*", "refactored source files"]
+uses_roles: [generator, generator_ui, generator_sql, reviewer]
+budget: {calls: 24, tokens: 180000, seconds: 2400}
+steps:
+  - id: pick
+    kind: code
+    title: "Choose files in scope"
+    gate: scope_files
+    n: 4
+    on_fail: stop
+
+  - id: pin
+    kind: generate
+    title: "Characterization tests (must pass today)"
+    role: generator
+    tier: worker
+    prompt: characterization
+    when: "env.can_test"
+    vars: {files: "{scope}"}
+    context: {always: ["ctx:scope"], max_always: 3}
+    apply: {expect_new_under: "tests/"}
+    verify: {gate: new_tests_pass}
+    loop: {max: 3, coach: false}
+    on_fail: continue
+    budget: {tokens: 60000, seconds: 900}
+
+  - id: safety_net
+    kind: code
+    title: "A safety net exists"
+    gate: characterization_pinned
+    on_fail: stop
+
+  - id: before
+    kind: code
+    title: "Baseline metrics"
+    gate: metrics_before
+
+  - id: change
+    kind: generate
+    title: "Refactor, tests protected"
+    role: "generator*"
+    tier: worker
+    prompt: refactor
+    vars: {files: "{scope}", before: "{before.text}"}
+    context: {always: ["ctx:scope"], max_always: 3}
+    apply: {deny: ["tests/characterization/"]}
+    verify: {gate: verify_files, run_tests: true}
+    loop: {max: 3, coach: true, escalate: [heavy]}
+    on_fail: not_sure
+    budget: {tokens: 110000, seconds: 1500}
+
+  - id: after
+    kind: code
+    title: "Metrics after"
+    gate: metrics_after
+
+verdict:
+  pass_if: "change.ok"
+  not_sure_if: "safety_net.unsure"

@@ -1,0 +1,62 @@
+id: secure
+title: Secure
+kind: plan_execute_verify
+blurb: "Static security scan (secrets, injection, weak crypto, risky defaults -- local and defensive only) -> fixed by the security engineer -> proven by re-running the SAME scanner, not opinion."
+produces: ["fixed source files", "docs/security.md"]
+uses_roles: [security_engineer, blue_team]
+budget: {calls: 24, tokens: 160000, seconds: 1800, heavy_calls: 1}
+steps:
+  - id: scan
+    kind: code
+    title: "Static security scan"
+    gate: sec_scan
+    on_fail: stop
+
+  - id: fix
+    kind: generate
+    title: "Fix real findings (loop)"
+    role: security_engineer
+    tier: worker
+    prompt: fix
+    when: "scan.findings > 0"
+    vars: {findings: "{findings_text}"}
+    context: {always: ["ctx:scope"], max_always: 4}
+    verify: {gate: sec_fewer, run_tests: true}
+    loop: {max: 3, coach: true, escalate: [heavy]}
+    on_fail: continue
+    budget: {tokens: 110000, seconds: 1200}
+
+  - id: detect
+    kind: generate
+    title: "Detections for what is left"
+    role: blue_team
+    tier: worker
+    prompt: detect
+    when: "scan.findings > 0 and cfg.behavior.evaluator != 'off'"
+    vars: {findings: "{findings_text}"}
+    store_text: detections
+    budget: {tokens: 30000, seconds: 420}
+
+  - id: write
+    kind: report
+    title: "Write docs/security.md"
+    path: docs/security.md
+    label: security report
+    template: |
+      # Security
+
+      Scanned: {scan.files} file(s)
+
+      ## Findings before: {scan.findings}
+
+      {findings_text}
+
+      ## After the fixes: {fix.after}
+
+      ## Detections and mitigations for what remains
+
+      {detections}
+
+verdict:
+  pass_if: "scan.findings == 0 or fix.ok"
+  not_sure_if: "scan.unsure or fix.unsure"

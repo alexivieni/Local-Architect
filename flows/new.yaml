@@ -1,0 +1,27 @@
+id: new
+title: Start a new project
+kind: plan_execute_verify
+blurb: "From an empty folder: choose a template, write a working tested base (no model needed), then build your goal on top of it."
+produces: ["a working project from the template", "tests/", ".arch/handoff.json"]
+uses_roles: [router, planner, generator, generator_ui, generator_sql, evaluator]
+budget: {calls: 60, tokens: 320000, seconds: 3600}
+steps:
+  - id: scaffold
+    kind: code
+    title: "Choose and write the template"
+    gate: template_render
+    on_fail: stop
+
+  - id: build
+    kind: sub_flow
+    title: "Build your goal on top"
+    flow: build
+    when: "scaffold.ok and len(goal) > 24"
+    on_fail: continue
+
+  - id: save
+    kind: handoff
+    fields: {next: "run it, then give the team the next goal"}
+
+verdict:
+  pass_if: "scaffold.ok and (build.ok or build.skipped)"

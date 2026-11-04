@@ -1,0 +1,77 @@
+id: feature
+title: Full-stack feature
+kind: plan_execute_verify
+blurb: "Contract first, then data + API, then UI, then an end-to-end test: one feature across every layer, built by the full-stack role."
+produces: ["data, API and UI files", "tests/", "tests/test_e2e_*.py", ".arch/contract.json"]
+uses_roles: [planner, fullstack, tester, evaluator]
+budget: {calls: 60, tokens: 340000, seconds: 3600, heavy_calls: 3}
+context: {chars: 9000}
+overrides:
+  cpu8: {budget: {calls: 30, tokens: 100000}, skip: [e2e, judge]}
+steps:
+  - id: plan
+    kind: ask_json
+    title: "Plan layered sprints (contract first)"
+    role: planner
+    tier: worker
+    prompt: plan
+    schema: PLAN
+    store: plan_doc
+    vars: {max_sprints: "{cfg.limits.max_sprints}"}
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: sprints
+    kind: foreach
+    title: Layer
+    over: plan_doc
+    key: sprints
+    max: 6
+    stop_on_fail: true
+    fallback:
+      - name: feature
+        kind: mixed
+        goal: "{goal}"
+        acceptance: [{id: A1, text: "the feature works end to end and the tests pass"}]
+    steps:
+      - id: code
+        kind: generate
+        title: "Implement this layer"
+        role: fullstack
+        tier: worker
+        prompt: build/sprint
+        vars: {n: "{item_n}", total: "{item_total}", name: "{item.name}", sgoal: "{item_goal}", criteria: "{item_criteria}"}
+        context: {query: "{item_goal} {item_files}", always: ["docs/spec.md", "api/openapi.json", "db/schema.sql"], max_always: 3}
+        verify: {gate: verify_files, run_tests: true}
+        loop: {max: 3, coach: true, escalate: [heavy]}
+        budget: {tokens: 120000, seconds: 1800}
+
+  - id: e2e
+    kind: generate
+    title: "End-to-end test through the public interface"
+    role: tester
+    tier: worker
+    prompt: e2e
+    when: "sprints.ok and env.can_test"
+    vars: {slug: "feature"}
+    apply: {expect_new_under: "tests/", deny_ctx: existing_tests}
+    verify: {gate: e2e_pass}
+    loop: {max: 3, coach: false}
+    on_fail: continue
+    budget: {tokens: 80000, seconds: 1200}
+
+  - id: judge
+    kind: judge
+    title: "Judge against the contract"
+    tier: heavy
+    what: "the feature"
+    criteria: "every acceptance criterion in the contract, one score each\nno_stubs (no placeholder or fake behaviour)"
+    requires: "sprints.ok and cfg.behavior.evaluator != 'off'"
+    on_fail: continue
+
+  - id: save
+    kind: handoff
+    fields: {next: "the feature is in; review or extend it"}
+
+verdict:
+  pass_if: "sprints.ok"
+  not_sure_if: "judge.unsure"

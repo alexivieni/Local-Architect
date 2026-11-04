@@ -1,0 +1,15 @@
+# machine-specific data: measurements, traces, servers, downloaded binaries
+hub_data/
+bin/
+.arch/
+.arch_self/
+._guard/
+__pycache__/
+*.pyc
+x_tmp.js
+# personal settings and backups (each machine makes its own)
+architect_config.json
+architect_config.json.bak*
+portfolio.json
+*.log
+.env

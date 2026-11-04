@@ -1,0 +1,38 @@
+{
+ "name": "gpu8",
+ "label": "8 GB graphics card",
+ "plain": "The worker and its small helper both live on the card with a longer memory; the heavy model swaps in on demand.",
+ "ctx": 16384,
+ "kv": "q8_0",
+ "draft": "measure",
+ "router_cpu": true,
+ "tiers": {
+  "router": {
+   "model": "qwen2.5:1.5b",
+   "ctx": 4096,
+   "cpu": true
+  },
+  "worker": {
+   "model": "qwen2.5-coder:7b",
+   "ctx": 16384
+  },
+  "heavy": {
+   "model": "qwen2.5-coder:14b",
+   "ctx": 8192,
+   "use": "cascade_only",
+   "max_calls_per_run": 4
+  },
+  "draft": {
+   "model": "hf.co/bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF:Q8_0",
+   "enabled": "measure"
+  }
+ },
+ "budgets": {
+  "calls": 50,
+  "tokens": 160000,
+  "seconds": 1800
+ },
+ "flows_skip": [],
+ "as_of": "2026-11-02",
+ "evidence": "researched defaults; `tune` measures this machine and may step the worker's quant or context down until it is fully on the GPU"
+}

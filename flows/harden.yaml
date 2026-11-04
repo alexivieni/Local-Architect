@@ -1,0 +1,53 @@
+id: harden
+title: Harden
+kind: plan_execute_verify
+blurb: "Find error handling that hides failures (bare except, swallowed errors, no timeouts, shell=True, assert as validation) with the AST -> fix it -> the SAME scan proves fewer remain and the tests still pass."
+produces: ["hardened source files", "docs/hardening.md"]
+uses_roles: [reliability_engineer]
+budget: {calls: 22, tokens: 160000, seconds: 2000, heavy_calls: 1}
+steps:
+  - id: green
+    kind: code
+    title: "The existing tests pass before anything changes"
+    gate: tests_green_before
+    on_fail: stop
+
+  - id: find
+    kind: code
+    title: "Find them, with code (the same check runs again afterwards)"
+    gate: harden_scan
+    on_fail: stop
+
+  - id: fix
+    kind: generate
+    title: "Fix them, smallest change first (loop)"
+    role: reliability_engineer
+    tier: worker
+    prompt: fix
+    when: "find.findings > 0"
+    vars: {findings: "{findings_text}", files: "{scope}"}
+    context: {always: ["ctx:scope"], max_always: 4}
+    verify: {gate: harden_fewer, run_tests: true}
+    loop: {max: 3, coach: true, escalate: [heavy]}
+    on_fail: continue
+    budget: {tokens: 110000, seconds: 1300}
+
+  - id: write
+    kind: report
+    title: "Write docs/hardening.md"
+    path: docs/hardening.md
+    label: harden report
+    template: |
+      # Hardening
+
+      Checked: {find.files} file(s)
+
+      ## Found before: {find.findings}
+
+      {findings_text}
+
+      ## Left after the fix: {fix.after}
+
+verdict:
+  pass_if: "find.findings == 0 or fix.ok"
+  not_sure_if: "find.unsure or fix.unsure"

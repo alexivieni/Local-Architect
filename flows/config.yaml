@@ -1,0 +1,47 @@
+id: config
+title: Harden config
+kind: plan_execute_verify
+blurb: "Scans Dockerfile/CI/compose/toml for hardening findings, has the config engineer fix the real ones, and proves it by re-running the same scanner."
+produces: ["hardened config files", "docs/config.md"]
+uses_roles: [config_engineer]
+budget: {calls: 20, tokens: 120000, seconds: 1500}
+steps:
+  - id: scan
+    kind: code
+    title: "Scan the config files"
+    gate: config_scan
+    on_fail: stop
+
+  - id: fix
+    kind: generate
+    title: "Harden them (loop)"
+    role: config_engineer
+    tier: worker
+    prompt: fix
+    when: "scan.findings > 0"
+    vars: {findings: "{findings_text}"}
+    context: {always: ["ctx:scope"], max_always: 4}
+    verify: {gate: config_fewer, run_tests: false}
+    loop: {max: 3, coach: true, escalate: [heavy]}
+    on_fail: continue
+    budget: {tokens: 90000, seconds: 1200}
+
+  - id: write
+    kind: report
+    title: "Write docs/config.md"
+    path: docs/config.md
+    label: config report
+    template: |
+      # Configuration hardening
+
+      Scanned: {scan.files} file(s)
+
+      ## Findings before: {scan.findings}
+
+      {findings_text}
+
+      ## After the fixes: {fix.after}
+
+verdict:
+  pass_if: "scan.findings == 0 or fix.ok"
+  not_sure_if: "scan.unsure or fix.unsure"

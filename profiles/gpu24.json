@@ -1,0 +1,42 @@
+{
+ "name": "gpu24",
+ "label": "24 GB graphics card",
+ "plain": "Everything fits: a 14B worker at a long memory, the helper, the router; a bigger quant can be used for accuracy.",
+ "ctx": 32768,
+ "kv": "q8_0",
+ "draft": "measure",
+ "router_cpu": true,
+ "tiers": {
+  "router": {
+   "model": "qwen2.5:1.5b",
+   "ctx": 4096,
+   "cpu": false
+  },
+  "worker": {
+   "model": "qwen2.5-coder:14b",
+   "ctx": 32768,
+   "candidates": [
+    "Q6_K",
+    "Q5_K_M",
+    "Q4_K_M"
+   ]
+  },
+  "heavy": {
+   "model": "",
+   "ctx": 16384,
+   "use": "cascade_only"
+  },
+  "draft": {
+   "model": "hf.co/bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF:Q8_0",
+   "enabled": "measure"
+  }
+ },
+ "budgets": {
+  "calls": 80,
+  "tokens": 320000,
+  "seconds": 3600
+ },
+ "flows_skip": [],
+ "as_of": "2026-11-02",
+ "evidence": "researched defaults; `tune` measures this machine and may step the worker's quant or context down until it is fully on the GPU"
+}

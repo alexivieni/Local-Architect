@@ -1,0 +1,45 @@
+id: review
+title: Code review
+kind: direct
+blurb: "Static pattern scan and size/complexity metrics (facts, from code) plus a reviewer's notes, written to docs/review.md."
+produces: ["docs/review.md"]
+uses_roles: [reviewer]
+budget: {calls: 8, tokens: 60000, seconds: 900}
+steps:
+  - id: scan
+    kind: code
+    title: "Static scan + metrics"
+    gate: static_facts
+    n: 6
+    on_fail: stop
+
+  - id: notes
+    kind: generate
+    title: "Reviewer's notes"
+    role: reviewer
+    tier: worker
+    prompt: review
+    vars: {facts: "{facts}"}
+    context: {always: ["ctx:scope"], max_always: 5}
+    store_text: review_notes
+    strip_fence: true
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: write
+    kind: report
+    title: "Write docs/review.md"
+    path: docs/review.md
+    label: review
+    template: |
+      # Code review
+
+      Files: {scope}
+
+      ## Facts from tools
+
+      {facts}
+
+      {review_notes}
+
+verdict:
+  pass_if: "write.ok"

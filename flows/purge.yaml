@@ -1,0 +1,49 @@
+id: purge
+title: Remove fake code
+kind: plan_execute_verify
+blurb: "Finds stubs, assertion-free tests, always-true assertions, swallowed errors and placeholder data, has the team make each real or delete it, and proves it by scanning again with the same scanner (and by never losing a real test)."
+produces: ["fixed source files", "docs/fakecode.md"]
+uses_roles: [generator]
+budget: {calls: 20, tokens: 140000, seconds: 1800}
+steps:
+  - id: scan
+    kind: code
+    title: "Scan for fake code"
+    gate: fake_scan
+    on_fail: stop
+
+  - id: fix
+    kind: generate
+    title: "Make it real or remove it (loop)"
+    role: generator
+    tier: worker
+    prompt: fix
+    when: "scan.findings > 0"
+    vars: {findings: "{findings_text}"}
+    context: {always: ["ctx:scope"], max_always: 4}
+    verify: {gate: fake_fewer, run_tests: true}
+    loop: {max: 3, coach: true, escalate: [heavy]}
+    on_fail: continue
+    budget: {tokens: 110000, seconds: 1500}
+
+  - id: write
+    kind: report
+    title: "Write docs/fakecode.md"
+    path: docs/fakecode.md
+    label: fake-code report
+    template: |
+      # Fake code
+
+      Scanned: {scan.files} file(s)
+
+      ## Before: {scan.findings}
+
+      {findings_text}
+
+      ## After: {fix.after}
+
+      Real tests lost: {fix.lost} (a fix that deletes a real test is refused)
+
+verdict:
+  pass_if: "scan.findings == 0 or fix.ok"
+  not_sure_if: "scan.unsure or fix.unsure"

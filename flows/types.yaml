@@ -1,0 +1,53 @@
+id: types
+title: Add type hints
+kind: plan_execute_verify
+blurb: "Find public functions with unannotated parameters or return values -> annotate them precisely -> the same check proves fewer remain, the code still compiles and the tests still pass."
+produces: ["annotated source files", "docs/typing.md"]
+uses_roles: [type_engineer]
+budget: {calls: 22, tokens: 160000, seconds: 2000, heavy_calls: 1}
+steps:
+  - id: green
+    kind: code
+    title: "The existing tests pass before anything changes"
+    gate: tests_green_before
+    on_fail: stop
+
+  - id: find
+    kind: code
+    title: "Find them, with code (the same check runs again afterwards)"
+    gate: types_scan
+    on_fail: stop
+
+  - id: fix
+    kind: generate
+    title: "Fix them, smallest change first (loop)"
+    role: type_engineer
+    tier: worker
+    prompt: annotate
+    when: "find.findings > 0"
+    vars: {findings: "{findings_text}", files: "{scope}"}
+    context: {always: ["ctx:scope"], max_always: 4}
+    verify: {gate: types_fewer, run_tests: true}
+    loop: {max: 3, coach: true, escalate: [heavy]}
+    on_fail: continue
+    budget: {tokens: 110000, seconds: 1300}
+
+  - id: write
+    kind: report
+    title: "Write docs/typing.md"
+    path: docs/typing.md
+    label: types report
+    template: |
+      # Type hints
+
+      Checked: {find.files} file(s)
+
+      ## Found before: {find.findings}
+
+      {findings_text}
+
+      ## Left after the fix: {fix.after}
+
+verdict:
+  pass_if: "find.findings == 0 or fix.ok"
+  not_sure_if: "find.unsure or fix.unsure"

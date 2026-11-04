@@ -1,0 +1,47 @@
+{
+ "name": "gpu6",
+ "label": "6 GB graphics card, 16 GB memory (the reference laptop)",
+ "plain": "The worker (the model that writes code) lives on the graphics card and never leaves it. The router is a tiny model on the processor. The heavy model only steps in when the worker fails, and it swaps the worker out while it works.",
+ "ctx": 8192,
+ "kv": "q8_0",
+ "draft": "measure",
+ "router_cpu": true,
+ "tiers": {
+  "router": {
+   "model": "qwen2.5:1.5b",
+   "ctx": 4096,
+   "cpu": true,
+   "why": "tiny, answers in a second on the processor; no graphics memory used"
+  },
+  "worker": {
+   "model": "qwen2.5-coder:7b",
+   "ctx": 8192,
+   "candidates": [
+    "Q4_K_M",
+    "Q4_K_S",
+    "IQ4_XS"
+   ],
+   "why": "7B at 4-bit fits the card with an 8k memory when the desktop is not using it; tune steps down if not"
+  },
+  "heavy": {
+   "model": "qwen2.5-coder:14b",
+   "ctx": 8192,
+   "use": "cascade_only",
+   "max_calls_per_run": 3,
+   "why": "14B at 4-bit: about half on the card, half in RAM; slow but noticeably smarter"
+  },
+  "draft": {
+   "model": "hf.co/bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF:Q8_0",
+   "enabled": "measure",
+   "why": "a 0.5B helper that guesses the worker's next words; kept only if it fits with room and measures faster"
+  }
+ },
+ "budgets": {
+  "calls": 40,
+  "tokens": 120000,
+  "seconds": 1800
+ },
+ "flows_skip": [],
+ "as_of": "2026-11-02",
+ "evidence": "researched defaults; `tune` measures this machine and may step the worker's quant or context down until it is fully on the GPU"
+}

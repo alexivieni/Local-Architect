@@ -1,0 +1,69 @@
+id: build
+title: Build
+kind: plan_execute_verify
+blurb: "Goal (or a finished design) -> sprints with acceptance contracts -> generator -> code checks and tests -> strict judge."
+produces: ["source files", "tests/", ".arch/handoff.json"]
+uses_roles: [planner, generator, generator_ui, generator_sql, evaluator]
+budget: {calls: 60, tokens: 320000, seconds: 3600, heavy_calls: 3}
+context: {chars: 9000}
+overrides:
+  gpu6: {budget: {tokens: 220000}}
+  cpu8: {budget: {calls: 30, tokens: 90000, seconds: 5400}, skip: [judge]}
+  cpu16: {budget: {seconds: 5400}}
+steps:
+  - id: plan
+    kind: ask_json
+    title: "Plan sprints + contracts"
+    role: planner
+    tier: worker
+    prompt: plan
+    schema: PLAN
+    store: plan_doc
+    vars: {max_sprints: "{cfg.limits.max_sprints}"}
+    context: {chars: 9000}
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: sprints
+    kind: foreach
+    title: Sprint
+    over: plan_doc
+    key: sprints
+    max: 6
+    stop_on_fail: true
+    fallback:
+      - name: implementation
+        kind: mixed
+        goal: "{goal}"
+        acceptance: [{id: A1, text: "the goal works and the tests pass"}]
+    steps:
+      - id: code
+        kind: generate
+        title: "Implement the sprint"
+        role: "generator*"
+        tier: worker
+        prompt: sprint
+        vars: {n: "{item_n}", total: "{item_total}", name: "{item.name}", sgoal: "{item_goal}", criteria: "{item_criteria}"}
+        context: {query: "{item_goal} {item_files}", always: ["docs/spec.md", "docs/architecture.md", "api/openapi.json", "db/schema.sql"], max_always: 3}
+        verify: {gate: verify_files, run_tests: true}
+        loop: {max: 3, coach: true, escalate: [heavy]}
+        budget: {tokens: 120000, seconds: 1800}
+
+  - id: judge
+    kind: judge
+    title: "Judge against the contract"
+    tier: heavy
+    what: "whole build"
+    criteria: "every acceptance criterion in the contract, one score each:\n{plan_criteria}\nno_stubs (no placeholder or fake behaviour)"
+    requires: "sprints.ok and cfg.behavior.evaluator != 'off'"
+    evidence: {tests: true}
+    on_fail: continue
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: save
+    kind: handoff
+    title: "Save progress for the next session"
+    fields: {next: "continue with the next piece of work"}
+
+verdict:
+  pass_if: "sprints.ok"
+  not_sure_if: "judge.unsure"

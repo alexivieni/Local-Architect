@@ -1,0 +1,60 @@
+id: optimize
+title: Optimize
+kind: plan_execute_verify
+blurb: "Benchmark first, change one thing, benchmark again. A change is kept only if the tests stay green and it is measurably faster; otherwise it is rolled back."
+produces: ["bench/bench_*.py", "optimized source files", "before/after numbers in the report"]
+uses_roles: [optimizer, generator_sql]
+budget: {calls: 24, tokens: 180000, seconds: 2400}
+steps:
+  - id: tests_ok
+    kind: code
+    title: "Tests green before any change"
+    gate: tests_green_before
+    on_fail: stop
+
+  - id: pick
+    kind: code
+    title: "Choose files"
+    gate: scope_files
+    n: 3
+    on_fail: stop
+
+  - id: measure
+    kind: code
+    title: "Baseline benchmark"
+    gate: bench_baseline
+    on_fail: continue
+
+  - id: write_bench
+    kind: generate
+    title: "Write the benchmark"
+    role: optimizer
+    tier: worker
+    prompt: bench
+    when: "not measure.ok"
+    vars: {target: "{bench_target}", files: "{scope}"}
+    context: {always: ["ctx:scope"], max_always: 3}
+    apply: {expect_new_under: "bench/"}
+    verify: {gate: bench_baseline}
+    loop: {max: 2, coach: false}
+    on_fail: stop
+    budget: {tokens: 50000, seconds: 600}
+
+  - id: change
+    kind: generate
+    title: "One change, kept only if measurably faster"
+    role: optimizer
+    tier: worker
+    prompt: change
+    vars: {detail: "{bench_detail}"}
+    context: {always: ["ctx:scope"], max_always: 4}
+    apply: {deny: ["tests/", "bench/"]}
+    verify: {gate: bench_faster}
+    loop: {max: 3, coach: true}
+    rollback_on_fail: true
+    on_fail: continue
+    budget: {tokens: 110000, seconds: 1200}
+
+verdict:
+  pass_if: "change.ok"
+  not_sure_if: "tests_ok.unsure or change.unsure"

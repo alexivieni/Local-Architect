@@ -1,0 +1,53 @@
+id: ml
+title: ML pipeline
+kind: plan_execute_verify
+blurb: "Builds or fixes an ML pipeline with the ML engineer role (leakage, reproducibility), then proves determinism by running the same test suite twice and comparing."
+produces: ["pipeline source files", "tests/"]
+uses_roles: [ml_engineer, planner, evaluator]
+budget: {calls: 50, tokens: 300000, seconds: 3600}
+steps:
+  - id: plan
+    kind: ask_json
+    title: "Plan the pipeline as sprints"
+    role: planner
+    tier: worker
+    prompt: build/plan
+    schema: PLAN
+    store: plan_doc
+    vars: {max_sprints: "{cfg.limits.max_sprints}"}
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: sprints
+    kind: foreach
+    title: Sprint
+    over: plan_doc
+    key: sprints
+    max: 5
+    stop_on_fail: true
+    fallback:
+      - name: pipeline
+        kind: backend
+        goal: "{goal}"
+        acceptance: [{id: A1, text: "the pipeline runs and its tests pass"}, {id: A2, text: "no data leakage between train and test"}]
+    steps:
+      - id: code
+        kind: generate
+        title: "Implement the sprint"
+        role: ml_engineer
+        tier: worker
+        prompt: build/sprint
+        vars: {n: "{item_n}", total: "{item_total}", name: "{item.name}", sgoal: "{item_goal}", criteria: "{item_criteria}"}
+        verify: {gate: verify_files, run_tests: true}
+        loop: {max: 3, coach: true, escalate: [heavy]}
+        budget: {tokens: 120000, seconds: 1800}
+
+  - id: deterministic
+    kind: code
+    title: "The same suite twice, compared"
+    gate: determinism
+    when: "sprints.ok"
+    on_fail: not_sure
+
+verdict:
+  pass_if: "sprints.ok and deterministic.ok"
+  not_sure_if: "deterministic.unsure"

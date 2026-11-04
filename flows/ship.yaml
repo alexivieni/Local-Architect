@@ -1,0 +1,66 @@
+id: ship
+title: Ship (end to end)
+kind: plan_execute_verify
+blurb: "One goal, end to end: build, then tests, bug hunt, security and review on what was built -- every stage an existing flow with its own code gates and its own budget."
+produces: ["source files", "tests/", "docs/bugs.md", "docs/security.md", "docs/review.md", "docs/ship.md"]
+uses_roles: [planner, generator, tester, bug_hunter, security_engineer, reviewer, evaluator]
+budget: {calls: 200, tokens: 1200000, seconds: 14400, heavy_calls: 6}
+overrides:
+  gpu6: {budget: {tokens: 800000}}
+  cpu8: {budget: {calls: 60, tokens: 200000}, skip: [hunt, secure]}
+  cpu16: {skip: [hunt]}
+steps:
+  - id: build
+    kind: sub_flow
+    title: "Build the goal"
+    flow: build
+    on_fail: stop
+
+  - id: test
+    kind: sub_flow
+    title: "Mutation-measured tests for the new code"
+    flow: test
+    when: "build.ok"
+    on_fail: continue
+
+  - id: hunt
+    kind: sub_flow
+    title: "Adversarial read; each suspicion becomes a test"
+    flow: hunt
+    params: {autofix: true}
+    when: "build.ok"
+    on_fail: continue
+
+  - id: secure
+    kind: sub_flow
+    title: "Static security scan, fixes re-scanned"
+    flow: secure
+    when: "build.ok"
+    on_fail: continue
+
+  - id: review
+    kind: sub_flow
+    title: "Facts from tools + reviewer's notes"
+    flow: review
+    when: "build.ok"
+    on_fail: continue
+
+  - id: write
+    kind: report
+    title: "Write docs/ship.md"
+    path: docs/ship.md
+    label: ship summary
+    template: |
+      # Shipped: {goal}
+
+      - **build**: {build.ok}
+      - **test**: {test.ok}
+      - **hunt**: {hunt.ok}
+      - **secure**: {secure.ok}
+      - **review**: {review.ok}
+
+      Files touched: {files}
+
+verdict:
+  pass_if: "build.ok"
+  not_sure_if: "test.unsure or secure.unsure"

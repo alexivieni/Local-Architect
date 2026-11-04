@@ -1,0 +1,44 @@
+id: deps
+title: Dependencies
+kind: direct
+blurb: "Check every import the code uses against what is installed (code, not opinion) -> a dependency engineer reviews what is declared, unused, unpinned or risky -> docs/dependencies.md. Changes nothing."
+produces: ["docs/dependencies.md"]
+uses_roles: [dependency_engineer]
+budget: {calls: 4, tokens: 40000, seconds: 600}
+steps:
+  - id: check
+    kind: code
+    title: "Every import the code uses is installed"
+    gate: deps_check
+    on_fail: continue
+
+  - id: review
+    kind: generate
+    title: "Review what is declared and what is used"
+    role: dependency_engineer
+    tier: worker
+    prompt: review
+    vars: {facts: "{findings_text}"}
+    context: {query: "requirements pyproject setup import dependencies"}
+    store_text: review_text
+    budget: {tokens: 30000, seconds: 420}
+
+  - id: write
+    kind: report
+    title: "Write docs/dependencies.md"
+    path: docs/dependencies.md
+    label: dependency report
+    template: |
+      # Dependencies
+
+      ## What the code imports and is not installed
+
+      {findings_text}
+
+      ## Review
+
+      {review_text}
+
+verdict:
+  pass_if: "check.ok"
+  not_sure_if: "check.unsure"

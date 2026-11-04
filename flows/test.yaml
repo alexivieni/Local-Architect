@@ -1,0 +1,45 @@
+id: test
+title: Strengthen the tests
+kind: plan_execute_verify
+blurb: "Mutate the code in small ways; every mutation the tests miss is a gap. Write tests for the gaps; measure again. Code, not opinion, says whether the tests got better."
+produces: ["tests/test_<name>_extra.py", "tests/test_<name>_gaps.py", "mutation before/after in the report"]
+uses_roles: [tester]
+budget: {calls: 24, tokens: 180000, seconds: 2400}
+overrides:
+  cpu8: {budget: {calls: 12, tokens: 70000}, skip: [mutate_after]}
+steps:
+  - id: tests_ok
+    kind: code
+    title: "Tests green?"
+    gate: tests_green_before
+    on_fail: stop
+
+  - id: mutate_before
+    kind: code
+    title: "Mutation score before"
+    gate: mutation_before
+    on_fail: continue
+
+  - id: write
+    kind: generate
+    title: "Write new tests"
+    role: tester
+    tier: worker
+    prompt: write
+    vars: {target: "{test_target}", files: "{scope}", survivors: "{survivors}"}
+    context: {always: ["ctx:scope"], max_always: 3}
+    apply: {expect_new_under: "tests/", deny_ctx: existing_tests}
+    verify: {gate: new_tests_pass}
+    loop: {max: 3, coach: true}
+    on_fail: not_sure
+    budget: {tokens: 110000, seconds: 1200}
+
+  - id: mutate_after
+    kind: code
+    title: "Mutation score after"
+    gate: mutation_after
+    on_fail: continue
+
+verdict:
+  pass_if: "write.ok"
+  not_sure_if: "mutate_before.unsure or tests_ok.unsure"

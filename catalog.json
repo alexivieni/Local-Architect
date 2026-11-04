@@ -1,0 +1,379 @@
+{
+ "as_of": "2026-11-01",
+ "about": "Editorial starting list, NOT a benchmark. `rank` is a within-catalog ordering from vendor model cards and 2026 community guides; sizes are default-quant (about Q4) downloads. Entries with verified=false have tags/sizes taken from blog posts: verify them (architect.py catalog --verify) before relying on them. The Scoreboard on YOUR machine overrides this list.",
+ "sources": [
+  "https://www.promptquorum.com/local-llms/best-local-llms-for-coding",
+  "https://localaimaster.com/vram/best-coding-llm-16gb-vram",
+  "https://llmconfigurator.com/en/guides/coding-agents/best-local-coding-models",
+  "https://www.betterclaw.io/blog/ollama-context-window-truncates-agent-config"
+ ],
+ "models": [
+  {
+   "tag": "qwen2.5-coder:7b",
+   "name": "Qwen2.5-Coder 7B",
+   "kind": "coder",
+   "slots": [
+    "builder"
+   ],
+   "params_b": 7.6,
+   "active_b": null,
+   "size_gb": 4.7,
+   "ctx_max": 32768,
+   "arch": {
+    "layers": 28,
+    "kv_heads": 4,
+    "head_dim": 128,
+    "experts": null,
+    "experts_used": null
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 55,
+   "verified": true,
+   "note": "Dense code model; solid small builder, weak at multi-step reasoning."
+  },
+  {
+   "tag": "qwen2.5-coder:14b",
+   "name": "Qwen2.5-Coder 14B",
+   "kind": "coder",
+   "slots": [
+    "builder"
+   ],
+   "params_b": 14.8,
+   "active_b": null,
+   "size_gb": 9.0,
+   "ctx_max": 32768,
+   "arch": {
+    "layers": 48,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "experts": null,
+    "experts_used": null
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 66,
+   "verified": true,
+   "note": "Leaves room for context on a 16 GB card; no thinking mode."
+  },
+  {
+   "tag": "qwen2.5-coder:32b",
+   "name": "Qwen2.5-Coder 32B",
+   "kind": "coder",
+   "slots": [
+    "builder"
+   ],
+   "params_b": 32.8,
+   "active_b": null,
+   "size_gb": 20.0,
+   "ctx_max": 32768,
+   "arch": {
+    "layers": 64,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "experts": null,
+    "experts_used": null
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 76,
+   "verified": true,
+   "note": "Strong dense coder; needs about 24 GB for a useful context."
+  },
+  {
+   "tag": "qwen3:4b",
+   "name": "Qwen3 4B",
+   "kind": "general",
+   "slots": [
+    "fast",
+    "planner"
+   ],
+   "params_b": 4.0,
+   "active_b": null,
+   "size_gb": 2.5,
+   "ctx_max": 40960,
+   "arch": {
+    "layers": 36,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "experts": null,
+    "experts_used": null
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 36,
+   "verified": true,
+   "note": "Hybrid thinking model; a good router/helper at this size."
+  },
+  {
+   "tag": "qwen3:8b",
+   "name": "Qwen3 8B",
+   "kind": "general",
+   "slots": [
+    "fast",
+    "planner",
+    "builder"
+   ],
+   "params_b": 8.2,
+   "active_b": null,
+   "size_gb": 5.2,
+   "ctx_max": 40960,
+   "arch": {
+    "layers": 36,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "experts": null,
+    "experts_used": null
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 52,
+   "verified": true,
+   "note": "Hybrid thinking; the usual 8 GB-class all-rounder."
+  },
+  {
+   "tag": "qwen3:14b",
+   "name": "Qwen3 14B",
+   "kind": "general",
+   "slots": [
+    "planner",
+    "builder"
+   ],
+   "params_b": 14.8,
+   "active_b": null,
+   "size_gb": 9.3,
+   "ctx_max": 40960,
+   "arch": {
+    "layers": 40,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "experts": null,
+    "experts_used": null
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 64,
+   "verified": true,
+   "note": "Good planner on 12-16 GB."
+  },
+  {
+   "tag": "qwen3:32b",
+   "name": "Qwen3 32B",
+   "kind": "general",
+   "slots": [
+    "planner",
+    "builder"
+   ],
+   "params_b": 32.8,
+   "active_b": null,
+   "size_gb": 20.0,
+   "ctx_max": 40960,
+   "arch": {
+    "layers": 64,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "experts": null,
+    "experts_used": null
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 75,
+   "verified": true,
+   "note": "Strong planner; needs about 24 GB."
+  },
+  {
+   "tag": "qwen3-coder:30b",
+   "name": "Qwen3-Coder 30B-A3B",
+   "kind": "coder",
+   "slots": [
+    "builder"
+   ],
+   "params_b": 30.5,
+   "active_b": 3.3,
+   "size_gb": 19.0,
+   "ctx_max": 262144,
+   "arch": {
+    "layers": 48,
+    "kv_heads": 4,
+    "head_dim": 128,
+    "experts": 128,
+    "experts_used": 8
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 80,
+   "verified": true,
+   "note": "Mixture-of-experts: fast for its size, but all 19 GB must be resident. Trained for agentic coding."
+  },
+  {
+   "tag": "devstral:24b",
+   "name": "Devstral Small 24B",
+   "kind": "coder",
+   "slots": [
+    "builder"
+   ],
+   "params_b": 24.0,
+   "active_b": null,
+   "size_gb": 14.0,
+   "ctx_max": 131072,
+   "arch": {
+    "layers": 40,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "experts": null,
+    "experts_used": null
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 78,
+   "verified": true,
+   "note": "Built for software-engineering agents (read, edit, test). Tight on 16 GB: keep the context modest."
+  },
+  {
+   "tag": "gpt-oss:20b",
+   "name": "gpt-oss 20B",
+   "kind": "reasoning",
+   "slots": [
+    "planner",
+    "builder"
+   ],
+   "params_b": 21.0,
+   "active_b": 3.6,
+   "size_gb": 13.0,
+   "ctx_max": 131072,
+   "arch": {
+    "layers": 24,
+    "kv_heads": 8,
+    "head_dim": 64,
+    "experts": 32,
+    "experts_used": 4
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 72,
+   "verified": true,
+   "note": "Mixture-of-experts with adjustable reasoning effort; fast for its size."
+  },
+  {
+   "tag": "gpt-oss:120b",
+   "name": "gpt-oss 120B",
+   "kind": "reasoning",
+   "slots": [
+    "planner",
+    "builder"
+   ],
+   "params_b": 117.0,
+   "active_b": 5.1,
+   "size_gb": 65.0,
+   "ctx_max": 131072,
+   "arch": {
+    "layers": 36,
+    "kv_heads": 8,
+    "head_dim": 64,
+    "experts": 128,
+    "experts_used": 4
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 88,
+   "verified": true,
+   "note": "Needs a 64 GB-class machine."
+  },
+  {
+   "tag": "llama3.2:3b",
+   "name": "Llama 3.2 3B",
+   "kind": "general",
+   "slots": [
+    "fast"
+   ],
+   "params_b": 3.2,
+   "active_b": null,
+   "size_gb": 2.0,
+   "ctx_max": 131072,
+   "arch": {
+    "layers": 28,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "experts": null,
+    "experts_used": null
+   },
+   "license": "Llama community license",
+   "restricted": true,
+   "rank": 30,
+   "verified": true,
+   "note": "Very small helper/router; not a builder."
+  },
+  {
+   "tag": "deepseek-coder-v2:16b",
+   "name": "DeepSeek-Coder-V2 Lite 16B",
+   "kind": "coder",
+   "slots": [
+    "builder"
+   ],
+   "params_b": 15.7,
+   "active_b": 2.4,
+   "size_gb": 8.9,
+   "ctx_max": 163840,
+   "arch": {
+    "layers": 27,
+    "kv_heads": 16,
+    "head_dim": 128,
+    "experts": 64,
+    "experts_used": 6
+   },
+   "license": "DeepSeek license",
+   "restricted": true,
+   "rank": 58,
+   "verified": true,
+   "note": "MoE; light on compute, older than the Qwen3 family."
+  },
+  {
+   "tag": "devstral-small-2:24b",
+   "name": "Devstral Small 2 24B",
+   "kind": "coder",
+   "slots": [
+    "builder"
+   ],
+   "params_b": 24.0,
+   "active_b": null,
+   "size_gb": 15.0,
+   "ctx_max": 262144,
+   "arch": {
+    "layers": 40,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "experts": null,
+    "experts_used": null
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 82,
+   "verified": false,
+   "note": "Reported by several 2026 guides as the strongest agentic coder that fits 16-24 GB. Tag and size are NOT verified here: run `architect.py catalog --verify`. Needs a recent Ollama."
+  },
+  {
+   "tag": "qwen3-coder-next",
+   "name": "Qwen3-Coder-Next 80B-A3B",
+   "kind": "coder",
+   "slots": [
+    "builder"
+   ],
+   "params_b": 80.0,
+   "active_b": 3.0,
+   "size_gb": 52.0,
+   "ctx_max": 262144,
+   "arch": {
+    "layers": 48,
+    "kv_heads": 2,
+    "head_dim": 256,
+    "experts": 512,
+    "experts_used": 10
+   },
+   "license": "Apache-2.0",
+   "restricted": false,
+   "rank": 90,
+   "verified": false,
+   "note": "Reported as a 64 GB-class agentic coder with a cheap long-context cache. Tag and size NOT verified here: run `architect.py catalog --verify`."
+  }
+ ]
+}

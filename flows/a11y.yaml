@@ -1,0 +1,47 @@
+id: a11y
+title: Accessibility
+kind: plan_execute_verify
+blurb: "Check pages for what blocks keyboard and screen-reader users (missing alt text, unlabelled fields, unnamed buttons, clickable divs, no language, skipped headings) -> fix them -> the same checker proves fewer remain."
+produces: ["fixed pages", "docs/accessibility.md"]
+uses_roles: [accessibility_engineer]
+budget: {calls: 22, tokens: 160000, seconds: 2000, heavy_calls: 1}
+steps:
+  - id: find
+    kind: code
+    title: "Find them, with code (the same check runs again afterwards)"
+    gate: a11y_scan
+    on_fail: stop
+
+  - id: fix
+    kind: generate
+    title: "Fix them, smallest change first (loop)"
+    role: accessibility_engineer
+    tier: worker
+    prompt: fix
+    when: "find.findings > 0"
+    vars: {findings: "{findings_text}", files: "{scope}"}
+    context: {always: ["ctx:scope"], max_always: 4}
+    verify: {gate: a11y_fewer, run_tests: false}
+    loop: {max: 3, coach: true, escalate: [heavy]}
+    on_fail: continue
+    budget: {tokens: 110000, seconds: 1300}
+
+  - id: write
+    kind: report
+    title: "Write docs/accessibility.md"
+    path: docs/accessibility.md
+    label: a11y report
+    template: |
+      # Accessibility
+
+      Checked: {find.files} file(s)
+
+      ## Found before: {find.findings}
+
+      {findings_text}
+
+      ## Left after the fix: {fix.after}
+
+verdict:
+  pass_if: "find.findings == 0 or fix.ok"
+  not_sure_if: "find.unsure or fix.unsure"

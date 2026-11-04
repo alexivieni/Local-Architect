@@ -1,0 +1,53 @@
+id: design
+title: Design
+kind: plan_execute_verify
+blurb: "Request -> spec -> architecture, decision records, API contract and data model, verified by structure checks and a strict judge."
+produces: ["docs/spec.md", "docs/architecture.md", "docs/adr/*.md", "api/openapi.json", "db/schema.sql", "docs/ui.md", ".arch/handoff.json"]
+uses_roles: [planner, architect, evaluator]
+budget: {calls: 20, tokens: 200000, seconds: 2400, heavy_calls: 2}
+context: {chars: 8000}
+steps:
+  - id: domain_setup
+    kind: code
+    title: "Domains and contract files"
+    gate: domain_files
+
+  - id: write_spec
+    kind: generate
+    title: "Write the spec"
+    role: planner
+    tier: worker
+    prompt: spec
+    context: {chars: 8000}
+    apply: null
+    store_text: spec
+    strip_fence: true
+    verify: {gate: spec_write}
+    loop: {max: 1, coach: false}
+    on_fail: continue
+    budget: {tokens: 50000, seconds: 900}
+
+  - id: bundle
+    kind: doc
+    title: "Architecture, ADRs, contracts"
+    role: architect
+    tier: worker
+    prompt: bundle
+    vars: {domain_files: "{domain_files}", spec: "{spec}"}
+    context: {chars: 8000}
+    verify: {gate: design_structure}
+    loop: {max: 3}
+    judge:
+      what: "software design"
+      criteria: "traceability (every requirement R# is addressed by a named component or decision)\nsimplicity (no moving part without a stated reason)\nfailure_modes (realistic failures, detection and behaviour are described)\ntestability (how each component will be tested is clear)\ndecisions (alternatives are real and trade-offs are honest)"
+      tier: heavy
+    on_fail: continue
+    budget: {tokens: 140000, seconds: 1800}
+
+  - id: save
+    kind: handoff
+    fields: {spec: "docs/spec.md", next: "build"}
+
+verdict:
+  pass_if: "bundle.ok"
+  not_sure_if: "bundle.unsure"

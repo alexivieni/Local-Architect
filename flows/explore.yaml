@@ -1,0 +1,37 @@
+id: explore
+title: Explore and answer
+kind: tool_loop
+blurb: "Answers a question about the project by looking: listing, searching, reading and running the tests, one step at a time, then saying what it found and what it is unsure about. It changes nothing."
+domains: [api, data, web]
+produces: ["an answer, and a line in the project's memory"]
+uses_roles: [architect]
+budget: {calls: 14, tokens: 120000, seconds: 900}
+overrides:
+  cpu8: {budget: {calls: 8, tokens: 50000}}
+steps:
+  - id: look
+    kind: tool_loop
+    title: "Look around and answer"
+    role: architect
+    tier: worker
+    prompt: explore
+    tools: [ls, grep, search, read, outline, run_tests, memory_read]
+    allow_writes: false
+    max_steps: 8
+    store_text: answer
+    budget: {tokens: 100000, seconds: 780}
+
+  - id: remember
+    kind: tool_loop
+    title: "Remember one thing worth keeping"
+    role: architect
+    tier: worker
+    prompt: remember
+    tools: [memory_append]
+    max_steps: 2
+    when: "look.ok"
+    on_fail: continue
+    budget: {tokens: 20000, seconds: 180}
+
+verdict:
+  pass_if: "look.ok"
