@@ -865,7 +865,18 @@ class AHandler(mh.Handler):
             text = str(b.get("message") or "").strip()[:4000]
             if not text:
                 raise ValueError("Type a message first.")
-            if not arch_chat.ask(root, text, use="claude" if b.get("use") == "claude" else None):
+            use = str(b.get("use") or "")[:120]
+            if use.startswith("local:"):                        # only a model this machine has (a tier or an installed tag)
+                cfg_now = core.load_config()
+                known = set((cfg_now.get("tiers") or {}).values()) | set(core.Engine(root, "chat", "", review="dry", say=lambda m: None, persist=False).installed())
+                if use[6:] not in known:
+                    raise ValueError("that model is not on this machine")
+            elif use.startswith("claude:"):
+                if not re.fullmatch(r"claude:claude-[a-z0-9.-]{3,40}", use):
+                    raise ValueError("that is not a Claude model name")
+            elif use not in ("", "local", "claude"):
+                raise ValueError("unknown model choice")
+            if not arch_chat.ask(root, text, use=None if use in ("", "local") else use):
                 raise ValueError("Still answering the last message.")
             return {"ok": True}
         if path == "/api/arch/backlog":

@@ -88,8 +88,11 @@ def _reply(root, text, role, use=None):
         e = core.Engine(root, "chat", text, review="dry", say=lambda m: None, persist=False)
         think = None
         import arch_cloud
-        if use == "claude":                                               # the person picked Claude for this message
-            e.cfg["roles"][role] = arch_cloud.chosen_model(e.cfg)
+        if use and use.startswith("claude"):                              # the person picked Claude for this message
+            e.cfg["roles"][role] = use if use.startswith("claude:") else arch_cloud.chosen_model(e.cfg)
+        elif use and use.startswith("local:"):                            # the person picked one of their own models
+            e.cfg["roles"][role] = use[6:]
+            think = False
         elif arch_cloud.mode(e.cfg) in ("chat", "all"):                       # Settings > Online > Use Claude = chat/all
             e.cfg["roles"][role] = arch_cloud.cloud_model(e.cfg)
         elif (e.cfg.get("behavior") or {}).get("chat_model", "worker") == "worker":
@@ -104,7 +107,7 @@ def _reply(root, text, role, use=None):
         hints = code_hints(e, text) if core.list_files(e.root, e.cfg) else ""
         user = (f"PROJECT CONTEXT:\n{ctx}\n\n" + (f"{hints}\n\n" if hints else "") + (f"EARLIER IN THIS CONVERSATION:\n{hist}\n\n" if hist else "") + f"PERSON: {text}")
         t0, before = time.time(), arch_cloud.spent()["usd"]
-        if use == "claude":
+        if use and use.startswith("claude"):
             def _sink(piece):
                 with _LOCK:
                     t["partial"] = (t.get("partial") or "") + piece
