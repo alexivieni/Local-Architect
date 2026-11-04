@@ -608,6 +608,8 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 
 .mpick{align-self:center;max-width:230px;font:inherit;font-size:12.5px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
 .mpick.cl{border-color:#d97757;color:#d97757;background:rgba(217,119,87,.10)}
+
+.knobs{display:inline-flex;gap:6px;align-self:center;flex-wrap:wrap}.mpick.knob{max-width:150px;font-size:12px;padding:5px 9px}
 </style>
 </head>
 <body>
@@ -786,7 +788,7 @@ function consolePage(){
     }});
   const thread=h("div",{class:"thread"},msgs,
     h("div",{class:"composer"},ta,
-      modelPicker(),
+      modelPicker(),chatKnobs(),
       h("div",{class:"usepick",style:"display:none",role:"radiogroup","aria-label":"Who answers"},...[["local","Local"],["claude","Claude"]].map(([v,l])=>h("button",{class:"usebtn"+(store.get("chatUse","local")===v?" on":""),role:"radio","aria-checked":String(store.get("chatUse","local")===v),
         title:v==="claude"?(S.cloud&&S.cloud.chat_ready?"Answered by "+S.cloud.model+" (costs money; your question and the project context leave this machine)":"Not ready: "+((S.cloud&&S.cloud.chat_why)||"turn on online features")):"Answered by your own models, on this machine",
         onclick:e=>{store.set("chatUse",v);[...e.target.parentNode.children].forEach(b=>{b.classList.toggle("on",b===e.target);b.setAttribute("aria-checked",String(b===e.target));});
@@ -1105,7 +1107,7 @@ async function cSend(){
   i.value=""; i.style.height="";
   const use=store.get("chatUse","local");
   if(use.startsWith("claude")&&S.cloud&&!S.cloud.chat_ready){ toast.err("Claude is not ready: "+S.cloud.chat_why,7000); i.value=txt; return; }
-  try{ await api("/api/arch/chat",{root:run.root||"",message:txt,use}); renderThread._k=null; pollConsole(); }
+  try{ await api("/api/arch/chat",{root:run.root||"",message:txt,use,effort:store.get("chatEffort","high"),ctx:store.get("chatCtx","normal")}); renderThread._k=null; pollConsole(); }
   catch(e){ toast.err(e.message,6000); i.value=txt; }
 }
 async function cNew(){
@@ -1212,7 +1214,7 @@ function pickerOptions(){
   if(t.worker)loc.push(["local:"+t.worker,"Worker: "+short(t.worker)+" (fast)"]);
   if(t.heavy&&t.heavy!==t.worker)loc.push(["local:"+t.heavy,"Heavy: "+short(t.heavy)+" (smarter, slower)"]);
   if(t.router)loc.push(["local:"+t.router,"Tiny: "+short(t.router)+" (instant, simple)"]);
-  const cl=[["claude:claude-opus-5-5","Claude Opus 5.5 (best)"],["claude:claude-sonnet-5-5","Claude Sonnet 5.5 (half the price)"],["claude:claude-haiku-5-5","Claude Haiku 5.5 (cheapest, quick)"]];
+  const cl=[["claude:claude-fable-5-1","Claude Fable 5.1 (most capable, priciest)"],["claude:claude-opus-5-5","Claude Opus 5.5 (best value)"],["claude:claude-sonnet-5-5","Claude Sonnet 5.5 (half the price)"],["claude:claude-haiku-5-5","Claude Haiku 5.5 (cheapest, quick)"]];
   return {loc,cl};
 }
 function modelPicker(){
@@ -1224,9 +1226,20 @@ function modelPicker(){
       ...cl.map(([v,l])=>h("option",{value:v,selected:cur===v||(cur==="claude"&&v==="claude:claude-opus-5-5"),disabled:!ready},l))));
   return sel;
 }
+function chatKnobs(){
+  const cl=store.get("chatUse","local").startsWith("claude");
+  const eff=h("select",{class:"mpick knob",id:"kEff","aria-label":"Effort",title:"How hard Claude thinks. Higher = better on hard problems, slower and pricier. Typing 'ultrathink' in a message uses max for that message.",
+      style:cl?"":"display:none",onchange:e=>store.set("chatEffort",e.target.value)},
+    ...[["low","Effort: low"],["medium","Effort: medium"],["high","Effort: high"],["xhigh","Effort: x-high"],["max","Effort: max"]].map(([v,l])=>h("option",{value:v,selected:store.get("chatEffort","high")===v},l)));
+  const ctx=h("select",{class:"mpick knob",id:"kCtx","aria-label":"Context",title:"How much of the project goes with your message. Local models are capped at their own window; Claude can take the large sizes.",
+      onchange:e=>store.set("chatCtx",e.target.value)},
+    ...[["small","Context: small"],["normal","Context: normal"],["large","Context: large"],["max","Context: whole project"]].map(([v,l])=>h("option",{value:v,selected:store.get("chatCtx","normal")===v},l)));
+  return h("span",{class:"knobs"},eff,ctx);
+}
 function setChatUse(v){
   store.set("chatUse",v); store.set(v.startsWith("claude")?"lastClaude":"lastLocal",v);
   const s=document.querySelector(".mpick"); if(s){s.value=v;s.classList.toggle("cl",v.startsWith("claude"));}
+  const ke=$("#kEff"); if(ke)ke.style.display=v.startsWith("claude")?"":"none";
   const ta=$("#cIn"); if(ta)ta.placeholder=v.startsWith("claude")?"Ask Claude about this project (uses your API key)":"Say what you want done, or / for a saved command.";
 }
 document.addEventListener("keydown",e=>{
@@ -1507,7 +1520,7 @@ async function studioSend(doIt){
     catch(e){toast.err(e.message,7000);}
     return;
   }
-  try{await api("/api/arch/chat",{root:run.root,message:text,use:store.get("chatUse","local")});studioSeq=-1;pollStudio();}catch(e){toast.err(e.message,7000);}
+  try{await api("/api/arch/chat",{root:run.root,message:text,use:store.get("chatUse","local"),effort:store.get("chatEffort","high"),ctx:store.get("chatCtx","normal")});studioSeq=-1;pollStudio();}catch(e){toast.err(e.message,7000);}
 }
 function appendJobCard(goal){
   const t=$("#stThread");if(!t)return;

@@ -30,13 +30,25 @@ _HERE = _th.local()          # set while ONE chat reply the person explicitly se
 class asked_for:
     """`with arch_cloud.asked_for():` -- the person chose Claude for this message, so the Use Claude mode is not needed (online
     features must still be on). Thread-local: it never leaks into a run or another chat."""
-    def __init__(self, sink=None):
+    def __init__(self, sink=None, effort=None):
         self.sink = sink                     # gets each piece of text as it streams (the chat shows Claude typing)
+        self.effort = effort if effort in EFFORTS else None
     def __enter__(self):
-        _HERE.on, _HERE.sink = True, self.sink
+        _HERE.on, _HERE.sink, _HERE.effort = True, self.sink, self.effort
     def __exit__(self, *a):
-        _HERE.on, _HERE.sink = False, None
+        _HERE.on, _HERE.sink, _HERE.effort = False, None, None
         return False
+
+
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
+def effort_for(text, chosen=None):
+    """'ultrathink' (or 'think harder') anywhere in the message = max effort; else what the person picked; else high."""
+    import re as _re
+    if _re.search(r"\bultra-?think\b|\bthink (?:harder|really hard)\b", str(text or ""), _re.I):
+        return "max"
+    return chosen if chosen in EFFORTS else "high"
 
 
 def is_cloud(model):
@@ -137,12 +149,13 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
     while msgs and msgs[-1]["role"] == "assistant":                  # no prefill on current models
         msgs.pop()
     want = int((options or {}).get("num_predict") or 16000)
-    kw = dict(model=api_model(model), max_tokens=max(1024, min(want * 2, 64000)), messages=msgs,
-              output_config={"effort": "high"})
+    eff = getattr(_HERE, "effort", None) or "high"
+    kw = dict(model=api_model(model), max_tokens=max(1024, min(want * 2, 64000)) if eff not in ("xhigh", "max") else 64000, messages=msgs,
+              output_config={"effort": eff})
     if system:
         kw["system"] = system
     if isinstance(fmt, dict):                                        # a JSON schema: structured output
-        kw["output_config"] = {"effort": "high", "format": {"type": "json_schema", "schema": fmt}}
+        kw["output_config"] = {"effort": eff, "format": {"type": "json_schema", "schema": fmt}}
     elif fmt == "json":
         kw["system"] = (system + "\n\n" if system else "") + "Answer with JSON only."
     t0 = time.time()
@@ -152,7 +165,7 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
             stream_cm = client.messages.stream(**kw)
         except Exception as e:                                       # a schema the API will not take: ask again without it
             if "format" in kw.get("output_config", {}) and ("400" in str(e) or "invalid_request" in str(e)):
-                kw["output_config"] = {"effort": "high"}
+                kw["output_config"] = {"effort": eff}
                 stream_cm = client.messages.stream(**kw)
             else:
                 raise

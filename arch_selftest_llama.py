@@ -859,6 +859,14 @@ def run():
         check("chat Local/Claude switch: a message the person sent to Claude works with Use Claude off (online features on), streams to the chat, "
               "and only for that message; with online features off it is still refused",
               blocked and r2["transport"] == "claude" and "".join(got) == r2["text"] and not leak)
+        fe = _FakeClient()
+        with arch_cloud.asked_for(None, arch_cloud.effort_for("please ultrathink this", "low")):
+            r3 = arch_cloud.chat("claude:claude-fable-5-1", [{"role": "user", "content": "x"}], cfg=offmode, client=fe)
+        arch_cloud._SPENT.update(usd=0.0, calls=0)
+        check("chat effort: 'ultrathink' in a message means max effort (beats the picked level), it reaches the request with room to answer, "
+              "and Fable 5.1 is priced at its own rate",
+              fe.sent[0]["output_config"]["effort"] == "max" and fe.sent[0]["max_tokens"] == 64000 and fe.sent[0]["model"] == "claude-fable-5-1"
+              and abs(r3["usd"] - (1000 * 10 + 500 * 50) / 1e6) < 1e-9 and arch_cloud.effort_for("hi", "medium") == "medium")
     finally:
         srv.shutdown()
         core.set_home(old_home)

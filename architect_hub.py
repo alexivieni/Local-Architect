@@ -876,7 +876,9 @@ class AHandler(mh.Handler):
                     raise ValueError("that is not a Claude model name")
             elif use not in ("", "local", "claude"):
                 raise ValueError("unknown model choice")
-            if not arch_chat.ask(root, text, use=None if use in ("", "local") else use):
+            eff = b.get("effort") if b.get("effort") in ("low", "medium", "high", "xhigh", "max") else None
+            csz = b.get("ctx") if b.get("ctx") in ("small", "normal", "large", "max") else None
+            if not arch_chat.ask(root, text, use=None if use in ("", "local") else use, effort=eff, ctx=csz):
                 raise ValueError("Still answering the last message.")
             return {"ok": True}
         if path == "/api/arch/backlog":

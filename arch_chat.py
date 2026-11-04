@@ -27,7 +27,10 @@ def reset(root):
         THREADS[root] = {"messages": [], "busy": False, "partial": "", "error": None, "seq": 0}
 
 
-def ask(root, text, role="architect", use=None):
+CTX_SIZES = {"small": 4000, "normal": 14000, "large": 60000, "max": 200000}
+
+
+def ask(root, text, role="architect", use=None, effort=None, ctx=None):
     """Start the reply in a background thread. -> False when the thread is busy."""
     t = thread(root)
     with _LOCK:
@@ -36,7 +39,7 @@ def ask(root, text, role="architect", use=None):
         t["busy"], t["partial"], t["error"] = True, "", None
         t["messages"].append({"who": "you", "text": text, "t": time.time(), "use": use or "local"})
         t["seq"] += 1
-    threading.Thread(target=_reply, args=(root, text, role, use), daemon=True).start()
+    threading.Thread(target=_reply, args=(root, text, role, use, effort, ctx), daemon=True).start()
     return True
 
 
@@ -82,7 +85,7 @@ def code_hints(e, question, limit=6):
     return ("RELEVANT CODE FOUND IN THE PROJECT (name it with file:line when you answer):\n\n" + "\n\n".join(out)) if out else ""
 
 
-def _reply(root, text, role, use=None):
+def _reply(root, text, role, use=None, effort=None, ctx_size=None):
     t = thread(root)
     try:
         e = core.Engine(root, "chat", text, review="dry", say=lambda m: None, persist=False)
@@ -102,7 +105,9 @@ def _reply(root, text, role, use=None):
             if fast:
                 e.cfg["roles"][role] = fast
                 think = False
-        ctx = e.context(text, min(e.effective_context_chars(), 14000)) if core.list_files(e.root, e.cfg) else "(the project folder is empty)"
+        want = CTX_SIZES.get(ctx_size or "normal", 14000)
+        cap = want if (use or "").startswith("claude") else min(e.effective_context_chars(), want)   # Claude reads 1M tokens; a local model only its own window
+        ctx = e.context(text, cap) if core.list_files(e.root, e.cfg) else "(the project folder is empty)"
         hist = "\n".join(f"{'Person' if m['who'] == 'you' else 'You'}: {m['text'][:1500]}" for m in t["messages"][-7:-1])
         hints = code_hints(e, text) if core.list_files(e.root, e.cfg) else ""
         user = (f"PROJECT CONTEXT:\n{ctx}\n\n" + (f"{hints}\n\n" if hints else "") + (f"EARLIER IN THIS CONVERSATION:\n{hist}\n\n" if hist else "") + f"PERSON: {text}")
@@ -112,7 +117,7 @@ def _reply(root, text, role, use=None):
                 with _LOCK:
                     t["partial"] = (t.get("partial") or "") + piece
                     t["seq"] += 1
-            with arch_cloud.asked_for(_sink):
+            with arch_cloud.asked_for(_sink, arch_cloud.effort_for(text, effort)):
                 r = e.call(role, user, extra_system=SYSTEM, label="studio", think=think)
         else:
             r = e.call(role, user, extra_system=SYSTEM, label="studio", think=think)
