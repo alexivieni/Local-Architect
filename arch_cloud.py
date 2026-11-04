@@ -23,6 +23,20 @@ PRICES = {                       # USD per million tokens (input, output); first
     "claude-fable-5-1": (10.0, 50.0), "claude-opus-5": (5.0, 25.0),
 }
 _SPENT = {"usd": 0.0, "calls": 0}
+import threading as _th
+_HERE = _th.local()          # set while ONE chat reply the person explicitly sent to Claude is being answered
+
+
+class asked_for:
+    """`with arch_cloud.asked_for():` -- the person chose Claude for this message, so the Use Claude mode is not needed (online
+    features must still be on). Thread-local: it never leaks into a run or another chat."""
+    def __init__(self, sink=None):
+        self.sink = sink                     # gets each piece of text as it streams (the chat shows Claude typing)
+    def __enter__(self):
+        _HERE.on, _HERE.sink = True, self.sink
+    def __exit__(self, *a):
+        _HERE.on, _HERE.sink = False, None
+        return False
 
 
 def is_cloud(model):
@@ -42,9 +56,16 @@ def allowed(cfg):
     on = (cfg or {}).get("online") or {}
     if not on.get("enabled"):
         return False, "Claude is off: online features are off (Settings > Allow online features)"
-    if (on.get("cloud_tier") or "off") not in ("escalation", "chat", "all"):
+    if (on.get("cloud_tier") or "off") not in ("escalation", "chat", "all") and not getattr(_HERE, "on", False):
         return False, "Claude is off (Settings > Online > Use Claude)"
     return True, ""
+
+
+def chosen_model(cfg):
+    """The Claude model for a message the person sent to Claude by hand: needs online features on, not the Use Claude mode."""
+    on = (cfg or {}).get("online") or {}
+    m = ((((cfg or {}).get("tiers") or {}).get("cloud") or "") or on.get("cloud_model") or DEFAULT_MODEL).strip()
+    return m if is_cloud(m) else PREFIX + m
 
 
 def cloud_model(cfg):
@@ -63,10 +84,15 @@ def status(cfg):
     ok, why = allowed(cfg)
     sdk = importlib.util.find_spec("anthropic") is not None
     key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+    on_ = bool(((cfg or {}).get("online") or {}).get("enabled"))
     ready = ok and sdk and key
+    chat_ready = on_ and sdk and key
     say = ("Claude ready (" + api_model(cloud_model(cfg)) + ")") if ready else (why if not ok else
           "Claude: the Anthropic SDK is not installed" if not sdk else "Claude: no key set (ANTHROPIC_API_KEY)")
-    return {"on": ok, "sdk": sdk, "key": key, "ready": ready, "text": say, "mode": mode(cfg)}
+    return {"on": ok, "sdk": sdk, "key": key, "ready": ready, "text": say, "mode": mode(cfg), "chat_ready": chat_ready,
+            "chat_why": "" if chat_ready else ("turn on Settings > Online > Allow online features" if not on_ else
+                        "install the Anthropic SDK (pip install anthropic)" if not sdk else "set ANTHROPIC_API_KEY, then restart the hub"),
+            "model": api_model(chosen_model(cfg)), "spent_usd": round(_SPENT["usd"], 4)}
 
 
 def mode(cfg):
@@ -137,6 +163,9 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
                 text.append(piece)
                 if on_token:
                     on_token(piece)
+                sink = getattr(_HERE, "sink", None)
+                if sink:
+                    sink(piece)
             final = stream.get_final_message()
     except LLMError:
         raise

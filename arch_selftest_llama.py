@@ -841,6 +841,24 @@ def run():
         check("cloud modes: 'all' sends every coding role to Claude but keeps the router local; with online off it falls back to your local models",
               gen_all == "claude:claude-opus-5-5" and router_local != gen_all and e3.model_for("generator") != gen_all
               and arch_cloud.mode({"online": {"enabled": True, "cloud_tier": "chat", "cloud_model": "claude:x"}}) == "chat")
+        offmode = {"online": {"enabled": True, "cloud_tier": "off"}, "limits": {}}
+        got = []
+        try:
+            arch_cloud.chat("claude:claude-opus-5-5", [{"role": "user", "content": "x"}], cfg=offmode, client=_FakeClient())
+            blocked = False
+        except core.LLMError:
+            blocked = True
+        with arch_cloud.asked_for(got.append):
+            r2 = arch_cloud.chat("claude:claude-opus-5-5", [{"role": "user", "content": "x"}], cfg=offmode, client=_FakeClient())
+        try:
+            arch_cloud.chat("claude:claude-opus-5-5", [{"role": "user", "content": "x"}], cfg={"online": {"enabled": False}, "limits": {}}, client=_FakeClient())
+            leak = True
+        except core.LLMError:
+            leak = False
+        arch_cloud._SPENT.update(usd=0.0, calls=0)
+        check("chat Local/Claude switch: a message the person sent to Claude works with Use Claude off (online features on), streams to the chat, "
+              "and only for that message; with online features off it is still refused",
+              blocked and r2["transport"] == "claude" and "".join(got) == r2["text"] and not leak)
     finally:
         srv.shutdown()
         core.set_home(old_home)

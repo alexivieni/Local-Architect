@@ -599,6 +599,12 @@ ul.plan li.todo{opacity:.5}ul.plan li.todo svg{opacity:.4}
 .pulse{color:var(--acc);display:inline-flex;align-items:center}
 
 ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weight:400}ul.plan .iters li b{font-weight:600}
+
+.usepick{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;gap:2px;align-self:center}
+.usebtn{border:0;background:none;color:var(--mute);font:inherit;font-size:12px;padding:5px 11px;border-radius:999px;cursor:pointer}
+.usebtn.on{background:var(--acc2);color:var(--acc);font-weight:650}.usebtn.on:last-child{background:rgba(217,119,87,.16);color:#d97757}
+.msg.claude .who{background:rgba(217,119,87,.18);color:#d97757;font-weight:700}
+.cbadge{display:inline-block;margin-right:6px;padding:0 7px;border-radius:999px;background:rgba(217,119,87,.16);color:#d97757;font-weight:650}
 </style>
 </head>
 <body>
@@ -777,6 +783,10 @@ function consolePage(){
     }});
   const thread=h("div",{class:"thread"},msgs,
     h("div",{class:"composer"},ta,
+      h("div",{class:"usepick",role:"radiogroup","aria-label":"Who answers"},...[["local","Local"],["claude","Claude"]].map(([v,l])=>h("button",{class:"usebtn"+(store.get("chatUse","local")===v?" on":""),role:"radio","aria-checked":String(store.get("chatUse","local")===v),
+        title:v==="claude"?(S.cloud&&S.cloud.chat_ready?"Answered by "+S.cloud.model+" (costs money; your question and the project context leave this machine)":"Not ready: "+((S.cloud&&S.cloud.chat_why)||"turn on online features")):"Answered by your own models, on this machine",
+        onclick:e=>{store.set("chatUse",v);[...e.target.parentNode.children].forEach(b=>{b.classList.toggle("on",b===e.target);b.setAttribute("aria-checked",String(b===e.target));});
+          const ta=$("#cIn");if(ta)ta.placeholder=v==="claude"?"Ask Claude about this project (uses your API key)":"Say what you want done, or / for a saved command.";}},l))),
       h("button",{class:"btn pri",id:"cSend",onclick:cSend},"Send",icon("arrow")),
       h("div",{class:"hint"},
         h("span",{class:"pair"},h("kbd",{},"Enter"),"send"),
@@ -1052,13 +1062,14 @@ function renderThread(snap){
         h("span",{},t,h("div",{class:"small mute",style:"margin-top:2px"},why)))))));
   }
   for(const m of ms){
-    const me=m.who!=="model";
-    put(box,h("div",{class:"msg "+(me?"you":"arch")},
-      h("span",{class:"who"},me?"you":icon("spark")),
+    const me=m.who!=="model", cl=String(m.model||"").startsWith("claude:");
+    put(box,h("div",{class:"msg "+(me?"you":"arch")+(cl?" claude":"")},
+      h("span",{class:"who"},me?"you":cl?"C":icon("spark")),
       h("div",{class:"body"},renderText(m.text||""),
-        m.secs||m.model?h("div",{class:"meta"},[m.model,m.secs?fmt(m.secs,1)+"s":null].filter(Boolean).join(" · ")):null)));
+        m.secs||m.model?h("div",{class:"meta"},cl?h("span",{class:"cbadge"},"Claude"):null,[cl?String(m.model).slice(7):m.model,m.secs?fmt(m.secs,1)+"s":null,m.usd?"$"+Number(m.usd).toFixed(4):null].filter(Boolean).join(" · ")):null)));
   }
-  if(snap.busy)put(box,h("div",{class:"msg arch"},h("span",{class:"who"},icon("spark")),
+  if(snap.busy)put(box,snap.partial?h("div",{class:"msg arch claude"},h("span",{class:"who"},"C"),h("div",{class:"body"},renderText(snap.partial),h("div",{class:"meta"},h("span",{class:"cbadge"},"Claude")," typing…"))):
+    h("div",{class:"msg arch"},h("span",{class:"who"},icon("spark")),
     h("div",{class:"body mute"},h("span",{class:"sg"},h("i",{class:"dot busy"})," thinking…"))));
   if(atBottom)box.scrollTop=box.scrollHeight;
 }
@@ -1088,7 +1099,9 @@ async function cSend(){
     if(how){ i.value=""; try{ await api("/api/arch/redirect",{root:run.root||"",run:EV.run,message:txt}); toast("Sent to the run: it will follow this after the current step."); }catch(e){ toast.err(e.message,6000); i.value=txt; } return; }
   }
   i.value=""; i.style.height="";
-  try{ await api("/api/arch/chat",{root:run.root||"",message:txt}); renderThread._k=null; pollConsole(); }
+  const use=store.get("chatUse","local");
+  if(use==="claude"&&S.cloud&&!S.cloud.chat_ready){ toast.err("Claude is not ready: "+S.cloud.chat_why,7000); i.value=txt; return; }
+  try{ await api("/api/arch/chat",{root:run.root||"",message:txt,use}); renderThread._k=null; pollConsole(); }
   catch(e){ toast.err(e.message,6000); i.value=txt; }
 }
 async function cNew(){

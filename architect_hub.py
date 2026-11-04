@@ -865,7 +865,7 @@ class AHandler(mh.Handler):
             text = str(b.get("message") or "").strip()[:4000]
             if not text:
                 raise ValueError("Type a message first.")
-            if not arch_chat.ask(root, text):
+            if not arch_chat.ask(root, text, use="claude" if b.get("use") == "claude" else None):
                 raise ValueError("Still answering the last message.")
             return {"ok": True}
         if path == "/api/arch/backlog":

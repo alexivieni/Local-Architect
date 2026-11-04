@@ -27,16 +27,16 @@ def reset(root):
         THREADS[root] = {"messages": [], "busy": False, "partial": "", "error": None, "seq": 0}
 
 
-def ask(root, text, role="architect"):
+def ask(root, text, role="architect", use=None):
     """Start the reply in a background thread. -> False when the thread is busy."""
     t = thread(root)
     with _LOCK:
         if t["busy"]:
             return False
         t["busy"], t["partial"], t["error"] = True, "", None
-        t["messages"].append({"who": "you", "text": text, "t": time.time()})
+        t["messages"].append({"who": "you", "text": text, "t": time.time(), "use": use or "local"})
         t["seq"] += 1
-    threading.Thread(target=_reply, args=(root, text, role), daemon=True).start()
+    threading.Thread(target=_reply, args=(root, text, role, use), daemon=True).start()
     return True
 
 
@@ -82,13 +82,15 @@ def code_hints(e, question, limit=6):
     return ("RELEVANT CODE FOUND IN THE PROJECT (name it with file:line when you answer):\n\n" + "\n\n".join(out)) if out else ""
 
 
-def _reply(root, text, role):
+def _reply(root, text, role, use=None):
     t = thread(root)
     try:
         e = core.Engine(root, "chat", text, review="dry", say=lambda m: None, persist=False)
         think = None
         import arch_cloud
-        if arch_cloud.mode(e.cfg) in ("chat", "all"):                       # Settings > Online > Use Claude = chat/all
+        if use == "claude":                                               # the person picked Claude for this message
+            e.cfg["roles"][role] = arch_cloud.chosen_model(e.cfg)
+        elif arch_cloud.mode(e.cfg) in ("chat", "all"):                       # Settings > Online > Use Claude = chat/all
             e.cfg["roles"][role] = arch_cloud.cloud_model(e.cfg)
         elif (e.cfg.get("behavior") or {}).get("chat_model", "worker") == "worker":
             # A chat must answer in seconds. The role may point at a big planner model (a 14B split across card and RAM writes ~3.5
@@ -101,10 +103,21 @@ def _reply(root, text, role):
         hist = "\n".join(f"{'Person' if m['who'] == 'you' else 'You'}: {m['text'][:1500]}" for m in t["messages"][-7:-1])
         hints = code_hints(e, text) if core.list_files(e.root, e.cfg) else ""
         user = (f"PROJECT CONTEXT:\n{ctx}\n\n" + (f"{hints}\n\n" if hints else "") + (f"EARLIER IN THIS CONVERSATION:\n{hist}\n\n" if hist else "") + f"PERSON: {text}")
-        r = e.call(role, user, extra_system=SYSTEM, label="studio", think=think)
+        t0, before = time.time(), arch_cloud.spent()["usd"]
+        if use == "claude":
+            def _sink(piece):
+                with _LOCK:
+                    t["partial"] = (t.get("partial") or "") + piece
+                    t["seq"] += 1
+            with arch_cloud.asked_for(_sink):
+                r = e.call(role, user, extra_system=SYSTEM, label="studio", think=think)
+        else:
+            r = e.call(role, user, extra_system=SYSTEM, label="studio", think=think)
         reply = r["text"].strip() or "(no reply)"
+        usd = arch_cloud.spent()["usd"] - before
         with _LOCK:
-            t["messages"].append({"who": "model", "text": reply, "model": r["model"], "t": time.time()})
+            t["messages"].append({"who": "model", "text": reply, "model": r["model"], "t": time.time(), "secs": round(time.time() - t0, 1),
+                                  "usd": round(usd, 5) if usd else None})
     except Exception as ex:                                        # a chat must never take the hub down
         with _LOCK:
             t["error"] = str(ex)[:300]
@@ -118,4 +131,4 @@ def _reply(root, text, role):
 def snapshot(root):
     t = thread(root)
     with _LOCK:
-        return {"messages": t["messages"][-40:], "busy": t["busy"], "error": t["error"], "seq": t["seq"]}
+        return {"messages": t["messages"][-40:], "busy": t["busy"], "error": t["error"], "seq": t["seq"], "partial": t.get("partial") or ""}
