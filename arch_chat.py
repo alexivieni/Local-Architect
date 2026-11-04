@@ -132,7 +132,9 @@ def _reply(root, text, role, use=None, effort=None, ctx_size=None, ultra=False):
         usd = r.get("usd") if r.get("agents") else arch_cloud.spent()["usd"] - before
         with _LOCK:
             t["messages"].append({"who": "model", "text": reply, "model": r["model"], "t": time.time(), "secs": round(time.time() - t0, 1),
-                                  "usd": round(usd, 5) if usd else None})
+                                  "usd": round(usd, 5) if usd else None, "calls": r.get("calls") or (
+                                      [{"label": "answer", "model": r.get("model"), "in": r.get("prompt_tokens"), "out": r.get("gen_tokens"),
+                                        "secs": round(time.time() - t0, 1), "thinking": (r.get("thinking") or "")[:4000]}] if r.get("model") else [])})
     except Exception as ex:                                        # a chat must never take the hub down
         with _LOCK:
             t["error"] = str(ex)[:300]

@@ -137,7 +137,7 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
     alternative), then the chosen model, as lead, reads their notes and writes the one answer. Workers run at medium effort on
     Sonnet (cheaper); only the lead's answer streams to the chat. -> the lead's reply dict, with usd = the whole team's cost."""
     import concurrent.futures as cf
-    notes, usd = {}, 0.0
+    notes, usd, calls_all = {}, 0.0, []
 
     def one(lens):
         name, how = lens
@@ -145,12 +145,17 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
             msgs = [m for m in messages if m.get("role") != "system"]
             sys_ = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
             msgs = [{"role": "system", "content": (sys_ + "\n\n" if sys_ else "") + f"You are the {name} on a small team. {how} Keep it under 300 words."}] + msgs
-            return name, chat(worker, msgs, {"num_predict": 1200}, cfg=cfg, client=client)
+            _HERE.label = name
+            try:
+                return name, chat(worker, msgs, {"num_predict": 1200}, cfg=cfg, client=client)
+            finally:
+                _HERE.label = None
 
     with cf.ThreadPoolExecutor(max_workers=len(ULTRA_LENSES)) as ex:
         for fut in cf.as_completed([ex.submit(one, l) for l in ULTRA_LENSES]):
             try:
                 name, r = fut.result()
+                calls_all.extend(r.get("calls") or [])
                 notes[name] = r["text"].strip()
                 usd += r.get("usd") or 0
                 if sink:
@@ -163,6 +168,7 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
     # adversarial verify: two independent skeptics try to REFUTE the solver's answer; their objections go to the lead
     def refute(i):
         with asked_for(None, "medium"):
+            _HERE.label = f"skeptic {i}"
             return chat(worker, [m for m in messages if m.get("role") != "system"] + [{"role": "user", "content":
                         "A teammate proposed this answer:\n\n" + notes.get("solver", "") + f"\n\nYou are skeptic #{i}. Try to REFUTE it: list concrete "
                         "errors, wrong assumptions or missing steps, each with why. If it is correct, say 'no objections'. Under 150 words."}],
@@ -172,6 +178,7 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
         for fut in cf.as_completed([ex.submit(refute, i) for i in (1, 2)]):
             try:
                 rr = fut.result()
+                calls_all.extend(rr.get("calls") or [])
                 usd += rr.get("usd") or 0
                 objections.append(rr["text"].strip())
             except Exception as e:
@@ -184,7 +191,12 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
     if sink:
         sink("\n\n")
     with asked_for(sink, effort):
-        r = chat(model, lead_msgs, {"num_predict": 4000}, cfg=cfg, client=client)
+        _HERE.label = "lead"
+        try:
+            r = chat(model, lead_msgs, {"num_predict": 4000}, cfg=cfg, client=client)
+        finally:
+            _HERE.label = None
+    r["calls"] = calls_all + (r.get("calls") or [])
     r["usd"] = round((r.get("usd") or 0) + usd, 5)
     r["agents"] = len(notes) + len(objections)
     return r
@@ -234,7 +246,8 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
         msgs.pop()
     want = int((options or {}).get("num_predict") or 16000)
     eff = getattr(_HERE, "effort", None) or "high"
-    kw = dict(model=api_model(model), max_tokens=max(1024, min(want * 2, 64000)) if eff not in ("xhigh", "max") else 64000, messages=msgs,
+    kw_thinking = {"type": "adaptive", "display": "summarized"}       # a readable summary of Claude's reasoning, shown under "Show work"
+    kw = dict(model=api_model(model), thinking=kw_thinking, max_tokens=max(1024, min(want * 2, 64000)) if eff not in ("xhigh", "max") else 64000, messages=msgs,
               output_config={"effort": eff})
     if system:
         kw["system"] = system
@@ -253,8 +266,20 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
                 stream_cm = client.messages.stream(**kw)
             else:
                 raise
+        thinking = []
         with stream_cm as stream:
-            for piece in stream.text_stream:
+            src = iter(stream) if hasattr(type(stream), "__iter__") else stream.text_stream   # real SDK: events (text + thinking); fakes: text
+            for ev in src:
+                kind = getattr(ev, "type", None)
+                if isinstance(ev, str):
+                    kind, piece = "text", ev
+                elif kind == "text":
+                    piece = getattr(ev, "text", "") or ""
+                elif kind == "thinking":
+                    thinking.append(getattr(ev, "thinking", "") or "")
+                    continue
+                else:
+                    continue
                 if first is None:
                     first = time.time()
                 text.append(piece)
@@ -277,6 +302,8 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
     _SPENT["usd"] += usd
     _SPENT["calls"] += 1
     secs = max(time.time() - (first or t0), 1e-6)
-    return {"text": "".join(text), "thinking": "", "gen_tokens": gt, "prompt_tokens": pt, "cached_tokens": None,
+    rec = {"label": getattr(_HERE, "label", None) or "answer", "model": api_model(model), "effort": eff, "in": pt, "out": gt,
+           "usd": round(usd, 5), "secs": round(time.time() - t0, 1), "thinking": "".join(thinking)[:4000], "text": "".join(text)[:4000]}
+    return {"calls": [rec], "text": "".join(text), "thinking": "".join(thinking), "gen_tokens": gt, "prompt_tokens": pt, "cached_tokens": None,
             "done_reason": "length" if stop == "max_tokens" else "stop", "tok_s": round(gt / secs, 1) if gt else None,
             "prefill_tok_s": None, "load_s": None, "transport": "claude", "usd": round(usd, 5)}

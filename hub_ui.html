@@ -629,6 +629,11 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 .mmtoggle{width:34px;height:20px;border-radius:999px;background:#4a4a47;position:relative;transition:background .15s}.mmtoggle i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
 .mmtoggle.on{background:#d97757}.mmtoggle.on i{left:16px}
 @media (max-width:700px){.mmside{right:0;bottom:calc(100% + 6px);top:auto!important}.mmenu{width:min(290px,92vw)}}
+
+.swork{margin-top:8px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+.swork>summary{cursor:pointer;color:var(--mute)}.swcall{padding:7px 0;border-top:1px solid var(--line)}.swcall:first-of-type{border-top:0}
+.swhead{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}.swthink{margin-top:4px}.swthink>summary{cursor:pointer;color:var(--mute);font-size:12px}
+.swtext{white-space:pre-wrap;font-size:12px;line-height:1.45;max-height:220px;overflow:auto;margin-top:4px;padding:6px 8px;border-radius:8px;background:var(--bg);color:var(--ink)}
 </style>
 </head>
 <body>
@@ -1090,13 +1095,23 @@ function renderThread(snap){
     const me=m.who!=="model", cl=String(m.model||"").startsWith("claude:");
     put(box,h("div",{class:"msg "+(me?"you":"arch")+(cl?" claude":"")},
       h("span",{class:"who"},me?"you":cl?"C":icon("spark")),
-      h("div",{class:"body"},renderText(m.text||""),
+      h("div",{class:"body"},renderText(m.text||""),showWork(m),
         m.secs||m.model?h("div",{class:"meta"},cl?h("span",{class:"cbadge"},"Claude"):null,[cl?String(m.model).slice(7):m.model,m.secs?fmt(m.secs,1)+"s":null,m.usd?"$"+Number(m.usd).toFixed(4):null].filter(Boolean).join(" · ")):null)));
   }
   if(snap.busy)put(box,snap.partial?h("div",{class:"msg arch claude"},h("span",{class:"who"},"C"),h("div",{class:"body"},renderText(snap.partial),h("div",{class:"meta"},h("span",{class:"cbadge"},"Claude")," typing…"))):
     h("div",{class:"msg arch"},h("span",{class:"who"},icon("spark")),
     h("div",{class:"body mute"},h("span",{class:"sg"},h("i",{class:"dot busy"})," thinking…"))));
   if(atBottom)box.scrollTop=box.scrollHeight;
+}
+/* "Show work": every call behind an answer -- who, model, effort, tokens, cost, time, Claude's thinking summary, each agent's notes */
+function showWork(m){
+  const cs=m.calls||[]; if(!cs.length)return null;
+  const tin=cs.reduce((a,c)=>a+(c.in||0),0), tout=cs.reduce((a,c)=>a+(c.out||0),0), usd=cs.reduce((a,c)=>a+(c.usd||0),0);
+  return h("details",{class:"swork"},h("summary",null,`Show work · ${cs.length} call${cs.length>1?"s":""} · ${kfmt(tin)} in / ${kfmt(tout)} out`+(usd?` · $${usd.toFixed(4)}`:"")),
+    ...cs.map(c=>h("div",{class:"swcall"},
+      h("div",{class:"swhead"},h("b",null,c.label||"answer"),h("span",{class:"mute"},[c.model,c.effort?"effort "+c.effort:null,c.secs!=null?fmt(c.secs,1)+"s":null,(c.in||0)+" in / "+(c.out||0)+" out",c.usd?"$"+Number(c.usd).toFixed(4):null].filter(Boolean).join(" · "))),
+      c.thinking?h("details",{class:"swthink"},h("summary",null,"Thinking (summary)"),h("div",{class:"swtext"},c.thinking)):null,
+      c.label&&c.label!=="answer"&&c.label!=="lead"&&c.text?h("details",{class:"swthink"},h("summary",null,"What it said"),h("div",{class:"swtext"},c.text)):null)));
 }
 /* Minimal, safe formatting: fenced code, inline code, paragraphs. No HTML from the model is ever inserted. */
 function renderText(t){
