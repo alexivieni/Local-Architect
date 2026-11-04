@@ -816,7 +816,7 @@ function renderStrip(){
       (t.moe_cpu_layers?`; the experts of ${t.moe_cpu_layers} layers stay in RAM`:"")).join("; ")+
       ". The card waits on RAM for that part, so it can look idle while the model is working."},
       icon("layers"),"part in RAM: "+spill.map(t=>t.tier).join(", ")));
-  if(S.cloud&&S.cloud.on) kids.push(h("span",{class:"sep"}),h("span",{class:"chip "+(S.cloud.ready?"good":"warn"),title:S.cloud.text+". Settings > Online."},icon("globe"),S.cloud.ready?"Claude on":"Claude not ready"));
+  if(S.cloud&&S.cloud.on) kids.push(h("span",{class:"sep"}),h("span",{class:"chip "+(S.cloud.ready?"good":"warn"),title:S.cloud.text+". Settings > Online."},icon("globe"),S.cloud.ready?"Claude: "+({escalation:"last step",chat:"chat + last step",all:"every step"}[S.cloud.mode]||"on"):"Claude not ready"));
   if(G&&G.vm_gb) kids.push(h("span",{class:"sep"}),
     h("span",{class:"sg",title:`The WSL2 / Docker Desktop VM holds ${fmt(G.vm_gb,1)} GB of RAM now`+(G.vm_limit_gb?` and may grow to ${fmt(G.vm_limit_gb,0)} GB (its limit)`:"")+
       ". Architect plans around it. When you do not need Docker for a while, quitting Docker Desktop and running wsl --shutdown gives the memory back."},

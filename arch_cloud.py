@@ -42,8 +42,8 @@ def allowed(cfg):
     on = (cfg or {}).get("online") or {}
     if not on.get("enabled"):
         return False, "Claude is off: online features are off (Settings > Allow online features)"
-    if (on.get("cloud_tier") or "off") != "escalation":
-        return False, "Claude is off (Settings > Claude as the last step)"
+    if (on.get("cloud_tier") or "off") not in ("escalation", "chat", "all"):
+        return False, "Claude is off (Settings > Online > Use Claude)"
     return True, ""
 
 
@@ -66,7 +66,12 @@ def status(cfg):
     ready = ok and sdk and key
     say = ("Claude ready (" + api_model(cloud_model(cfg)) + ")") if ready else (why if not ok else
           "Claude: the Anthropic SDK is not installed" if not sdk else "Claude: no key set (ANTHROPIC_API_KEY)")
-    return {"on": ok, "sdk": sdk, "key": key, "ready": ready, "text": say}
+    return {"on": ok, "sdk": sdk, "key": key, "ready": ready, "text": say, "mode": mode(cfg)}
+
+
+def mode(cfg):
+    """off | escalation | chat | all -- and "off" whenever a cloud call is not allowed right now."""
+    return ((cfg or {}).get("online") or {}).get("cloud_tier", "off") if cloud_model(cfg) else "off"
 
 
 def cost(model, prompt_tokens, gen_tokens):

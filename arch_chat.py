@@ -87,7 +87,10 @@ def _reply(root, text, role):
     try:
         e = core.Engine(root, "chat", text, review="dry", say=lambda m: None, persist=False)
         think = None
-        if (e.cfg.get("behavior") or {}).get("chat_model", "worker") == "worker":
+        import arch_cloud
+        if arch_cloud.mode(e.cfg) in ("chat", "all"):                       # Settings > Online > Use Claude = chat/all
+            e.cfg["roles"][role] = arch_cloud.cloud_model(e.cfg)
+        elif (e.cfg.get("behavior") or {}).get("chat_model", "worker") == "worker":
             # A chat must answer in seconds. The role may point at a big planner model (a 14B split across card and RAM writes ~3.5
             # tokens a second: minutes per reply, so the chat looked dead). For this reply only, in memory, it uses the fast worker.
             fast = e.tier_model("worker")

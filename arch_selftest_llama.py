@@ -833,6 +833,14 @@ def run():
         with open(tp, "w", encoding="utf-8") as f:
             f.write(json.dumps({"type": "call", "id": 1, "transport": "claude"}) + "\n" + json.dumps({"type": "call", "id": 2, "transport": "llama"}) + "\n")
         check("cloud tier: Claude's replies never reach the training-data export", list(arch_dataset.read_full(tp)["calls"]) == [2])
+        allc = {"online": {"enabled": True, "cloud_tier": "all", "cloud_model": "claude:claude-opus-5-5"}, "tiers": {"worker": "w:4b", "router": "r:1b"}, "roles": {}, "behavior": {}}
+        e3 = core.Engine(root, "x", "g", allc, review="auto", say=lambda m: None, persist=False)
+        e3.cfg = allc
+        gen_all, router_local = e3.model_for("generator"), e3.model_for("router")
+        allc["online"]["enabled"] = False
+        check("cloud modes: 'all' sends every coding role to Claude but keeps the router local; with online off it falls back to your local models",
+              gen_all == "claude:claude-opus-5-5" and router_local != gen_all and e3.model_for("generator") != gen_all
+              and arch_cloud.mode({"online": {"enabled": True, "cloud_tier": "chat", "cloud_model": "claude:x"}}) == "chat")
     finally:
         srv.shutdown()
         core.set_home(old_home)

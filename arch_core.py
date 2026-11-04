@@ -1211,6 +1211,10 @@ class Engine:
     def model_for(self, role):
         if self.pins.get(role):
             return self.pins[role]
+        if role != "router" and ((self.cfg.get("online") or {}).get("cloud_tier") == "all"):
+            import arch_cloud
+            if arch_cloud.mode(self.cfg) == "all":                               # Settings > Online > Use Claude = all
+                return arch_cloud.cloud_model(self.cfg)
         m = (self.cfg["roles"].get(role) or "").strip()
         if m:                                                                     # a model you assigned to this role wins
             return (self.tier_model(m[5:]) or m) if m.startswith("tier:") else m
