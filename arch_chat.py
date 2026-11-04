@@ -30,7 +30,7 @@ def reset(root):
 CTX_SIZES = {"small": 4000, "normal": 14000, "large": 60000, "max": 200000}
 
 
-def ask(root, text, role="architect", use=None, effort=None, ctx=None):
+def ask(root, text, role="architect", use=None, effort=None, ctx=None, ultra=False):
     """Start the reply in a background thread. -> False when the thread is busy."""
     t = thread(root)
     with _LOCK:
@@ -39,7 +39,7 @@ def ask(root, text, role="architect", use=None, effort=None, ctx=None):
         t["busy"], t["partial"], t["error"] = True, "", None
         t["messages"].append({"who": "you", "text": text, "t": time.time(), "use": use or "local"})
         t["seq"] += 1
-    threading.Thread(target=_reply, args=(root, text, role, use, effort, ctx), daemon=True).start()
+    threading.Thread(target=_reply, args=(root, text, role, use, effort, ctx, ultra), daemon=True).start()
     return True
 
 
@@ -85,7 +85,7 @@ def code_hints(e, question, limit=6):
     return ("RELEVANT CODE FOUND IN THE PROJECT (name it with file:line when you answer):\n\n" + "\n\n".join(out)) if out else ""
 
 
-def _reply(root, text, role, use=None, effort=None, ctx_size=None):
+def _reply(root, text, role, use=None, effort=None, ctx_size=None, ultra=False):
     t = thread(root)
     try:
         e = core.Engine(root, "chat", text, review="dry", say=lambda m: None, persist=False)
@@ -117,12 +117,19 @@ def _reply(root, text, role, use=None, effort=None, ctx_size=None):
                 with _LOCK:
                     t["partial"] = (t.get("partial") or "") + piece
                     t["seq"] += 1
-            with arch_cloud.asked_for(_sink, arch_cloud.effort_for(text, effort)):
-                r = e.call(role, user, extra_system=SYSTEM, label="studio", think=think)
+            eff = arch_cloud.effort_for(text, effort)
+            if ultra or "ultracode" in text.lower():                     # a team of Claude agents, then one lead answer
+                with arch_cloud.asked_for():
+                    r = arch_cloud.ultra(e.cfg["roles"][role], [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
+                                         core.load_config(), eff, _sink)
+                r["model"] = e.cfg["roles"][role] + f" · ultra ({r.get('agents', 0)} agents)"
+            else:
+                with arch_cloud.asked_for(_sink, eff):
+                    r = e.call(role, user, extra_system=SYSTEM, label="studio", think=think)
         else:
             r = e.call(role, user, extra_system=SYSTEM, label="studio", think=think)
         reply = r["text"].strip() or "(no reply)"
-        usd = arch_cloud.spent()["usd"] - before
+        usd = r.get("usd") if r.get("agents") else arch_cloud.spent()["usd"] - before
         with _LOCK:
             t["messages"].append({"who": "model", "text": reply, "model": r["model"], "t": time.time(), "secs": round(time.time() - t0, 1),
                                   "usd": round(usd, 5) if usd else None})

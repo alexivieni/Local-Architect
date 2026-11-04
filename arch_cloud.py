@@ -60,9 +60,22 @@ def api_model(model):
     return m or DEFAULT_MODEL
 
 
+def _testing():
+    """True inside the self-tests: they must run on the scripted stand-in model, never on Claude (the suites read your real settings,
+    and Use Claude = all would send every test call to the API, cost money and fail the self-improve gate). The cloud checks that
+    test this module on purpose set ARCHITECT_CLOUD_TEST=1 and inject a fake client."""
+    import os
+    import sys
+    if os.path.basename(sys.argv[0] or "").startswith(("arch_selftest", "arch_hub_check")):
+        os.environ["ARCHITECT_SELFTEST"] = "1"                       # children of a suite inherit it
+    return os.environ.get("ARCHITECT_SELFTEST") == "1" and os.environ.get("ARCHITECT_CLOUD_TEST") != "1"
+
+
 def allowed(cfg):
     """-> (True, "") when a cloud call may go out now, else (False, plain reason)."""
     import os
+    if _testing():
+        return False, "Claude is never used inside the self-tests"
     if os.environ.get("ARCHITECT_EVAL") == "1":                 # benchmarks measure YOUR models: a cloud rescue would fake the score
         return False, "Claude is never used during eval (it would measure Claude, not your models)"
     on = (cfg or {}).get("online") or {}
@@ -110,6 +123,71 @@ def status(cfg):
 def mode(cfg):
     """off | escalation | chat | all -- and "off" whenever a cloud call is not allowed right now."""
     return ((cfg or {}).get("online") or {}).get("cloud_tier", "off") if cloud_model(cfg) else "off"
+
+
+ULTRA_LENSES = [
+    ("solver", "Answer the request directly and concretely. Name files and functions. Give code when it helps."),
+    ("critic", "Look for what could go wrong: bugs, edge cases, risks, wrong assumptions in the request or the code. Be specific."),
+    ("alternative", "Propose a different, simpler or more robust way to do this, and say when it would be the better choice."),
+]
+
+
+def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-sonnet-5-5", client=None):
+    """Ultracode for the app: three Claude subagents work on the same request at once, each from its own angle (solver, critic,
+    alternative), then the chosen model, as lead, reads their notes and writes the one answer. Workers run at medium effort on
+    Sonnet (cheaper); only the lead's answer streams to the chat. -> the lead's reply dict, with usd = the whole team's cost."""
+    import concurrent.futures as cf
+    notes, usd = {}, 0.0
+
+    def one(lens):
+        name, how = lens
+        with asked_for(None, "medium"):
+            msgs = [m for m in messages if m.get("role") != "system"]
+            sys_ = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
+            msgs = [{"role": "system", "content": (sys_ + "\n\n" if sys_ else "") + f"You are the {name} on a small team. {how} Keep it under 300 words."}] + msgs
+            return name, chat(worker, msgs, {"num_predict": 1200}, cfg=cfg, client=client)
+
+    with cf.ThreadPoolExecutor(max_workers=len(ULTRA_LENSES)) as ex:
+        for fut in cf.as_completed([ex.submit(one, l) for l in ULTRA_LENSES]):
+            try:
+                name, r = fut.result()
+                notes[name] = r["text"].strip()
+                usd += r.get("usd") or 0
+                if sink:
+                    sink(f"_[{name} done]_ ")
+            except Exception as e:                                   # one agent failing never sinks the team
+                notes[f"agent{len(notes) + 1}"] = f"(an agent failed: {str(e)[:120]})"
+    team = "\n\n".join(f"--- {k.upper()} ---\n{v}" for k, v in notes.items())
+    if sink:
+        sink("_[verifying]_ ")
+    # adversarial verify: two independent skeptics try to REFUTE the solver's answer; their objections go to the lead
+    def refute(i):
+        with asked_for(None, "medium"):
+            return chat(worker, [m for m in messages if m.get("role") != "system"] + [{"role": "user", "content":
+                        "A teammate proposed this answer:\n\n" + notes.get("solver", "") + f"\n\nYou are skeptic #{i}. Try to REFUTE it: list concrete "
+                        "errors, wrong assumptions or missing steps, each with why. If it is correct, say 'no objections'. Under 150 words."}],
+                        {"num_predict": 600}, cfg=cfg, client=client)
+    objections = []
+    with cf.ThreadPoolExecutor(max_workers=2) as ex:
+        for fut in cf.as_completed([ex.submit(refute, i) for i in (1, 2)]):
+            try:
+                rr = fut.result()
+                usd += rr.get("usd") or 0
+                objections.append(rr["text"].strip())
+            except Exception as e:
+                objections.append(f"(a skeptic failed: {str(e)[:100]})")
+    team += "\n\n--- SKEPTICS (tried to refute the solver) ---\n" + "\n\n".join(objections)
+    lead_msgs = list(messages) + [{"role": "user", "content": "Your team's notes on the request above (solver, critic, alternative, and two skeptics "
+                                   "who tried to refute the solver):\n\n" + team +
+                                   "\n\nAs the lead: write the single best answer. Keep only claims that survived the skeptics, fix what they showed is "
+                                   "wrong, and mention a real risk if it matters. Do not mention the team."}]
+    if sink:
+        sink("\n\n")
+    with asked_for(sink, effort):
+        r = chat(model, lead_msgs, {"num_predict": 4000}, cfg=cfg, client=client)
+    r["usd"] = round((r.get("usd") or 0) + usd, 5)
+    r["agents"] = len(notes) + len(objections)
+    return r
 
 
 def cost(model, prompt_tokens, gen_tokens):

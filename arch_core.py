@@ -1319,6 +1319,8 @@ class Engine:
         # --- fit the whole prompt to the window this model really has, keeping room for the answer. Seen live: a sprint prompt filled
         # ~7k of an 8192 window, the multi-file answer ran past it, and the run ended. The format example goes first, then the least
         # relevant end of the project context (outlines before whole files), at a section boundary.
+        if str(model).startswith("claude:"):                   # Claude reads ~1M tokens: never cut its prompt to a LOCAL model's window.
+            options["num_ctx"] = max(int(options["num_ctx"]), 200000)   # Seen live: an edit request lost the very line to change.
         cpt0 = arch_tune.cpt_for(self.stats, model)
         room = min(int(options["num_predict"]), arch_tune.REPLY_ROOM_TOKENS)
         fits = lambda u: int((len(sys_text) + len(u)) / max(cpt0, 1.0) * arch_tune.EST_MARGIN) + room + 64 <= options["num_ctx"]
@@ -1709,9 +1711,32 @@ class Engine:
                             break
                         out.append(block)
                         used += len(block)
+            # No quotes (or nothing found): the request's RARE words in the files it names. 'the option with value xhigh in
+            # hub_ui.html' -> the 1-4 lines of that 245 KB file that contain 'xhigh'. Seen live (2026-11-04): Claude was sent the
+            # first 2% of hub_ui.html, never saw the line, and rightly refused to guess an edit.
+            if not out:
+                named = [f for f in list_files(self.root, self.cfg) if os.path.basename(f) in (self.goal or "")]
+                words = {w for w in re.findall(r"[A-Za-z_][\w-]{3,40}", self.goal or "")
+                         if w.lower() not in _COMMON_WORDS and not any(w in f for f in named)}
+                for rel in named[:3]:
+                    try:
+                        lines = read_text(os.path.join(self.root, rel), 3_000_000)[0].splitlines()
+                    except OSError:
+                        continue
+                    for w in sorted(words):
+                        hits = [i for i, ln in enumerate(lines) if w in ln]
+                        if not 1 <= len(hits) <= 4:                       # a word on every other line says nothing about where
+                            continue
+                        for i in hits:
+                            a, b = max(0, i - 2), min(len(lines), i + 3)
+                            block = f"{rel}, lines {a + 1}-{b} (contain '{w}'):\n" + "\n".join(f"{n + 1}: {lines[n][:600]}" for n in range(a, b))
+                            if used + len(block) > 4000 or block in out:
+                                continue
+                            out.append(block)
+                            used += len(block)
         except Exception:
             out = []
-        self._quoted_cache = ("EXACT LINES THE REQUEST QUOTES (copy SEARCH text from here, character for character):\n" + "\n\n".join(out)) if out else ""
+        self._quoted_cache = ("EXACT LINES THE REQUEST POINTS AT (copy SEARCH text from here, character for character):\n" + "\n\n".join(out)) if out else ""
         return self._quoted_cache
 
     def _unlocked(self, fn):
@@ -2107,6 +2132,12 @@ class Engine:
     # --- undo
     def undo(self):
         return undo_run(self.root, self.run_dir)
+
+
+_COMMON_WORDS = set("""about after again also because before being below between both change changed changes could does doing during each
+effort file files from have here into keep label labelled like line lines make more most only other option over same should
+show some such than that their them then there these they this those through under until very visible want were what when where
+which while will with would your value values text read reads only change update rename should called named""".split())
 
 
 EVENT_MARK = "\x1e"          # ASCII record separator: it cannot appear in the console text a person reads in the same stream, and no

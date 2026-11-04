@@ -1205,6 +1205,7 @@ def _selftest_suites(args):
     _dd = os.environ.get("ARCHITECT_DATA_DIR")
     _tmp = _tf.mkdtemp(prefix="archsuite_")
     os.environ["ARCHITECT_DATA_DIR"] = os.path.join(_tmp, "_data")
+    os.environ["ARCHITECT_SELFTEST"] = "1"                 # suites never call Claude, whatever your settings say (arch_cloud._testing)
     # ...and its own settings file. Once a person picks a team, the install's settings name real models on a live server; a suite that
     # read them would send its scripted test traffic there.
     _old_home = core.HOME

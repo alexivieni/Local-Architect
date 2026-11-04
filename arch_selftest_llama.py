@@ -756,7 +756,7 @@ def run():
         uq = seenq[0][0][-1]["content"] if seenq else ""
         check("a goal that quotes exact text gets the lines containing it shown to the model with line numbers, however big the file "
               "(the line a self-fix had to change had been cut from a 1.4 MB file)",
-              "EXACT LINES THE REQUEST QUOTES" in uq and "5001: <p>Work > Task shows the same run</p>" in uq, uq[-400:])
+              "EXACT LINES THE REQUEST POINTS AT" in uq and "5001: <p>Work > Task shows the same run</p>" in uq, uq[-400:])
         check("reply caps fit the call: a structured answer (plan, routing) at most 1536 tokens, code at most 3072, not half the window",
               len(seenq) >= 2 and seenq[0][1]["num_predict"] <= 3072 and seenq[1][1]["num_predict"] <= 1536, [s[1].get("num_predict") for s in seenq])
 
@@ -774,6 +774,10 @@ def run():
 
         # ---- the optional Claude cloud tier (arch_cloud.py), with a fake SDK client: no key, no network, no cost
         import arch_cloud
+        os.environ["ARCHITECT_CLOUD_TEST"] = "1"
+        check("self-tests never reach Claude: with the test marker set, a cloud call is refused even when your settings allow it",
+              (lambda: (os.environ.pop("ARCHITECT_CLOUD_TEST"), os.environ.__setitem__("ARCHITECT_SELFTEST", "1"),
+                        arch_cloud.allowed({"online": {"enabled": True, "cloud_tier": "all"}})[0], os.environ.__setitem__("ARCHITECT_CLOUD_TEST", "1"))[2])() is False)
         import arch_dataset
 
         class _FakeStream:

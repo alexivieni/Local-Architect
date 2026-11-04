@@ -210,6 +210,7 @@ def run():
     _dd = os.environ.get("ARCHITECT_DATA_DIR")
     tmp = tempfile.mkdtemp(prefix="archtest_")
     os.environ["ARCHITECT_DATA_DIR"] = os.path.join(tmp, "_data")
+    os.environ["ARCHITECT_SELFTEST"] = "1"
     quiet = lambda m: None
     try:
         # ---- parsing and safety

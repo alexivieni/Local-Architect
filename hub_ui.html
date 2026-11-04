@@ -610,6 +610,25 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 .mpick.cl{border-color:#d97757;color:#d97757;background:rgba(217,119,87,.10)}
 
 .knobs{display:inline-flex;gap:6px;align-self:center;flex-wrap:wrap}.mpick.knob{max-width:150px;font-size:12px;padding:5px 9px}
+
+/* model menu (Claude-style) */
+.mmbtn{align-self:center;display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;padding:6px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap}
+.mmbtn:hover{border-color:var(--acc)}.mmbtn.cl{border-color:rgba(217,119,87,.55);color:#e8956f}.mmdot{width:7px;height:7px;border-radius:50%;background:var(--good,#3fb950)}.mmbtn.cl .mmdot{background:#d97757}
+.mmchev{opacity:.6;font-size:10px}
+.mmenu{position:absolute;bottom:calc(100% + 8px);right:0;z-index:50;width:290px;padding:6px;border-radius:14px;background:#1f1f1e;border:1px solid #3a3a38;box-shadow:0 18px 50px rgba(0,0,0,.45);color:#e8e6e1;font-size:14px}
+.mmhead{padding:8px 10px 4px;font-size:11.5px;color:#9a978f;letter-spacing:.02em}
+.mmrow{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;cursor:pointer;position:relative}
+.mmrow:hover{background:#2c2c2a}.mmrow.off{opacity:.45;cursor:not-allowed}.mmrow.tall{align-items:flex-start}
+.mmname{flex:1;display:flex;flex-direction:column}.mmsub{color:#9a978f;font-size:12px;white-space:nowrap}.mmdesc{color:#9a978f;font-size:12px;margin-top:2px;line-height:1.35}
+.mmkey{color:#9a978f;font-size:12px;min-width:12px;text-align:right}.mmcheck{color:#6ea8fe;min-width:14px;text-align:right}
+.mmval{color:#9a978f;font-size:12.5px}.mmchev2{color:#9a978f}.mmsubrow{background:#2a2a28}
+.mmsep{height:1px;background:#3a3a38;margin:6px 4px}
+.mmside{position:absolute;right:calc(100% + 6px);width:300px;padding:6px;border-radius:14px;background:#1f1f1e;border:1px solid #3a3a38;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+.mmhelp{margin:4px 10px 8px;color:#9a978f;font-size:12.5px;line-height:1.45}
+.mmtag{font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid #4a4a47;color:#c9c6bd}.mmtag.warn{border:0;background:rgba(217,160,60,.18);color:#e0a84a}
+.mmtoggle{width:34px;height:20px;border-radius:999px;background:#4a4a47;position:relative;transition:background .15s}.mmtoggle i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+.mmtoggle.on{background:#d97757}.mmtoggle.on i{left:16px}
+@media (max-width:700px){.mmside{right:0;bottom:calc(100% + 6px);top:auto!important}.mmenu{width:min(290px,92vw)}}
 </style>
 </head>
 <body>
@@ -696,7 +715,7 @@ const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:v;}ca
 
 let S=null, cfg={}, dirty=false, page="console", weights={};
 const opts={kv:"f16",gpu_bw:192,ram_bw:50,vram:"",ram:""};
-const run={tpl:"",tplTarget:"",root:store.get("root",""),app:"",flow:"auto",review:"ask",domains:[],goal:"",template:"auto",name:"",addons:[],thenBuild:true,autofix:false,options:{}};
+const run={tpl:"",tplTarget:"",root:store.get("root",""),app:"",flow:"auto",review:store.get("review","ask"),domains:[],goal:"",template:"auto",name:"",addons:[],thenBuild:true,autofix:false,options:{}};
 const sel={models:new Set(),cats:null,think:false};
 /* Groups and the tabs inside them are ordered the way a first run through the hub actually goes:
    check the machine, build the team, build and run the project, then measure and manage it over time. */
@@ -788,7 +807,7 @@ function consolePage(){
     }});
   const thread=h("div",{class:"thread"},msgs,
     h("div",{class:"composer"},ta,
-      modelPicker(),chatKnobs(),
+      modelMenuBtn(),
       h("div",{class:"usepick",style:"display:none",role:"radiogroup","aria-label":"Who answers"},...[["local","Local"],["claude","Claude"]].map(([v,l])=>h("button",{class:"usebtn"+(store.get("chatUse","local")===v?" on":""),role:"radio","aria-checked":String(store.get("chatUse","local")===v),
         title:v==="claude"?(S.cloud&&S.cloud.chat_ready?"Answered by "+S.cloud.model+" (costs money; your question and the project context leave this machine)":"Not ready: "+((S.cloud&&S.cloud.chat_why)||"turn on online features")):"Answered by your own models, on this machine",
         onclick:e=>{store.set("chatUse",v);[...e.target.parentNode.children].forEach(b=>{b.classList.toggle("on",b===e.target);b.setAttribute("aria-checked",String(b===e.target));});
@@ -1107,7 +1126,7 @@ async function cSend(){
   i.value=""; i.style.height="";
   const use=store.get("chatUse","local");
   if(use.startsWith("claude")&&S.cloud&&!S.cloud.chat_ready){ toast.err("Claude is not ready: "+S.cloud.chat_why,7000); i.value=txt; return; }
-  try{ await api("/api/arch/chat",{root:run.root||"",message:txt,use,effort:store.get("chatEffort","high"),ctx:store.get("chatCtx","normal")}); renderThread._k=null; pollConsole(); }
+  try{ await api("/api/arch/chat",{root:run.root||"",message:txt,use,effort:store.get("chatEffort","medium"),ctx:store.get("chatCtx","normal"),ultra:store.get("chatUltra","0")==="1"}); renderThread._k=null; pollConsole(); }
   catch(e){ toast.err(e.message,6000); i.value=txt; }
 }
 async function cNew(){
@@ -1237,9 +1256,79 @@ function chatKnobs(){
     ...[["small","Context: small"],["normal","Context: normal"],["large","Context: large"],["max","Context: whole project"]].map(([v,l])=>h("option",{value:v,selected:store.get("chatCtx","normal")===v},l)));
   return h("span",{class:"knobs"},eff,ctx);
 }
+/* ---- the model menu: same shape as Claude's own (models with a check, number keys, Effort > , Ultracode toggle) ---- */
+const MODES=[["auto","Auto","Applies changes, then proves them with tests; every run can be undone"],
+  ["ask","Manual","Always asks before each change"],["dry","Plan","Shows the plan and the changes it would make; writes nothing"]];
+const EFFORTS=[["low","Low"],["medium","Medium","Recommended"],["high","High"],["xhigh","Extra"],["max","Max","⚠ 3.5× or more usage"]];
+const CTXS=[["small","Small","~1k tokens: only the files that match your words. Cheapest, fastest."],
+  ["normal","Normal","~3.5k tokens: the relevant files plus a summary of the rest."],
+  ["large","Large","~15k tokens: much more of the project. Claude only; local models can't hold it."],
+  ["max","Whole project","~50k tokens: as much of the project as possible. Best answers, costs the most."]];
+function menuLabel(){
+  const u=store.get("chatUse","local"), {loc,cl}=pickerOptions(), all=[...loc,...cl], it=all.find(x=>x[0]===u);
+  const name=it?it[1].replace(/ \(.*$/,"").replace(/^Claude /,""):"Auto";
+  return u.startsWith("claude")?name+(store.get("chatUltra","0")==="1"?" · Ultra":"")+" · "+(EFFORTS.find(e=>e[0]===store.get("chatEffort","medium"))||EFFORTS[1])[1]:name;
+}
+function modelMenuBtn(){
+  if(store.get("chatUse",null)===null&&S.cloud&&S.cloud.chat_ready&&S.cloud.mode==="all")store.set("chatUse","claude:"+S.cloud.model);
+  const cl=store.get("chatUse","local").startsWith("claude");
+  return h("button",{class:"mmbtn"+(cl?" cl":""),id:"mmBtn","aria-haspopup":"menu",title:"Who answers, how hard it thinks, how much it sees (Ctrl+. flips local / Claude)",
+    onclick:e=>{e.stopPropagation();openModelMenu();}},h("span",{class:"mmdot"}),menuLabel(),h("span",{class:"mmchev"},"▾"));
+}
+function closeModelMenu(){document.querySelectorAll(".mmenu").forEach(x=>x.remove());document.removeEventListener("click",closeModelMenu);}
+function openModelMenu(){
+  if(document.querySelector(".mmenu")){closeModelMenu();return;}
+  const btn=$("#mmBtn"); if(!btn)return;
+  const {loc,cl}=pickerOptions(), cur=store.get("chatUse","local"), ready=S.cloud&&S.cloud.chat_ready;
+  const check=on=>h("span",{class:"mmcheck"},on?"✓":"");
+  const row=(v,label,hint,i)=>h("div",{class:"mmrow"+(v.startsWith("claude")&&!ready?" off":""),role:"menuitemradio","aria-checked":String(cur===v),
+    title:v.startsWith("claude")&&!ready?"Not ready: "+((S.cloud&&S.cloud.chat_why)||"turn on online features"):"",
+    onclick:e=>{e.stopPropagation();if(v.startsWith("claude")&&!ready)return;setChatUse(v);refreshMenu();}},
+    h("span",{class:"mmname"},label.replace(/ \((.*)\)$/,"")),h("span",{class:"mmsub"},(label.match(/\((.*)\)$/)||[])[1]||""),
+    i?h("span",{class:"mmkey"},String(i)):null,check(cur===v));
+  const sub=(id,label,valText,build)=>{
+    const r=h("div",{class:"mmrow mmsubrow",tabindex:0,onclick:e=>{e.stopPropagation();const o=document.querySelector(".mmside");if(o&&o.dataset.id===id){o.remove();return;}
+      document.querySelectorAll(".mmside").forEach(x=>x.remove());const side=build();side.dataset.id=id;menu.append(side);
+      side.style.top=Math.max(0,r.offsetTop-side.offsetHeight+r.offsetHeight)+"px";}},
+      h("span",{class:"mmname"},label),h("span",{class:"mmval"},valText),h("span",{class:"mmchev2"},"›"));
+    return r;
+  };
+  const effPanel=()=>h("div",{class:"mmside"},h("p",{class:"mmhelp"},"Higher effort means more thorough answers, but takes longer and costs more."),
+    ...EFFORTS.map(([v,l,tag])=>h("div",{class:"mmrow",onclick:e=>{e.stopPropagation();store.set("chatEffort",v);refreshMenu();}},
+      h("span",{class:"mmname"},l),tag?h("span",{class:"mmtag"+(v==="max"?" warn":"")},tag):null,h("span",{class:"grow"}),check(store.get("chatEffort","medium")===v))),
+    h("div",{class:"mmsep"}),
+    h("div",{class:"mmrow",onclick:e=>{e.stopPropagation();store.set("chatUltra",store.get("chatUltra","0")==="1"?"0":"1");refreshMenu();},
+      title:"Ultracode: three Claude agents (solver, critic, alternative) work on your message at once, then a lead combines them. About 4x the cost of one answer."},
+      h("span",{class:"mmname"},"Ultracode"),h("span",{class:"grow"}),h("span",{class:"mmtoggle"+(store.get("chatUltra","0")==="1"?" on":"")},h("i"))));
+  const ctxPanel=()=>h("div",{class:"mmside"},h("p",{class:"mmhelp"},"Context = how much of your project the AI reads along with your message. More context, better grounded answers, but slower and (with Claude) pricier."),
+    ...CTXS.map(([v,l,d])=>h("div",{class:"mmrow tall",onclick:e=>{e.stopPropagation();store.set("chatCtx",v);refreshMenu();}},
+      h("span",{class:"mmname"},l,h("span",{class:"mmdesc"},d)),h("span",{class:"grow"}),check(store.get("chatCtx","normal")===v))));
+  const modePanel=()=>h("div",{class:"mmside"},h("div",{class:"mmhead"},"Mode: what happens when the team changes files"),
+    ...MODES.map(([v,l,d],i)=>h("div",{class:"mmrow tall",onclick:e=>{e.stopPropagation();run.review=v;store.set("review",v);refreshMenu();}},
+      h("span",{class:"mmname"},l,h("span",{class:"mmdesc"},d)),h("span",{class:"grow"}),check((run.review||"auto")===v),h("span",{class:"mmkey"},String(i+1)))));
+  const effName=(EFFORTS.find(e=>e[0]===store.get("chatEffort","medium"))||EFFORTS[1])[1]+(store.get("chatUltra","0")==="1"?" · Ultra":"");
+  const ctxName=(CTXS.find(c=>c[0]===store.get("chatCtx","normal"))||CTXS[1])[1];
+  const menu=h("div",{class:"mmenu",role:"menu",onclick:e=>e.stopPropagation()},
+    h("div",{class:"mmhead"},"On this machine · free, private"),...loc.map(([v,l])=>row(v,l)),
+    h("div",{class:"mmhead"},ready?"Claude · your API key":"Claude · not ready"),...cl.map(([v,l],i)=>row(v,l,"",i+1)),
+    h("div",{class:"mmsep"}),
+    sub("mode","Mode",(MODES.find(m=>m[0]===(run.review||"auto"))||MODES[0])[1],modePanel),
+    cur.startsWith("claude")?sub("eff","Effort",effName,effPanel):null,
+    sub("ctx","Context",ctxName,ctxPanel));
+  btn.parentNode.style.position="relative"; btn.parentNode.append(menu);
+  setTimeout(()=>document.addEventListener("click",closeModelMenu),0);
+}
+function refreshMenu(){const b=$("#mmBtn");if(b){b.replaceWith(modelMenuBtn());}closeModelMenu();openModelMenu();}
+document.addEventListener("keydown",e=>{
+  if(!document.querySelector(".mmenu"))return;
+  if(e.key==="Escape"){closeModelMenu();return;}
+  const n=parseInt(e.key,10);const {cl}=pickerOptions();
+  if(n>=1&&n<=cl.length&&S.cloud&&S.cloud.chat_ready){e.preventDefault();setChatUse(cl[n-1][0]);refreshMenu();}
+});
 function setChatUse(v){
   store.set("chatUse",v); store.set(v.startsWith("claude")?"lastClaude":"lastLocal",v);
   const s=document.querySelector(".mpick"); if(s){s.value=v;s.classList.toggle("cl",v.startsWith("claude"));}
+  const mb=$("#mmBtn"); if(mb&&!document.querySelector(".mmenu"))mb.replaceWith(modelMenuBtn());
   const ke=$("#kEff"); if(ke)ke.style.display=v.startsWith("claude")?"":"none";
   const ta=$("#cIn"); if(ta)ta.placeholder=v.startsWith("claude")?"Ask Claude about this project (uses your API key)":"Say what you want done, or / for a saved command.";
 }
@@ -1521,7 +1610,7 @@ async function studioSend(doIt){
     catch(e){toast.err(e.message,7000);}
     return;
   }
-  try{await api("/api/arch/chat",{root:run.root,message:text,use:store.get("chatUse","local"),effort:store.get("chatEffort","high"),ctx:store.get("chatCtx","normal")});studioSeq=-1;pollStudio();}catch(e){toast.err(e.message,7000);}
+  try{await api("/api/arch/chat",{root:run.root,message:text,use:store.get("chatUse","local"),effort:store.get("chatEffort","medium"),ctx:store.get("chatCtx","normal"),ultra:store.get("chatUltra","0")==="1"});studioSeq=-1;pollStudio();}catch(e){toast.err(e.message,7000);}
 }
 function appendJobCard(goal){
   const t=$("#stThread");if(!t)return;

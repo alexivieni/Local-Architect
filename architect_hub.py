@@ -878,7 +878,7 @@ class AHandler(mh.Handler):
                 raise ValueError("unknown model choice")
             eff = b.get("effort") if b.get("effort") in ("low", "medium", "high", "xhigh", "max") else None
             csz = b.get("ctx") if b.get("ctx") in ("small", "normal", "large", "max") else None
-            if not arch_chat.ask(root, text, use=None if use in ("", "local") else use, effort=eff, ctx=csz):
+            if not arch_chat.ask(root, text, use=None if use in ("", "local") else use, effort=eff, ctx=csz, ultra=bool(b.get("ultra")) and use.startswith("claude")):
                 raise ValueError("Still answering the last message.")
             return {"ok": True}
         if path == "/api/arch/backlog":
