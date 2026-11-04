@@ -1544,7 +1544,7 @@ class Engine:
         if (self.cfg.get("tiers") or {}).get("heavy") and model == self.cfg["tiers"]["heavy"]:
             self.meter["heavy_calls"] += 1
         ctx_pct =round(100 * r["prompt_tokens"] / options["num_ctx"]) if r["prompt_tokens"] and options["num_ctx"] else None
-        rec = {"type": "call", "id": tid, "t": time.time(), "flow": self.flow, "role": role, "model": model, "label": label or role,
+        rec = {"type": "call", "id": tid, "t": time.time(), "flow": self.flow, "role": role, "model": model, "label": label or role, "usd": r.get("usd"),
                "messages": msgs, "reply": text, "thinking_chars": len(r["thinking"]), "tok_s": r["tok_s"],
                "gen_tokens": r["gen_tokens"], "secs": round(time.time() - t0, 1), "done_reason": r["done_reason"],
                "prompt_tokens": r["prompt_tokens"], "num_ctx": options["num_ctx"], "ctx_pct": ctx_pct, "ctx_overflow": ov, "gpu_pct": gpu,

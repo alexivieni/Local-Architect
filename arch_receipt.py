@@ -83,7 +83,8 @@ def totals(d):
             "secs_saved": round(sum(float(c.get("secs_saved") or 0) for c in cached), 1),
             "secs": round(secs, 1), "tok_s": round(sum(speeds) / len(speeds), 1) if speeds else None,
             "by_tier": by_tier, "by_model": by_model,
-            "reused_prefix": sum(int(c.get("prefix_reused_est") or 0) for c in real)}
+            "reused_prefix": sum(int(c.get("prefix_reused_est") or 0) for c in real),
+            "usd": round(sum(float(c.get("usd") or 0) for c in real), 4)}
 
 
 # ---------------------------------------------------------------- rendering
@@ -137,6 +138,8 @@ def build(run_dir, root=None):
             f"<div class='k'><b>{_dur(tot['secs'])}</b><span>spent generating</span></div>"]
     if tot["tok_s"]:
         cost.append(f"<div class='k'><b>{tot['tok_s']}</b><span>tokens a second</span></div>")
+    if tot.get("usd"):
+        cost.append(f"<div class='k'><b>${tot['usd']:.4f}</b><span>paid to Claude (everything else ran on this machine, free)</span></div>")
     if tot["cached"]:
         cost.append(f"<div class='k good'><b>{tot['cached']}</b><span>answers reused, saving {tot['tokens_saved']:,} tokens</span></div>")
     rows.append("<section><h2>What it cost</h2><div class='keys'>" + "".join(cost) + "</div>" + _models_table(tot) + "</section>")

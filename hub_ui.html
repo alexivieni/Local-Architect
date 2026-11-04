@@ -1202,9 +1202,20 @@ function machineMap(m){
     ...(m.notes||[]).slice(0,3).map(n=>h("div",{class:"note info small"},n)));
 }
 async function loadMachine(){const b=$("#machineBox");if(!b)return;try{const m=await api("/api/arch/machine");b.innerHTML="";if(!m.error)put(b,machineMap(m));}catch(_){b.innerHTML="";}}
+function cloudCard(){
+  const c=S.cloud; if(!c)return null;
+  const st=c.ready||c.chat_ready?["good","Ready"]:c.on?["warn","Almost: "+c.chat_why]:["","Off"];
+  return h("div",{class:"card ccard"},h("div",{class:"row"},h("span",{class:"cbadge",style:"font-size:13px;padding:2px 10px"},"Claude"),
+      h("h2",{class:"grow",style:"margin:0"},"Cloud step (optional)"),h("span",{class:"chip "+st[0]},st[1])),
+    h("p",{class:"sub"},c.ready||c.chat_ready?`${c.model} answers when you pick Claude in the chat`+(c.mode&&c.mode!=="off"?`, and in runs (${({escalation:"only when your local models are stuck",chat:"chat + when stuck",all:"every coding step"})[c.mode]})`:"")+`. Spent this session: $${Number(c.spent_usd||0).toFixed(4)}.`
+      :"Hand a stuck step, or a chat message, to Claude. Off unless you turn it on; spend is capped per run and its replies never become training data."),
+    h("div",{class:"row"},h("span",{class:"chip "+(c.sdk?"good":"warn")},c.sdk?"SDK installed":"SDK missing"),h("span",{class:"chip "+(c.key?"good":"warn")},c.key?"Key set":"No key yet"),
+      h("span",{class:"chip "+(c.on?"good":"")},c.on?"Online features on":"Online features off"),h("span",{class:"grow"}),
+      h("button",{class:"btn sm",onclick:()=>go("settings")},"Settings")));
+}
 function tiersPage(){
   setTimeout(loadMachine,0);
-  return [h("div",{id:"machineBox"},h("div",{class:"card"},h("div",{class:"skeleton",style:"height:120px"}))),h("div",{id:"teamBox"},h("div",{class:"card"},h("div",{class:"idle"},icon("chip","lg"),
+  return [cloudCard(),h("div",{id:"machineBox"},h("div",{class:"card"},h("div",{class:"skeleton",style:"height:120px"}))),h("div",{id:"teamBox"},h("div",{class:"card"},h("div",{class:"idle"},icon("chip","lg"),
     h("div",{},"Measuring every installed model against this machine…"))))];
 }
 async function loadTeam(){
@@ -1622,7 +1633,8 @@ function renderOpt(t){
 async function loadTune(){
   const box=$("#tuneBox");let t;
   window.__machine=null;
-  try{t=await api("/api/arch/tune_info");}catch(e){box.textContent="Could not read the tune status: "+e.message;return;}
+  try{t=await api("/api/arch/tune_info");}catch(e){if(box)box.textContent="Could not read the tune status: "+e.message;return;}
+  if(!$("#tuneBox")||!$("#ownBox"))return;             // the person left this page while it was loading
   const p=t.profile,st=t.status;box.innerHTML="";
   const own=$("#ownBox");own.innerHTML="";
   if(t.machine_card){const mc=h("details",{class:"card-inner"},h("summary",null,"Machine card from the last Get ready (what was checked, what passed, what to fix)"),h("pre",{class:"mono small",style:"white-space:pre-wrap;margin-top:8px"},t.machine_card));window.__machine=mc;}
