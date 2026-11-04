@@ -155,6 +155,17 @@ def cmd_self_improve(args):
     goal = (args.goal or "").strip()
     if not goal:
         raise SystemExit("Say what to improve, in quotes. Example: self-improve \"make the doctor report disk space per model\"")
+    extra = []                                    # the run options you gave are passed through to the flow (they were silently dropped)
+    if getattr(args, "model", None):
+        extra += ["--model", args.model]
+    for rm in getattr(args, "role_model", None) or []:
+        extra += ["--role-model", rm]
+    for kv in getattr(args, "set", None) or []:
+        extra += ["--set", kv]
+    for opt in ("max_revisions", "best_of"):
+        if getattr(args, opt, None) is not None:
+            extra += ["--" + opt.replace("_", "-"), str(getattr(args, opt))]
+    si.RUN_EXTRA[:] = extra
     out = si.improve(goal, flow=args.flow, review=args.review, yes=args.yes, suite=args.suite, allow_safety=args.allow_safety_edits, keep=args.keep)
     return 0 if out.get("ok") else 1
 

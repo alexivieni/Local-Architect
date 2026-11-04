@@ -180,6 +180,35 @@ def _tree_hash(e):
     return h.hexdigest()
 
 
+def _not_counting_old(e, results):
+    """A file check that already failed on the file as it was BEFORE this run (its backup) is not this run's fault: it is kept in the
+    list as passed-with-a-note, so a one-line change is not failed for, e.g., a colour contrast problem the page already had.
+    Seen live (2026-11-04): Claude made the exact requested edit to hub_ui.html on the first try, and the run failed on two old findings."""
+    bdir = os.path.join(e.run_dir or "", "backup")
+    if not e.run_dir or not os.path.isdir(bdir):
+        return results
+    base = getattr(e, "_check_baseline", None)
+    if base is None:
+        base = e._check_baseline = {}
+    out = []
+    for r in results:
+        name = r.get("name", "")
+        rel = name.split(":", 1)[0] if ":" in name else ""
+        if r.get("ok") or not rel or not os.path.isfile(os.path.join(bdir, rel)):
+            out.append(r)
+            continue
+        if rel not in base:
+            try:
+                base[rel] = {x["name"] for x in ck.check_files(bdir, [rel], e.cfg) if not x.get("ok")}
+            except Exception:
+                base[rel] = set()
+        if name in base[rel]:
+            out.append(dict(r, ok=True, detail=(str(r.get("detail") or "") + " (already failing before this run; not counted)").strip()))
+        else:
+            out.append(r)
+    return out
+
+
 def verify(e, files, run_tests=True, targets=None):
     """Code checks on the given files plus the project's tests. -> dict(ok, text, results, tests).
 
@@ -187,7 +216,7 @@ def verify(e, files, run_tests=True, targets=None):
     fake-code check failed" while the run is still going, instead of waiting for a report and parsing prose out of it.
     """
     t_v = time.time()
-    results = ck.check_files(e.root, files, e.cfg, e.run_dir)
+    results = _not_counting_old(e, ck.check_files(e.root, files, e.cfg, e.run_dir))
     mine = set(e.changed_files) | set(e.created)                      # legacy code the run did not touch is never failed for being a stub
     results += arch_fakecode.check(e.root, [f for f in files if f in mine], e.cfg["behavior"].get("fake_code", "fail"))
     import arch_deps

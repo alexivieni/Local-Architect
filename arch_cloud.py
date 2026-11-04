@@ -141,7 +141,13 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
             import anthropic
         except ImportError:
             raise LLMError("Claude needs the Anthropic SDK: run  pip install anthropic  (only needed for the cloud tier)")
-        client = anthropic.Anthropic(timeout=float(timeout or 900))
+        if isinstance(timeout, dict):                                # the engine passes {"connect":..,"first":..,"total":..}
+            timeout = timeout.get("total") or max([v for v in timeout.values() if isinstance(v, (int, float))] or [900])
+        try:
+            secs = float(timeout or 900)
+        except (TypeError, ValueError):
+            secs = 900.0
+        client = anthropic.Anthropic(timeout=max(60.0, secs))
     system = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
     msgs = [{"role": m["role"], "content": str(m.get("content") or "")} for m in messages if m.get("role") in ("user", "assistant")]
     if not msgs or msgs[0]["role"] != "user":

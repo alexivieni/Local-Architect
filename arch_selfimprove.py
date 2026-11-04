@@ -330,8 +330,11 @@ def rollback(base=HERE, say=print):
     return {"ok": True, "files": restored}
 
 
+RUN_EXTRA = []        # options from the self-improve command line (--model, --role-model, --set, ...) handed to the run
+
+
 def _run_flow(cand, goal, flow, review):
-    argv = [sys.executable, os.path.join(cand, "architect.py"), "run", goal, "--flow", flow, "--root", cand, "--review", review]
+    argv = [sys.executable, os.path.join(cand, "architect.py"), "run", goal, "--flow", flow, "--root", cand, "--review", review] + list(RUN_EXTRA)
     env = dict(os.environ, ARCHITECT_HOME=core.HOME, ARCHITECT_SELFDEV="1")   # your models and settings; every call as the Architect developer
     return subprocess.call(argv, cwd=cand, env=env)
 

@@ -1218,6 +1218,7 @@ function pickerOptions(){
   return {loc,cl};
 }
 function modelPicker(){
+  if(store.get("chatUse",null)===null&&S.cloud&&S.cloud.chat_ready&&S.cloud.mode==="all")store.set("chatUse","claude:"+S.cloud.model);   // Use Claude = all: the chat starts on Claude too
   const {loc,cl}=pickerOptions(), cur=store.get("chatUse","local"), ready=S.cloud&&S.cloud.chat_ready;
   const sel=h("select",{class:"mpick"+(cur.startsWith("claude")?" cl":""),"aria-label":"Who answers this message",title:"Who answers (Ctrl+. switches between your last local and last Claude choice)",
     onchange:e=>setChatUse(e.target.value)},
