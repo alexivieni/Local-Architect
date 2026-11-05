@@ -101,6 +101,13 @@ def build(hours=14.0):
     out += ["## H1: base vs abliterated worker", ""]
     if os.path.isfile(h1) and os.path.getmtime(h1) >= since:
         out += [ln for ln in open(h1, encoding="utf-8").read().splitlines() if not ln.startswith("# ")]
+        try:                                          # the paired analysis with intervals and the deployment-gate verdict
+            sys.path.insert(0, os.path.join(APP, "tools"))
+            import h1_analysis
+            text = h1_analysis.main()
+            out += ["", "### Paired analysis (tools/h1_analysis.py)", ""] + [ln for ln in text.splitlines() if not ln.startswith("# ")]
+        except Exception as ex:
+            out.append(f"(paired analysis failed: {ex})")
     else:
         out.append("Not finished yet (it runs after the training run and the whole-project re-measure).")
     out.append("")
