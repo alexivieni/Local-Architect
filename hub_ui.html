@@ -1113,6 +1113,9 @@ label.f.hasrec>input,label.f.hasrec>select{border-color:var(--acc)}
 .skip-link:focus{top:8px}
 :focus-visible{outline:3px solid var(--acc)!important;outline-offset:2px!important}
 button,select,input,textarea,summary{min-height:36px}
+
+/* Blueprints, plain language */
+.bp-recipes{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 14px}.bp-desc{font-size:.82rem;color:var(--mute);line-height:1.3}
 /* ===== art direction (docs/art_direction.md): section hues, page glyphs, illustrations, signs of life, the theme picker. Tokens only ===== */
 /* section hue: one colour per place, used for an icon tint and the active marker, nothing else */
 body[data-sec=home],.nav[data-sec=home]{--hue:var(--hue-projects)}
@@ -4093,7 +4096,10 @@ const BP_KINDS={generate:["Write","a model writes or changes code","worker"],cod
   ask_json:["Decide","a model answers in a fixed JSON shape","worker"],judge:["Review","a strict reviewer model grades the result","worker"],
   doc:["Document","a model writes documents","worker"],sample_n:["Try several","several attempts; the first that passes wins","worker"],
   cascade:["Escalate","the same prompt up the tiers until it passes","worker"],tool_loop:["Explore","a model reads, searches and runs tests, one tool at a time","worker"]};
-const BP_TIERS=[["","the role's own tier"],["router","Router (CPU)"],["worker","Worker (GPU)"],["heavy","Heavy (GPU + RAM)"]];
+const BP_TIERS=[["","Whoever usually does this"],["router","Fast helper (processor)"],["worker","Main helper (graphics card)"],["heavy","Expert (graphics card + memory)"]];
+const BP_RECIPES=[["Fix a bug","bugfix","Finds the cause, proves it with a failing test, fixes it, and checks nothing else broke"],
+  ["Add a feature","feature","Plans the change, writes it with tests, and checks it end to end"],
+  ["Review my code","review","Reads the project and lists the most important problems, with file and line"]];
 let BP={kit:null,from:"",id:"",title:"",steps:[],sel:-1,drag:null,dropAt:null,overwrite:false,result:null,seq:0};
 const bpTone=k=>k==="code"?"code":k==="judge"?"judge":"llm";
 const bpNeedsPrompt=k=>((BP.kit&&BP.kit.needs_prompt)||["generate","ask_json","doc","sample_n","cascade","tool_loop"]).includes(k);
@@ -4104,8 +4110,10 @@ function blueprintsPage(){
   return [h("div",{class:"card"},
     h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"Blueprints"),helpBtn("blueprints")),
     h("p",{class:"sub"},"Draw your own workflow: drag steps in, put them in order, pick who runs each one and which check decides it. Saving runs the same validator as the command line."),
+    h("div",{class:"bp-recipes",role:"group","aria-label":"Start from a ready-made recipe"},h("span",{class:"lbl"},"Start from a recipe"),
+      ...BP_RECIPES.map(([l,id,d])=>h("button",{class:"sp-recipe",type:"button",title:d,onclick:()=>{BP.title=l;bpLoad(id);toast(l+": loaded. Change any step, give it a name, then save.");}},l))),
     h("div",{class:"bp-top"},
-      h("label",{class:"f"},"Start from",from),
+      h("label",{class:"f"},"Or start from",from),
       h("button",{class:"btn",onclick:()=>bpLoad(from.value)},"Load"),
       h("label",{class:"f"},"Blueprint id",h("input",{id:"bpId",type:"text",value:BP.id,placeholder:"e.g. my_review",pattern:"[a-z][a-z0-9_]{2,30}",maxlength:"31",autocomplete:"off",
         oninput:e=>{BP.id=e.target.value.trim();bpIdHint();}}),h("span",{class:"hint",id:"bpIdHint"},"")),
@@ -4140,7 +4148,7 @@ function bpDrawPal(){
     const [l,d]=BP_KINDS[k]||[k,""];
     p.append(h("button",{class:"bp-kind k-"+bpTone(k),draggable:"true",title:d+". Drag onto the canvas, or click to add it at the end.",
       ondragstart:e=>{BP.drag={type:"kind",kind:k};e.dataTransfer.effectAllowed="copy";e.dataTransfer.setData("text/plain","kind:"+k);},
-      ondragend:bpEnd,onclick:()=>bpInsert(k,BP.steps.length)},h("b",{},l),h("span",{},k)));
+      ondragend:bpEnd,onclick:()=>bpInsert(k,BP.steps.length),"aria-label":l+": "+d+". Adds it at the end."},h("b",{},l),h("span",{class:"bp-desc"},d)));
   }
 }
 function bpInsert(kind,at){
@@ -4152,7 +4160,7 @@ function bpInsert(kind,at){
 function bpWarn(s){
   if(s.foreign)return "";
   if(s.kind==="code"&&!s.check)return "a check: a code step runs exactly one";
-  if(bpNeedsPrompt(s.kind)&&!s.prompt)return "a prompt: a model step needs a prompt file";
+  if(bpNeedsPrompt(s.kind)&&!s.prompt)return "instructions: tell the model what to do in this step";
   return "";
 }
 function bpDraw(){bpDrawCards();bpEditor();}
