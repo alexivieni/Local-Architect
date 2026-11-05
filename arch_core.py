@@ -77,7 +77,7 @@ DEFAULTS = {
                  "min_gain_pct": 10, "bench_runs": 5,          # optimize flow: required speed-up, benchmark repetitions
                  "hunt_max_files": 4, "hunt_findings": 5,      # hunt flow
                  "network": "offline", "net_allow": [], "net_block_tools": True,   # policy for code run by the Architect: offline | practice | open (default: offline -- nothing the harness runs leaves this machine unless you say so; the binary block below is independent of this)
-                 "thinking": "roles", "sampling": "roles", "chat_model": "worker", "stall_samples": 3, "ground_edits": "on", "tests_first": "off", "tests_on_ecores": "auto", "chores_on_ecores": "auto", "close_on_exit": "auto", "sandbox_mem_mb": 4096,     # roles = as each role defines; plan_debug_only / model_card: measured A/B options
+                 "thinking": "roles", "sampling": "roles", "chat_model": "worker", "stall_samples": 3, "ground_edits": "on", "tests_first": "off", "tests_on_ecores": "auto", "chores_on_ecores": "auto", "close_on_exit": "auto", "reply_budget": "auto", "sandbox_mem_mb": 4096,     # roles = as each role defines; plan_debug_only / model_card: measured A/B options
                  "edit_style": "patch",                        # patch = EDIT blocks (search/replace); whole = write complete files under ~200 lines (small models); auto = whole under ~80 lines
                  "max_shrink_pct": 60,                         # refuse a reply that would cut an existing file (25+ lines) by more than this percent; 0 = off
                  "swap_aware": "on", "fast_tests": "on",      # fast_tests: in fix loops run the tests related to the changed files first, then the whole suite
@@ -1445,6 +1445,17 @@ class Engine:
         # No explicit limit: a cap fitted to the call. Half the window (6144 tokens at 12288) let a model stuck in a repetition loop
         # write for minutes; real replies are 100-3000 tokens. Structured answers (plans, routing, judging) are short; code is longer.
         options["num_predict"] = int(npred) if npred else min(max(1024, options["num_ctx"] // 2), 1536 if (json_out or schema) else 3072)
+        _rb_key = None
+        if not npred:                             # learned per kind of call (arch_replybudget): p95 x 1.5, never after a recent cut-off
+            try:
+                import arch_replybudget as _rb
+                if not _rb.off(self.cfg):
+                    _rb_key = _rb.key(role, label, bool(json_out or schema))
+                    learned = _rb.cap(_rb_key, options["num_predict"])
+                    if learned:
+                        options["num_predict"] = learned
+            except Exception:
+                _rb_key = None
         th = ro.get("think", mo.get("think", spec["think"]))
         if isinstance(th, dict):
             th = th.get("default", spec["think"])
@@ -1717,6 +1728,12 @@ class Engine:
         if cur["host"]:
             rec["host"] = cur["name"]
         self._trace(rec)
+        if _rb_key and rec.get("transport") != "claude":
+            try:
+                import arch_replybudget as _rb
+                _rb.record(_rb_key, r.get("gen_tokens"), r.get("done_reason") == "length")
+            except Exception:
+                pass
         self._provenance(model, host=cur["name"] if cur["host"] else None)   # the model that actually answered (a fallback can differ)
         # the host-unreachable fallback can swap the model underneath (that reply answers a different question); a reply cut off at its
         # limit depends on a server window (llama-server's -c) that is not part of the key, so it is never replayed
