@@ -1,0 +1,26 @@
+Copyright (c) 2026 Alexi Vieni. All rights reserved.
+
+Local Architect (the software in this repository)
+
+This software and its source code are proprietary. No license is granted to use, copy, modify, merge, publish,
+distribute, sublicense, sell, or create derivative works of this software, in whole or in part, without the prior
+written permission of the copyright holder.
+
+Viewing the source on GitHub, and forking it within GitHub as GitHub's Terms of Service allow, does not grant any
+of the rights above.
+
+EXCEPTION -- documentation and the technical report
+
+Everything in the docs/ folder, including the technical report "Engineering Local Agentic Coding Harnesses with
+Orthogonalized Small Language Models" (docs/research/), is licensed separately under the Creative Commons
+Attribution 4.0 International License (CC BY 4.0). See docs/LICENSE.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+OR ITS USE.
+
+Third-party models, runtimes and libraries that this software can download or run (for example llama.cpp, Ollama
+and model weights) are not part of this repository and remain under their own licenses.
+
+For permission requests: alexivieni00@gmail.com

@@ -352,6 +352,12 @@ Please cite the technical report. This repository is its reference implementatio
 }
 ```
 
+## License
+
+The software is proprietary: Copyright (c) 2026 Alexi Vieni, all rights reserved. No use, copying, modification or distribution without written permission; see [LICENSE](LICENSE).
+
+The documentation and the technical report (everything in [docs/](docs/)) are licensed under [CC BY 4.0](docs/LICENSE): share and adapt them freely, with credit.
+
 # Details and release notes
 
 Standalone sibling of the security-focused coding agent (same Model Hub idea, general IT work). Python 3.10+, standard library only; pytest recommended (`python -m pip install pytest`). Runs on Ollama.

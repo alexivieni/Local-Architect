@@ -2,7 +2,7 @@
 
 ## Engineering Local Agentic Coding Harnesses with Orthogonalized Small Language Models
 *Systems Architecture, Representation Geometry, and Airgapped Security Analysis* — Alexi Vieni, Technical Report, draft for review,
-November 2026. [PDF](Engineering_Local_Agentic_Coding_Harnesses_Vieni_2026.pdf)
+November 2026. [PDF](Engineering_Local_Agentic_Coding_Harnesses_Vieni_2026.pdf) · licensed [CC BY 4.0](../LICENSE)
 
 > Agentic coding systems put a language model in a loop: retrieve context, propose an edit, run checks, try again. This report
 > engineers that loop to run entirely on local, airgapped hardware from three components: small language models orthogonalized

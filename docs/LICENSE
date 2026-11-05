@@ -1,0 +1,20 @@
+Copyright (c) 2026 Alexi Vieni.
+
+The contents of this docs/ folder, including the technical report "Engineering Local Agentic Coding Harnesses with
+Orthogonalized Small Language Models" (docs/research/), are licensed under the Creative Commons Attribution 4.0
+International License (CC BY 4.0).
+
+You are free to share (copy and redistribute in any medium or format) and adapt (remix, transform, and build upon)
+this material for any purpose, even commercially, under the following term:
+
+  Attribution -- you must give appropriate credit (Alexi Vieni, and the title of the work), provide a link to the
+  license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that
+  suggests the licensor endorses you or your use.
+
+No additional restrictions -- you may not apply legal terms or technological measures that legally restrict others
+from doing anything the license permits.
+
+Full legal code: https://creativecommons.org/licenses/by/4.0/legalcode
+Summary: https://creativecommons.org/licenses/by/4.0/
+
+This license covers the documentation only. The software in this repository is proprietary; see ../LICENSE.
