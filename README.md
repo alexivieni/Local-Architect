@@ -12,6 +12,9 @@ never leaves your machine unless you turn on the optional Claude step.
 - **Gets better with use**: verified runs become training data for your own models.
 - **Optional Claude step**: when every local model is stuck, one step can be handed to Claude (off by default, spend-capped, never used as training data).
 
+
+**Architecture:** see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — harness, agents, components, workload placement, tokens and caching.
+
 ## What's new today (2026-11-04)
 
 - **Local agents** (`arch_localagent.py`): the fleet can give a brief to your own worker model, which owns only its files and runs its tests itself.
