@@ -239,6 +239,26 @@ A new model must pass `eval --compare` before `promote-model` switches a tier. A
 [design system](docs/design_system.md) · [art direction](docs/art_direction.md) · [training plan](docs/training_plan.md) ·
 [hybrid benchmark](docs/hybrid_benchmark.md)
 
+## What's new (2026-11-05)
+
+- **See every cache** (Models > Caches, `arch_cachestats.py`): seven layers in the order a request meets them, both ends of Claude's
+  prompt cache (98% of input served from cache here), the local KV prefix, disk stores and findings. `architect.py caches
+  [--prune --yes]` keeps them tidy: a 4 GB cap on saved prompt memory, orphans removed only with your yes.
+- **Clean shutdown** (`arch_cleanup.py`, `architect.py cleanup`): closing the hub stops the model servers, unloads Ollama's models,
+  stops Launch runs and removes leftover eval folders; a run still going in another window keeps its servers.
+- **The worker keeps the graphics card** (`server.ollama_gpu`): models Ollama answers stay in RAM while our worker holds the card.
+  Found tonight: the worker had 9 of its 36 layers on the card and ran at a seventh of its speed.
+- **Run timeline** (a run's "timeline" link): every try of every step with its seconds, prompt share from the KV cache, what the
+  checks said and where code fixed the wiring, plus the run's own cost per accepted step.
+- **Cost on workflow cards and an honest Cost map**: measured seconds per passed task on Gallery cards and under the route preview;
+  "how sure" for the cheapest model (Thompson draws); every point says why its failures failed (`arch_triage.py`).
+- **Harness fixes from the failure data**: interface wiring and a contract smoke for whole-project builds, the test flow keeps its
+  output name, the refactor flow holds the request to "X and Y should become one", learned reply budgets, parallel best-of-N when
+  the card has spare slots.
+- **Research**: the over-refusal benchmark (the deployment gate's second half), per-run model provenance, H2 (decode speed vs Eq. 6),
+  and a paired H1 analysis with confidence intervals ([docs/research](docs/research/README.md)).
+- **Overnight report** (Projects > Overnight, `tools/morning_report.py`): what ran, what moved, and what needs you. Bundled Inter font.
+
 ## What's new today (2026-11-04)
 
 - **Local agents** (`arch_localagent.py`): the fleet can give a brief to your own worker model, which owns only its files and runs its tests itself.
