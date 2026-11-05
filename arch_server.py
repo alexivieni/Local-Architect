@@ -1376,3 +1376,74 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ---- free memory when idle (server.idle_free_min) -----------------------------------------------------------------------------
+# Resident model servers answer instantly but hold graphics memory and RAM for as long as they run, and Ollama keeps a model it
+# loaded for `limits.keep_alive` (30 min by default) after the last use. Seen 2026-11-04: 13.7 GB of RAM still held by an Ollama
+# copy of the heavy model long after the run that escalated to it had ended. This sweeper unloads what has been idle for N minutes;
+# the next call that needs a tier starts it again (ensure(), about 5-8 s). 0 = keep everything loaded (the old behaviour).
+_IDLE = {"seen": {}, "thread": None}
+
+
+def idle_sweep(cfg, now=None, say=lambda m: None, http=None):
+    """One pass. -> list of what was freed. `http(url, data=None)` is injectable for tests."""
+    import json as _json
+    import urllib.request as _rq
+    now = now or time.time()
+    mins = float(((cfg or {}).get("server") or {}).get("idle_free_min", 15) or 0)
+    if mins <= 0:
+        return []
+    freed = []
+    st = load_state()
+    for tier, rec in list((st.get("processes") or {}).items()):
+        url = rec.get("url") or f"http://127.0.0.1:{rec.get('port')}"
+        b = busy(url) if http is None else http(url + "/slots-busy")
+        key = "tier:" + tier
+        if b or key not in _IDLE["seen"]:
+            _IDLE["seen"][key] = now
+        elif now - _IDLE["seen"][key] >= mins * 60:
+            stop(tiers=[tier], say=say)
+            _IDLE["seen"].pop(key, None)
+            freed.append(f"{tier} model server ({rec.get('name')})")
+    try:                                                     # Ollama's own loaded models (e.g. an escalation to the heavy model)
+        host = "http://127.0.0.1:11434"
+        ps = _json.loads((_rq.urlopen(host + "/api/ps", timeout=2).read() if http is None else http(host + "/api/ps")) or b"{}")
+        for m in ps.get("models") or []:
+            key = "ollama:" + str(m.get("name"))
+            if key not in _IDLE["seen"]:
+                _IDLE["seen"][key] = now
+            elif now - _IDLE["seen"][key] >= mins * 60:
+                body = _json.dumps({"model": m.get("name"), "keep_alive": 0}).encode()
+                if http is None:
+                    _rq.urlopen(_rq.Request(host + "/api/generate", data=body, headers={"Content-Type": "application/json"}), timeout=10).read()
+                else:
+                    http(host + "/api/generate", body)
+                _IDLE["seen"].pop(key, None)
+                freed.append(f"Ollama copy of {m.get('name')} ({int((m.get('size') or 0) / 1e9)} GB)")
+        loaded = {"ollama:" + str(m.get("name")) for m in ps.get("models") or []}
+        for k in [k for k in _IDLE["seen"] if k.startswith("ollama:") and k not in loaded]:
+            _IDLE["seen"].pop(k, None)
+    except Exception:
+        pass
+    for f in freed:
+        say(f"[idle] freed {f} after {mins:g} idle minutes; it starts again when a task needs it")
+    return freed
+
+
+def start_idle_sweeper(load_cfg, period=60.0, say=lambda m: None):
+    """A background thread (one per process) running idle_sweep every minute with the current settings."""
+    import threading
+    if _IDLE["thread"]:
+        return _IDLE["thread"]
+
+    def loop():
+        while True:
+            try:
+                idle_sweep(load_cfg(), say=say)
+            except Exception:
+                pass
+            time.sleep(period)
+    _IDLE["thread"] = threading.Thread(target=loop, name="idle-sweeper", daemon=True)
+    _IDLE["thread"].start()
+    return _IDLE["thread"]

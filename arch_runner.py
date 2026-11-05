@@ -172,17 +172,41 @@ def start(root, cmd=None, port=None, extra_env=None, timeout_oneshot=600, networ
     return {"ok": rc == 0, **state}
 
 
+def _win_orphans(pid):
+    """Windows: processes whose parent was `pid`. When the shell wrapper has already exited, its server keeps running with
+    the wrapper's (dead) id as its parent id; taskkill /T on the wrapper can no longer reach it. Seen 2026-11-04: a sample
+    `python -m app.server` left running after the security suite. -> list of pids (empty when none or not Windows)."""
+    if os.name != "nt" or not pid:
+        return []
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              f"(Get-CimInstance Win32_Process -Filter 'ParentProcessId={int(pid)}').ProcessId"],
+                             capture_output=True, text=True, timeout=15).stdout
+        return [int(x) for x in out.split() if x.strip().isdigit()]
+    except Exception:
+        return []
+
+
 def stop(root):
     st = _load(root)
     pid = st.get("pid")
     if not pid or not is_running(pid):
         if pid:
+            for kid in _win_orphans(pid):                     # the wrapper is gone but what it started may not be
+                subprocess.run(["taskkill", "/PID", str(kid), "/T", "/F"], capture_output=True, timeout=10)
             st["pid"] = None
             _save(root, st)
         return {"ok": False, "error": "not running"}
     try:
         if os.name == "nt":
+            tree, todo = [], [pid]                             # every descendant first (a launcher in between may already be gone)
+            while todo and len(tree) < 64:
+                kids = _win_orphans(todo.pop())
+                tree += kids
+                todo += kids
             subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=10)
+            for kid in tree:
+                subprocess.run(["taskkill", "/PID", str(kid), "/T", "/F"], capture_output=True, timeout=10)
         else:
             # signal the WHOLE process group start() created (see start_new_session there), not just pid --
             # with shell=True, pid is the shell wrapper; killing only it can leave the real server process

@@ -2304,7 +2304,12 @@ def main(argv=None):
             return {"servers": sorted(t for t, r in (arch_server.load_state().get("processes") or {}).items()
                                       if r.get("pid") and arch_server._alive(r["pid"]))}
         _keep_recorder_samples(arch_hw)                      # /api/arch/gpu reuses these samples instead of measuring again
-        arch_hw.start_recorder(os.path.join(core.data_dir(), "live.log"), extra=servers_up)   # a freeze then leaves evidence
+        arch_hw.start_recorder(os.path.join(core.data_dir(), "live.log"), extra=servers_up)
+        try:                                               # Settings > Server > Free memory when idle (0 = keep models loaded)
+            import arch_server as _asv
+            _asv.start_idle_sweeper(core.load_config, say=print)
+        except Exception:
+            pass   # a freeze then leaves evidence
     start_crew_scheduler()
     return mh.serve(a.port, not a.no_browser)
 

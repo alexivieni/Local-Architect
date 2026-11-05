@@ -63,7 +63,7 @@ DEFAULTS = {
     "role_overrides": {},          # role -> {think, sampling, num_predict}
     "model_overrides": {},         # model -> {num_ctx, sampling, think, system_prompt: "inline"|"system"}
     "limits": {"cloud_usd_per_run": 0.5, "cloud_usd_per_day": 5.0, "num_ctx": 8192, "max_calls": 60, "max_revisions": 3, "request_timeout": 900, "escalate_max_s": 240,
-               "max_files_per_step": 6, "context_chars": 20000, "keep_alive": "30m", "max_file_bytes": 400000,
+               "max_files_per_step": 6, "context_chars": 20000, "keep_alive": "10m", "max_file_bytes": 400000,
                "test_timeout": 300, "max_sprints": 5,
                "timeout_mode": "auto",      # auto = first-token/idle/total limits derived from each model's measured speed (request_timeout is the ceiling); fixed = request_timeout for everything
                "ctx_autogrow": True,        # if a prompt hit the context window (silently truncated by Ollama), retry once with a doubled window
@@ -93,7 +93,7 @@ DEFAULTS = {
                  "config_strict": "medium"},                   # config files: findings at or above this severity fail the check (high|medium|low)
     "tests": {"command": ""},
     "tiers": {"router": "", "worker": "", "heavy": "", "draft": "", "cloud": ""},   # model TIERS: any installed model (Ollama tag or .gguf path) per slot; roles name a tier (arch_roles.TIER_OF); empty = the hardware profile's default
-    "server": {"kind": "auto", "binary": "", "port": 8081, "kv": "q8_0", "flash_attn": True, "draft": "auto", "parallel": 1, "ubatch": 256, "ctx": 0, "slots": True, "ngram": "auto", "cache_ram": 0, "make_room": "auto", "heavy_beside": "auto", "think_budget": 800, "fast_lane": "off", "fast_think_budget": 256},   # the resident llama-server (arch_server.py); auto = use it when the binary is installed, else Ollama. ctx 0 = the hardware profile's measured window.
+    "server": {"kind": "auto", "binary": "", "port": 8081, "kv": "q8_0", "flash_attn": True, "draft": "auto", "parallel": 1, "ubatch": 256, "ctx": 0, "slots": True, "ngram": "auto", "cache_ram": 0, "make_room": "auto", "heavy_beside": "auto", "think_budget": 800, "fast_lane": "off", "fast_think_budget": 256, "idle_free_min": 15},   # the resident llama-server (arch_server.py); auto = use it when the binary is installed, else Ollama. ctx 0 = the hardware profile's measured window.
     "flows": {"engine": "legacy", "budget_scale": 1.0},                 # legacy = the Python flow classes, YAML only fills ids no class provides; data = flows/*.yaml win; off = YAML ignored
     "cache": {"responses": True, "max_rows": 4000, "max_days": 30},   # arch_cache.py: remember temperature-0 replies so a retry or a repeated task costs nothing. Never used by `eval`, never at temperature > 0.
     "supervisor": {"daily_runs": 40, "daily_minutes": 240, "task_minutes": 15, "max_attempts": 3},   # arch_supervisor.py: the queue the machine works through on its own, and the ceilings that stop it running away
