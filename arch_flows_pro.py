@@ -276,6 +276,20 @@ class TestFlow(Flow):
                         st, log = core.run_tests(e.root, e.cfg)
                 e.mark(r["id"], st == "pass", log[-300:])
                 if st == "pass":
+                    fresh = [f for f in new if f not in existing and f.endswith(".py") and (f.startswith("tests/") or "/tests/" in f)]
+                    if target not in new and len(fresh) == 1 and not os.path.exists(os.path.join(e.root, target)):
+                        # The model named its test file differently; the flow's output (and every later step) is `target`. Seen live:
+                        # every failed `test` task ended with passing tests and no tests/test_<name>_extra.py. Moving one passing file is wiring.
+                        try:
+                            os.makedirs(os.path.dirname(os.path.join(e.root, target)), exist_ok=True)
+                            os.replace(os.path.join(e.root, fresh[0]), os.path.join(e.root, target))
+                            core._READ_CACHE.pop(os.path.abspath(os.path.join(e.root, fresh[0])), None)
+                            e.say(f"[wire] {fresh[0]} -> {target}: the tests passed under another name; the flow's output is {target}")
+                            e._trace({"type": "assist", "id": r["id"], "t": time.time(), "flow": e.flow, "step": label,
+                                      "fixes": [{"file": target, "why": f"moved {fresh[0]} to {target}"}]})
+                            new = [target if f == fresh[0] else f for f in new]
+                        except OSError:
+                            pass
                     return new
                 for f in new:
                     if f not in existing:

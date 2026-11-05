@@ -16,7 +16,7 @@ ENV = re.compile(r"not reachable|Loading model|No first token|No further output|
                  r"server .*(down|died)|address already in use|could not run|No module named 'pytest'|llama-server said", re.I)
 WIRING = re.compile(r"ImportError|ModuleNotFoundError|cannot import name|No module named|missing: .*(__init__|__main__)\.py|"
                     r"takes \d+ positional argument|got an unexpected keyword|has no attribute|is not callable|"
-                    r"does not fit the signature|python -m .* (has no|cannot)", re.I)
+                    r"does not fit the signature|python -m .* (has no|cannot)|missing: \S+\.py|is missing$", re.I)
 TIMEOUT = re.compile(r"timed out|timeout|BudgetExceeded|budget|ran out of", re.I)
 FAMILIES = ("environment", "refusal", "wiring", "tests", "timeout", "behaviour")
 
