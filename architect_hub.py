@@ -429,7 +429,35 @@ def trace_listing(root, run_name):
             continue
         if rec.get("type") == "call":
             out.append({"id": rec.get("id"), "t": rec.get("t"), "role": rec.get("role"), "model": rec.get("model"), "label": rec.get("label"),
-                        "secs": rec.get("secs"), "tok_s": rec.get("tok_s"), "gen_tokens": rec.get("gen_tokens"), "done_reason": rec.get("done_reason")})
+                        "secs": rec.get("secs"), "tok_s": rec.get("tok_s"), "gen_tokens": rec.get("gen_tokens"), "done_reason": rec.get("done_reason"),
+                        "prompt_tokens": rec.get("prompt_tokens"), "cached": rec.get("prefix_reused_est"), "exact": rec.get("cached_exact"),
+                        "tier": rec.get("tier"), "transport": rec.get("transport"), "usd": rec.get("usd")})
+    return out
+
+
+def trace_economics(root, run_name):
+    """Everything the run timeline needs besides the calls: what the checks said about each call (marks), the interface-wiring help
+    (assists), the step checks, escalations and the verdict. Never prompt or reply text. Capped."""
+    p = os.path.join(root, ".arch", "runs", run_name, "trace.jsonl")
+    out = {"marks": {}, "assists": {}, "checks": [], "escalations": [], "verdict": None}
+    if not os.path.isfile(p):
+        return out
+    for line in open(p, encoding="utf-8", errors="replace"):
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        t = rec.get("type")
+        if t == "mark" and rec.get("id") is not None:
+            out["marks"][str(rec["id"])] = {"accepted": rec.get("accepted"), "reason": str(rec.get("reason") or "")[:300]}
+        elif t == "assist" and rec.get("id") is not None:
+            out["assists"][str(rec["id"])] = [str(f.get("why") or f.get("file") or "")[:200] for f in (rec.get("fixes") or [])][:6]
+        elif t == "check" and len(out["checks"]) < 400:
+            out["checks"].append({"step": rec.get("step"), "gate": rec.get("gate"), "ok": rec.get("ok"), "text": str(rec.get("text") or "")[:200]})
+        elif t == "escalation" and len(out["escalations"]) < 50:
+            out["escalations"].append({"step": rec.get("step"), "role": rec.get("role"), "to": rec.get("to") or rec.get("model")})
+        elif t == "verdict":
+            out["verdict"] = {"verdict": rec.get("verdict"), "why": str(rec.get("why") or rec.get("reason") or "")[:300]}
     return out
 
 
@@ -1456,7 +1484,7 @@ class AHandler(mh.Handler):
                 root = safe_root((q.get("root") or [HERE])[0])
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
-            return self._send(200, {"calls": trace_listing(root, run_name)})
+            return self._send(200, dict({"calls": trace_listing(root, run_name)}, **trace_economics(root, run_name)))
         if u.path == "/api/arch/serve":
             if not self._host_ok():
                 return self._send(403, {"error": "bad host"})

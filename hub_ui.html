@@ -1284,6 +1284,8 @@ p,li,dd,td{font-size:inherit}
 .ca-legend{display:flex;flex-wrap:wrap;gap:4px 16px}.ca-finds{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .ca-finds li{display:flex;gap:10px;align-items:baseline}.ca-finds .chip{flex:none}
 .ca-scroll{overflow-x:auto;border-radius:12px}.ca-scroll:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+/* a window (report, run timeline) floats over the page: a later .card rule had made it position:relative, so it opened below everything */
+.card.modal{position:fixed;inset:5% 6%;z-index:60;overflow:auto;box-shadow:0 20px 60px color-mix(in srgb,var(--bg) 70%,transparent)}
 /* ===== reduced motion: one rule for the whole app (the older per-layer copies above say the same thing) ===== */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
@@ -4055,22 +4057,66 @@ async function loadRuns(){
   if(!box.querySelector("table")){box.innerHTML="";box.append(h("div",{class:"skeleton",style:"height:54px"}));}
   try{const rs=await api("/api/arch/runs?root="+encodeURIComponent(run.root));box.innerHTML="";
     if(!rs.length){box.textContent="No runs in this folder yet. Describe a change and press Start; each run is listed here with its report.";return;}
-    box.append(h("table",null,h("tbody",null,...rs.map(r=>h("tr",null,h("td",{class:"mono small"},r.name),h("td",null,h("span",{class:"chip acc"},r.flow)),h("td",null,r.goal),h("td",{class:"n"},r.calls+" calls"),h("td",null,h("span",{class:"chip "+(r.state==="complete"?"good":"warn")},r.state)),h("td",null,h("a",{class:"link",onclick:()=>showReport(r)},"report")," · ",h("a",{class:"link",title:"Every model call this run made, with prompts and replies",onclick:()=>showTrace(r)},"model calls")))))));
+    box.append(h("table",null,h("tbody",null,...rs.map(r=>h("tr",null,h("td",{class:"mono small"},r.name),h("td",null,h("span",{class:"chip acc"},r.flow)),h("td",null,r.goal),h("td",{class:"n"},r.calls+" calls"),h("td",null,h("span",{class:"chip "+(r.state==="complete"?"good":"warn")},r.state)),h("td",null,h("a",{class:"link",onclick:()=>showReport(r)},"report")," · ",h("a",{class:"link",title:"Every try of every step: cost, cache share, checks",onclick:()=>showTrace(r)},"timeline")))))));
   }catch(e){box.textContent=e.message;}
 }
 function showReport(r){const d=h("div",{class:"card modal"},h("div",{class:"row"},h("h2",{class:"grow"},r.name),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),h("pre",{class:"term",style:"height:auto;max-height:70vh"},r.report));document.body.append(d);}
+/* ---- the run timeline: every try of every step as a rung, with what it cost, how much came from cache and what the checks said ---- */
+const tlStep=l=>String(l||"").replace(/[-_]?(?:try|cand|sample)\d+$/,"")||"step";
+const tlTry=l=>{const m=String(l||"").match(/(?:try|cand|sample)(\d+)$/);return m?+m[1]:1;};
+function tlMark(m){
+  if(!m) return h("span",{class:"chip"},"not checked");
+  if(m.accepted===true) return h("span",{class:"chip good"},"passed");
+  if(m.accepted===false) return h("span",{class:"chip bad",title:m.reason||""},"failed");
+  return h("span",{class:"chip warn",title:m.reason||"the checks could not run"},"not sure");
+}
+function tlDraw(t,body){
+  body.innerHTML="";
+  const calls=t.calls||[], marks=t.marks||{}, assists=t.assists||{};
+  if(!calls.length){ body.append(h("p",{class:"sub"},"No model calls recorded for this run (a code-only step, or the run made none).")); return; }
+  const secs=calls.reduce((a,c)=>a+(+c.secs||0),0), pin=calls.reduce((a,c)=>a+(+c.prompt_tokens||0),0),
+        pc=calls.reduce((a,c)=>a+Math.min(+c.cached||0,+c.prompt_tokens||0),0), out=calls.reduce((a,c)=>a+(+c.gen_tokens||0),0);
+  const steps=[]; const byStep={};
+  for(const c of calls){ const k=tlStep(c.label||c.role); if(!byStep[k]){byStep[k]=[];steps.push(k);} byStep[k].push(c); }
+  const passed=steps.filter(k=>byStep[k].some(c=>(marks[String(c.id)]||{}).accepted===true)).length;
+  const tile=(big,lbl,cls)=>h("div",{class:"btile "+(cls||"")},h("b",{class:"num"},big),h("span",{class:"mute small"},lbl));
+  body.append(h("div",{class:"btiles"},
+    tile(String(calls.length),"model calls"),tile(fmt(secs,0)+" s","in the model"),
+    tile(pin?Math.round(100*pc/pin)+"%":"–","of prompt tokens from the KV cache"),
+    tile(passed+" of "+steps.length,"steps accepted"),
+    tile(passed?fmt(secs/passed,0)+" s":"–","per accepted step (C for this run)",passed?"":"bad")));
+  if(t.verdict) body.append(h("p",{class:"small",style:"margin:8px 0"},h("b",null,"Verdict: "),String(t.verdict.verdict||"")+(t.verdict.why?" -- "+t.verdict.why:"")));
+  for(const k of steps){
+    const tries=byStep[k].slice().sort((a,b)=>(a.t||0)-(b.t||0));
+    const checks=(t.checks||[]).filter(c=>tlStep(c.step)===k||c.step===k);
+    const first=tries[0], win=tries.find(c=>(marks[String(c.id)]||{}).accepted===true);
+    body.append(h("div",{class:"card",style:"margin-top:10px"},
+      h("div",{class:"row",style:"gap:8px;align-items:center;flex-wrap:wrap"},h("h3",{class:"grow",style:"margin:0"},k),
+        h("span",{class:"chip"},tries.length+(tries.length===1?" try":" tries")),
+        win?h("span",{class:"chip good"},"accepted on try "+(tries.indexOf(win)+1)):h("span",{class:"chip warn"},"no try accepted")),
+      h("div",{style:"overflow-x:auto"},h("table",null,
+        h("thead",null,h("tr",null,...["Try","Model","Seconds","Prompt (from cache)","Reply tokens","Speed","Checks","Help from code"].map((x,i)=>h("th",{class:(i>=2&&i<=5)?"n":""},x)))),
+        h("tbody",null,...tries.map((c,i)=>{const m=marks[String(c.id)], a=assists[String(c.id)]||[];
+          const rho=c.prompt_tokens?Math.round(100*Math.min(+c.cached||0,+c.prompt_tokens)/c.prompt_tokens):null;
+          return h("tr",null,h("td",null,String(tlTry(c.label)||i+1)+(c.done_reason==="cached"?" (reused reply)":"")),
+            h("td",{class:"mono small"},String(c.model||"").replace(/^[^/]+\//,"")),
+            h("td",{class:"n"},fmt(c.secs,1)),
+            h("td",{class:"n"},(c.prompt_tokens??"–")+(rho!=null?" ("+rho+"%"+(c.exact?"":" est.")+")":"")),
+            h("td",{class:"n"},c.gen_tokens??"–"),h("td",{class:"n"},c.tok_s!=null?fmt(c.tok_s,0)+" tok/s":"–"),
+            h("td",null,tlMark(m),m&&m.reason&&m.accepted===false?h("div",{class:"small mute",style:"max-width:420px"},m.reason.slice(0,160)):null),
+            h("td",{class:"small"},a.length?a.join("; "):"–"));})))),
+      checks.length?h("div",{class:"row small",style:"gap:6px;flex-wrap:wrap;margin-top:6px"},h("span",{class:"mute"},"Step checks:"),
+        ...checks.slice(0,12).map(c=>h("span",{class:"chip "+(c.ok===true?"good":c.ok===false?"bad":"warn"),title:c.text||""},String(c.gate||"check")))):null,
+      win&&first&&win!==first?h("p",{class:"small mute",style:"margin:6px 0 0"},"Feedback paid off: try "+(tries.indexOf(win)+1)+" passed after "+tries.indexOf(win)+" failed "+(tries.indexOf(win)===1?"try":"tries")+"."):null));
+  }
+}
 async function showTrace(r){
-  const d=h("div",{class:"card modal"},h("div",{class:"row"},h("h2",{class:"grow"},"Real call trace -- ",r.name),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),
-    h("p",{class:"sub"},"Every row here is an actual completed call to Ollama during this run -- the model, role, measured tokens/sec and duration the server itself reported, written to trace.jsonl as it happened. This is proof calls happened, not a claim."),
-    h("div",{id:"traceBody"},h("p",{class:"sub"},"Loading…")));
+  const d=h("div",{class:"card modal",role:"dialog","aria-label":"Run timeline"},h("div",{class:"row"},h("h2",{class:"grow"},"Run timeline -- ",r.name),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),
+    h("p",{class:"sub"},"Every try of every step, read from the run's own trace: what it cost, how much of the prompt the server reused from its cache, what the checks said, and where code fixed the wiring. Prompts and replies are not shown here."),
+    h("div",{id:"traceBody",style:"max-height:70vh;overflow:auto"},h("p",{class:"sub"},"Loading…")));
   document.body.append(d);
-  try{
-    const t=await api("/api/arch/trace?root="+encodeURIComponent(run.root)+"&run="+encodeURIComponent(r.name));
-    const body=d.querySelector("#traceBody");body.innerHTML="";
-    if(!t.calls.length){body.append(h("p",{class:"sub"},"No model calls recorded for this run (a code-only step, or the run made none)."));return;}
-    body.append(h("table",null,h("thead",null,h("tr",null,h("th",null,"role"),h("th",null,"model"),h("th",null,"tokens"),h("th",null,"tok/s"),h("th",null,"secs"),h("th",null,"ended"))),
-      h("tbody",null,...t.calls.map(c=>h("tr",null,h("td",null,roleName(c.role)),h("td",{class:"mono small"},c.model),h("td",{class:"n"},c.gen_tokens??"-"),h("td",{class:"n"},c.tok_s??"-"),h("td",{class:"n"},c.secs??"-"),h("td",null,c.done_reason||"-"))))));
-  }catch(e){const body=d.querySelector("#traceBody");body.innerHTML="";body.append(h("div",{class:"note bad"},e.message));}
+  try{ const t=await api("/api/arch/trace?root="+encodeURIComponent(run.root)+"&run="+encodeURIComponent(r.name)); tlDraw(t,d.querySelector("#traceBody")); }
+  catch(e){const body=d.querySelector("#traceBody");body.innerHTML="";body.append(h("div",{class:"note bad"},e.message));}
 }
 
 /* ---------- Portfolio ---------- */
