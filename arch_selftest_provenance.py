@@ -384,7 +384,7 @@ def run():
             arch_server.slot_io, tempfile.gettempdir = orig_slot, orig_tmp
             os.environ.pop("ARCHITECT_EVAL", None)
         check("finish(): no prompt-memory save for an eval run or a temp folder; an ordinary project still saves its own",
-              in_eval == [] and in_temp == [] and in_real == [("save", "proj")], (in_eval, in_temp, in_real))
+              in_eval == [] and in_temp == [] and len(in_real) == 1 and in_real[0][0] == "save" and os.path.basename(in_real[0][1]) == "proj" and os.path.isabs(in_real[0][1]), (in_eval, in_temp, in_real))
     finally:
         core.model_provenance, P.load = orig_prov, orig_load
         srv.shutdown()

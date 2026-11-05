@@ -998,18 +998,38 @@ def serving(model, cfg=None):
 
 def slot_io(action, cfg, project, tier="worker"):
     """Save or restore the worker's prompt memory for one project (llama-server --slot-save-path): reopening a project then skips
-    re-reading its context. Best effort: any failure (older build, slot busy, file missing) is silently nothing. -> True/False."""
+    re-reading its context. Best effort: any failure (older build, slot busy, file missing) is silently nothing. -> True/False.
+
+    `project` is the project's full path (file = base name + a short hash of the path, so two folders named `app` keep separate files)
+    or, from older callers, its base name (the old name). A restore by full path falls back to the old base-name file. A restore marks
+    the file as used (its time), and a save then applies storage.slot_cache_gb: least recently used OTHER files beyond it are deleted
+    and logged (arch_cachehygiene.enforce_slot_cap)."""
     try:
+        import arch_cachehygiene as hyg
         sv = serving(f"tier:{tier}", cfg)
         if not sv or action not in ("save", "restore") or busy(sv["url"]):
             return False
-        name = re.sub(r"[^A-Za-z0-9_-]+", "_", str(project))[:60] + ".bin"
-        if action == "restore" and not os.path.isfile(os.path.join(server_dir(), "slots", tier, name)):
-            return False
+        sdir = os.path.join(server_dir(), "slots", tier)
+        name = hyg.slot_name(project)
+        if action == "restore" and not os.path.isfile(os.path.join(sdir, name)):
+            old = hyg.legacy_slot_name(project)
+            if old == name or not os.path.isfile(os.path.join(sdir, old)):
+                return False
+            name = old
         req = urllib.request.Request(sv["url"].rstrip("/") + f"/slots/0?action={action}", data=json.dumps({"filename": name}).encode(),
                                      headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=20) as r:
-            return r.status == 200
+            ok = r.status == 200
+        if ok:
+            path = os.path.join(sdir, name)
+            try:
+                if action == "restore":
+                    os.utime(path, None)              # least-recently-USED: a restore counts as a use
+                else:
+                    hyg.enforce_slot_cap(cfg, keep=path)
+            except Exception:
+                pass
+        return ok
     except Exception:
         return False
 

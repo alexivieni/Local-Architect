@@ -1568,6 +1568,16 @@ class AHandler(mh.Handler):
                     pass
                 c = AHandler._live_cache = (now, sorted(set(map(str, names)))[:20])
             return self._send(200, {"running": len(c[1]), "names": c[1]})
+        if u.path == "/api/arch/caches":                # every cache layer, both ends of Claude, findings (read-only; cached 60 s)
+            import arch_cachestats
+            now = time.time()
+            c = getattr(AHandler, "_caches_cache", None)
+            if not c or now - c[0] > 60 or "fresh" in u.query:
+                try:
+                    c = AHandler._caches_cache = (now, arch_cachestats.ledger())
+                except Exception as ex:
+                    return self._send(200, {"layers": [], "findings": [], "error": str(ex)[:200]})
+            return self._send(200, c[1])
         if u.path == "/api/arch/cost":                  # the report's C = t / p-bar from this machine's evals and traces (read-only)
             import glob as _glob
             import arch_costmodel as cm

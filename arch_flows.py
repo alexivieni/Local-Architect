@@ -142,10 +142,16 @@ def _best_of_n_loop(e, role, prompt, label, k, changed, pro, best, best_score, t
     # identical question); each round starts further along the strategy list and names its round
     rnd = getattr(e, "_bon_rounds", 0)
     e._bon_rounds = rnd + 1
+
+    def ask(i):
+        return prompt + f"\n\n(Rescue round {rnd + 1}, attempt {i + 1} of {k}. Strategy: {ways[(rnd * k + i) % len(ways)]}{lock})"
+
+    slots = bon_slots(e, role) if k >= 2 else 1
+    if slots >= 2:
+        return _best_of_n_batched(e, role, ask, label, k, changed, pro, best, best_score, slots)
     for i in range(k):
         try:
-            r = e.call(role, prompt + f"\n\n(Rescue round {rnd + 1}, attempt {i + 1} of {k}. Strategy: {ways[(rnd * k + i) % len(ways)]}{lock})",
-                       label=f"{label}-sample{i + 1}", temperature=0.9)
+            r = e.call(role, ask(i), label=f"{label}-sample{i + 1}", temperature=0.9)
         except core.LoopDetected:
             break                                                # nothing new to ask: keep the best attempt so far
         cap = pro.capture(e)
@@ -164,6 +170,135 @@ def _best_of_n_loop(e, role, prompt, label, k, changed, pro, best, best_score, t
         if score >= 1000:
             e.say(f"    [best of {k}] attempt {i + 1} passes every check")
             break
+    return best
+
+
+def bon_slots(e, role):
+    """How many conversations the server answering `role` holds at once (llama-server --parallel N), -> int >= 1.
+
+    A llama-server that serves the role's model answers for itself: the slot count it was started with (its recorded arguments), which is
+    what the graphics memory was planned for. Any other local server (Ollama) gets the person's setting, Settings > Server > Parallel.
+    A cloud model, another machine, or anything that cannot be read -> 1, which keeps the one-after-another path."""
+    try:
+        model = e.model_for(role)
+        if not model or str(model).startswith("claude:"):
+            return 1
+        import arch_hosts
+        if arch_hosts.route_of(e.cfg, role):
+            return 1
+        import arch_server
+        sv = arch_server.serving(model, e.cfg)
+        if sv:
+            rec = (arch_server.load_state().get("processes") or {}).get(sv.get("tier")) or {}
+            args = [str(a) for a in (rec.get("args") or [])]
+            n = int(args[args.index("--parallel") + 1]) if "--parallel" in args[:-1] else int(rec.get("parallel") or 1)
+        else:
+            n = int((e.cfg.get("server") or {}).get("parallel") or 1)
+        return max(1, n)
+    except Exception:
+        return 1
+
+
+def bon_calls_left(e):
+    """Model calls the run may still make: the tightest of Settings > Limits > max calls and every budget on the stack. A batch is
+    sized to this BEFORE it is sent, because N requests launched together would otherwise all pass the per-call check at once."""
+    cap = int(e.cfg["limits"]["max_calls"]) - int(e.calls)
+    left = e.budget_left().get("calls")
+    return max(0, cap if left is None else min(cap, int(left)))
+
+
+def bon_generate(e, items, slots):
+    """Send several model calls side by side, at most `slots` at a time. items: [(role, prompt, call kwargs)].
+    -> [(reply or None, exception or None)] in the order given. Each call is a full Engine.call (own trace id, label, budget check,
+    reply cache); the engine serialises its bookkeeping and only the wait for the model overlaps."""
+    import threading
+    out = [(None, None)] * len(items)
+
+    def one(j):
+        role, text, kw = items[j]
+        try:
+            out[j] = (e.call(role, text, **kw), None)
+        except BaseException as ex:                      # handed back to the caller, which decides (fall back, stop, skip)
+            out[j] = (None, ex)
+    for lo in range(0, len(items), max(1, slots)):
+        batch = [threading.Thread(target=one, args=(j,), daemon=True) for j in range(lo, min(len(items), lo + max(1, slots)))]
+        for t in batch:
+            t.start()
+        for t in batch:
+            t.join()
+    return out
+
+
+def _bon_replies(e, role, ask, label, k, slots, made=None):
+    """The candidates of a rescue round, in order, generated `slots` at a time. Lazy: the caller stops at the first that passes, and no
+    further batch is sent. A batch is never larger than the calls the budgets still allow; with fewer than two left, or for any candidate
+    whose concurrent request failed, the request is made again on its own -- exactly the one-after-another path, so a used-up budget
+    or a dead server raises the same error it always did. `made` collects every reply generated, checked or not."""
+    made = [] if made is None else made
+    i = 0
+    while i < k:
+        n = min(slots, k - i, bon_calls_left(e))
+        if n < 2:
+            r = e.call(role, ask(i), label=f"{label}-sample{i + 1}", temperature=0.9)
+            made.append(r)
+            yield i, r
+            i += 1
+            continue
+        try:
+            got = bon_generate(e, [(role, ask(j), {"label": f"{label}-sample{j + 1}", "temperature": 0.9}) for j in range(i, i + n)], n)
+        except Exception as ex:                                  # the side-by-side machinery itself failed: every one of them, on its own
+            got = [(None, ex)] * n
+        made.extend(r for r, _ex in got if r)
+        for j, (r, ex) in zip(range(i, i + n), got):
+            if ex is not None:
+                if isinstance(ex, (core.LoopDetected, KeyboardInterrupt)):
+                    raise ex
+                e.say(f"    [best of {k}] attempt {j + 1} failed side by side ({type(ex).__name__}: {str(ex)[:100]}); asking again on its own")
+                r = e.call(role, ask(j), label=f"{label}-sample{j + 1}", temperature=0.9)
+                made.append(r)
+            yield j, r
+        i += n
+
+
+def _best_of_n_batched(e, role, ask, label, k, changed, pro, best, best_score, slots):
+    """_best_of_n_loop on a server with several slots (report Eq. 21: the shared prompt is read once, so k candidates cost little more
+    than one). Each candidate is still applied and verified on its own, on the real files, which are put back after each; the first
+    that passes every check wins, else the best score. Candidates that were generated but not chosen are marked, so a batch also
+    leaves preference data; the returned reply is marked by the caller, as on the sequential path."""
+    e.say(f"    [best of {k}] {slots} slots on the server: generating up to {min(slots, k)} attempts at once")
+    seen, made = [], []
+    try:
+        for i, r in _bon_replies(e, role, ask, label, k, slots, made):
+            cap = pro.capture(e)
+            try:
+                res = e.apply(r["text"], f"{label} sample {i + 1}")
+                applied = [x["rel"] for x in res if x["status"] in ("applied", "identical")]
+                v = verify(e, sorted(set(changed) | set(applied))) if applied else {"ok": False, "passed": 0}
+                score = 1000 if v.get("ok") else int(v.get("passed") or 0)
+            except Exception:
+                score = -1
+            finally:
+                pro.restore(e, cap)
+            e._trace({"type": "check", "t": time.time(), "gate": f"best of {k}: attempt {i + 1}", "ok": score >= 1000, "metrics": {"score": score}})
+            seen.append((r, score))
+            if score > best_score:
+                best, best_score = r, score
+            if score >= 1000:
+                e.say(f"    [best of {k}] attempt {i + 1} passes every check")
+                break
+    except core.LoopDetected:
+        pass                                                     # nothing new to ask: keep the best attempt so far
+    scores = {id(r): s for r, s in seen}
+    for r in made:
+        if r is best:
+            continue
+        s = scores.get(id(r))
+        if s is None:                                            # generated in the batch, never tried: an earlier attempt already passed
+            e.mark(r["id"], None, "not checked: an earlier attempt in the same batch passed")
+        elif s < 0:
+            e.mark(r["id"], None, "this attempt could not be applied or checked")
+        else:
+            e.mark(r["id"], False, "failed the checks; another attempt was kept")
     return best
 
 
@@ -1289,6 +1424,19 @@ class BuildFlow(Flow):
                         v = dict(v, ok=False, text=(ctext + ("\n\n" + v["text"] if v.get("text") else "")))
                         e._trace({"type": "check", "t": time.time(), "flow": e.flow, "step": f"sprint{n}", "gate": "interface_contract",
                                   "ok": False, "text": ctext[:2000], "metrics": {}, "secs": 0})
+                    else:                                               # the shape is right: now RUN the request's own first usages
+                        t_s = time.time()                               # (arch_smoke: only what the request states; never a judge)
+                        try:
+                            import arch_smoke
+                            sok, stext = arch_smoke.smoke_contract(e, goal)
+                        except Exception as ex:                         # an error in the smoke is "could not run", never a broken build
+                            sok, stext = None, f"(the contract smoke could not run: {type(ex).__name__}: {ex})"
+                        if sok is not None:                             # None (nothing could be exercised) changes nothing
+                            e._trace({"type": "check", "t": time.time(), "flow": e.flow, "step": f"sprint{n}", "gate": "contract_smoke",
+                                      "ok": bool(sok), "text": (stext or "")[:2000], "metrics": {}, "secs": round(time.time() - t_s, 2)})
+                        if sok is False:
+                            cok_last = False
+                            v = dict(v, ok=False, text=(stext + ("\n\n" + v["text"] if v.get("text") else "")))
                 log_checks(e, f"sprint {n} checks", v)
                 e.mark(r["id"], v["ok"], v["text"])
                 if wired:                                               # this try had help from code: never a training sample on its own

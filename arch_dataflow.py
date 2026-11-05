@@ -641,22 +641,54 @@ class DataFlow:
             if "{context}" in tpl:
                 extra["context"] = self._context(e, ctx, step, render(step.get("context", {}).get("extra", ""), ctx))
             base = render(tpl, ctx, extra)
-            par = max(1, min(n, int((e.cfg.get("server") or {}).get("parallel") or 1)))
+            import arch_flows as fl
+            # the slots the server answering this role really has (a llama-server's own --parallel; else Settings > Server > Parallel)
+            par = max(1, min(n, fl.bon_slots(e, role)))
             base_t = float(step.get("temperature", 0.7))
             replies = [None] * n
 
-            def one(i):
+            def ask(i):
                 # The prompt is identical; only the candidate number at the very END differs, so the server's prefix cache still covers
                 # all of it, and the engine does not mistake N deliberate samples for a model stuck in a loop.
-                replies[i] = e.call(role, base + f"\n\n(candidate {i + 1} of {n})", label=f"{step['id']}-cand{i + 1}",
-                                    think=step.get("think"), temperature=min(1.2, base_t + 0.1 * i))
+                return (role, base + f"\n\n(candidate {i + 1} of {n})",
+                        {"label": f"{step['id']}-cand{i + 1}", "think": step.get("think"), "temperature": min(1.2, base_t + 0.1 * i)})
+
+            def one(i):
+                r_, text_, kw_ = ask(i)
+                replies[i] = e.call(r_, text_, **kw_)
+
+            def alone(i):                                # the one-after-another path, exactly as it has always run
+                t = threading.Thread(target=one, args=(i,))
+                t.start()
+                t.join()
             e.say(f"[best of {n}] {'generating ' + str(par) + ' at a time' if par > 1 else 'generating one after another'}")
-            for lo in range(0, n, par):
-                batch = [threading.Thread(target=one, args=(i,)) for i in range(lo, min(n, lo + par))]
-                for t in batch:
-                    t.start()
-                for t in batch:
-                    t.join()
+            if par < 2:
+                for i in range(n):
+                    alone(i)
+            else:
+                # Side by side (report Eq. 21): a batch is never larger than the calls the budgets still allow (sized BEFORE sending,
+                # since requests launched together all pass the per-call check at once); a candidate whose concurrent request failed,
+                # or a batch that would hold fewer than two, runs on its own path above.
+                lo = 0
+                while lo < n:
+                    nb = min(par, n - lo, fl.bon_calls_left(e))
+                    if nb < 2:
+                        alone(lo)
+                        lo += 1
+                        continue
+                    try:
+                        got = fl.bon_generate(e, [ask(j) for j in range(lo, lo + nb)], nb)
+                    except Exception as ex:          # the side-by-side machinery itself failed: every one of them, on its own
+                        got = [(None, ex)] * nb
+                    for j, (r_, ex_) in zip(range(lo, lo + nb), got):
+                        if ex_ is None:
+                            replies[j] = r_
+                        elif not isinstance(ex_, KeyboardInterrupt):
+                            e.say(f"[best of {n}] candidate {j + 1} failed side by side ({type(ex_).__name__}); asking again on its own")
+                            alone(j)
+                        else:
+                            raise ex_
+                    lo += nb
 
             cap = pro.capture(e)
             scored = []

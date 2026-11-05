@@ -182,6 +182,36 @@ def get(k, cfg=None):
         c.close()
 
 
+def limits(cfg=None):
+    """-> (max_rows, max_days) from Settings > Reply cache (cache.max_rows / cache.max_days); 0 = that limit is off."""
+    c = (cfg or {}).get("cache") or {}
+    out = []
+    for name, dflt in (("max_rows", MAX_ROWS), ("max_days", MAX_DAYS)):
+        try:
+            out.append(max(0, int(c.get(name, dflt) if c.get(name, dflt) is not None else dflt)))
+        except (TypeError, ValueError):
+            out.append(dflt)
+    return out[0], out[1]
+
+
+TRIM_AGE_EVERY = 50                # the age sweep runs on every 50th store; the row cap is checked on every store
+
+
+def _trim(c, cfg, now):
+    """Keep the store within the person's limits as it is written (until 2026-11-05 `prune` existed but nothing called it, so the
+    caps in Settings were never applied): past max_rows the least recently used rows go; every TRIM_AGE_EVERY stores, rows older
+    than max_days go too."""
+    max_rows, max_days = limits(cfg)
+    if max_days:
+        row = c.execute("select v from totals where k = 'stored'").fetchone()
+        if row and int(row[0] or 0) % TRIM_AGE_EVERY == 0:
+            c.execute("delete from responses where created < ?", (now - max_days * 86400,))
+    if max_rows:
+        n = c.execute("select count(*) from responses").fetchone()[0]
+        if n > max_rows:
+            c.execute("delete from responses where k in (select k from responses order by used asc limit ?)", (n - max_rows,))
+
+
 def put(k, model, reply, tokens_in=0, tokens_out=0, secs=0.0, tier="", schema_name="", cfg=None):
     """Remember one reply. -> True when stored. Silently declines what is not worth keeping."""
     if not enabled(cfg) or not k or not reply or len(reply) > MAX_REPLY:
@@ -198,6 +228,7 @@ def put(k, model, reply, tokens_in=0, tokens_out=0, secs=0.0, tier="", schema_na
                   (k, str(model or ""), str(tier or ""), reply, int(tokens_in or 0), int(tokens_out or 0),
                    float(secs or 0), str(schema_name or ""), now, now))
         _bump(c, "stored")
+        _trim(c, cfg, now)
         c.commit()
         return True
     except sqlite3.Error:

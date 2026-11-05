@@ -1273,6 +1273,14 @@ p,li,dd,td{font-size:inherit}
 .cm-pt{cursor:pointer;outline:none}.cm-pt:focus-visible>:last-child{stroke:var(--ink);stroke-width:3}
 /* measured cost where work is picked (Gallery workflow cards, the route preview): one chip per task family, each opens the Cost map */
 .gal-costs{display:flex;flex-wrap:wrap;gap:6px}.gal-cost{font-family:inherit;white-space:normal;text-align:left;cursor:pointer}.gal-cost:hover{border-color:var(--acc)}.cost-line{margin-top:4px}
+/* the Caches page: split bars (share of input, pauses between replies) and their legend swatches, all theme tokens */
+.ca-bar{display:flex;height:12px;border-radius:99px;overflow:hidden;background:var(--soft);margin:8px 0 6px}.ca-bar>span{display:block;height:100%}
+.ca-read,.ca-g1{background:var(--good)}.ca-write,.ca-g2{background:var(--warn)}.ca-unc,.ca-g3{background:var(--faint)}
+.ca-sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:baseline}
+.ca-two{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px 28px}
+.ca-legend{display:flex;flex-wrap:wrap;gap:4px 16px}.ca-finds{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.ca-finds li{display:flex;gap:10px;align-items:baseline}.ca-finds .chip{flex:none}
+.ca-scroll{overflow-x:auto;border-radius:12px}.ca-scroll:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 /* ===== reduced motion: one rule for the whole app (the older per-layer copies above say the same thing) ===== */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
@@ -1415,7 +1423,7 @@ const NAV_GROUPS=[
     ["library","spark","Library","Agent briefs that worked, kept as templates: what each does, why, and a button to use it"]]],
   ["1. Set up",[["tiers","layers","Tiers","Which installed model does which job on this machine, and why"],["overview","⌂","Overview","Your local engineering team at a glance"],["doctor","✚","Doctor","Checks Python, Ollama, disk space, the port, git and the network. Run this first"],["models","▤","Models","What is installed and how it fits this PC"],["roles","◎","Roles","Who does what, and which model should do it"]]],
   ["2. Build",[["start","✦","Start","Begin a project from nothing: pick a starting point"],["run","▶","Task","Give the team a goal"],["blueprints","layers","Blueprints","Draw your own workflow from steps and checks, then save it"],["queue","play","Queue","Tasks the machine works through on its own, trying another approach when one fails"],["launch","⏻","Launch","Start/stop your project for real and see if it's actually alive"]]],
-  ["3. Measure",[["tune","◆","Tune","Fit this machine, upgrades worth adding, fake code and self-improvement"],["assess","◈","Assess","Is this machine + model lineup actually ready, per workload"],["advisor","✺","Advisor","Doctor + assess + a real code scan, combined into ranked next steps"],["score","▦","Scoreboard","Measured strengths per model"],["costmap","◎","Cost map","Seconds per change that passed its tests, for each model on each kind of task"],["bench","◔","Benchmarks","Pass rate over time, live and scripted, and the last live run task by task"],["logbook","▦","Logbook","Everything your models and Claude did: what it cost, what worked, and the playbooks learned from it"],["flows","⇄","Flows","The workflows and the checks inside them"]]],
+  ["3. Measure",[["tune","◆","Tune","Fit this machine, upgrades worth adding, fake code and self-improvement"],["assess","◈","Assess","Is this machine + model lineup actually ready, per workload"],["advisor","✺","Advisor","Doctor + assess + a real code scan, combined into ranked next steps"],["score","▦","Scoreboard","Measured strengths per model"],["costmap","◎","Cost map","Seconds per change that passed its tests, for each model on each kind of task"],["caches","▤","Caches","Every cache a request meets: what each holds, how often it is reused, what it saved"],["bench","◔","Benchmarks","Pass rate over time, live and scripted, and the last live run task by task"],["logbook","▦","Logbook","Everything your models and Claude did: what it cost, what worked, and the playbooks learned from it"],["flows","⇄","Flows","The workflows and the checks inside them"]]],
   ["4. Manage",[["portfolio","❖","Portfolio","Your apps and how they connect"],["settings","⚙","Settings","Limits, behaviour and tests"],["train","↻","Training","Turn verified work into training data"]]],
 ];
 const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
@@ -1425,7 +1433,7 @@ const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
 const TABS=[
   ["home","folder","Projects",["overview","start","portfolio"]],
   ["console","console","Workspace",["console","run","studio","gallery","agents","fleet","monitor","map","library","blueprints","queue","launch"]],
-  ["team","chip","Models",["tiers","computers","costmap","bench","logbook","score","models","roles"]],
+  ["team","chip","Models",["tiers","computers","costmap","caches","bench","logbook","score","models","roles"]],
   ["settings","sliders","Settings",["settings","tune","doctor","assess","advisor","flows","train"]],
 ];
 /* art direction (docs/art_direction.md): every page has its own icon (sub-tabs, the page glyph, the command list) and its own
@@ -1433,12 +1441,12 @@ const TABS=[
 const PAGE_ICON={console:"console",run:"plus",studio:"chat",agents:"crew",fleet:"fleet",monitor:"monitor",map:"map",library:"library",
   blueprints:"blueprint",queue:"queue",launch:"rocket",overview:"home",start:"sprout",portfolio:"grid",tiers:"chip",bench:"chart",
   logbook:"logbook",score:"trophy",models:"box",roles:"badge",settings:"sliders",tune:"bolt",doctor:"steth",assess:"gauge",
-  advisor:"compass",flows:"flow",train:"train",components:"palette",gallery:"layers",computers:"server",costmap:"target"};
+  advisor:"compass",flows:"flow",train:"train",components:"palette",gallery:"layers",computers:"server",costmap:"target",caches:"db"};
 const PAGE_ART={console:"console",run:"task",launch:"task",studio:"studio",agents:"crew",fleet:"fleet",map:"map",monitor:"monitor",
   logbook:"logbook",library:"library",blueprints:"blueprints",queue:"queue",overview:"journey",start:"projects",portfolio:"projects",
-  tiers:"models",models:"models",roles:"models",score:"models",bench:"models",costmap:"models"};
+  tiers:"models",models:"models",roles:"models",score:"models",bench:"models",costmap:"models",caches:"models"};
 const SEC_ART={home:"projects",console:"console",team:"models",settings:"settings"};
-const SUBNAME={gallery:"Gallery",computers:"Computers",fleet:"Fleet",monitor:"Monitor",map:"Map",library:"Library",logbook:"Logbook",agents:"Crew",blueprints:"Blueprints",console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",costmap:"Cost map",settings:"Settings",train:"Training data"};
+const SUBNAME={gallery:"Gallery",computers:"Computers",fleet:"Fleet",monitor:"Monitor",map:"Map",library:"Library",logbook:"Logbook",agents:"Crew",blueprints:"Blueprints",console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",costmap:"Cost map",caches:"Caches",settings:"Settings",train:"Training data"};
 /* pages that are in no tab (the Components page) name the tab they belong to as a fifth field */
 const tabOf=id=>TABS.find(t=>t[3].includes(id))||TABS.find(t=>t[0]===(PAGES.find(p=>p[0]===id)||[])[4])||TABS[0];
 
@@ -1609,6 +1617,7 @@ function render(){
   if(page==="advisor"){ if(!built.advisor){v.innerHTML="";put(v,...advisorPage());built.advisor=1;runAdvise();} return; }
   if(page==="bench"){ if(!built.bench){v.innerHTML="";put(v,...benchPage());built.bench=1;} loadBench(); return; }
   if(page==="costmap"){ if(!built.costmap){v.innerHTML="";put(v,...costmapPage());built.costmap=1;} loadCostmap(); return; }
+  if(page==="caches"){ if(!built.caches){v.innerHTML="";put(v,...cachesPage());built.caches=1;} loadCaches(); return; }
   v.innerHTML=""; const fn={overview,start,models,roles,flows,portfolio,score:scoreboard,settings,train}[page]; put(v,...fn());
 }
 
@@ -3465,6 +3474,157 @@ function advisorPage(){
         h("button",{class:"btn p",onclick:runAdvise},"Propose next steps")),
       h("div",{id:"adOut",style:"margin-top:14px;display:flex;flex-direction:column;gap:8px"},h("p",{class:"sub"},"Click “Propose next steps” to combine everything into one list."))),
   ];
+}
+/* ===== Caches (Models): every cache one request meets, top to bottom, plus both ends of Claude's prompt cache. Reads
+   /api/arch/caches (arch_cachestats.ledger, cached 60 s by the hub; Refresh asks again with ?fresh=1). Information only: it shows
+   what each layer holds and saved, and changes no setting and deletes nothing. ===== */
+const CA={data:null};
+const CA_WHAT={route:"a router decision reused, no model call",reply:"a reply this machine already gave, reused (temperature 0 or a seed)",
+  cloud:"a Claude reply reused, nothing paid",prefix:"the start of a prompt the model already read, kept in graphics memory",
+  slots:"a project's prompt start saved on disk, restored when it reopens",lookup:"repeated text guessed ahead, so replies are written faster",
+  claude:"the start of a Claude prompt read from Anthropic's cache at a tenth of the price"};
+const CA_WARN=["stored, never reused","not reusing"];
+const caPct=x=>x==null?"–":Math.round(x*100)+"%";
+const caInt=n=>n==null?"–":Math.round(n).toLocaleString("en-US");
+const caBig=n=>n==null?"–":n>=1e9?(n/1e9).toFixed(1)+" billion":n>=1e6?(n/1e6).toFixed(1)+" million":caInt(n);
+const caBytes=b=>!b?"0 MB":b>=1e9?(b/1e9).toFixed(1)+" GB":b>=1e6?Math.round(b/1e6)+" MB":b>=1e3?Math.round(b/1e3)+" KB":b+" bytes";
+const caUsd=x=>x==null?"–":x>=100?caInt(x):Number(x).toFixed(2);
+const caOrph=l=>l.id==="slots"&&(l.orphans||0)>0;
+const caTone=l=>CA_WARN.includes(l.state)||caOrph(l)?"warn":l.state==="working"?"good":"neutral";
+const caChip=l=>(l.state||"unknown")+(caOrph(l)?", orphans":"");
+function caKey(l){
+  if(l.id==="prefix") return l.rho==null?"no traced calls yet":caPct(l.rho)+" of prompt tokens read from cache (rho) over "+caInt(l.calls)+" calls";
+  if(l.id==="claude"){
+    const s=l.sources||{},part=[];
+    if(s.app&&s.app.replies) part.push("the app "+caPct(s.app.read_share));
+    if(s.claude_code&&s.claude_code.replies) part.push("Claude Code "+caPct(s.claude_code.read_share));
+    return part.length?part.join(", ")+" of input read from cache":"no Claude replies yet";
+  }
+  const n=l.entries||0, unit=l.id==="route"||l.id==="reply"?(n===1?"entry":"entries"):(n===1?"file":"files");
+  let s=caInt(n)+" "+unit+", "+caBytes(l.bytes);
+  const tot=(l.hits||0)+(l.misses||0);
+  if(l.hits!=null&&tot) s=caPct(l.hits/tot)+" reused ("+caInt(l.hits)+" of "+caInt(tot)+" asks), "+s;
+  if(caOrph(l)) s+=", "+caInt(l.orphans)+" orphaned ("+caBytes(l.orphan_bytes)+")";
+  return s;
+}
+function caFunnel(layers){
+  const W=680,RH=78,G=18,T=6,H=T+layers.length*(RH+G)-G+6;
+  let g=`<defs><marker id="caArrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 1L9 5L0 9z" fill="var(--faint)"/></marker></defs>`;
+  const says=[];
+  layers.forEach((l,i)=>{
+    const x0=8+i*9,x1=W-8-i*9,y=T+i*(RH+G),tone=caTone(l);
+    const fill=tone==="good"?"var(--goodbg)":tone==="warn"?"var(--warnbg)":"var(--soft)";
+    const ink=tone==="good"?"var(--good)":tone==="warn"?"var(--warn)":"var(--mute)";
+    const chip=caChip(l),cw=Math.round(chip.length*6.8+24),key=caKey(l),what=CA_WHAT[l.id]||"";
+    says.push(`${i+1}. ${l.name}: ${chip}; ${key}`);
+    g+=`<g><title>${escx(`${l.name}: ${chip}. ${key}. ${what}`)}</title>`+
+      `<rect x="${x0}" y="${y}" width="${x1-x0}" height="${RH}" rx="12" fill="${fill}" stroke="var(--line)"/>`+
+      `<text x="${x0+18}" y="${y+25}" font-size="14.5" font-weight="600" fill="var(--ink)">${i+1}. ${escx(l.name)}</text>`+
+      `<rect x="${x1-14-cw}" y="${y+10}" width="${cw}" height="22" rx="11" fill="var(--panel)" stroke="${ink}"/>`+
+      `<text x="${x1-14-cw/2}" y="${y+25}" text-anchor="middle" font-size="12" fill="${ink}">${escx(chip)}</text>`+
+      `<text x="${x0+18}" y="${y+47}" font-size="13" font-weight="600" fill="var(--ink)">${escx(key)}</text>`+
+      `<text x="${x0+18}" y="${y+66}" font-size="12" fill="var(--mute)">${escx(what)}</text></g>`;
+    if(i<layers.length-1) g+=`<line x1="${W/2}" y1="${y+RH+1}" x2="${W/2}" y2="${y+RH+G-3}" stroke="var(--faint)" stroke-width="1.5" marker-end="url(#caArrow)"/>`;
+  });
+  const label="How one request falls through the caches, top to bottom: "+says.join("; ");
+  return h("div",{class:"ca-scroll",tabindex:"0",role:"region","aria-label":"Cache funnel (scrolls sideways on a narrow screen)",
+    html:`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;min-width:520px;display:block" role="img" aria-label="${escx(label)}">`+g+`</svg>`});
+}
+function caText(t){   // `code` in a finding becomes code
+  return String(t||"").split("`").map((p,i)=>i%2?h("code",null,p):p);
+}
+function caFindings(fs){
+  if(!fs.length) return h("p",{class:"small mute"},"Nothing to point out.");
+  const tone={high:"bad",medium:"warn",info:"info"};
+  return h("ul",{class:"ca-finds"},...fs.map(f=>h("li",null,h("span",{class:"chip "+(tone[f.severity]||"")},f.severity||"info"),h("span",null,...caText(f.text)))));
+}
+function caSplit(cls,parts,label){
+  const tot=parts.reduce((s,p)=>s+(p[1]||0),0)||1;
+  return [h("div",{class:"ca-bar "+cls,role:"img","aria-label":label+": "+parts.map(p=>p[0]+" "+caPct((p[1]||0)/tot)).join(", ")},
+      ...parts.map((p,i)=>h("span",{class:p[2],style:"width:"+((p[1]||0)/tot*100).toFixed(2)+"%"}))),
+    h("div",{class:"ca-legend small"},...parts.map(p=>h("span",null,h("span",{class:"ca-sw "+p[2],"aria-hidden":"true"}),p[0]+" ",h("b",{class:"num"},caPct((p[1]||0)/tot)))))];
+}
+function caClaudeSide(key,s){
+  const who=key==="app"?"The app's Claude runs":"Claude Code on this machine";
+  if(!s||!s.replies) return h("div",null,h("h3",{style:"margin:0 0 6px"},who),h("p",{class:"small mute"},"No replies with cache counts yet."));
+  const saved=key==="app"?`About ${caUsd(s.usd_saved_est)} USD saved at API prices (an estimate; paid about ${caUsd(s.usd_paid_est)} USD).`
+    :`About ${caUsd(s.usd_saved_est)} USD saved at API prices (an estimate; Claude Code on a subscription is not billed per token).`;
+  const g=s.gaps;
+  return h("div",null,h("h3",{style:"margin:0 0 6px"},who),
+    h("p",{style:"margin:0"},h("b",{class:"num"},caPct(s.read_share))," of input read from cache, over ",h("b",{class:"num"},caInt(s.replies))," replies."),
+    ...caSplit("ca-input",[["read from cache",s.cache_read,"ca-read"],["written to cache",s.cache_write,"ca-write"],["not cached",s.uncached_input,"ca-unc"]],"Input tokens"),
+    h("p",{class:"small",style:"margin:8px 0 0"},saved),
+    h("h3",{style:"margin:14px 0 0;font-size:.95rem"},"Pauses between replies"),
+    g?h("div",null,...caSplit("ca-gaps",[["within 5 min",g.within_5m,"ca-g1"],["5-60 min",g["5m_to_1h"],"ca-g2"],["over 1 h",g.over_1h,"ca-g3"]],"Pauses between replies"),
+      h("p",{class:"small mute",style:"margin:6px 0 0"},`Over ${caInt(g.n)} pauses. The 1-hour cache lifetime pays when the middle share (5-60 min) is large; here it is ${caPct(g["5m_to_1h"])}.`))
+     :h("p",{class:"small mute"},"No timed pauses yet."));
+}
+function caTable(title,rows){
+  return h("div",null,h("h3",{style:"margin:10px 0 6px;font-size:.95rem"},title),
+    rows.length?h("div",{style:"overflow-x:auto"},h("table",null,
+      h("thead",null,h("tr",null,h("th",null,"Name"),h("th",{class:"n"},"Calls"),h("th",{class:"n"},"Read from cache"))),
+      h("tbody",null,...rows.map(r=>h("tr",null,h("td",{class:"small"},cmName(r.name)),h("td",{class:"n"},caInt(r.calls)),h("td",{class:"n"},caPct(r.rho)))))))
+      :h("p",{class:"small mute"},"None yet."));
+}
+function caPrefix(p,fs){
+  if(!p) return null;
+  const body=!p.calls?[h("p",{class:"small mute",style:"margin:0"},...caText(((fs.find(f=>/prefix-reuse data/i.test(f.text))||{}).text)||
+      "No local prefix-reuse data yet: it fills in from the next live eval."))]
+    :[h("div",{class:"btiles"},
+        h("div",{class:"btile"},h("b",{class:"num"},caPct(p.rho)),h("span",{class:"mute small"},"of prompt tokens read from cache (rho)")),
+        h("div",{class:"btile"},h("b",{class:"num"},caInt(p.calls)),h("span",{class:"mute small"},"model calls in "+caInt(p.runs)+" runs")),
+        h("div",{class:"btile"},h("b",{class:"num"},caBig(p.cached_tokens)),h("span",{class:"mute small"},"of "+caBig(p.prompt_tokens)+" prompt tokens reused")),
+        h("div",{class:"btile"},h("b",{class:"num"},caPct(p.exact_share)),h("span",{class:"mute small"},"of calls with an exact count from the server"))),
+      h("div",{class:"ca-two"},caTable("By workflow",p.by_flow||[]),caTable("By model",p.by_model||[]))];
+  return h("section",{class:"card"},h("h3",{style:"margin:0 0 4px"},"Local KV prefix"),
+    h("p",{class:"small mute",style:"margin:0 0 10px"},"How much of each local prompt the server did not have to read again (Eq. 15: rho = cached prompt tokens / prompt tokens)."),...body);
+}
+function caDisk(L){
+  const rows=[["slots","KV slots on disk"],["lookup","N-gram lookup"],["reply","Local reply database"],["cloud","Claude reply cache"]].filter(r=>L[r[0]]);
+  return h("section",{class:"card"},h("h3",{style:"margin:0 0 6px"},"Disk stores"),
+    h("div",{style:"overflow-x:auto"},h("table",null,
+      h("thead",null,h("tr",null,...["Store","Files or entries","Size","Oldest","Newest","Orphans"].map((t,i)=>h("th",{class:i===1||i===2?"n":""},t)))),
+      h("tbody",null,...rows.map(([id,name])=>{const l=L[id];return h("tr",null,
+        h("td",null,name,h("div",{class:"mono small mute",style:"word-break:break-all"},String(l.where||""))),
+        h("td",{class:"n"},caInt(l.entries||0)),h("td",{class:"n"},caBytes(l.bytes)),
+        h("td",{class:"small"},when(l.oldest)),h("td",{class:"small"},when(l.newest)),
+        h("td",null,id!=="slots"?"–":l.orphans?h("span",{class:"chip warn"},caInt(l.orphans)+" files, "+caBytes(l.orphan_bytes)):"none"));})))),
+    h("p",{class:"small mute",style:"margin:8px 0 0"},h("code",null,"python architect.py caches")," lists them; ",h("code",null,"--prune --yes")," removes them."));
+}
+function cachesPage(){
+  return [h("div",{class:"card"},
+    h("div",{class:"row",style:"gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px"},
+      h("p",{class:"sub grow",style:"margin:0"},"Every cache one request meets, in order, and what each one saved. Information only: nothing here changes a setting or deletes a file."),
+      h("button",{type:"button",id:"caRefresh",class:"btn sm","aria-label":"Read the caches again",onclick:()=>loadCaches(true)},"Refresh")),
+    h("div",{id:"caOut",style:"display:flex;flex-direction:column;gap:14px"},h("p",{class:"sub"},"Reading the caches…")))];
+}
+async function loadCaches(fresh){
+  const out=$("#caOut"); if(!out) return;
+  const b=$("#caRefresh"); if(b){b.disabled=true;b.setAttribute("aria-busy","true");}
+  try{ CA.data=await api("/api/arch/caches"+(fresh?"?fresh=1":"")); }
+  catch(e){ out.innerHTML=""; out.append(h("p",{class:"note bad"},"Could not read the caches: "+e.message)); return; }
+  finally{ if(b){b.disabled=false;b.removeAttribute("aria-busy");} }
+  caDraw();
+}
+function caDraw(){
+  const out=$("#caOut"); if(!out||!CA.data) return;
+  const d=CA.data,layers=d.layers||[],fs=d.findings||[],L={};
+  for(const l of layers) L[l.id]=l;
+  out.innerHTML="";
+  if(d.error) out.append(h("p",{class:"note bad"},"Could not read every cache: "+d.error));
+  if(!layers.length){ out.append(h("p",{class:"sub"},"No cache figures yet.")); return; }
+  out.append(caFunnel(layers));
+  out.append(h("div",{class:"row small mute",style:"gap:16px;flex-wrap:wrap"},
+    h("span",null,h("span",{class:"chip good"},"working")," reused"),h("span",null,h("span",{class:"chip"},"unused")," empty or no data yet"),
+    h("span",null,h("span",{class:"chip warn"},"warning")," stored but never reused, or orphans"),
+    d.t?h("span",null,"read "+when(d.t)):null));
+  out.append(h("section",{class:"card"},h("h3",{style:"margin:0 0 8px"},"What stands out"),caFindings(fs)));
+  const c=L.claude;
+  if(c) out.append(h("section",{class:"card"},h("h3",{style:"margin:0 0 4px"},"Claude prompt cache, both ends"),
+    h("p",{class:"small mute",style:"margin:0 0 10px"},"Tokens read from the cache cost a tenth of fresh input; writing one costs a quarter more. Dollar figures are estimates from the token counts."),
+    h("div",{class:"ca-two"},caClaudeSide("app",(c.sources||{}).app),caClaudeSide("claude_code",(c.sources||{}).claude_code))));
+  const pre=caPrefix(L.prefix,fs); if(pre) out.append(pre);
+  out.append(caDisk(L));
 }
 /* ---- Benchmarks: every saved `eval` report, live and scripted kept apart. Nothing here starts a run. ---- */
 /* ===== Cost map (Models): the report's C = t / p for every model on every kind of task, from this machine's live benchmark runs.

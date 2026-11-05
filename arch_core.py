@@ -68,7 +68,9 @@ DEFAULTS = {
                "timeout_mode": "auto",      # auto = first-token/idle/total limits derived from each model's measured speed (request_timeout is the ceiling); fixed = request_timeout for everything
                "ctx_autogrow": True,        # if a prompt hit the context window (silently truncated by Ollama), retry once with a doubled window
                "num_ctx_max": 32768},       # ceiling for that growth
-    "storage": {"archive": ""},                        # a second drive for copies of run records (arch_archive.py); "" = off
+    "storage": {"archive": "",                         # a second drive for copies of run records (arch_archive.py); "" = off
+                "slot_cache_gb": 4.0,                  # saved prompt memory (server/slots, ~0.2-0.4 GB a project): least recently used beyond this is dropped at each save (arch_cachehygiene.py)
+                "slot_max_age_days": 30},              # a saved prompt memory unused this long is offered for removal by `architect.py caches` (asked, never automatic)
     "behavior": {"review_mode": "ask", "offline_tests": True, "best_of_n": 1, "evaluator": "final",   # final | each | off
                  "playwright": "auto", "seed": None,
                  "mutation": "on", "mutation_max": 8,          # test flow: how many code mutations to try
@@ -1269,7 +1271,7 @@ class Engine:
         if self.calls and keeps_prompt_memory(self.root):      # never for a throwaway folder (eval, temp, live test): nothing reopens it
             try:
                 import arch_server
-                arch_server.slot_io("save", self.cfg, os.path.basename(os.path.abspath(self.root)))
+                arch_server.slot_io("save", self.cfg, os.path.abspath(self.root))
             except Exception:
                 pass                     # a tier that stepped aside for a bigger model is back before the run is called done
         if self.calls and self.state_path:
@@ -1336,8 +1338,11 @@ class Engine:
             note = self.inbox_note()
             raise BudgetExceeded(f"stopped to do this instead: {note}" if note else
                                  "stopped by the kill switch (a STOP file is present); remove it to continue")
+        # calls already sent and still waiting on a model (other threads of a best-of-N batch) count as spent: the meter only moves when
+        # they return, and N requests checked together must not all fit into the last free call. One caller at a time: always 0 here.
+        pending = sum(getattr(self, "_inflight", {}).values())
         for b in self.budgets:
-            if b["calls"] is not None and self.meter["calls"] - b["start"]["calls"] >= int(b["calls"]):
+            if b["calls"] is not None and self.meter["calls"] + pending - b["start"]["calls"] >= int(b["calls"]):
                 raise BudgetExceeded(f"{b['name']}: {b['calls']} model calls used up")
             if b["seconds"] is not None and time.time() - b["t0"] >= float(b["seconds"]):
                 raise BudgetExceeded(f"{b['name']}: {int(b['seconds'])} seconds used up")
@@ -1943,7 +1948,7 @@ class Engine:
         except Exception:
             wanted = None                                                          # cannot tell: start what is planned, as before
         arch_server.ensure(self.cfg, say=self.say, wanted=wanted)                  # the resident llama-server, when installed and planned; else nothing happens
-        if arch_server.slot_io("restore", self.cfg, os.path.basename(os.path.abspath(self.root))):
+        if arch_server.slot_io("restore", self.cfg, os.path.abspath(self.root)):
             self.say("[server] this project's prompt memory restored from disk")
         self._srv_ctx = {}                                                         # windows read before the servers started are stale
         team = {m for m in (self.cfg.get("roles") or {}).values() if m} | {m for m in (self.cfg.get("tiers") or {}).values() if m} | ({self.cfg["default_model"]} if self.cfg.get("default_model") else set())
