@@ -53,7 +53,8 @@ def run():
                     if j.get("type") == "no_shrink":
                         ctx["lines_before"][j["path"]] = len((E._read(proj, j["path"]) or "").splitlines())
                 E._write(proj, files)
-                verdicts = [E.JUDGES[j["type"]](proj, j, t, ctx) for j in t["judge"] if j["type"] not in ("file_exists", "docs_structure") or which == "solution"]
+                verdicts = [E.JUDGES[j["type"]](proj, j, t, ctx) for j in t["judge"] if (j["type"] not in ("file_exists", "docs_structure") or which == "solution")
+                            and j["type"] not in getattr(E, "TRACE_JUDGES", ())]   # a trace judge needs a run; arch_selftest_refusal proves it
                 ok = all(v[0] for v in verdicts)
                 if which == "solution" and not ok and t["family"] not in ("review", "design", "network", "hunt", "test"):     # those need the flow's own output files
                     right_bad.append((t["id"], [v for v in verdicts if not v[0]]))

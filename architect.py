@@ -1330,7 +1330,7 @@ def _run_suites(suite):
                 print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
                 rc |= 1
         # suites whose run() returns True when every check passed (art returns 0 like the older ones)
-        for _name in ("a11y", "art", "costmodel", "idle", "placement_wired", "provenance", "wiring"):
+        for _name in ("a11y", "art", "costmodel", "idle", "placement_wired", "provenance", "refusal", "wiring"):
             try:
                 _res = importlib.import_module("arch_selftest_" + _name).run()
                 rc |= (0 if (_res is True or (type(_res) is int and _res == 0)) else 1)     # False == 0, so check the type
