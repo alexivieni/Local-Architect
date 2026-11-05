@@ -1,0 +1,27 @@
+# Bugfix: reproduce -> fix -> two adversarial verifiers must both say pass (repeat the fix at most twice).
+# Run: python architect.py crew bugfix_squad --goal "..." --owns app.py [--set coder.model=qwen3:8b] [--fake]
+name: bugfix-squad
+description: A debugger reproduces the failure and names the cause, a coder makes the smallest fix, two adversarial verifiers must agree it passes.
+phases:
+  - title: Reproduce
+    id: repro
+    agent: debugger
+    label: reproduce
+    task: Reproduce the failure first (run_tests), then name the one cause.
+  - title: Fix
+    id: fix
+    loop:
+      max: 2
+      until: "last.verdict == 'pass'"
+      stages:
+        - title: Fix
+          agent: coder
+          label: fix
+          owns: "{owns}"
+          task: Make the smallest change that removes the cause the debugger found.
+        - title: Verify
+          panel: verifier
+          n: 2
+          vote: verdict
+          label: verify
+          task: Try to prove the fix wrong. Re-run the tests and re-read the changed lines.

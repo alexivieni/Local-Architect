@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>__NAME__</title>
+  <style>
+    :root { --bg: #fff; --fg: #1d1d1f; --line: #d2d2d7; --accent: #0a66c2; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #1c1c1e; --fg: #f5f5f7; --line: #3a3a3c; --accent: #4ea1ff; } }
+    body { margin: 0; width: 300px; padding: 12px; font: 14px system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+    h1 { font-size: 15px; margin: 0 0 8px; }
+    textarea { width: 100%; box-sizing: border-box; min-height: 90px; border: 1px solid var(--line); border-radius: 6px;
+               background: transparent; color: inherit; padding: 8px; font: inherit; }
+    #status { color: var(--accent); min-height: 1.2em; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1 id="site">this site</h1>
+  <label for="note">Note</label>
+  <textarea id="note" maxlength="2000"></textarea>
+  <div id="status" role="status" aria-live="polite"></div>
+  <script src="notes.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

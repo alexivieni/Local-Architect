@@ -122,3 +122,67 @@ Scope: hub_ui.html only. No Python changed. Nothing was committed.
 - Tiers and Roles are not merged into one page yet; they are two subtabs.
 - Settings is not split into sections with subtabs. Training data is a second subtab of Settings.
 - `arch_hub_check.py:183` asserts the old four-place `TABS` literal. It now fails by design, because the new IA has 10 places in 3 sections. The Python owner needs to update it to check SIDEBAR. The invariant behind it, that every page sits in exactly one place, was checked with a script and holds.
+
+## 15. Crew builder subtab (Agents place)
+- WHAT: New page `crewbuild` ("Crew builder") in the Agents place. It shows one card per agent (model, effort, tools, budget) with an Edit dialog (description, model tier, role, effort, tools, budget calls/tokens/seconds, context policy/max chars). Save posts to `/api/arch/squad/agent`, and `save_agent`'s ValueError is shown inside the dialog. Below the cards is a Workflows list. Each workflow's "Run…" panel takes a goal, the files it may change, slots, a fake toggle and per-agent `agent.field=value` overrides. It posts `/api/arch/squad/run` and opens Live. The run is the ordinary hub job, so Orchestration shows it afterwards. Home's "Run agents" card now opens this page.
+- WHY: The owner asked to build and run squads from the hub instead of editing YAML by hand.
+- HOW: `crewBuilderPage()`/`loadCrewBuilder()`/`editAgent()`/`runPanel()`. One shared `modal()` (native `<dialog>`, so Esc and focus trapping come free) and `confirmBox()`. If arch_squad or one of its functions is missing, the endpoint returns `{available:false, why}` and the page prints "Not available yet: …". The Agents place now has 7 subtabs and Models has 6. That is past the old 5 cap, but the pills scroll sideways (entry 3), so there is still no overflow menu.
+
+## 16. By job subtab (Models place)
+- WHAT: New page `byjob`. It shows one row per job from `arch_select.why(cfg)`: current model, measured best, C (s/pass), pass % with CI and n, tok/s, fits, and the plain reason. An "Apply <model>" button appears only when a suggestion exists. It asks first in a confirm dialog, runs `select --apply JOB MODEL` as a job, and then shows an Undo button (`select --undo`). "Screen models" (with a Fake toggle) runs `select --screen [--fake]` as a job and opens Live.
+- WHY: The owner wants model choice per job to be measured and explained, not guessed.
+- HOW: `byJobPage()`/`loadByJob()`/`applyJob()`. The table sits in an `overflow-x:auto` box, so it does not overflow at 390 px. A CI is accepted either as `[lo,hi]` or as a ± number.
+
+## 17. Quick-launch options (Home)
+- WHAT: The New run, Run agents and Build a workflow cards each have a small "options" button. It opens a dialog with review mode, reasoning (thinking), acceptance tests first, best of N and the flow budget scale. Save writes them through the existing `/api/arch/settings`, and a blank field clears the setting back to the default.
+- WHY: These are cheap parameterisation buttons. The dialog says plainly that they are saved settings that apply to every run, because that is what they are.
+- HOW: Fields are built from `S.settings_schema` (arch_params.SETTINGS), filtered to `behavior.review_mode`, `behavior.thinking`, `behavior.test_first`, `behavior.best_of_n` and `flows.budget_scale`. A setting that is not in the schema is not shown. The options button sits beside the card, not inside it (no nested buttons). All new CSS uses theme tokens only.
+
+## 18. Hub endpoints (architect_hub.py)
+- WHAT: GET `/api/arch/squad/agents`, `/api/arch/squad/workflows`, `/api/arch/select/why`. POST `/api/arch/squad/agent`, `/api/arch/squad/run`, `/api/arch/select/apply`, `/api/arch/select/undo`, `/api/arch/select/screen`.
+- WHY: The pages above need them.
+- HOW:
+  - GETs check the host, like other reads. POSTs go through the base `route()`, so they get the same token, Host and Origin checks.
+  - Names are regex-checked. Owned paths may not contain `..` or commas. Slots must be 1-8. Overrides must match `agent.field=value` and also go through `arch_squad.parse_sets` when it exists. The workflow must exist as `workflows/<name>.yaml`. Job names are checked against `arch_jobs.JOBS` when that module exists.
+  - Every run is `mh.JOB.start(...)` on the CLI (`crew`, `select --apply/--undo/--screen`), so it streams like a run.
+  - `arch_hub_check.py` has 16 new checks: page reachability, response shapes, refusals, token required, and settings that exist.
+
+## 19. Colour, type and motion tokens (ux_audit V-B, V-F, V-G)
+- WHAT: A token layer at the end of `<style>` adds the V2 category hues (`--c-flow/agent/template/model/cost/system` plus `-ink` and `-bg`) for light/paper, dark (system and explicit) and midnight. It also adds `--live`, `--grad-hero`, `--grad-hero-soft`, `--tint-card/hover` and the accent swatches as tokens. Each of the 10 places gets its own `--hue` through `body[data-sec]`. There are `.chip.flow|agent|template|model|cost|system` variants, and a plain `.chip` stays neutral. For type: `--t-display/title/head/caption/mono`, with the old `--t-*` names kept as aliases and the minimum label size at 12/13 px. 30 stylesheet font sizes below 12 px went up to 12 px. For motion: `--spring`, hover lift on clickable cards, a shimmer, the live-dot pulse, page entry on `#view` only (no per-card `cardIn`), and press scale. The nine scattered reduced-motion blocks are now one.
+- WHY: The person wants more colour and life, and an end to "blocky" text. Audit item 24 is superseded by V2.
+- HOW: Tokens only, so no colour literals outside token blocks. A hub check counts the dark/light token copies and the single reduced-motion block.
+
+## 20. Home rebuilt (items 1, 2, 3, 4, 14, 20; V-C, V-D)
+- WHAT: Home is now the hero and the recent runs. The hero has a gradient-soft surface, the display headline "What should your computer work on?", a one-line sub, examples, the goal box, "Project folder (the code to work on)", "Use the practice project" (`/api/arch/practice`), **Do it**, "Talk it through first" and a Ctrl+Enter hint. The Quick launch row and the "Chat first" checkbox are gone. Stat cards have an icon box, a hue edge, a loading shimmer, and a 7-point sparkline for the test pass rate. `overview()` keeps only `getStarted()` until the first visit is done. The "More: starters / readiness / how it works" block moved to Help. The result card has a status icon that springs in once, a headline, a files-changed count, and the buttons Keep it (primary), See the details, Show changes and Undo. Undo is outline-danger and asks for confirmation first. A missing folder shows an inline alert with `aria-invalid` instead of a toast.
+- WHY: Audit root cause 1: Home was six stacked sections with no first sentence.
+- HOW: `homeHero()`, `loadHome()`, `simpleStart()`, `usePractice()`, `simpleDraw()`, `homeMore()`. There is one shared `emptyState(art,title,line,button,fn)` (art from `art()`), used on Home, Models and Runs.
+
+## 21. Labels, structure and keyboard (items 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 22)
+- WHAT:
+  - Labels and nav: page labels follow the jargon table (Watch a run, All agents now, Parallel agents, Connections, Agent recipes, My models, Tests, Model report card, Speed per model, Health check, Optimise for this PC, and so on). The places are renamed Agent teams and Speed. Agents has 5 subtabs: Library moved to Workflows and Orchestration to Help. Registry subtitles are 12 words or fewer.
+  - Keyboard: Esc must be pressed twice within 2 s to stop a run. `g`+letter chords replace bare digits and are listed in Shortcuts.
+  - Sidebar footer: it keeps the status chip and Appearance. The accents moved into the Appearance picker with `aria-label`s. Commands and "?" moved to the top bar.
+  - Toasts and live chip: error toasts are `role=alert`, stay at least 8 s (longer while hovered), and have a Copy details button. The live chip reads "Graphics card N% busy · x of y GB memory used · A model is loaded (z GB)" and its button reads "Free memory".
+  - Page hints: each page note shows once overall, then a "?" by the title.
+  - Small screens and long runs: the subtab strip scrolls the active tab into view and has a fade cue. There is one phone drawer with a veil and `aria-controls` (the three old row-sidebar rules are deleted). A sticky run bar on other pages reads "Working on … · Watch · Stop", then "Done … · Review".
+- WHY: These are the audit's quick wins in its ranked order.
+- HOW: The hub check's SIDEBAR label regex now allows spaces and `&`, so a place like "Agent teams" parses. The check's intent is unchanged, and a new check covers the 5-subtab cap.
+
+## 22. Shorter copy, avatars, thumbnails (V-A, V-E)
+- WHAT:
+  - Copy: `learnMore()` (`details.more`) is added, and `.sub` is capped at 62ch. 34 of the V1 table's dense paragraphs became one short line, with the old text kept under Learn more. Four were not found as plain literals and stay as they were: fake-code, CI check, By job, Studio.
+  - Avatars: `avatar()` (initial in a hue ring) on Crew builder cards and Gallery agent cards.
+  - Thumbnails: `chainThumb()` (a step-chain SVG) on Gallery workflow cards and Crew builder workflow rows.
+- WHY: V1 found 40 blocks of over 140 characters, and there were no avatars or thumbnails anywhere.
+
+## 23. Template catalog (New project, Gallery) and endpoints
+- WHAT: GET `/api/arch/templates/catalog` returns `{available, templates:[...fields, thumb]}`, with `available:false` when `arch_templates_catalog` is missing or raises. GET `/templates/<id>.svg` serves `static/templates/<id>.svg` as `image/svg+xml`, with the id checked against `[a-z0-9][a-z0-9_-]{0,63}`.
+- The New project picker draws `tplCatalogGrid()` when the catalog is available. Each card shows a thumbnail, a category chip in its hue (the `colour` token name), difficulty, stack tags and Learn more (long + next steps). A category filter sits above the cards. Without the catalog it falls back to the old `tplGallery` list. The Gallery gets a "Project templates" section from the same cards.
+- WHY: The owner asked for a colourful, browsable template picker.
+
+## 24. Crew builder reads arch_squad's dicts
+- WHAT: `squad_agents()` and `squad_workflows()` accept the dict shape `{name: def}`, so the agents endpoint now lists all 17 agents (a hub check proves it). Workflows carry `title` and `problems`. The Crew builder shows each phase as a coloured chip by kind: agent, parallel, loop (with until/max), panel or code. A workflow with problems is shown as not runnable, and its Run button is disabled.
+
+## Not done (this pass)
+- 21 (one Health page) and 30 (the "Show advanced pages" toggle) are not done. The Models place still has 6 subtabs. Items 23 and 25-29 are partly covered by the token work.
+- Not checked in a browser: the 390 px drawer and the contrast figures.

@@ -1,0 +1,1 @@
+{"title": "Terminal game (2048, pure engine)", "blurb": "A complete 2048 in the terminal: a pure, seeded game engine (slide, merge, score, win/lose) fully tested without a screen, plus a plain input()-driven loop. No pygame, no curses.", "stack": "python / stdlib", "domains": ["api"], "run": "python -m __PKG__", "needs": []}

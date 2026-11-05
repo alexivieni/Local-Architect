@@ -738,6 +738,164 @@ def training_section(data_dir=None, project_root=None):
             "dropped": rep.get("dropped", {})}
 
 
+# ---------------------------------------------------------------- cost, warnings, savings (deterministic: same trees in, same numbers out)
+try:                                   # reuse the one price list the app already has (arch_cloud.PRICES: input, output per million tokens)
+    from arch_cloud import PRICES as _CLOUD_PRICES
+except Exception:                      # arch_cloud unavailable: same list, copied once here as a fallback
+    _CLOUD_PRICES = {"claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0), "claude-haiku-5-5": (0.10, 0.50),
+                     "claude-fable-5-1": (10.0, 50.0)}
+CACHE_READ_X, CACHE_WRITE_X = 0.1, 1.25   # cache read = 0.1x input price, cache write = 1.25x (same multipliers as arch_cloud)
+LONG_CONTEXT = 200000
+LONG_OUTPUT = 100000
+CACHE_WRITE_SHARE = 0.05
+W_LONG_CTX = "long context: re-read every turn"
+W_CACHE = "short-lived context, cache written but little reused"
+W_WRITE = "long writing"
+W_CHEAP = "could run on a cheaper model"
+
+
+def _family_price(key):
+    inp, out = _CLOUD_PRICES[key]
+    return {"input": inp, "output": out, "cache_read": round(inp * CACHE_READ_X, 6), "cache_write": round(inp * CACHE_WRITE_X, 6)}
+
+
+# LIST PRICE, edit to match your plan: USD per million tokens, one place. Fable and any unknown Claude model price like Opus.
+PRICE_TABLE = {"opus": _family_price("claude-opus-5-5"), "sonnet": _family_price("claude-sonnet-5-5"),
+               "haiku": _family_price("claude-haiku-5-5"), "fable": _family_price("claude-fable-5-1")}
+PRICE_NOTE = "list price, edit to match your plan"
+
+
+def model_family(model):
+    """'opus'|'sonnet'|'haiku'|'fable'; 'claude' = a Claude model of unknown family (priced as Opus); 'local' = not Claude."""
+    m = (model or "").lower()
+    for f in PRICE_TABLE:
+        if f in m:
+            return f
+    return "claude" if m.startswith("claude") else ("local" if m else None)
+
+
+def _price(fam):
+    return PRICE_TABLE.get(fam) or PRICE_TABLE["opus"]
+
+
+def usd_for(tokens, fam):
+    t, p = tokens or {}, _price(fam)
+    return (_int(t.get("input")) * p["input"] + _int(t.get("output")) * p["output"] + _int(t.get("cache_read")) * p["cache_read"]
+            + _int(t.get("cache_write")) * p["cache_write"]) / 1e6
+
+
+def _secs(node):
+    def num(v):
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, str):
+            try:
+                from datetime import datetime
+                return datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                try:
+                    return float(v)
+                except ValueError:
+                    return None
+        return None
+    a, b = num(node.get("start")), num(node.get("end"))
+    return round(max(0.0, b - a), 1) if a is not None and b is not None else 0.0
+
+
+def _edits(node):
+    return bool(node.get("edited")) or any(k in EDIT_TOOLS for k in (node.get("tool_calls") or {}))
+
+
+def agent_warnings(node):
+    t, w = node.get("tokens") or {}, []
+    tot = sum(_int(t.get(k)) for k in ("input", "output", "cache_read", "cache_write"))
+    if _int(node.get("peak_context")) > LONG_CONTEXT:
+        w.append(W_LONG_CTX)
+    if tot and _int(t.get("cache_write")) / tot > CACHE_WRITE_SHARE:
+        w.append(W_CACHE)
+    if _int(t.get("output")) > LONG_OUTPUT:
+        w.append(W_WRITE)
+    if model_family(node.get("model")) == "opus" and not _edits(node):
+        w.append(W_CHEAP)
+    return w
+
+
+def _agents(node, out=None):
+    out = [] if out is None else out
+    if node.get("kind") == "agent":
+        out.append(node)
+    for c in node.get("children", []):
+        _agents(c, out)
+    return out
+
+
+def apply_costs(node):
+    """Put node['cost'] = {usd, seconds, ...} on every node (a group = the sum of its children) and node['warnings'] on agents.
+    Local models cost 0 dollars; their seconds are shown instead."""
+    usd = sec = 0.0
+    if node.get("kind") == "agent":
+        fam = model_family(node.get("model"))
+        local = node.get("source") == "local" or fam == "local"
+        usd = 0.0 if local else round(usd_for(node.get("tokens"), fam), 6)
+        sec = _secs(node) if local else 0.0
+        node["warnings"] = agent_warnings(node)
+        node["cost"] = {"usd": usd, "seconds": sec, "local": local, "family": fam}
+    elif node.get("kind") == "session":
+        usd = round(usd_for(node.get("tokens"), "opus"), 6) if any(_int(v) for v in (node.get("tokens") or {}).values()) else 0.0
+    for c in node.get("children", []):
+        cc = apply_costs(c)
+        usd += cc[0]
+        sec += cc[1]
+    if node.get("kind") != "agent":
+        node["cost"] = {"usd": round(usd, 6), "seconds": round(sec, 1)}
+    return node["cost"]["usd"], node["cost"]["seconds"]
+
+
+def build_savings(trees):
+    """Plain-words suggestions ranked by estimated dollars saved. Estimates overlap, so do not add them up."""
+    ags = [a for t in trees for a in _agents(t) if not (a.get("cost") or {}).get("local")]
+    son, out = _price("sonnet"), []
+    ro = [a for a in ags if model_family(a.get("model")) == "opus" and not _edits(a)]
+    if ro:
+        d = sum(a["cost"]["usd"] - usd_for(a.get("tokens"), "sonnet") for a in ro)
+        out.append((d, f"Run the {len(ro)} read-only agents on Sonnet instead of Opus: ~${d:,.2f}", "read-only-to-sonnet", len(ro)))
+    lw = [a for a in ags if _int((a.get("tokens") or {}).get("output")) > LONG_OUTPUT and model_family(a.get("model")) in ("opus", "claude", "fable")]
+    if lw:
+        d = sum(_int(a["tokens"]["output"]) * (_price(model_family(a.get("model")))["output"] - son["output"]) / 1e6 for a in lw)
+        out.append((d, f"Draft the {len(lw)} long-writing agents' output on Sonnet and keep Opus for review: ~${d:,.2f}", "long-writing", len(lw)))
+    lc = [a for a in ags if _int(a.get("peak_context")) > LONG_CONTEXT]
+    if lc:
+        d = sum(_int(a["tokens"].get("cache_read")) * _price(model_family(a.get("model")))["cache_read"] / 1e6
+                * (1 - LONG_CONTEXT / _int(a["peak_context"])) for a in lc)
+        out.append((d, f"Split or compact the {len(lc)} agents whose context passes {LONG_CONTEXT // 1000}k (it is re-read every turn): ~${d:,.2f}",
+                    "long-context", len(lc)))
+    cw = [a for a in ags if W_CACHE in (a.get("warnings") or [])]
+    if cw:
+        d = sum(_int(a["tokens"].get("cache_write")) * (_price(model_family(a.get("model")))["cache_write"]
+                                                         - _price(model_family(a.get("model")))["input"]) / 1e6 for a in cw)
+        out.append((d, f"Skip prompt caching on the {len(cw)} short-lived agents (cache is written, hardly reused): ~${d:,.2f}",
+                    "short-lived-cache", len(cw)))
+    out = [x for x in out if x[0] > 0]
+    out.sort(key=lambda x: (-x[0], x[2]))
+    return [{"text": t, "usd": round(d, 2), "kind": k, "agents": n} for d, t, k, n in out]
+
+
+def apply_cost_section(out):
+    trees = []
+    for key, lst in (("claude", "sessions"), ("crew", "workflows")):
+        sec = out.get(key) or {}
+        for t in sec.get(lst) or []:
+            apply_costs(t)
+            trees.append(t)
+        if sec.get(lst) is not None:
+            sec["cost"] = {"usd": round(sum(t["cost"]["usd"] for t in sec[lst]), 4),
+                           "seconds": round(sum(t["cost"]["seconds"] for t in sec[lst]), 1)}
+    out["prices"] = {"per_million_tokens_usd": PRICE_TABLE, "note": PRICE_NOTE}
+    out["savings"] = build_savings(trees)
+    out["total_cost"] = {"usd": round(sum(t["cost"]["usd"] for t in trees), 4), "note": PRICE_NOTE}
+    return out
+
+
 # ---------------------------------------------------------------- entry points
 
 def _keep(categories):
@@ -788,6 +946,10 @@ def snapshot(limit=5, run_limit=20, claude_base=None, data_dir=None, roots=None,
             out[key] = fn()
         except Exception as e:                      # one broken source never blanks the page
             out[key] = {"error": f"{type(e).__name__}: {e}"}
+    try:
+        apply_cost_section(out)
+    except Exception as e:
+        out["total_cost"] = {"error": f"{type(e).__name__}: {e}"}
     try:
         apply_categories(out, categories)
     except Exception as e:

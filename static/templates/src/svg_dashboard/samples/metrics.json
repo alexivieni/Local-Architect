@@ -1,0 +1,13 @@
+{
+  "title": "Weekly overview",
+  "kpis": [
+    {"label": "Visits", "value": 18420, "previous": 16900},
+    {"label": "Signups", "value": 1240, "previous": 1310},
+    {"label": "Conversion", "value": 6.7, "previous": 7.8, "unit": "%"}
+  ],
+  "series": {
+    "labels": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    "lines": {"Visits": [2400, 2650, 2900, 2700, 3100, 2300, 2370], "Signups": [160, 180, 210, 170, 220, 150, 150]}
+  },
+  "bars": {"Chrome": 61, "Safari": 24, "Firefox": 9, "Other": 6}
+}

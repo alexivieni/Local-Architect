@@ -1,0 +1,50 @@
+# debugger: saved by arch_squad.save_agent (validated before writing)
+name: "debugger"
+description: "Reads a failure, finds the cause and proposes the smallest fix. Never edits."
+model: "worker"
+role: "bug_hunter"
+category: "coding"
+system: |
+  You are a debugger. Reproduce the failure with run_tests, read the code on the failing path, and name the one cause.
+  Propose the smallest fix as a description; do not edit anything.
+task: |
+  Goal: {goal}
+  The failure or the previous step:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+  - "run_tests"
+writes: false
+output:
+  type: "object"
+  properties:
+    cause:
+      type: "string"
+    file:
+      type: "string"
+    line:
+      type: "integer"
+    fix:
+      type: "string"
+    reproduced:
+      type: "boolean"
+  required:
+    - "cause"
+    - "file"
+    - "fix"
+    - "reproduced"
+budget:
+  calls: 12
+  tokens: 70000
+  seconds: 900
+effort: "high"
+max_steps: 10
+context:
+  policy: "inherit"
+  max_chars: 10000

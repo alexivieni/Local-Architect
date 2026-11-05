@@ -120,7 +120,7 @@ aside{background:var(--panel);border-right:1px solid var(--line);padding:16px 10
 .brand{display:flex;align-items:center;gap:11px;padding:6px 10px 20px;font:650 var(--t-l)/1 var(--font-head);letter-spacing:.01em}
 .brand span:last-child{color:var(--ink);font-weight:600}
 .brand>span:nth-child(2){font:650 var(--t-card)/1 var(--font-head);letter-spacing:-.01em}
-.brand .sub{display:block;font:500 9.5px/1 var(--font);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-top:5px}
+.brand .sub{display:block;font:500 12px/1 var(--font);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-top:5px}
 .logo{width:28px;height:28px;border-radius:6px;background:var(--bp);display:grid;place-items:center;color:var(--bpink);font:600 13px var(--font-head);flex:none;position:relative;overflow:hidden}.logo::after{content:"";position:absolute;inset:0;background:linear-gradient(var(--bpline) 1px,transparent 1px),linear-gradient(90deg,var(--bpline) 1px,transparent 1px);background-size:7px 7px;opacity:.5}
 .subtabs,.tfilter{display:flex;position:relative;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scroll-snap-type:x proximity;
   gap:6px;padding:2px 2px 6px;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
@@ -170,7 +170,7 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);bord
 input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 textarea{width:100%;font-family:var(--mono);font-size:13px}
 input[type=number]{width:110px}
-label.f{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--mute)}label.f .hint{font-size:11.5px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--mute)}label.f .hint{font-size:12px}
 label.sw{display:flex;align-items:center;gap:8px;cursor:pointer}
 .fgrid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
 table{border-collapse:collapse;width:100%;font-size:13.5px}th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--mute);font-weight:600;font-size:12px}
@@ -191,7 +191,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .step{min-width:140px;max-width:170px;border:1px solid var(--line);border-radius:12px;padding:9px 11px;background:var(--panel);position:relative;margin-right:26px;flex:none}
 .step:not(:last-child)::after{content:"";position:absolute;right:-26px;top:50%;width:26px;height:2px;background:var(--line)}
 .step:not(:last-child)::before{content:"";position:absolute;right:-27px;top:calc(50% - 4px);border:5px solid transparent;border-left:7px solid var(--line);border-right:0}
-.step b{display:block;font-size:13px;line-height:1.3}.step span{font-size:11.5px;color:var(--mute)}
+.step b{display:block;font-size:13px;line-height:1.3}.step span{font-size:12px;color:var(--mute)}
 .step.llm{border-top:3px solid var(--llm)}.step.code{border-top:3px solid var(--code)}.step.judge{border-top:3px solid var(--judge)}
 .legend{display:flex;gap:14px;font-size:12.5px;color:var(--mute);flex-wrap:wrap}.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .term{background:var(--term);color:var(--term-ink);font:12.5px/1.5 var(--mono);border-radius:12px;padding:14px;height:440px;overflow:auto;white-space:pre-wrap;word-break:break-word;border:1px solid var(--line)}
@@ -205,7 +205,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .msg.model{align-self:flex-start;background:var(--soft);border-bottom-left-radius:4px}
 .msg.job{align-self:stretch;max-width:100%;background:var(--panel);border:1px solid var(--line);padding:0}
 .msg.job .term{height:160px;margin:0;border-radius:0 0 14px 14px}
-.msg .who{display:block;font-size:11.5px;color:var(--mute);margin-bottom:4px;letter-spacing:.02em;text-transform:uppercase}
+.msg .who{display:block;font-size:12px;color:var(--mute);margin-bottom:4px;letter-spacing:.02em;text-transform:uppercase}
 .msg.job .who{padding:8px 14px 0}.msg .acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 .check{display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}.check:last-child{border:0}
 .tick{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:13px;flex:none;background:var(--soft);color:var(--mute)}.tick.ok{background:var(--goodbg);color:var(--good)}
@@ -236,7 +236,7 @@ details>summary{cursor:pointer;color:var(--mute);padding:4px 0}
 .two{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:22px}
 @media (max-width:900px){.two{grid-template-columns:1fr}}
 @media (min-width:821px){.term-card{position:sticky;top:12px;z-index:1}}
-@media (max-width:820px){.app{grid-template-columns:minmax(0,1fr)}aside{position:static;height:auto;flex-direction:row;flex-wrap:wrap;padding:8px;border-right:0;border-bottom:1px solid var(--line)}.brand{padding:4px 8px}.nav{width:auto;padding:7px 10px}.nav .g{display:none}.sidefoot{display:none}.navgroup{display:none}}
+@media (max-width:820px){.app{grid-template-columns:minmax(0,1fr)}}
 
 /* ---------- the blueprint sheet (Home) ---------- */
 .sheet{position:relative;background:var(--bp);color:var(--bpink);border-radius:var(--r);padding:clamp(22px,3.2vw,40px);margin-bottom:18px;overflow:hidden;border:1px solid #1b4bb0}
@@ -264,7 +264,6 @@ details>summary{cursor:pointer;color:var(--mute);padding:4px 0}
 .tblock{display:grid;grid-template-columns:repeat(3,auto);gap:0;border:1px solid rgba(191,212,255,.5);border-radius:6px;margin-top:24px;font-size:12px;width:max-content;max-width:100%;overflow:hidden}
 .tblock div{padding:7px 12px;border-right:1px solid rgba(191,212,255,.5);color:var(--bpmute)}.tblock div:last-child{border-right:0}.tblock b{display:block;color:#fff;font-weight:500;font-family:var(--mono);font-size:12.5px}
 .sheet-wrap .top{display:none}
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 /* ---------- iconography: one inline sprite, no network, inherits colour and weight ---------- */
 .ic{width:1.15em;height:1.15em;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.18em}
@@ -298,7 +297,7 @@ details>summary{cursor:pointer;color:var(--mute);padding:4px 0}
 .msgs{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:16px;scroll-behavior:smooth}
 .msg{display:grid;grid-template-columns:26px minmax(0,1fr);gap:11px;animation:msgIn .2s ease-out}
 @keyframes msgIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-.msg .who{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font:650 11px/1 var(--font-head);flex:none}
+.msg .who{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font:650 12px/1 var(--font-head);flex:none}
 .msg.you .who{background:var(--soft);color:var(--mute)}
 .msg.arch .who{background:var(--acc2);color:var(--acc)}
 .msg .body{min-width:0;overflow-wrap:anywhere}
@@ -306,22 +305,22 @@ details>summary{cursor:pointer;color:var(--mute);padding:4px 0}
 .msg .body pre{background:var(--soft);border:1px solid var(--line);border-radius:var(--rs);padding:10px 12px;overflow-x:auto;font:12.5px/1.5 var(--mono);margin:8px 0}
 .msg .body code{background:var(--soft);border-radius:4px;padding:1px 5px;font:12.5px var(--mono)}
 .msg .body pre code{background:none;padding:0}
-.msg .meta{color:var(--faint);font-size:11.5px;margin-top:5px;font-variant-numeric:tabular-nums}
+.msg .meta{color:var(--faint);font-size:12px;margin-top:5px;font-variant-numeric:tabular-nums}
 .composer{border-top:1px solid var(--line);padding:11px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:end;background:var(--panel);border-radius:0 0 var(--r) var(--r)}
 .composer textarea{width:100%;min-height:46px;max-height:200px;resize:vertical;border:1px solid var(--line);border-radius:var(--rs);
   background:var(--bg);color:var(--ink);font:inherit;padding:11px 12px;line-height:1.5}
 .composer textarea:focus-visible{outline:2px solid var(--acc);outline-offset:1px;border-color:transparent}
-.composer .hint{grid-column:1/-1;color:var(--faint);font-size:11.5px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.composer .hint{grid-column:1/-1;color:var(--faint);font-size:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 kbd{font:11px/1.4 var(--mono);background:var(--soft);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 5px;color:var(--mute)}
 
 /* the live panel */
 .doing{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);position:sticky;top:16px;
   max-height:78vh;overflow-y:auto}
-.doing h3{margin:0;padding:13px 16px 11px;font:650 11.5px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+.doing h3{margin:0;padding:13px 16px 11px;font:650 12px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
   border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;position:sticky;top:0;background:var(--panel);z-index:1}
 .doing .sect{padding:13px 16px;border-bottom:1px solid var(--line)}
 .doing .sect:last-child{border-bottom:0}
-.doing .lbl{font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:0 0 8px}
+.doing .lbl{font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:0 0 8px}
 .plan{list-style:none;margin:0;padding:0;display:grid;gap:3px}
 .plan li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:9px;align-items:start;padding:4px 0;font-size:13px;color:var(--mute);border-radius:6px}
 .plan li .ic{margin-top:1px}
@@ -339,8 +338,8 @@ kbd{font:11px/1.4 var(--mono);background:var(--soft);border:1px solid var(--line
 .tools .res{color:var(--faint);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gates{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:12.5px}
 .gates li{display:grid;grid-template-columns:15px minmax(0,1fr) auto;gap:8px;align-items:center}
-.gates .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:11.5px;color:var(--mute)}
-.gates .v{font-size:11px;font-weight:650;padding:1px 7px;border-radius:999px}
+.gates .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12px;color:var(--mute)}
+.gates .v{font-size:12px;font-weight:650;padding:1px 7px;border-radius:999px}
 .gates .v.ok{background:var(--goodbg);color:var(--good)}
 .gates .v.no{background:var(--badbg);color:var(--bad)}
 .gates .v.un{background:var(--warnbg);color:var(--warn)}
@@ -365,14 +364,13 @@ kbd{font:11px/1.4 var(--mono);background:var(--soft);border:1px solid var(--line
 .palette input:focus{outline:none}
 .palette ul{list-style:none;margin:0;padding:6px;max-height:50vh;overflow-y:auto}
 .palette li{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:11px;align-items:center;padding:9px 10px;border-radius:var(--rs);cursor:pointer;font-size:13.5px}
-.palette li .sub2{color:var(--faint);font-size:11.5px}
+.palette li .sub2{color:var(--faint);font-size:12px}
 .palette li[aria-selected=true]{background:var(--acc2);color:var(--acc)}
 .palette li[aria-selected=true] .sub2{color:var(--acc)}
 .palette .empty{padding:22px 16px;color:var(--faint);font-size:13px;text-align:center}
 
 /* ---------- one set of breakpoints, not three ---------- */
 @media (max-width:1000px){.console{grid-template-columns:minmax(0,1fr)}.doing{position:static;max-height:none}}
-@media (prefers-reduced-motion:reduce){*{animation-duration:.001s!important;transition-duration:.001s!important;scroll-behavior:auto!important}}
 
 /* the one screen earns its space: no page heading above it, and the two columns match in height */
 body.oneScreen .top{display:none}
@@ -401,7 +399,7 @@ body.oneScreen .subtabs{margin-bottom:12px}
   border-radius:var(--rs);cursor:pointer;font-size:13px}
 .slash li b{font-family:var(--mono);font-size:12.5px;color:var(--acc)}
 .slash li .d{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.slash li .fl{font-size:10.5px;color:var(--faint);font-family:var(--mono)}
+.slash li .fl{font-size:12px;color:var(--faint);font-family:var(--mono)}
 .slash li[aria-selected=true]{background:var(--acc2)}
 .slash li[aria-selected=true] .d{color:var(--ink)}
 .composer{position:relative}
@@ -429,16 +427,16 @@ body.oneScreen .subtabs{margin-bottom:12px}
 .tc-rec{background:var(--soft);border-radius:var(--rs);padding:10px 11px}
 .tc-rec .model{display:block;font-family:var(--mono);font-size:12.5px;color:var(--ink);overflow-wrap:anywhere;margin:2px 0 4px}
 .tc-rec p{margin:0;font-size:12px;line-height:1.5;color:var(--mute)}
-.lbl{font-size:10.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+.lbl{font-size:12px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
 .vram{display:grid;gap:4px}
 .vram .bar{height:7px;border-radius:999px;background:var(--soft);overflow:hidden;display:flex}
 .vram .bar i{display:block;height:100%;background:var(--acc)}
 .vram .bar i.ram{background:repeating-linear-gradient(45deg,var(--warn),var(--warn) 4px,transparent 4px,transparent 8px);opacity:.7}
-.vram .legend{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+.vram .legend{display:flex;justify-content:space-between;font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
 .tc-pick{display:grid;gap:5px;margin-top:auto}
 .tc-pick select{width:100%;font:12.5px var(--mono);padding:7px 8px;border-radius:var(--rs);border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 .tc-facts{display:flex;flex-wrap:wrap;gap:5px}
-.tc-facts span{font-size:11px;font-family:var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--mute)}
+.tc-facts span{font-size:12px;font-family:var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--mute)}
 /* ---------- the queue ---------- */
 .qadd{display:grid;grid-template-columns:minmax(0,1fr) 150px auto;gap:8px;margin:4px 0 14px}
 .qadd input,.qadd select{font:inherit;padding:9px 11px;border-radius:var(--rs);border:1px solid var(--line);background:var(--bg);color:var(--ink);min-width:0}
@@ -451,7 +449,7 @@ body.oneScreen .subtabs{margin-bottom:12px}
 .qlist li.done .ic{color:var(--good)}.qlist li.failed .ic,.qlist li.dead .ic{color:var(--bad)}
 .qlist li.not_sure .ic{color:var(--warn)}.qlist li.running .ic{color:var(--acc)}.qlist li.cancelled{opacity:.55}
 .qlist .goal{font-size:13.5px;color:var(--ink)}
-.qlist .meta{font-size:11.5px;color:var(--faint);margin-top:2px;font-variant-numeric:tabular-nums}
+.qlist .meta{font-size:12px;color:var(--faint);margin-top:2px;font-variant-numeric:tabular-nums}
 .qlist .note{font-size:12px;color:var(--mute);margin-top:4px}
 .setupcard{border:1px solid var(--acc);background:linear-gradient(135deg,var(--acc2),transparent 70%);border-radius:var(--r);padding:16px 18px;
   display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:center;margin:0 0 14px;text-align:left}
@@ -533,8 +531,8 @@ main>*{max-width:1320px}
 .tcard .plate{height:74px;position:relative;display:flex;align-items:center;padding:0 16px;gap:12px;border-bottom:1px solid var(--line);
   background:linear-gradient(var(--grid2) 1px,transparent 1px) 0 0/12px 12px,linear-gradient(90deg,var(--grid2) 1px,transparent 1px) 0 0/12px 12px,var(--soft)}
 .tcard .plate .ic{width:34px;height:34px;color:var(--acc);stroke-width:1.4}
-.tcard .plate .cat{font:600 10.5px var(--font-head);letter-spacing:.18em;text-transform:uppercase;color:var(--faint)}
-.tcard .plate .no{position:absolute;right:12px;top:10px;font:600 10px var(--font-head);letter-spacing:.12em;color:var(--faint)}
+.tcard .plate .cat{font:600 12px var(--font-head);letter-spacing:.18em;text-transform:uppercase;color:var(--faint)}
+.tcard .plate .no{position:absolute;right:12px;top:10px;font:600 12px var(--font-head);letter-spacing:.12em;color:var(--faint)}
 .tcard .body{padding:12px 16px 14px;display:flex;flex-direction:column;gap:7px;flex:1}
 .tcard h3{margin:0;font:600 15px/1.3 var(--font-head)}
 .tcard p{margin:0;font-size:12.5px;line-height:1.5;color:var(--mute);flex:1}
@@ -554,7 +552,6 @@ main>*{max-width:1320px}
 .fm-title{font-weight:600;font-size:14px}
 .fm-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 @keyframes fmIn{to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.fm-step{animation:none;opacity:1;transform:none}}
 
 /* ===== polish layer (2026-11-04): fonts that ship with the OS, type scale, depth, life ===== */
 /* (its fonts, type scale, easing, lift and ring are tokens now; the page background is in base) */
@@ -586,7 +583,6 @@ code,pre,.mono,#term{font-family:var(--mono);font-variant-ligatures:contextual}
 .starts{grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));width:100%;max-width:min(520px,100%);min-width:0}
 .starts>.btn{min-width:0}
 #cMsgs>.idle{width:100%}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 
 /* steps still to come in the live plan */
 ul.plan li.todo{opacity:.5}ul.plan li.todo svg{opacity:.4}
@@ -617,13 +613,12 @@ ul.plan li.todo{opacity:.5}ul.plan li.todo svg{opacity:.4}
 .sdetail h4{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
 .sd-files{margin:8px 0 0;padding-left:16px;max-height:180px;overflow:auto;font-size:13px}.sd-ideas{display:flex;flex-wrap:wrap;gap:6px}
 .sidea{cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--ink);text-align:left}.sidea:hover{border-color:var(--acc);color:var(--acc)}
-.stl-i{display:flex;gap:10px;padding:6px 0}.stl-n{flex:none;width:20px;height:20px;border-radius:50%;background:var(--acc2);color:var(--acc);font-size:11px;font-weight:700;display:grid;place-items:center}
+.stl-i{display:flex;gap:10px;padding:6px 0}.stl-n{flex:none;width:20px;height:20px;border-radius:50%;background:var(--acc2);color:var(--acc);font-size:12px;font-weight:700;display:grid;place-items:center}
 
 .fm-more{margin-top:4px}.fm-more summary{cursor:pointer;font-size:12px;color:var(--mute)}.fm-more div{margin-top:3px}
 .reqs{margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:var(--rs);display:grid;gap:6px}.req{display:flex;gap:10px;align-items:center}
 .facets{margin-top:6px;display:grid;gap:4px;font-weight:400}.fct{margin-right:6px}.wprog{display:flex;gap:10px;align-items:center;margin:0 0 8px}.wprog .meter{flex:1}
 
-@media (max-width:820px){aside{align-items:center;gap:4px}#nav{display:flex;flex-direction:row;flex-wrap:wrap;gap:4px;height:auto}aside .nav{min-height:0;height:auto;padding:6px 10px;font-size:13px}.nav::before{display:none}}
 
 .btiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.btile{display:flex;flex-direction:column;gap:2px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--rs);background:var(--panel)}
 .btile b{font-size:26px;font-weight:700;letter-spacing:-.02em}.btile.good b{color:var(--good,#3fb950)}.btile.warn b{color:var(--warn,#d29922)}.btile.bad b{color:var(--bad,#f85149)}
@@ -651,9 +646,9 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 /* model menu (Claude-style) */
 .mmbtn{align-self:center;display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;padding:6px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap}
 .mmbtn:hover{border-color:var(--acc)}.mmbtn.cl{border-color:rgba(217,119,87,.55);color:#e8956f}.mmdot{width:7px;height:7px;border-radius:50%;background:var(--good,#3fb950)}.mmbtn.cl .mmdot{background:#d97757}
-.mmchev{opacity:.6;font-size:10px}
+.mmchev{opacity:.6;font-size:12px}
 .mmenu{position:absolute;bottom:calc(100% + 8px);right:0;z-index:50;width:290px;padding:6px;border-radius:14px;background:#1f1f1e;border:1px solid #3a3a38;box-shadow:0 18px 50px rgba(0,0,0,.45);color:#e8e6e1;font-size:14px}
-.mmhead{padding:8px 10px 4px;font-size:11.5px;color:#9a978f;letter-spacing:.02em}
+.mmhead{padding:8px 10px 4px;font-size:12px;color:#9a978f;letter-spacing:.02em}
 .mmrow{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;cursor:pointer;position:relative}
 .mmrow:hover{background:#2c2c2a}.mmrow.off{opacity:.45;cursor:not-allowed}.mmrow.tall{align-items:flex-start}
 .mmname{flex:1;display:flex;flex-direction:column}.mmsub{color:#9a978f;font-size:12px;white-space:nowrap}.mmdesc{color:#9a978f;font-size:12px;margin-top:2px;line-height:1.35}
@@ -662,7 +657,7 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 .mmsep{height:1px;background:#3a3a38;margin:6px 4px}
 .mmside{position:absolute;right:calc(100% + 6px);width:300px;padding:6px;border-radius:14px;background:#1f1f1e;border:1px solid #3a3a38;box-shadow:0 18px 50px rgba(0,0,0,.45)}
 .mmhelp{margin:4px 10px 8px;color:#9a978f;font-size:12.5px;line-height:1.45}
-.mmtag{font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid #4a4a47;color:#c9c6bd}.mmtag.warn{border:0;background:rgba(217,160,60,.18);color:#e0a84a}
+.mmtag{font-size:12px;padding:1px 8px;border-radius:999px;border:1px solid #4a4a47;color:#c9c6bd}.mmtag.warn{border:0;background:rgba(217,160,60,.18);color:#e0a84a}
 .mmtoggle{width:34px;height:20px;border-radius:999px;background:#4a4a47;position:relative;transition:background .15s}.mmtoggle i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
 .mmtoggle.on{background:#d97757}.mmtoggle.on i{left:16px}
 @media (max-width:700px){.mmside{right:0;bottom:calc(100% + 6px);top:auto!important}.mmenu{width:min(290px,92vw)}}
@@ -684,7 +679,7 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 .cctool>summary::before,.ccthink>summary::before{content:"▸";color:var(--faint);flex:none;transition:transform .12s}.cctool[open]>summary::before,.ccthink[open]>summary::before{transform:rotate(90deg)}
 .ccname{font-weight:600;flex:none}.ccarg{font-family:var(--mono);font-size:12px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .ccdot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--warn);align-self:center}.ccdot.ok{background:var(--good)}.ccdot.err{background:var(--bad)}
-.ccprev{font-family:var(--mono);font-size:11.5px;color:var(--faint);padding:0 10px 6px 26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ccprev{font-family:var(--mono);font-size:12px;color:var(--faint);padding:0 10px 6px 26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ccbody{padding:0 10px 8px 26px;display:flex;flex-direction:column;gap:6px}.ccbody .agtxt{max-height:320px;overflow:auto;background:var(--soft);border-radius:6px;padding:6px 8px}
 .ccfinal{border:1px solid var(--good);background:var(--goodbg);border-radius:10px;padding:10px 14px}.ccfinal.err{border-color:var(--bad);background:var(--badbg)}
 .ccmeta{font-size:12.5px;color:var(--mute);display:flex;gap:12px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--line);margin-top:8px}
@@ -711,7 +706,7 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 .rv-body{padding:0 6px 8px}
 .rv svg{display:block;width:100%;height:auto;max-height:480px}
 .rv svg text{font-family:var(--font);fill:var(--ink)}
-.rv .rv-t{font-size:13px;font-weight:650}.rv .rv-s{font-size:11px;fill:var(--mute)}.rv .rv-l{font-size:10.5px;fill:var(--faint)}
+.rv .rv-t{font-size:13px;font-weight:650}.rv .rv-s{font-size:12px;fill:var(--mute)}.rv .rv-l{font-size:12px;fill:var(--faint)}
 .rv-n rect,.rv-n polygon{fill:var(--panel);stroke:var(--line);stroke-width:1.5}
 .rv-n.used rect{stroke:color-mix(in srgb,var(--acc) 45%,var(--line))}
 .rv-n.on rect{fill:var(--acc2);stroke:var(--acc);stroke-width:2}.rv-n.on .rv-t{fill:var(--acc)}
@@ -732,9 +727,9 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 .bp-top{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin-bottom:14px}.bp-top .f{min-width:min(220px,100%)}
 .bp-grid{display:grid;grid-template-columns:200px minmax(0,1fr);gap:16px;align-items:start}
 .bp-pal{display:flex;flex-direction:column;gap:6px;position:sticky;top:12px}
-.bp-pal .lbl,.crew-models .lbl{margin:0 0 2px;font-size:11px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.bp-pal .lbl,.crew-models .lbl{margin:0 0 2px;font-size:12px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
 .bp-kind{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;border:1px solid var(--line);border-left:4px solid var(--llm);background:var(--panel);color:var(--ink);font:inherit;padding:7px 10px;border-radius:var(--rs);cursor:grab}
-.bp-kind span{font-family:var(--mono);font-size:11px;color:var(--mute)}.bp-kind:hover{border-color:var(--acc);border-left-color:var(--llm)}
+.bp-kind span{font-family:var(--mono);font-size:12px;color:var(--mute)}.bp-kind:hover{border-color:var(--acc);border-left-color:var(--llm)}
 .bp-kind.k-code,.bp-card.k-code{border-left-color:var(--code)}.bp-kind.k-judge,.bp-card.k-judge{border-left-color:var(--judge)}
 .bp-canvas{position:relative;min-height:220px;padding:14px 10px 14px 42px;border:1.5px dashed var(--line);border-radius:var(--r);
   background:linear-gradient(var(--grid,transparent) 1px,transparent 1px) 0 0/16px 16px,linear-gradient(90deg,var(--grid,transparent) 1px,transparent 1px) 0 0/16px 16px,var(--bg)}
@@ -748,7 +743,7 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 .bp-card.dragging{opacity:.45}.bp-card.foreign{opacity:.65;border-style:dashed}
 .bp-card.dropb::before,.bp-card.dropa::after{content:"";position:absolute;left:-4px;right:0;height:3px;border-radius:3px;background:var(--acc)}
 .bp-card.dropb::before{top:-9px}.bp-card.dropa::after{bottom:-9px}
-.bp-n{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11.5px;font-weight:700;background:var(--acc2);color:var(--acc)}
+.bp-n{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--acc2);color:var(--acc)}
 .bp-body{flex:1;min-width:0}.bp-title{font-weight:600;font-size:14px;overflow-wrap:anywhere}.bp-meta{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
 .bp-arrows{display:flex;flex-direction:column;gap:4px}.bp-arrows .btn{padding:2px 9px;line-height:1.2}
 .bp-empty{padding:40px 12px;text-align:center;color:var(--mute);font-size:14px}
@@ -861,7 +856,6 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 
 /* the page arrives gently; with reduced motion it simply appears */
 #view{animation:viewIn .18s var(--ease,ease-out)}
-@media (prefers-reduced-motion:reduce){#view,.card{animation:none!important}}
 
 /* phone (375 px): nothing wider than the screen, every tap target at least 36 px */
 @media (max-width:820px),(pointer:coarse){
@@ -903,10 +897,10 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 @media (max-width:860px){.ws-split{grid-template-columns:minmax(0,1fr)}}
 /* the Fleet table: one row per agent, fields side by side on a wide screen, stacked on a phone */
 .fl-row{display:grid;grid-template-columns:minmax(0,140px) 110px minmax(0,1.6fr) minmax(0,1fr) 90px 34px;gap:8px;align-items:start;padding:8px 0;border-bottom:1px solid var(--line)}
-.fl-row.head{font-size:11px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding-top:0}
+.fl-row.head{font-size:12px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding-top:0}
 .fl-row input,.fl-row select,.fl-row textarea{width:100%;font:inherit;min-width:0}.fl-row textarea{resize:vertical}
 .fl-row .flx{padding:4px 0;min-height:34px;width:34px}
-.fl-lbl{display:none;font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.fl-lbl{display:none;font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
 @media (max-width:760px){.fl-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.fl-row.head{display:none}.fl-row .wide{grid-column:1/-1}.fl-lbl{display:block}.fl-row .flx{width:auto}}
 .fl-agent{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px}
 .fl-last{font-size:12.5px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;grid-column:1/-1}
@@ -914,7 +908,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 .mp-wrap{position:relative;overflow:auto;border:1px solid var(--line);border-radius:var(--r);
   background:linear-gradient(var(--grid,transparent) 1px,transparent 1px) 0 0/20px 20px,linear-gradient(90deg,var(--grid,transparent) 1px,transparent 1px) 0 0/20px 20px,var(--bg);max-height:72vh}
 .mp-svg{display:block}
-.mp-svg text{font-family:var(--font);fill:var(--ink);pointer-events:none}.mp-svg .mp-s{font-size:10.5px;fill:var(--mute)}.mp-svg .mp-t{font-size:12.5px;font-weight:650}
+.mp-svg text{font-family:var(--font);fill:var(--ink);pointer-events:none}.mp-svg .mp-s{font-size:12px;fill:var(--mute)}.mp-svg .mp-t{font-size:12.5px;font-weight:650}
 .mp-n{cursor:grab;touch-action:none;outline:none}.mp-n.drag{cursor:grabbing}
 .mp-n rect{fill:var(--panel);stroke:var(--line);stroke-width:1.5}.mp-n .mp-band{stroke:none}
 .mp-n:hover rect.mp-box,.mp-n:focus-visible rect.mp-box{stroke:var(--acc)}.mp-n.sel rect.mp-box{stroke:var(--acc);stroke-width:2.5}
@@ -952,7 +946,6 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 .pghint{display:flex;gap:12px;align-items:flex-start;margin:0 0 12px;padding:10px 14px;border-radius:var(--rs);background:var(--infobg);color:var(--ink);border:1px solid color-mix(in srgb,var(--info) 30%,transparent);font-size:13.5px;line-height:1.5}
 .pghint .ic{color:var(--info);flex:none;margin-top:2px}.pghint .t{flex:1;min-width:0}.pghint b{display:block;color:var(--info)}.pghint .acts{display:flex;gap:6px;flex-wrap:wrap;flex:none}
 @media (max-width:600px){.fv{padding:16px}.fv h2{font-size:18px}.fv-next{grid-template-columns:minmax(0,1fr)}.fv-foot .btn{flex:1 1 auto}.pghint{flex-wrap:wrap}.pghint .acts{width:100%}}
-@media (prefers-reduced-motion:reduce){.fv-wrap{animation:none}}
 
 /* =====================================================================================================
    FLAGSHIP LAYER (2026-11-04). The pages added today (Council, Crew, Blueprints, Fleet, Map, Monitor, Logbook, Library, the
@@ -979,7 +972,7 @@ th{font-weight:600}
 .brand>span:nth-child(2){font:650 17px/1 var(--font-head);letter-spacing:-.01em;text-transform:none}
 /* tiny capital labels: one size band and one tracking */
 .lbl,.doing .lbl,.doing h3,.bp-pal .lbl,.crew-models .lbl,.fl-row.head,.fl-lbl,.tcard .plate .cat,.fv-top,.msg .who,.brand .sub{letter-spacing:.08em}
-.doing h3,.fv-top{font-size:11px}
+.doing h3,.fv-top{font-size:12px}
 .sdetail h4,.formsec>h4{text-transform:none}
 
 /* ---- the side bar tabs and the sub-tab pills: one height, one active state, they scroll instead of wrapping ---- */
@@ -1039,13 +1032,12 @@ input[type=checkbox],input[type=radio],input[type=range]{accent-color:var(--acc)
 @keyframes stSpin{to{transform:rotate(360deg)}}
 .st-err{color:var(--bad)}
 .st-err::before{content:"!";display:inline-grid;place-items:center;width:1.25em;height:1.25em;margin-right:.5em;border-radius:50%;
-  background:var(--badbg);color:var(--bad);font:700 11px/1 var(--font);vertical-align:.05em}
+  background:var(--badbg);color:var(--bad);font:700 12px/1 var(--font);vertical-align:.05em}
 div.st-err,p.st-err{background:var(--badbg);border-radius:var(--rs);padding:9px 12px}
 div.st-err::before,p.st-err::before{background:color-mix(in srgb,var(--bad) 18%,transparent)}
 .st-empty{display:block;text-align:center;color:var(--mute);padding:22px 16px;border:1px solid var(--line);border-radius:var(--rs);
   background:color-mix(in srgb,var(--soft) 50%,transparent);font-size:13.5px}
 .empty,.bp-empty,.idle{font-size:13.5px}
-@media (prefers-reduced-motion:reduce){.st-load::before{animation:none;border-top-color:currentColor}}
 
 /* ---- the model menu follows the theme instead of always being dark; its accent is the app's, the toggle's orange is Claude's ---- */
 .mmenu,.mmside{background:var(--panel);border-color:var(--line);color:var(--ink);box-shadow:0 18px 50px -12px color-mix(in srgb,var(--ink) 35%,transparent)}
@@ -1064,10 +1056,6 @@ div.st-err::before,p.st-err::before{background:color-mix(in srgb,var(--bad) 18%,
 
 /* ---- small screens (375 px): the side bar becomes one scrolling row of tabs, nothing wraps into a second toolbar ---- */
 @media (max-width:820px){
-  aside{flex-wrap:wrap;row-gap:6px}
-  #nav{flex:1 1 100%;flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:none;gap:4px}
-  #nav::-webkit-scrollbar{display:none}
-  aside .nav{flex:none;white-space:nowrap}
   .card>.row:first-child>.btn{margin-left:0}
 }
 @media (max-width:600px){
@@ -1133,7 +1121,7 @@ button,select,input,textarea,summary{min-height:36px}
 .gal-q{width:100%;margin-top:6px;min-height:42px;font:inherit;font-size:1rem;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 .gal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
 .gal-card{border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px;background:var(--panel)}
-.gal-card h3{margin:0;font-size:1rem}.gal-card p{margin:0;flex:1}.gal-tag{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--acc)}
+.gal-card h3{margin:0;font-size:1rem}.gal-card p{margin:0;flex:1}.gal-tag{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--acc)}
 .gal-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 /* ===== art direction (docs/art_direction.md): section hues, page glyphs, illustrations, signs of life, the theme picker. Tokens only ===== */
 /* section hue: one colour per place, used for an icon tint and the active marker, nothing else */
@@ -1287,14 +1275,10 @@ p,li,dd,td{font-size:inherit}
 /* a window (report, run timeline) floats over the page: a later .card rule had made it position:relative, so it opened below everything */
 .card.modal{position:fixed;inset:5% 6%;z-index:60;overflow:auto;box-shadow:0 20px 60px color-mix(in srgb,var(--bg) 70%,transparent)}
 /* ===== reduced motion: one rule for the whole app (the older per-layer copies above say the same thing) ===== */
-@media (prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
-  .fm-step{opacity:1;transform:none}
-  .st-load::before{border-top-color:currentColor}}
 
 
 /* ---- flagship layout (ui rebuild 2026-11-05): grouped sidebar, top bar, Home dashboard ---- */
-.navsec{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:14px 12px 4px}
+.navsec{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:14px 12px 4px}
 .navsec:first-child{padding-top:4px}
 .topbar{display:flex;align-items:center;gap:10px;margin:0 0 14px;min-width:0}
 .tsearch{display:flex;align-items:center;gap:10px;min-height:36px;padding:0 10px 0 12px;flex:0 1 380px;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--mute);font:inherit;cursor:pointer}
@@ -1316,18 +1300,216 @@ p,li,dd,td{font-size:inherit}
 .qcard{display:grid;gap:4px;justify-items:start;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);font:inherit;cursor:pointer}
 .qcard:hover{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
 .qcard .ic{color:var(--acc)}
+.qwrap{position:relative;display:grid}.qwrap .qcard{padding-bottom:40px}.qwrap .qopt{position:absolute;right:10px;bottom:10px}
+.cb-card{cursor:default}.cb-card .btn{margin-top:6px}.cb-ovrow{flex-wrap:wrap;gap:6px;margin:6px 0}.cb-ovrow input{min-width:0;flex:1 1 120px}
+.st-errline{color:var(--bad)}.st-errline:empty{display:none}
+.xdlg{max-width:min(640px,calc(100vw - 32px));width:100%;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:16px;box-sizing:border-box}
+.xdlg::backdrop{background:color-mix(in srgb,var(--ink) 35%,transparent)}.xdlg .f{display:grid;gap:4px;margin:8px 0}.xdlg textarea,.xdlg input[type=text],.xdlg input[type=number],.xdlg select{max-width:100%;box-sizing:border-box}
+.xdlg-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+#bjBox{overflow-x:auto}
 .feed{display:grid;gap:6px}
 .feedrow{display:flex;align-items:center;gap:10px;min-width:0}
 .feedrow .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (max-width:820px){
   .navtoggle{display:inline-flex}
-  body:not(.nav-open) #nav{display:none!important}
-  body.nav-open #nav{display:flex!important;flex-direction:column;width:100%}
   .navsec{padding:8px 8px 2px}
   .tsearch span{display:none}.tsearch{flex:0 0 auto}
   .livechip{font-size:12px}
 }
-@media (prefers-reduced-motion:reduce){.qcard,.tsearch{transition:none}}
+/* =====================================================================================================
+   FLAGSHIP LAYER (ui_rebuild_log 19+, ux_audit V-B..V-G). Tokens first; every colour below is a token.
+   ===================================================================================================== */
+/* V-B colour: category hues for identity (icon tint, card edge, avatar ring, chip). Text on a tint uses the -ink token. */
+.th-light,.th-paper,:root{
+  --c-flow:#2f6fe0;--c-flow-ink:#1f4fb0;--c-flow-bg:#e6eefc;
+  --c-agent:#7a4fd6;--c-agent-ink:#5a35b0;--c-agent-bg:#efe9fb;
+  --c-template:#0d8a6f;--c-template-ink:#0a6a55;--c-template-bg:#dff3ee;
+  --c-model:#c4467d;--c-model-ink:#9a2d60;--c-model-bg:#fae6ef;
+  --c-cost:#c77712;--c-cost-ink:#7e4a00;--c-cost-bg:#fcefd6;
+  --c-system:#4d6a8f;--c-system-ink:#3a536f;--c-system-bg:#e8eef5;
+  --live:#16a34a;
+  --grad-hero:linear-gradient(135deg,#1549c9 0%,#5a43d6 55%,#c4467d 120%);
+  --on-grad:#ffffff;
+  /* V-F type scale (old names kept as aliases, so no sweep was needed) */
+  --t-display:32px;--t-title:22px;--t-head:17px;--t-caption:12px;--t-mono:12.5px;
+  --t-label:13px;--t-xs:12px;--t-sm:13px;--t-s:13px;--t-ms:13px;--t-m:14.5px;--t-body:14.5px;--t-l:17px;--t-card:17px;--t-xl:22px;--t-2xl:32px;
+  --s7:48px;--r:14px;--rs:10px;
+  /* V-G motion */
+  --fast:.12s;--base:.2s;--slow:.4s;--ease:cubic-bezier(.2,.7,.2,1);--spring:cubic-bezier(.34,1.56,.64,1)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]):not([data-theme=paper]){
+  --c-flow:#7da2ff;--c-flow-ink:#a9c0ff;--c-flow-bg:#16264a;
+  --c-agent:#b79cff;--c-agent-ink:#cdbbff;--c-agent-bg:#251c47;
+  --c-template:#4fd1a5;--c-template-ink:#8be3c4;--c-template-bg:#0f2f27;
+  --c-model:#f08cc6;--c-model-ink:#f6b2d9;--c-model-bg:#35172a;
+  --c-cost:#f2b255;--c-cost-ink:#f7cb86;--c-cost-bg:#33260f;
+  --c-system:#8fa8c8;--c-system-ink:#b4c5dc;--c-system-bg:#1a2536;
+  --live:#4ade80;--grad-hero:linear-gradient(135deg,#1a2c66 0%,#3b2a7a 55%,#6e2a55 120%);--on-grad:#f4f7ff}}
+.th-dark,.th-midnight,:root[data-theme=dark],:root[data-theme=midnight]{
+  --c-flow:#7da2ff;--c-flow-ink:#a9c0ff;--c-flow-bg:#16264a;
+  --c-agent:#b79cff;--c-agent-ink:#cdbbff;--c-agent-bg:#251c47;
+  --c-template:#4fd1a5;--c-template-ink:#8be3c4;--c-template-bg:#0f2f27;
+  --c-model:#f08cc6;--c-model-ink:#f6b2d9;--c-model-bg:#35172a;
+  --c-cost:#f2b255;--c-cost-ink:#f7cb86;--c-cost-bg:#33260f;
+  --c-system:#8fa8c8;--c-system-ink:#b4c5dc;--c-system-bg:#1a2536;
+  --live:#4ade80;--grad-hero:linear-gradient(135deg,#1a2c66 0%,#3b2a7a 55%,#6e2a55 120%);--on-grad:#f4f7ff}
+.th-light,.th-dark,.th-midnight,.th-paper,:root{
+  --tint-card:color-mix(in srgb,var(--hue,var(--acc)) 6%,var(--panel));
+  --tint-hover:color-mix(in srgb,var(--hue,var(--acc)) 12%,var(--panel));
+  --grad-hero-soft:linear-gradient(135deg,color-mix(in srgb,var(--acc) 14%,var(--panel)),color-mix(in srgb,var(--c-agent) 10%,var(--panel)))}
+/* the accent swatches (their colour comes from tokens, not inline styles) */
+.th-light,.th-dark,.th-midnight,.th-paper,:root{--sw-blueprint:#1549c9;--sw-graphite:#3c4656;--sw-copper:#b4531f;--sw-moss:#2f7a4f;--mask:#000}
+.accents button[data-acc=blueprint]{background:var(--sw-blueprint)}.accents button[data-acc=graphite]{background:var(--sw-graphite)}
+.accents button[data-acc=copper]{background:var(--sw-copper)}.accents button[data-acc=moss]{background:var(--sw-moss)}
+.accents.inpick{display:flex;gap:8px;padding:4px 10px 10px}.accents.inpick button{width:26px;height:26px;border-radius:50%;border:2px solid var(--panel);box-shadow:0 0 0 1px var(--line);cursor:pointer}
+.accents.inpick button[aria-pressed=true]{box-shadow:0 0 0 2px var(--ink)}
+/* one hue per place */
+body[data-sec=home],.nav[data-sec=home]{--hue:var(--c-flow)}
+body[data-sec=runs],.nav[data-sec=runs]{--hue:var(--c-flow)}
+body[data-sec=workflows],.nav[data-sec=workflows]{--hue:var(--c-template)}
+body[data-sec=agentsp],.nav[data-sec=agentsp]{--hue:var(--c-agent)}
+body[data-sec=team],.nav[data-sec=team]{--hue:var(--c-model)}
+body[data-sec=cachesp],.nav[data-sec=cachesp]{--hue:var(--c-model)}
+body[data-sec=cost],.nav[data-sec=cost]{--hue:var(--c-cost)}
+body[data-sec=machine],.nav[data-sec=machine],body[data-sec=settings],.nav[data-sec=settings],body[data-sec=help],.nav[data-sec=help]{--hue:var(--c-system)}
+.nav .ic{color:var(--mute)}.nav[aria-current=page] .ic{color:var(--hue)}
+.nav[aria-current=page]{background:var(--tint-hover)}
+body{background:var(--paper)}
+/* chips: plain stays neutral; category chips use their hue */
+.chip.flow{background:var(--c-flow-bg);color:var(--c-flow-ink);border-color:transparent}
+.chip.agent{background:var(--c-agent-bg);color:var(--c-agent-ink);border-color:transparent}
+.chip.template{background:var(--c-template-bg);color:var(--c-template-ink);border-color:transparent}
+.chip.model{background:var(--c-model-bg);color:var(--c-model-ink);border-color:transparent}
+.chip.cost{background:var(--c-cost-bg);color:var(--c-cost-ink);border-color:transparent}
+.chip.system{background:var(--c-system-bg);color:var(--c-system-ink);border-color:transparent}
+.chip.diff{background:var(--soft);color:var(--mute)}
+/* V-F type */
+h1,#pageTitle{font:650 var(--t-title)/1.25 var(--font-head);letter-spacing:-.015em}
+.card h2{font:600 var(--t-head)/1.3 var(--font-head)}
+.sub{max-width:62ch}
+.brand .sub{font:500 12px/1.3 var(--font);text-transform:none;letter-spacing:0}
+.gal-tag{font-size:12px}
+.navsec{font-size:12px;font-weight:600;letter-spacing:.04em}
+.num,.statcard b{font-variant-numeric:tabular-nums}
+.brandmark{background:var(--grad-hero);color:var(--on-grad)}
+/* V-A Learn more */
+.more>summary{cursor:pointer;color:var(--acc);font-size:var(--t-sm);list-style:none;margin-top:var(--s1)}
+.more>summary::-webkit-details-marker{display:none}
+.more>summary::before{content:"+ "}.more[open]>summary::before{content:"− "}
+.more>div{max-width:62ch;margin-top:var(--s2)}
+.more-sum{cursor:pointer;font:600 var(--t-head) var(--font-head)}
+/* V-C Home hero */
+.hero{background:var(--grad-hero-soft);border-color:color-mix(in srgb,var(--acc) 25%,var(--line));padding:var(--s5)}
+.sp-title{font:700 var(--t-display)/1.15 var(--font-head);letter-spacing:-.02em;margin:0 0 var(--s2);
+  background:var(--grad-hero);-webkit-background-clip:text;background-clip:text;color:transparent;background-size:140%}
+@supports not ((-webkit-background-clip:text) or (background-clip:text)){.sp-title{color:var(--ink);background:none}}
+#spTitle{font-family:var(--font-head);font-weight:700;font-size:clamp(24px,3.2vw,32px);line-height:1.15;letter-spacing:-.02em;
+  background-image:linear-gradient(120deg,var(--c-flow-ink),var(--c-agent-ink) 55%,var(--c-model-ink));-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;padding-bottom:2px}
+@supports not ((-webkit-background-clip:text) or (background-clip:text)){#spTitle{color:var(--ink);-webkit-text-fill-color:currentColor;background:none}}
+.sp-sub{margin:0 0 var(--s3);color:var(--mute);max-width:62ch}
+.hero-go{margin-top:var(--s3);align-items:center}
+.kbdhint{white-space:nowrap}
+.btn.link{background:none;border:0;color:var(--acc);padding:0;min-height:0;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.statcard{position:relative;overflow:hidden;background:var(--tint-card);border-top:3px solid var(--hue,var(--acc))}
+.statcard .sc-top{display:flex;align-items:center;gap:var(--s2)}
+.statcard .sc-lbl{font-size:var(--t-sm);color:var(--mute);font-weight:550}
+.ic-box{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:8px;flex:none;
+  background:color-mix(in srgb,var(--hue,var(--acc)) 16%,var(--panel));color:var(--hue,var(--acc))}
+.ic-box .ic{width:16px;height:16px}.ic-box.sm{width:24px;height:24px}
+.statcard b{font:700 28px/1 var(--font-head)}
+.statcard[data-tone=loading] b{color:transparent;border-radius:6px;min-height:28px;width:60%;
+  background:linear-gradient(90deg,var(--soft) 25%,color-mix(in srgb,var(--acc) 12%,var(--soft)) 50%,var(--soft) 75%);background-size:200% 100%;animation:shimmer 1.4s linear infinite}
+.spark{display:block;height:28px}.spark svg{width:100%;height:28px;overflow:visible}
+.spark polyline{fill:none;stroke:var(--hue,var(--acc));stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
+/* V-D empty states */
+.card.empty.es{display:grid;justify-items:center;text-align:center;gap:var(--s2);padding:var(--s5)}
+.es .es-art{width:96px;color:color-mix(in srgb,var(--hue,var(--acc)) 60%,var(--mute))}.es .es-art svg{width:96px;height:auto}
+.es h3{margin:0;font:600 var(--t-head) var(--font-head)}.es .sub{margin:0}
+/* result card (14) */
+.sp-result{border-radius:var(--r);padding:var(--s4);border:1px solid var(--line);background:var(--panel)}
+.sp-result.pass{background:var(--goodbg);border-color:color-mix(in srgb,var(--good) 35%,var(--line))}
+.sp-result.fail{background:var(--badbg);border-color:color-mix(in srgb,var(--bad) 35%,var(--line))}
+.sp-result.not_sure,.sp-result.unsure{background:var(--warnbg);border-color:color-mix(in srgb,var(--warn) 35%,var(--line))}
+.res-head{display:flex;gap:var(--s3);align-items:center}
+.res-ico{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;flex:none;color:var(--warn);background:var(--panel);animation:resIn .3s var(--spring) 1}
+.res-ico.pass{color:var(--good)}.res-ico.fail{color:var(--bad)}.res-ico .ic{width:22px;height:22px}
+.res-title{font:650 var(--t-head) var(--font-head)}
+.sp-actions{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s3);align-items:center}
+.btn.ghost-danger{background:transparent;color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+.sp-ico .ic{width:14px;height:14px}
+@keyframes resIn{from{transform:scale(.8);opacity:0}to{transform:none;opacity:1}}
+/* V-E avatars and thumbnails */
+.avatar{width:36px;height:36px;border-radius:50%;display:inline-grid;place-items:center;flex:none;font:600 14px var(--font-head);
+  background:var(--av-bg,var(--c-agent-bg));color:var(--av-ink,var(--c-agent-ink));box-shadow:0 0 0 2px var(--panel),0 0 0 3px var(--hue,var(--c-agent))}
+.avatar.sq{border-radius:10px;width:32px;height:32px}
+.thumb{height:56px;border-radius:var(--rs);background:var(--th-bg,var(--c-flow-bg));overflow:hidden}
+.thumb svg{width:100%;height:56px}.thumb line{stroke:var(--hue);stroke-width:2;opacity:.6}.thumb circle{fill:var(--hue)}
+.gal-card{border-top:3px solid var(--hue,var(--acc))}
+.gal-card>.chip{align-self:flex-start}
+/* template catalog grid */
+.tgal2{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:var(--s4);margin-top:var(--s3)}
+.tcard2{position:relative;display:flex;flex-direction:column;border:1px solid var(--line);border-top:3px solid var(--hue);border-radius:var(--r);background:var(--panel);overflow:hidden;cursor:pointer}
+.tcard2[aria-pressed=true]{border-color:var(--hue);box-shadow:0 0 0 2px color-mix(in srgb,var(--hue) 40%,transparent)}
+.tcard2 .tthumb,.tcard2 .thumb{display:block;width:100%;height:120px;object-fit:cover;background:var(--th-bg);border-radius:0}
+.tcard2 .thumb svg{height:120px}
+.tcard2 .tbody{padding:var(--s3) var(--s4) var(--s4);display:grid;gap:var(--s2)}
+.tcard2 h3{margin:0;font:600 var(--t-head) var(--font-head)}.tcard2 .sub{margin:0}
+.tmeta{gap:var(--s2)}.ttags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font:500 12px/1.4 var(--mono);padding:2px 8px;border-radius:var(--r-pill);background:var(--soft);color:var(--mute)}
+.tcard2 .sel{position:absolute;top:8px;right:8px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--hue);color:var(--on-acc)}
+.tfilter .chip[aria-pressed=true]{box-shadow:0 0 0 2px var(--hue,var(--acc))}
+/* V-G motion */
+.card[role=button],.qcard,.gal-card,.tcard,.tcard2{transition:transform var(--base) var(--ease),box-shadow var(--base) var(--ease),border-color var(--fast)}
+.card[role=button]:hover,.qcard:hover,.gal-card:hover,.tcard:hover,.tcard2:hover{transform:translateY(-2px);box-shadow:var(--lift);border-color:color-mix(in srgb,var(--hue,var(--acc)) 45%,var(--line))}
+.card[role=button]:active,.qcard:active,.gal-card:active,.tcard:active,.tcard2:active{transform:none}
+.card{animation:none}
+#view{animation:viewIn var(--base) var(--ease)}
+@keyframes viewIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes shimmer{to{background-position:-200% 0}}
+.shimmer{background:linear-gradient(90deg,var(--soft) 25%,color-mix(in srgb,var(--acc) 12%,var(--soft)) 50%,var(--soft) 75%);background-size:200% 100%;animation:shimmer 1.4s linear infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--live) 55%,transparent)}100%{box-shadow:0 0 0 8px transparent}}
+.dot.busy{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--live);animation:pulse 1.6s infinite}
+.btn:active{transform:scale(.98)}
+.toast{transition:opacity .16s var(--ease),transform .16s var(--ease)}
+.toast .btn{margin-left:8px}
+/* page note "?" beside the title (17) */
+.aboutq{margin-left:10px;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--mute);font:600 13px var(--font);cursor:pointer;vertical-align:middle}
+/* sub-tab scroll cue (19) */
+.subtabs.scrolls{-webkit-mask-image:linear-gradient(to right,var(--mask) 85%,transparent);mask-image:linear-gradient(to right,var(--mask) 85%,transparent)}
+/* sticky run bar (22) */
+.runbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:var(--s2);padding:8px 12px;margin:0 0 12px;border:1px solid var(--line);border-radius:var(--rs);
+  background:var(--tint-card);box-shadow:var(--shadow);overflow:hidden}
+.runbar.pass{background:var(--goodbg)}.runbar.fail{background:var(--badbg)}.runbar.not_sure{background:var(--warnbg)}
+.runbar .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.runbar .rb-fill{position:absolute;left:0;right:0;bottom:0;height:3px}
+/* topbar buttons (9) */
+.topicon{flex:none}
+/* console hints only where a keyboard is (15) */
+@media (pointer:coarse){.hint .pair{display:none}}
+.hint .pair.extra{opacity:.85}
+/* one phone drawer (18) */
+.veil{position:fixed;inset:0;z-index:69;background:var(--veil)}
+@media (max-width:820px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  aside{position:fixed;inset:0 auto 0 0;width:min(86vw,300px);height:100vh;z-index:70;transform:translateX(-100%);transition:transform var(--base) var(--ease);
+    display:flex;flex-direction:column;overflow-y:auto;background:var(--panel);border-right:1px solid var(--line);padding:12px}
+  body.nav-open aside{transform:none;box-shadow:var(--modal)}
+  #nav{display:contents!important}
+  aside .nav{width:100%}
+  .sidefoot{display:flex}
+  .navtoggle{display:inline-flex}
+  .card{padding:var(--s4)}
+  .sp-title{font-size:26px}
+  .topicon#paletteBtn{display:none}
+}
+.wfrow{align-items:flex-start}.wfrow .thumb{width:96px;height:40px;flex:none}.wfrow .thumb svg{height:40px}.wfrow .grow{white-space:normal}
+.wfphases{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:6px}
+/* V-G: ONE reduced-motion block for the whole app */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+  .shimmer,.statcard[data-tone=loading] b{animation:none;background:var(--soft)}
+  .fm-step{opacity:1;transform:none}
+  .st-load::before{border-top-color:currentColor}}
+
 </style>
 </head>
 <body><a class="skip-link" href="#view">Skip to the main content</a>
@@ -1397,20 +1579,19 @@ p,li,dd,td{font-size:inherit}
 </defs></svg>
 <div class="app">
   <aside>
-    <div class="brand"><span class="brandmark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L20.5 20h-17z"/><path d="M8.3 14h7.4"/></svg></span><span>Architect<span class="sub">local · offline</span></span></div>
+    <div class="brand"><span class="brandmark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L20.5 20h-17z"/><path d="M8.3 14h7.4"/></svg></span><span>Architect<span class="sub">Runs on this PC</span></span></div>
     <nav id="nav" style="display:contents"></nav>
-    <div class="sidefoot"><span id="sJob" class="chip" hidden style="cursor:pointer"></span><span id="sOllama" class="chip">checking…</span><span id="sHw" class="small sf-more"></span><span id="sLoaded" class="small sf-more"></span>
-      <button class="btn sm" id="themeBtn" aria-label="Appearance">Theme</button>
-      <button class="btn sm" id="paletteBtn" aria-label="Commands" title="Commands (Ctrl+K)">Commands</button>
-      <button class="btn sm" id="keysBtn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">Shortcuts <kbd>?</kbd></button>
-      <div class="accents" role="group" aria-label="Accent colour">
-        <button data-acc="blueprint" title="Blueprint" style="background:#1549c9"></button>
-        <button data-acc="graphite" title="Graphite" style="background:#3c4656"></button>
-        <button data-acc="copper" title="Copper" style="background:#b4531f"></button>
-        <button data-acc="moss" title="Moss" style="background:#2f7a4f"></button></div></div>
+    <div class="sidefoot"><span id="sJob" class="chip" hidden style="cursor:pointer"></span><span id="sOllama" class="chip">checking…</span><span id="sHw" class="small sf-more" hidden></span><span id="sLoaded" class="small sf-more" hidden></span>
+      <button class="btn sm" id="themeBtn" aria-label="Appearance: theme and accent colour">Appearance</button>
+      <div class="accents" role="group" aria-label="Accent colour" hidden>
+        <button data-acc="blueprint" title="Blueprint" aria-label="Accent: Blueprint"></button>
+        <button data-acc="graphite" title="Graphite" aria-label="Accent: Graphite"></button>
+        <button data-acc="copper" title="Copper" aria-label="Accent: Copper"></button>
+        <button data-acc="moss" title="Moss" aria-label="Accent: Moss"></button></div></div>
   </aside>
   <main>
-    <div class="topbar"><button class="btn sm navtoggle" id="navToggle" type="button" aria-label="Menu" aria-expanded="false">Menu</button><button class="tsearch" id="topSearch" type="button" aria-label="Search pages and commands (Ctrl+K)"><span>Search pages and commands</span><kbd>Ctrl K</kbd></button><span class="grow"></span><span id="liveChip" class="chip livechip" role="status" aria-live="polite" hidden></span></div>
+    <div class="topbar"><button class="btn sm navtoggle" id="navToggle" type="button" aria-label="Menu" aria-controls="nav" aria-expanded="false">Menu</button><button class="tsearch" id="topSearch" type="button" aria-label="Search pages and commands (Ctrl+K)"><span>Search pages and commands</span><kbd>Ctrl K</kbd></button><span class="grow"></span><span id="liveChip" class="chip livechip" role="status" aria-live="polite" hidden></span><button class="btn sm topicon" id="paletteBtn" type="button" aria-label="Commands (Ctrl+K)" title="Commands (Ctrl+K)">Commands</button><button class="btn sm topicon" id="keysBtn" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button></div>
+    <div id="runBar" class="runbar" hidden role="status" aria-live="polite"></div>
     <div class="top"><div class="grow"><h1 id="pageTitle"></h1><p id="pageSub"></p></div><div class="row" id="pageActions"></div></div>
     <div class="subtabs" id="subtabs"></div>
     <div id="pageHint"></div>
@@ -1419,6 +1600,7 @@ p,li,dd,td{font-size:inherit}
   </main>
 </div>
 <div id="toast" class="toast" hidden role="status"></div>
+<div id="navVeil" class="veil" hidden></div>
 
 <script>
 "use strict";
@@ -1437,8 +1619,25 @@ function h(tag,attrs,...kids){
   for(const c of kids.flat(2)){ if(c==null||c===false) continue; e.append(c.nodeType?c:document.createTextNode(String(c))); }
   return e;
 }
-function toast(m,ms=3800,cls="ok"){const t=$("#toast");t.textContent=m;t.className="toast "+cls;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,ms);}
-toast.err=(m,ms=3800)=>toast(m,ms,"err");
+function toast(m,ms=3800,cls="ok"){const t=$("#toast");t.textContent=m;t.className="toast "+cls;t.hidden=false;t.setAttribute("role",cls==="err"?"alert":"status");
+  if(cls==="err"){ms=Math.max(ms,8000);t.append(" ",h("button",{class:"btn sm",type:"button",onclick:()=>{try{navigator.clipboard.writeText(m);}catch(_){}t.hidden=true;}},"Copy details"));}
+  clearTimeout(toast._t);const arm=()=>{clearTimeout(toast._t);toast._t=setTimeout(()=>{if(t.matches(":hover")||t.contains(document.activeElement))arm();else t.hidden=true;},ms);};arm();}
+toast.err=(m,ms=8000)=>toast(m,ms,"err");
+/* V-A: one short line, the detail folded away */
+function learnMore(...kids){return h("details",{class:"more"},h("summary",null,"Learn more"),h("div",{class:"sub"},...kids));}
+/* V-D: art + title + one line + one button, the same everywhere */
+function emptyState(art,title,line,btn,fn,...extra){return h("div",{class:"card empty es"},art?h("div",{class:"es-art","aria-hidden":"true"},artSafe(art)):null,
+  h("h3",null,title),line?h("p",{class:"sub"},line):null,btn?h("button",{class:"btn p",type:"button",onclick:fn},btn):null,...extra);}
+function artSafe(k){try{return art(k);}catch(_){return null;}}
+/* V-E: an avatar (initial in a hue ring) and a step-chain thumbnail */
+function avatar(name,hue,square){const n=String(name||"?").replace(/^[^A-Za-z0-9]+/,"");return h("span",{class:"avatar"+(square?" sq":""),style:"--hue:var(--c-"+(hue||"agent")+");--av-bg:var(--c-"+(hue||"agent")+"-bg);--av-ink:var(--c-"+(hue||"agent")+"-ink)","aria-hidden":"true"},(n[0]||"?").toUpperCase());}
+function chainThumb(steps,hue){const k=Math.max(2,Math.min(6,(steps||[]).length||4)),w=200,gap=(w-32)/(k-1);
+  let d="";for(let i=0;i<k;i++)d+=`<circle cx="${16+i*gap}" cy="28" r="${i===k-1?7:5}"/>`;
+  return h("div",{class:"thumb",style:"--hue:var(--c-"+(hue||"flow")+");--th-bg:var(--c-"+(hue||"flow")+"-bg)","aria-hidden":"true",
+    html:`<svg viewBox="0 0 ${w} 56" preserveAspectRatio="none"><line x1="16" y1="28" x2="${16+(k-1)*gap}" y2="28"/>${d}</svg>`});}
+function spark(vals){const v=(vals||[]).filter(x=>x!=null&&isFinite(x)).slice(-7);if(v.length<2)return null;const lo=Math.min(...v),hi=Math.max(...v),r=hi-lo||1;
+  const pts=v.map((x,i)=>`${(i*100/(v.length-1)).toFixed(1)},${(26-(x-lo)/r*22).toFixed(1)}`).join(" ");
+  return h("span",{class:"spark","aria-hidden":"true",html:`<svg viewBox="0 0 100 28" preserveAspectRatio="none"><polyline points="${pts}"/></svg>`});}
 async function api(path,body){
   const o=body===undefined?{}:{method:"POST",headers:{"Content-Type":"application/json","X-Hub-Token":TOKEN},body:JSON.stringify(body)};
   const r=await fetch(path,o); let j={}; try{j=await r.json();}catch(_){}
@@ -1458,54 +1657,56 @@ const sel={models:new Set(),cats:null,think:false};
    Registry row: [id, icon, short label (the sub-tab name), subtitle]. */
 const NAV_GROUPS=[
   ["registry",[
-    ["overview","home","Home","Say what you want done, see how the machine is doing, pick up where you left off"],
-    ["studio","chat","Chat first","Talk it through with your model, then hand it to the team"],
+    ["overview","home","Start","Say what you want done; watch it happen"],
+    ["studio","chat","Talk it through","Talk it through with your model first"],
     ["start","sprout","New project","Begin a project from nothing: pick a starting point"],
     ["portfolio","grid","All projects","Your apps and how they connect"],
-    ["launch","rocket","Run the app","Start or stop your project for real and see if it is actually alive"],
-    ["console","console","Live","What the machine is doing right now: plan, tool calls, checks, verdict"],
-    ["run","plus","New run","Give the team a goal, with every option"],
-    ["logbook","logbook","History","Everything your models and Claude did: what it cost, what worked, and the playbooks learned from it"],
+    ["launch","rocket","Start my project","Start or stop your project and see it running"],
+    ["console","console","Watch a run","What the machine is doing right now"],
+    ["run","plus","New run (all options)","Give the team a goal, with every option"],
+    ["logbook","logbook","History","Everything your models and Claude did"],
     ["morning","chart","Reports","What ran overnight, what moved, and what needs you"],
-    ["queue","queue","Queue","Tasks the machine works through on its own, trying another approach when one fails"],
-    ["flows","flow","Mine","The workflows and the checks inside them"],
-    ["blueprints","blueprint","Build","Draw your own workflow from steps and checks, then save it"],
-    ["gallery","layers","Gallery","Ready-made workflows, harness packs and agents: look inside, use, or make your own"],
-    ["agents","crew","Agents","Agents in the cloud and Claude Code on this PC: hand them work, schedule it, watch every step"],
-    ["fleet","fleet","Fleet","Several agents at once, each on its own files; the fleet runs the tests itself when they finish"],
-    ["monitor","monitor","Live","Every agent on this machine, live: cost, tools, files, stalls and two agents on one file"],
-    ["map","map","Map","How the pieces of one run, fleet or workflow connect: drag them about, click one for its details"],
-    ["library","library","Briefs","Agent briefs that worked, kept as templates: what each does, why, and a button to use it"],
-    ["models","box","Installed","Every model on this machine: type, provider, tier, measured speed and pass rate"],
-    ["tiers","chip","Tiers & roles","Which installed model does which job on this machine, and why"],
-    ["roles","badge","Specialists","Who does what, and which model should do it"],
-    ["bench","chart","Benchmarks","Pass rate over time, live and scripted, and the last live run task by task"],
-    ["score","trophy","Scores","Measured strengths per model"],
-    ["caches","db","Caches","Every cache a request meets: what each holds, how often it is reused, what it saved"],
-    ["orchestra","crew","Orchestration","Who handed what to whom: agents, briefs, tokens, context, cache and training data"],
-    ["costmap","target","Time per pass","Seconds per change that passed its tests, for each model on each kind of task"],
-    ["advisor","compass","Health","Ranked next steps from the checkup, the readiness check and a real code scan"],
+    ["queue","queue","Queue","Tasks that run one by one, on their own"],
+    ["flows","flow","My workflows","Your workflows and the checks inside them"],
+    ["blueprints","blueprint","Create","Drag steps in, set the order, save"],
+    ["gallery","layers","Examples","Ready-made workflows, packs and agents to use"],
+    ["agents","crew","Agents","Cloud agents and Claude Code: give them work"],
+    ["fleet","fleet","Parallel agents","Several agents at once, each on its own files"],
+    ["monitor","monitor","All agents now","Live view of every agent on this PC"],
+    ["map","map","Connections","Pick something to see how it connects"],
+    ["library","library","Agent recipes","Agent briefs that worked, ready to reuse"],
+    ["models","box","My models","Every model on this PC, with speed and test results"],
+    ["tiers","chip","Which model does what","Which model does which job, and why"],
+    ["roles","badge","Jobs","Each job can use a different model"],
+    ["bench","chart","Tests","Tests passed over time, task by task"],
+    ["score","trophy","Model report card","Measured strengths per model"],
+    ["caches","db","Caches","What each cache holds and what it saved"],
+    ["crewbuild","crew","Crew builder","Edit agents as cards; run a workflow with a goal"],
+    ["byjob","target","By job","Each job's model, the measured best, one-click switch"],
+    ["orchestra","crew","How agents hand off","Who handed what to whom, and what it cost"],
+    ["costmap","target","Speed per model","Seconds per passing change, per model and task"],
+    ["advisor","compass","Health check","Your next steps, ranked by impact"],
     ["doctor","steth","Checkup","Checks Python, Ollama, disk space, the port, git and the network"],
-    ["assess","gauge","Readiness check","Is this machine and model lineup actually ready, per workload"],
+    ["assess","gauge","Is this PC ready?","Is this PC ready for each kind of work?"],
     ["computers","server","Hardware","This machine and the other computers you own"],
-    ["tune","bolt","Tune","Fit this machine, upgrades worth adding, fake code and self-improvement"],
-    ["settings","sliders","Settings","Limits, behaviour and tests"],
-    ["train","train","Training data","Turn verified work into training data"],
-    ["components","palette","Interface parts","Every part of the interface, in the light and the dark theme"]]],
+    ["tune","bolt","Optimise for this PC","Fit this PC, upgrades, fake-code check, self-improve"],
+    ["settings","sliders","Limits & behaviour","Limits, behaviour and safety checks"],
+    ["train","train","Saved good work","Good work becomes training data for your models"],
+    ["components","palette","Design samples","Every interface part, light and dark"]]],
 ];
 const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
 /* The sidebar: [section, [[place id, icon, label, [page ids = its sub-tabs, at most 5, so no overflow menu]]]]. */
 const SIDEBAR=[
   ["Work",[["home","home","Home",["overview","studio","start","portfolio","launch"]],
            ["runs","play","Runs",["console","run","logbook","morning","queue"]],
-           ["workflows","flow","Workflows",["flows","blueprints","gallery"]],
-           ["agentsp","crew","Agents",["agents","orchestra","fleet","monitor","map","library"]]]],
-  ["Models",[["team","chip","Models",["models","tiers","roles","bench","score"]],
+           ["workflows","flow","Workflows",["flows","blueprints","gallery","library"]],
+           ["agentsp","crew","Agent teams",["agents","crewbuild","fleet","monitor","map"]]]],
+  ["Models",[["team","chip","Models",["models","byjob","tiers","roles","bench","score"]],
              ["cachesp","db","Caches",["caches"]],
-             ["cost","target","Cost",["costmap"]]]],
+             ["cost","target","Speed",["costmap"]]]],
   ["System",[["machine","server","Machine",["advisor","doctor","assess","computers","tune"]],
              ["settings","sliders","Settings",["settings","train"]],
-             ["help","palette","Help",["components"]]]],
+             ["help","palette","Help",["orchestra","components"]]]],
 ];
 const TABS=SIDEBAR.flatMap(([,places])=>places);
 /* old ids (and words people type) that are not pages any more: each still lands somewhere sensible */
@@ -1543,17 +1744,18 @@ function buildNav(){
   const n=$("#nav");n.innerHTML="";const cur=tabOf(page);
   for(const [sec,places] of SIDEBAR){
     n.append(h("div",{class:"navsec","aria-hidden":"true"},sec));
-    for(const t of places){const b=h("button",{class:"nav","aria-current":t===cur?"page":false,onclick:()=>{go(t[3][0]);document.body.classList.remove("nav-open");}},icon(t[1]),t[2]);
+    for(const t of places){const b=h("button",{class:"nav","aria-current":t===cur?"page":false,onclick:()=>{go(t[3][0]);navClose();}},icon(t[1]),t[2]);
       if(t[0]==="runs"){b.title="Drop a task here to queue it";queueDropTarget(b);} n.append(b);}
   }
   const sb=$("#subtabs");sb.innerHTML="";
   if(cur[3].length>1)for(const id of cur[3]){const b=h("button",{"aria-current":id===page?"page":false,onclick:()=>go(id)},SUBNAME[id]||id);if(id==="queue"){b.title="Drop a task here to queue it";queueDropTarget(b);}sb.append(b);}
   /* the pills scroll sideways on a narrow screen instead of wrapping; keep the current one in view */
   const on=sb.querySelector("[aria-current=page]");
-  if(on&&sb.scrollWidth>sb.clientWidth)sb.scrollLeft=Math.max(0,on.offsetLeft-(sb.clientWidth-on.offsetWidth)/2);
+  sb.classList.toggle("scrolls",sb.scrollWidth>sb.clientWidth+2);
+  if(on&&sb.scrollWidth>sb.clientWidth)try{on.scrollIntoView({inline:"center",block:"nearest"});}catch(_){sb.scrollLeft=Math.max(0,on.offsetLeft-(sb.clientWidth-on.offsetWidth)/2);}
 }
 function greeting(){const hr=new Date().getHours();return (hr<5?"Working late":hr<12?"Good morning":hr<18?"Good afternoon":"Good evening")+". What should we build?";}
-function go(id){id=LEGACY[id]||id;if(!PAGES.some(x=>x[0]===id))id="overview";page=id;buildNav();document.body.classList.toggle("sheet-wrap",id==="overview");document.body.classList.toggle("oneScreen",id==="console");const p=PAGES.find(x=>x[0]===id);$("#pageTitle").textContent=id==="overview"?greeting():(SUBNAME[id]||p[2]);$("#pageSub").textContent=p[3];$("#pageActions").innerHTML="";if(tabOf(id)[0]==="runs")$("#pageActions").append(h("button",{class:"btn",type:"button",title:"Start or stop your project for real",onclick:()=>go("launch")},icon("rocket"),"Run the app"));built={};render();const v=$("#view");v.style.animation="none";void v.offsetWidth;v.style.animation="";if(id==="run")pollJob();pageHint(id);window.scrollTo(0,0);}
+function go(id){id=LEGACY[id]||id;if(!PAGES.some(x=>x[0]===id))id="overview";page=id;buildNav();document.body.classList.toggle("sheet-wrap",id==="overview");document.body.classList.toggle("oneScreen",id==="console");const p=PAGES.find(x=>x[0]===id);$("#pageTitle").textContent=id==="overview"?"Home":(SUBNAME[id]||p[2]);$("#pageSub").textContent=p[3];$("#pageActions").innerHTML="";if(tabOf(id)[0]==="runs")$("#pageActions").append(h("button",{class:"btn",type:"button",title:"Start or stop your project for real",onclick:()=>go("launch")},icon("rocket"),"Start my project"));built={};render();const v=$("#view");v.style.animation="none";void v.offsetWidth;v.style.animation="";if(id==="run")pollJob();pageHint(id);window.scrollTo(0,0);}
 let built={};
 /* One look for "working on it", "that failed" and "nothing here yet" on every page. Pages write these as plain sentences
    ("Reading the backlog…", "Could not scan: …", "No runs yet"); this only tags such a sentence with a class so the stylesheet
@@ -1614,69 +1816,259 @@ const PLAIN_STEP=s=>{const t=String(s||"").toLowerCase();
 /* Simple mode is no longer a separate page: Home is the simple experience and every page stays reachable. */
 function simpleMode(){return false;}
 function setMode(m){go(m==="simple"?"overview":"console");}
+function rootError(msg){const i=$("#spRoot"),n=$("#spRootErr");if(i){i.setAttribute("aria-invalid",msg?"true":"false");if(msg)i.focus();}if(n){n.textContent=msg||"";n.hidden=!msg;}}
 async function simpleStart(){
   const g=(run.goal||"").trim(); if(!g){toast("Type what you want first");$("#spGoal")&&$("#spGoal").focus();return;}
-  if(!run.root){toast("Choose the project folder first");const d=document.querySelector(".sp-more");if(d)d.open=true;$("#spRoot")&&$("#spRoot").focus();return;}
-  try{await api("/api/arch/run",{goal:g,flow:"auto",review:"auto",root:run.root});EV.verdict=null;toast("Started");simpleDraw();}catch(e){toast.err(e.message,8000);}
+  if(!run.root){rootError("Choose the project folder first, or use the practice project.");return;}
+  rootError("");
+  try{await api("/api/arch/run",{goal:g,flow:"auto",review:"auto",root:run.root});EV.verdict=null;run._kept=false;RUNBAR.goal=g;toast("Started");simpleDraw();}catch(e){toast.err("Could not start: "+e.message+". Check the folder, then try again.");}
+}
+/* item 4: a first run needs zero typing */
+async function usePractice(){
+  try{const r=await api("/api/arch/practice",{});if(r.root){run.root=r.root;store.set("root",r.root);const f=$("#spRoot");if(f)f.value=r.root;}rootError("");
+    toast("Practice project ready. Watch it work.");go("console");}
+  catch(e){toast.err("The practice project could not start: "+e.message);}
 }
 function simpleDraw(){
   const box=$("#spProgress"); if(!box)return; box.innerHTML="";
   const steps=(EV.steps||[]).map(x=>[PLAIN_STEP(x.step),x.ok===false?"fail":x.unsure?"unsure":"done"]);
   if(EV.now&&!EV.verdict)steps.push([PLAIN_STEP(EV.now),"now"]);
   const seen=new Set(),list=steps.filter(([t,st])=>{const k=t+st;if(seen.has(k))return false;seen.add(k);return true;});
-  if(!list.length&&!EV.verdict){box.append(h("p",{class:"sp-idle"},"Nothing running. Type above and press Start."));return;}
+  box.hidden=!list.length&&!EV.verdict;
+  if(box.hidden)return;
   const label={done:"Done",now:"In progress",fail:"Did not work, trying again",unsure:"Could not check"};
+  const ICO={done:"check",now:"spark",fail:"bolt",unsure:"question"};
   box.append(h("h3",{class:"sp-h"},EV.verdict?"Finished":"Working on it"),
-    h("ol",{class:"sp-steps"},...list.map(([t,st])=>h("li",{class:"sp-step "+st},h("span",{class:"sp-ico","aria-hidden":"true"},{done:"✓",now:"●",fail:"!",unsure:"?"}[st]),h("span",null,t),h("span",{class:"sr-only"}," — "+label[st])))));
-  if(EV.verdict){const v=EV.verdict.verdict;
-    box.append(h("div",{class:"sp-result "+v},h("strong",null,v==="pass"?"It worked: every check passed.":v==="fail"?"It did not work this time.":"Done, but the checks could not confirm it."),
-      EV.verdict.why?h("p",null,EV.verdict.why):null,
-      h("div",{class:"sp-actions"},h("button",{class:"btn",type:"button",onclick:async()=>{try{await api("/api/arch/undo",{root:run.root});toast("Undone");}catch(e){toast.err(e.message);}}},"Undo this change"),
-        h("button",{class:"btn",type:"button",onclick:async()=>{const b=$("#spWhy");b.innerHTML="";try{const r=await api("/api/arch/why?root="+encodeURIComponent(run.root||""));b.append(h("ol",null,...(r.sentences||[]).map(t=>h("li",null,t))));}catch(e){b.textContent=e.message;}}},"What happened, step by step"),
-        h("button",{class:"btn",type:"button",onclick:()=>setMode("advanced")},"See all the details")),h("div",{id:"spWhy"})));}
+    h("ol",{class:"sp-steps"},...list.map(([t,st])=>h("li",{class:"sp-step "+st},h("span",{class:"sp-ico"+(st==="now"?" shimmer":""),"aria-hidden":"true"},icon(ICO[st])),h("span",null,t),h("span",{class:"sr-only"}," — "+label[st])))));
+  if(EV.verdict&&!run._kept){const v=EV.verdict.verdict,files=EV.verdict.files;
+    const head=v==="pass"?"It worked":v==="fail"?"It did not work this time":"Done, but it could not be checked";
+    const sub=v==="pass"?"Every check passed.":v==="fail"?"Nothing is kept unless you say so.":"Look at the details before keeping it.";
+    box.append(h("div",{class:"sp-result "+v},
+      h("div",{class:"res-head"},h("span",{class:"res-ico "+v,"aria-hidden":"true"},icon(v==="pass"?"check":v==="fail"?"bolt":"question")),
+        h("div",null,h("strong",{class:"res-title"},head),h("p",{class:"sub"},sub+(Array.isArray(files)&&files.length?` ${files.length} file${files.length===1?"":"s"} changed.`:"")))),
+      EV.verdict.why?h("p",{class:"sub"},EV.verdict.why):null,
+      h("div",{class:"sp-actions"},
+        h("button",{class:"btn p",type:"button",onclick:()=>{run._kept=true;store.set("lastKept",String(Date.now()));toast("Kept");simpleDraw();}},v==="pass"?"Keep it":"Start another"),
+        h("button",{class:"btn",type:"button",onclick:async()=>{const b=$("#spWhy");b.innerHTML="";try{const r=await api("/api/arch/why?root="+encodeURIComponent(run.root||""));b.append(h("ol",null,...(r.sentences||[]).map(t=>h("li",null,t))));}catch(e){b.textContent="Could not read the steps: "+e.message;}}},"See the details"),
+        Array.isArray(files)&&files.length?h("button",{class:"btn link",type:"button",onclick:()=>go("logbook")},"Show changes"):null,
+        h("button",{class:"btn ghost-danger",type:"button",onclick:async()=>{
+          if(!await confirmBox("Undo this change?","Every file this run changed goes back to how it was, and files it created are removed.","Undo"))return;
+          try{await api("/api/arch/undo",{root:run.root});toast("Undone");run._kept=true;simpleDraw();}catch(e){toast.err("Could not undo: "+e.message);}}},"Undo this change")),
+      h("div",{id:"spWhy"})));}
 }
-setInterval(()=>{if(page==="overview")simpleDraw();},1500);
+/* item 22: the run follows you around: a sticky bar under the top bar on every page except Home and Watch a run */
+const RUNBAR={goal:"",dismissed:0};
+function runBar(){
+  const b=$("#runBar");if(!b||typeof EV==="undefined")return;
+  const show=(EV.running||(EV.verdict&&RUNBAR.dismissed!==EV.verdict))&&page!=="console"&&page!=="overview";
+  b.hidden=!show;if(!show)return;b.innerHTML="";
+  const n=(EV.steps||[]).length;
+  if(EV.running){b.className="runbar live";
+    b.append(h("span",{class:"dot busy","aria-hidden":"true"}),h("span",{class:"grow"},h("b",null,"Working on: "),(RUNBAR.goal||run.goal||"your job").slice(0,80),` · step ${n+1}`),
+      h("button",{class:"btn sm",type:"button",onclick:()=>go("console")},"Watch"),
+      h("button",{class:"btn sm ghost-danger",type:"button",onclick:()=>{if(typeof cStop==="function")cStop();}},"Stop"),
+      h("span",{class:"rb-fill shimmer","aria-hidden":"true"}));}
+  else{const v=EV.verdict.verdict;b.className="runbar "+v;
+    b.append(h("span",{class:"grow"},h("b",null,"Done: "),v==="pass"?"it worked":v==="fail"?"it did not work":"could not check"),
+      h("button",{class:"btn sm",type:"button",onclick:()=>go("overview")},"Review"),
+      h("button",{class:"btn sm",type:"button","aria-label":"Hide this bar",onclick:()=>{RUNBAR.dismissed=EV.verdict;runBar();}},"×"));}
+}
+setInterval(()=>{if(page==="overview")simpleDraw();runBar();},1500);
+
+/* ===== Crew builder (Agents place), By job (Models place) and the Home quick-launch options. Every call is defensive: when
+   arch_squad / arch_select are not in this install yet the endpoint says {available:false, why} and the page says so. ===== */
+const NA=why=>h("p",{class:"mute"},"Not available yet"+(why?": "+why:"."));
+function modal(title,...body){
+  const d=h("dialog",{class:"xdlg","aria-label":title},h("div",{class:"xdlg-h"},h("b",null,title),h("button",{class:"btn sm",type:"button","aria-label":"Close",onclick:()=>d.close()},"×")),...body);
+  d.addEventListener("close",()=>d.remove());document.body.append(d);d.showModal();return d;
+}
+function confirmBox(title,text,okLabel){return new Promise(res=>{let ok=false;
+  const d=modal(title,h("p",null,text),h("div",{class:"row"},h("button",{class:"btn p",type:"button",onclick:()=>{ok=true;d.close();}},okLabel||"Confirm"),h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Cancel")));
+  d.addEventListener("close",()=>res(ok));});}
+const fmtList=v=>Array.isArray(v)?v.join(", "):v==null?"–":typeof v==="object"?Object.entries(v).map(([k,x])=>k+" "+x).join(", "):String(v);
+const CB={agents:null,workflows:null};
+function crewBuilderPage(){
+  const ag=h("div",{id:"cbAgents",class:"qgrid"},h("p",{class:"mute small"},"Reading the agents…"));
+  const wf=h("div",{id:"cbWorkflows"},h("p",{class:"mute small"},"Reading the workflows…"));
+  setTimeout(loadCrewBuilder,0);
+  return [h("section",{class:"card"},h("h2",null,"Agents"),h("p",{class:"sub"},"Each agent's model, effort, tools and budget. Edit one to change its definition file."),ag),
+          h("section",{class:"card"},h("h2",null,"Workflows"),h("p",{class:"sub"},"Pick one, give a goal, run it."),learnMore("Pick one, say the goal and which files it may change, then run it. It streams like any run and shows on Orchestration afterwards."),wf)];
+}
+async function loadCrewBuilder(){
+  const ag=$("#cbAgents"),wf=$("#cbWorkflows");if(!ag||!wf)return;
+  let A,W;try{A=await api("/api/arch/squad/agents");}catch(e){A={available:false,why:e.message};}
+  try{W=await api("/api/arch/squad/workflows");}catch(e){W={available:false,why:e.message};}
+  CB.agents=A.available?A.agents||[]:null;CB.workflows=W.available?W.workflows||[]:null;
+  ag.innerHTML="";
+  if(!A.available)ag.append(NA(A.why));else if(!CB.agents.length)ag.append(h("p",{class:"mute"},"No agents defined yet."));
+  else for(const a of CB.agents){const b=a.budget||{};
+    ag.append(h("div",{class:"qcard cb-card"},h("div",{class:"row"},avatar(a.name,"agent"),h("b",null,a.name)),h("span",{class:"small mute"},a.description||""),
+      h("span",{class:"small"},"Model: ",h("b",null,a.model||"–")," · effort ",h("b",null,a.effort||"–")),
+      h("span",{class:"small mute"},"Tools: "+fmtList(a.tools)),
+      h("span",{class:"small mute"},"Budget: "+(b.calls??"–")+" calls, "+(b.tokens??"–")+" tokens, "+(b.seconds??"–")+" s"),
+      h("button",{class:"btn sm",type:"button",onclick:()=>editAgent(a)},"Edit")));}
+  wf.innerHTML="";
+  if(!W.available){wf.append(NA(W.why));return;}
+  if(!CB.workflows.length){wf.append(h("p",{class:"mute"},"No workflows yet."));return;}
+  /* phase kinds from arch_squad: agent, parallel, loop (until/max), panel (several judge one thing), code (a check, no model) */
+  const KIND={agent:["agent","one agent"],parallel:["flow","side by side"],loop:["cost","repeats"],panel:["model","panel"],code:["template","code check"]};
+  const phase=p=>{if(typeof p==="string")return h("span",{class:"chip"},p);const [hue,word]=KIND[p.kind]||["system",p.kind||"step"];
+    const extra=p.kind==="loop"?(p.until?" until "+p.until:"")+(p.max?" (max "+p.max+")":""):"";
+    return h("span",{class:"chip "+hue,title:(p.agents||[]).join(", ")+(p.when?" · when "+p.when:"")},(p.title||p.name||"?")+" · "+word+extra+((p.agents||[]).length>1?" ×"+p.agents.length:""));};
+  for(const w of CB.workflows){const bad=(w.problems||[]).length;
+    wf.append(h("div",{class:"feedrow wfrow"},chainThumb(w.phases,bad?"cost":"flow"),h("span",{class:"grow"},h("b",null,w.title||w.name),h("span",{class:"small mute"}," "+(w.description||"")),
+      (w.phases||[]).length?h("span",{class:"wfphases"},...w.phases.map((p,i)=>[i?h("span",{class:"mute","aria-hidden":"true"}," → "):null,phase(p)])):null,
+      bad?h("span",{class:"note warn",style:"display:block"},"Not runnable: "+w.problems.join("; ")):null),
+    h("button",{class:"btn sm",type:"button",disabled:!!bad,onclick:()=>runPanel(w)},"Run…")));}
+}
+function editAgent(a){
+  const b=a.budget||{},c=a.context||{};
+  const fld=(lbl,el)=>h("label",{class:"f"},lbl,el);
+  const inp=(v,t)=>h("input",{type:t||"text",value:v==null?"":String(v)});
+  const tiers=["worker","heavy","router"];
+  const F={description:inp(a.description),model:h("select",null,...tiers.concat(tiers.includes(a.model)||!a.model?[]:[a.model]).map(m=>h("option",{value:m,selected:m===a.model},m))),
+    role:inp(a.role),effort:h("select",null,...["low","medium","high"].map(m=>h("option",{value:m,selected:m===(a.effort||"medium")},m))),
+    tools:inp(fmtList(a.tools||[])),calls:inp(b.calls,"number"),tokens:inp(b.tokens,"number"),seconds:inp(b.seconds,"number"),
+    policy:h("select",null,...["fresh","inherit"].map(m=>h("option",{value:m,selected:m===(c.policy||"fresh")},m))),max_chars:inp(c.max_chars,"number")};
+  const err=h("p",{class:"small st-errline",role:"alert"});
+  const num=el=>el.value===""?undefined:Number(el.value);
+  let d;
+  const save=async()=>{err.textContent="";
+    const spec={description:F.description.value,model:F.model.value,role:F.role.value||undefined,effort:F.effort.value,
+      tools:F.tools.value.split(",").map(s=>s.trim()).filter(Boolean),budget:{calls:num(F.calls),tokens:num(F.tokens),seconds:num(F.seconds)},
+      context:{policy:F.policy.value,max_chars:num(F.max_chars)}};
+    if(a.output)spec.output=a.output;
+    try{await api("/api/arch/squad/agent",{name:a.name,spec});toast("Saved "+a.name);d.close();loadCrewBuilder();}catch(e){err.textContent="Not saved: "+e.message;}};
+  d=modal("Edit agent: "+a.name,h("div",{class:"fgrid"},fld("Description",F.description),fld("Model tier",F.model),fld("Role",F.role),fld("Effort",F.effort),
+      fld("Tools (comma separated)",F.tools),fld("Budget: calls",F.calls),fld("Budget: tokens",F.tokens),fld("Budget: seconds",F.seconds),
+      fld("Context policy",F.policy),fld("Context: max characters",F.max_chars)),err,
+    h("div",{class:"row"},h("button",{class:"btn p",type:"button",onclick:save},"Save"),h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Cancel")));
+}
+function runPanel(w){
+  const goal=h("textarea",{rows:3,"aria-label":"Goal",placeholder:"What should the crew do?"});
+  const owns=h("input",{type:"text","aria-label":"Files it may change",placeholder:"e.g. hub_ui.html, docs/notes.md"});
+  const slots=h("input",{type:"number",min:1,max:8,value:"1","aria-label":"Slots"});
+  const fake=h("input",{type:"checkbox"});
+  const names=(CB.agents||[]).map(a=>a.name);
+  const ov=h("div",{class:"cb-ov"});
+  const addOv=()=>{const ag=h("select",{"aria-label":"Agent"},...names.map(n=>h("option",{value:n},n)));
+    const fl=h("select",{"aria-label":"Field"},...["model","effort","budget.calls","budget.tokens","budget.seconds"].map(n=>h("option",{value:n},n)));
+    const val=h("input",{type:"text","aria-label":"Value",placeholder:"value"});
+    const row=h("div",{class:"row cb-ovrow"},ag,fl,val,h("button",{class:"btn sm",type:"button","aria-label":"Remove override",onclick:()=>row.remove()},"−"));
+    row._get=()=>val.value.trim()?`${ag.value}.${fl.value}=${val.value.trim()}`:null;ov.append(row);};
+  const err=h("p",{class:"small st-errline",role:"alert"});
+  let d;
+  const start=async()=>{err.textContent="";
+    const body={workflow:w.name,goal:goal.value.trim(),owns:owns.value.split(",").map(s=>s.trim()).filter(Boolean),slots:Number(slots.value)||1,fake:fake.checked,
+      sets:[...ov.children].map(r=>r._get&&r._get()).filter(Boolean)};
+    if(!body.goal){err.textContent="Type a goal first.";goal.focus();return;}
+    try{await api("/api/arch/squad/run",body);d.close();toast("Crew started: "+w.name);if(typeof jobSince!=="undefined")jobSince=0;go("console");}catch(e){err.textContent="Not started: "+e.message;}};
+  d=modal("Run workflow: "+w.name,h("label",{class:"f"},"Goal",goal),h("label",{class:"f"},"Files it may change (comma separated)",owns),
+    h("div",{class:"row"},h("label",{class:"f"},"Slots (agents at once)",slots),h("label",{class:"f"},fake,"Fake models (no GPU, a dry run)")),
+    h("details",null,h("summary",null,"Per-agent overrides"),ov,names.length?h("button",{class:"btn sm",type:"button",onclick:addOv},"Add override"):h("p",{class:"mute small"},"No agents to override.")),
+    err,h("div",{class:"row"},h("button",{class:"btn p",type:"button",onclick:start},"Run"),h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Cancel")));
+  goal.focus();
+}
+/* ---- Models > By job: what each job uses, what measured best, and one Apply (confirm first) when a suggestion exists ---- */
+function byJobPage(){
+  const fake=h("input",{type:"checkbox"});
+  setTimeout(loadByJob,0);
+  return [h("section",{class:"card"},h("div",{class:"row"},h("p",{class:"sub grow"},"One row per job: the model it uses now, the one measured best here, seconds per passing change (C), pass rate with its confidence interval, speed and whether it fits."),
+      h("label",{class:"f"},fake,"Fake"),h("button",{class:"btn",type:"button",title:"Measure the installed models on every job (runs as a job)",
+        onclick:async()=>{try{await api("/api/arch/select/screen",{fake:fake.checked});toast("Screening started");if(typeof jobSince!=="undefined")jobSince=0;go("console");}catch(e){toast.err(e.message,7000);}}},"Screen models")),
+    h("div",{id:"bjUndo"}),h("div",{id:"bjBox"},h("p",{class:"mute small"},"Reading the measurements…")))];
+}
+async function loadByJob(){
+  const box=$("#bjBox");if(!box)return;let r;
+  try{r=await api("/api/arch/select/why");}catch(e){r={available:false,why:e.message};}
+  box.innerHTML="";if(!r.available){box.append(NA(r.why));return;}
+  if(!(r.jobs||[]).length){box.append(h("p",{class:"mute"},"No jobs measured yet. Screen models to measure them."));return;}
+  const pct=v=>v==null?"–":fmt(v<=1?v*100:v,0)+"%";
+  const ci=v=>Array.isArray(v)&&v.length===2?` (${pct(v[0])}–${pct(v[1])})`:typeof v==="number"?" ± "+pct(v):"";
+  box.append(h("table",null,h("thead",null,h("tr",null,...["Job","Now","Measured best","C (s/pass)","Pass %","tok/s","Fits","Why",""].map(t=>h("th",null,t)))),
+    h("tbody",null,...r.jobs.map(j=>{const sug=j.suggestion,model=sug&&typeof sug==="object"?sug.model:sug;
+      return h("tr",null,h("td",null,h("b",null,j.job)),h("td",null,j.current||"–"),h("td",null,j.best||"–"),h("td",null,j.C==null?"–":fmt(j.C,1)),
+        h("td",null,pct(j.pass_rate)+ci(j.ci),j.n!=null?h("span",{class:"small mute"}," n="+j.n):null),h("td",null,j.tok_s==null?"–":fmt(j.tok_s,0)),
+        h("td",null,j.fits==null?"–":h("span",{class:"chip "+(j.fits?"good":"bad")},j.fits?"yes":"no")),h("td",{class:"small"},j.reason||""),
+        h("td",null,model?h("button",{class:"btn sm",type:"button",onclick:()=>applyJob(j.job,String(model))},"Apply "+model):null));}))));
+}
+async function applyJob(job,model){
+  if(!await confirmBox("Use "+model+" for "+job+"?","The "+job+" job will use "+model+" from now on. You can undo it straight after.","Apply"))return;
+  try{await api("/api/arch/select/apply",{job,model});toast("Applying "+model+" for "+job);
+    const u=$("#bjUndo");if(u){u.innerHTML="";u.append(h("div",{class:"row"},h("span",{class:"grow small"},model+" is now set for "+job+"."),
+      h("button",{class:"btn",type:"button",onclick:async()=>{try{await api("/api/arch/select/undo",{});toast("Undone");u.innerHTML="";setTimeout(loadByJob,1500);}catch(e){toast.err(e.message,7000);}}},"Undo")));}
+    setTimeout(loadByJob,1500);}catch(e){toast.err(e.message,7000);}
+}
+/* ---- Home quick-launch "options": only run settings that exist in arch_params.SETTINGS, written through /api/arch/settings ---- */
+const QL_OPTS=["behavior.review_mode","behavior.thinking","behavior.test_first","behavior.best_of_n","flows.budget_scale"];
+function qlSchema(){const all=[];const sch=(S&&S.settings_schema)||{};
+  for(const rows of Object.values(sch))for(const r of (Array.isArray(rows)?rows:[]))if(Array.isArray(r)&&QL_OPTS.includes(r[0]))all.push(r);
+  return QL_OPTS.map(k=>all.find(r=>r[0]===k)).filter(Boolean);}
+function cfgGet(p){return p.split(".").reduce((d,k)=>d&&typeof d==="object"?d[k]:undefined,(S&&S.config)||{});}
+function qlOptions(flowName){
+  const rows=qlSchema();
+  if(!rows.length){toast("No run options in this install");return;}
+  const els={};
+  const body=rows.map(([k,t,lbl,hint,rng])=>{const cur=cfgGet(k);let el;
+    if(String(t).startsWith("choice:"))el=h("select",null,h("option",{value:""},"default"),...String(t).slice(7).split(",").map(c=>h("option",{value:c,selected:String(cur)===c},c)));
+    else el=h("input",{type:"number",step:t==="float"?"0.1":"1",min:rng?rng[0]:null,max:rng?rng[1]:null,value:cur==null?"":String(cur),placeholder:"default"});
+    els[k]=el;return h("label",{class:"f",title:hint||""},lbl,el);});
+  const err=h("p",{class:"small st-errline",role:"alert"});
+  let d;
+  const save=async()=>{const settings={};for(const [k,el] of Object.entries(els))settings[k]=el.value===""?null:el.value;
+    try{await api("/api/arch/settings",{settings});toast("Options saved");d.close();refresh(true);}catch(e){err.textContent="Not saved: "+e.message;}};
+  d=modal("Options: "+flowName,h("p",{class:"small mute"},"These are your saved settings, so they apply to every run, not only this one."),h("div",{class:"fgrid"},...body),err,
+    h("div",{class:"row"},h("button",{class:"btn p",type:"button",onclick:save},"Save"),h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Cancel")));
+}
 
 /* ===== Home: the one goal box (the old Simple page), four stat cards, quick launch and recent activity. ===== */
 const QUICK=[["Fix a bug","Fix this bug: "],["Add a feature","Add this feature, with tests: "],["Review","Review this project and list the three most important problems, with file and line."],["Explain","Explain in plain words what this project does and how its parts fit together."]];
+/* Home (audit 1-4, 20, V-C): a headline, one goal box, one primary action, then machine status and recent runs */
 function homeHero(){
-  const ta=h("textarea",{id:"spGoal",rows:3,class:"sp-goal","aria-label":"What do you want done?",placeholder:"For example: the login page crashes when the password is empty. Fix it.",value:run.goal||"",oninput:e=>run.goal=e.target.value,
+  const ta=h("textarea",{id:"spGoal",rows:3,class:"sp-goal","aria-label":"What should your computer work on?",placeholder:"e.g. The login page crashes when the password is empty. Fix it.",value:run.goal||"",oninput:e=>run.goal=e.target.value,
     onkeydown:e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();simpleStart();}}});
-  const folder=h("input",{type:"text",id:"spRoot","aria-label":"Project folder",value:run.root||"",placeholder:"C:\\path\\to\\your\\project",oninput:e=>{run.root=e.target.value;store.set("root",run.root);}});
-  const stat=(id,lbl)=>h("div",{class:"statcard",id:id},h("span",{class:"mute small"},lbl),h("b",{class:"num"},"–"),h("span",{class:"small mute sc-sub"},""));
-  const flow=(ic,t,sub,fn)=>h("button",{class:"qcard",type:"button",onclick:fn},icon(ic),h("b",null,t),h("span",{class:"small mute"},sub));
-  return [h("section",{class:"card sp hero",role:"region","aria-label":"What do you want done?"},
+  const folder=h("input",{type:"text",id:"spRoot","aria-describedby":"spRootErr",value:run.root||"",placeholder:"Paste the folder path, e.g. C:\\Users\\you\\my-app",oninput:e=>{run.root=e.target.value;store.set("root",run.root);rootError("");}});
+  const stat=(id,lbl,ic,hue)=>h("div",{class:"statcard",id:id,"data-tone":"loading",style:"--hue:var(--c-"+hue+")"},
+    h("div",{class:"sc-top"},h("span",{class:"ic-box"},icon(ic)),h("span",{class:"sc-lbl"},lbl)),h("b",{class:"num"},"–"),h("span",{class:"sc-spark"}),h("span",{class:"small mute sc-sub"},""));
+  return [h("section",{class:"card sp hero",role:"region","aria-labelledby":"spTitle"},
+      h("h2",{class:"sp-title",id:"spTitle"},"What should your computer work on?"),
+      h("p",{class:"sp-sub"},"Describe the job. Your own AI models do it on this PC, check it with tests, and you can undo it."),
       h("div",{class:"sp-recipes",role:"group","aria-label":"Start from an example"},...QUICK.map(([l,t])=>h("button",{class:"sp-recipe",type:"button",onclick:()=>{ta.value=t;run.goal=t;ta.focus();ta.setSelectionRange(t.length,t.length);}},l))),
       ta,
-      h("div",{class:"hero-row"},h("label",{class:"f grow"},"Project",folder),
-        h("label",{class:"f hero-chat"},h("input",{type:"checkbox",checked:store.get("chatFirst",false),onchange:e=>store.set("chatFirst",e.target.checked)}),"Chat first"),
-        h("button",{class:"btn p sp-go",type:"button",onclick:()=>store.get("chatFirst",false)?go("studio"):simpleStart()},"Start"))),
-    h("section",{class:"card sp-progress",id:"spProgress",role:"status","aria-live":"polite","aria-label":"Progress"}),
-    h("div",{class:"statrow"},stat("stPass","Pass rate (last live benchmark)"),stat("stTok","Speed"),stat("stRuns","Runs this week"),stat("stGpu","GPU free")),
-    h("h2",{class:"hsec"},"Quick launch"),
-    h("div",{class:"qgrid"},flow("plus","New run","Every option for one task",()=>go("run")),flow("crew","Run agents","Several agents, one file each",()=>go("agents")),
-      flow("flow","Build a workflow","Steps and checks you draw",()=>go("blueprints")),flow("steth","Check this machine","Ranked next steps",()=>go("advisor"))),
-    h("h2",{class:"hsec"},"Recent activity"),
-    h("div",{id:"homeFeed",class:"card feed"},h("p",{class:"mute small"},"Reading recent runs…"))];
+      h("div",{class:"hero-row"},h("label",{class:"f grow"},"Project folder (the code to work on)",folder),
+        h("button",{class:"btn",type:"button",onclick:usePractice},icon("sprout"),"Use the practice project")),
+      h("p",{class:"note warn",id:"spRootErr",role:"alert",hidden:true}),
+      h("div",{class:"hero-row hero-go"},
+        h("button",{class:"btn p sp-go",type:"button",onclick:()=>simpleStart()},"Do it"),
+        h("button",{class:"btn",type:"button",onclick:()=>go("studio")},icon("chat"),"Talk it through first"),
+        h("span",{class:"grow"}),h("small",{class:"mute kbdhint"},h("kbd",null,"Ctrl"),"+",h("kbd",null,"Enter")," to start")),
+      h("p",{class:"small"},h("button",{class:"btn link",type:"button",onclick:()=>go("run")},"Need every option? Open New run"))),
+    h("section",{class:"card sp-progress",id:"spProgress",role:"status","aria-live":"polite","aria-label":"Progress",hidden:true}),
+    h("div",{class:"statrow"},stat("stPass","Tests passed","check","template"),stat("stTok","Words per second","bolt","cost"),stat("stRuns","Runs this week","play","flow"),stat("stGpu","Graphics memory free","chip","model")),
+    h("h2",{class:"hsec"},"Recent runs"),
+    h("div",{id:"homeFeed",class:"card feed"},h("div",{class:"skeleton",style:"height:56px"}))];
 }
-function setStat(id,big,sub,tone){const c=$("#"+id);if(!c)return;c.querySelector("b").textContent=big;c.querySelector(".sc-sub").textContent=sub||"";c.dataset.tone=tone||"";}
+function setStat(id,big,sub,tone,series){const c=$("#"+id);if(!c)return;c.querySelector("b").textContent=big;c.querySelector(".sc-sub").textContent=sub||"";c.dataset.tone=tone||"";
+  const sp=c.querySelector(".sc-spark");if(sp){sp.innerHTML="";const g=spark(series);if(g)sp.append(g);}}
 async function loadHome(){
-  /* every number is measured or shown as "–": an unknown is never drawn as 0 */
+  /* every number is measured or shown as "–" (unknown); a shimmer means still reading */
   try{const r=await api("/api/arch/evals"),runs=(r.runs||[]).filter(x=>!x.fake),last=runs[runs.length-1];
-    if(last&&last.pass_rate!=null)setStat("stPass",fmt(last.pass_rate,0)+"%",`${last.n} tasks, ${when(last.ts)}`,last.pass_rate>=75?"good":last.pass_rate>=45?"warn":"bad");
-    else setStat("stPass","–","no live benchmark yet");}catch(e){setStat("stPass","–","could not read: "+e.message);}
+    if(last&&last.pass_rate!=null)setStat("stPass",fmt(last.pass_rate,0)+"%",`${last.n} tasks, ${when(last.ts)}`,last.pass_rate>=75?"good":last.pass_rate>=45?"warn":"bad",runs.map(x=>x.pass_rate));
+    else setStat("stPass","–","no tests run yet");}catch(e){setStat("stPass","–","could not read the test results");}
   try{const m=await api("/api/arch/machine"),ts=JSON.stringify(m).match(/"(?:tok_s|tokps|tok_per_s)"\s*:\s*([0-9.]+)/);
-    setStat("stTok",ts?fmt(+ts[1],0)+" tok/s":"–",ts?"measured on this machine":"not measured yet");}catch(_){setStat("stTok","–","not measured yet");}
+    setStat("stTok",ts?fmt(+ts[1],0):"–",ts?"how fast your model writes":"not measured yet");}catch(_){setStat("stTok","–","not measured yet");}
   const feed=$("#homeFeed");
-  if(!run.root){setStat("stRuns","–","choose a project");if(feed){feed.innerHTML="";feed.append(h("p",{class:"mute small"},"Choose a project above; its runs show up here."));}}
+  const empty=()=>emptyState("journey","No runs yet","Your finished runs appear here, newest first.","Try the practice project",usePractice);
+  if(!run.root){setStat("stRuns","–","choose a project");if(feed){feed.innerHTML="";feed.append(empty());}}
   else try{const rs=await api("/api/arch/runs?root="+encodeURIComponent(run.root)),wk=Date.now()/1000-7*86400;
     const recent=rs.filter(r=>(r.ts||r.started||0)>=wk);
     setStat("stRuns",String(rs.some(r=>r.ts||r.started)?recent.length:rs.length),rs.some(r=>r.ts||r.started)?"in the last 7 days":"in this project");
-    if(feed){feed.innerHTML="";if(!rs.length)feed.append(h("p",{class:"mute small"},"No runs in this project yet."));
+    if(feed){feed.innerHTML="";if(!rs.length)feed.append(empty());
       for(const r of rs.slice(0,8)){const st=r.verdict||r.state||"",tone=/pass|complete/.test(st)?"good":/fail/.test(st)?"bad":"warn";
-        feed.append(h("div",{class:"feedrow"},h("span",{class:"chip "+tone},st||"?"),h("span",{class:"grow"},r.goal||r.name),h("span",{class:"chip acc"},r.flow||""),
-          h("a",{class:"link",onclick:()=>showReport(r)},"report")));}}
-  }catch(e){setStat("stRuns","–","could not read runs");if(feed)feed.textContent="Could not read runs: "+e.message;}
+        const word=/pass|complete/.test(st)?"worked":/fail/.test(st)?"did not work":st?"could not check":"?";
+        feed.append(h("div",{class:"feedrow"},h("span",{class:"ic-box sm",style:"--hue:var(--c-flow)"},icon("play")),h("span",{class:"grow"},r.goal||r.name),r.flow?h("span",{class:"chip flow"},r.flow):null,
+          h("span",{class:"chip "+tone},word),h("button",{class:"btn link",type:"button",onclick:()=>showReport(r)},"Report")));}}
+  }catch(e){setStat("stRuns","–","could not read runs");if(feed){feed.innerHTML="";feed.append(h("p",{class:"note warn"},"Could not read the runs of this folder. Check the path, then reload."));}}
   liveChip();
 }
 /* the top-bar chip: GPU use, graphics memory and what Ollama holds, polled every 10 s on every page */
@@ -1687,25 +2079,28 @@ async function liveChip(){
   try{G=await api("/api/arch/gpu");}catch(_){}
   if(OLLAMA_OK)try{O=await api("/api/arch/ollama");}catch(e){if(/404|not found/i.test(e.message))OLLAMA_OK=false;}
   if(G&&G.vram_gb!=null){const free=G.vram_gb-(G.vram_used_gb||0),c2=$("#stGpu");
-    if(c2)setStat("stGpu",fmt(free,1)+" GB",`of ${fmt(G.vram_gb,1)} GB, ${G.gpu_pct??"–"}% busy`,free<1?"warn":"good");}
+    if(c2)setStat("stGpu",fmt(free,1)+" GB",`of ${fmt(G.vram_gb,1)} GB, card ${G.gpu_pct??"–"}% busy`,free<1?"warn":"good");}
   if(!G&&!O){c.hidden=true;return;}
   c.hidden=false;c.innerHTML="";
   const parts=[];
-  if(G&&G.vram_gb!=null)parts.push(`GPU ${G.gpu_pct??"–"}% · VRAM ${fmt(G.vram_used_gb,1)}/${fmt(G.vram_gb,1)} GB`);
-  else if(G)parts.push("No GPU reading");
+  if(G&&G.vram_gb!=null)parts.push(`Graphics card ${G.gpu_pct??"–"}% busy · ${fmt(G.vram_used_gb,1)} of ${fmt(G.vram_gb,0)} GB memory used`);
+  else if(G)parts.push("No graphics card reading");
   const held=O&&Array.isArray(O.models)?O.models.reduce((a,m)=>a+(+m.size_gb||0),0):null;
-  if(held!=null)parts.push(`Ollama holding ${fmt(held,1)} GB`);
+  if(held)parts.push(`A model is loaded (${fmt(held,1)} GB)`);
   const spill=O&&Array.isArray(O.models)&&O.models.some(m=>m.size_gb!=null&&m.vram_gb!=null&&m.size_gb-m.vram_gb>0.2);
   c.classList.toggle("warn",!!spill);c.title=G?gpuTitle(G)+(spill?" A model Ollama holds is partly in RAM.":""):"";
   c.append(parts.join(" · "));
-  if(O&&(O.models||[]).length)c.append(h("button",{class:"btn sm",type:"button",title:"Ask Ollama to let go of the models it holds (our llama-server tiers are not touched)",onclick:async()=>{
+  if(O&&(O.models||[]).length)c.append(h("button",{class:"btn sm",type:"button","aria-label":"Free graphics memory by unloading models",title:"Ask Ollama to let go of the models it holds (our llama-server tiers are not touched)",onclick:async()=>{
     for(const m of O.models.filter(m=>!m.ours)){try{await api("/api/arch/ollama/unload",{model:m.name});}catch(e){toast.err("Not unloaded: "+e.message,6000);return;}}
-    toast("Ollama let go of its models");liveChip();}},"Unload"));
+    toast("Graphics memory freed");liveChip();}},"Free memory"));
 }
 setInterval(liveChip,10000);setTimeout(liveChip,1200);
+function navOpen(){document.body.classList.add("nav-open");const t=$("#navToggle"),v=$("#navVeil");if(t)t.setAttribute("aria-expanded","true");if(v)v.hidden=false;const f=$("#nav .nav");if(f)f.focus();}
+function navClose(){if(!document.body.classList.contains("nav-open"))return;document.body.classList.remove("nav-open");const t=$("#navToggle"),v=$("#navVeil");if(t)t.setAttribute("aria-expanded","false");if(v)v.hidden=true;}
 (function topbar(){
   const s=document.getElementById("topSearch");if(s)s.addEventListener("click",()=>{if(typeof openPalette==="function")openPalette();});
-  const t=document.getElementById("navToggle");if(t)t.addEventListener("click",()=>{const o=document.body.classList.toggle("nav-open");t.setAttribute("aria-expanded",String(o));});
+  const t=document.getElementById("navToggle");if(t)t.addEventListener("click",()=>{document.body.classList.contains("nav-open")?navClose():navOpen();});
+  const v=document.getElementById("navVeil");if(v)v.addEventListener("click",()=>navClose());
 })();
 function render(){
   if(!S)return; const v=$("#view");
@@ -1733,6 +2128,8 @@ function render(){
   if(page==="bench"){ if(!built.bench){v.innerHTML="";put(v,...benchPage());built.bench=1;} loadBench(); return; }
   if(page==="morning"){ v.innerHTML="";put(v,...morningPage());loadMorning(); return; }
   if(page==="costmap"){ if(!built.costmap){v.innerHTML="";put(v,...costmapPage());built.costmap=1;} loadCostmap(); return; }
+  if(page==="crewbuild"){ if(!built.crewbuild){v.innerHTML="";put(v,...crewBuilderPage());built.crewbuild=1;} return; }
+  if(page==="byjob"){ if(!built.byjob){v.innerHTML="";put(v,...byJobPage());built.byjob=1;} return; }
   if(page==="orchestra"){ if(!built.orchestra){v.innerHTML="";put(v,...orchPage());built.orchestra=1;} loadOrch(); return; }
   if(page==="caches"){ if(!built.caches){v.innerHTML="";put(v,...cachesPage());built.caches=1;} loadCaches(); return; }
   v.innerHTML=""; const fn={overview,start,models,roles,flows,portfolio,score:scoreboard,settings,train}[page]; put(v,...fn());
@@ -1774,9 +2171,8 @@ function consolePage(){
       h("div",{class:"hint"},
         h("span",{class:"pair"},h("kbd",{},"Enter"),"send"),
         h("span",{class:"pair"},h("kbd",{},"Shift"),h("kbd",{},"Enter"),"new line"),
-        h("span",{class:"pair"},h("kbd",{},"Ctrl"),h("kbd",{},"K"),"commands"),
-        h("span",{class:"pair"},h("kbd",{},"/"),"saved commands"),
-        h("span",{class:"pair"},h("kbd",{},"Esc"),"stop"),
+        h("span",{class:"pair extra"},h("kbd",{},"/"),"saved commands"),
+        h("span",{class:"pair"},h("kbd",{},"Esc"),h("kbd",{},"Esc"),"stop the run"),
         h("span",{class:"tokcost",id:"cCost",hidden:true,"aria-live":"polite"}),   /* "about $x": filled by tokPreview, Claude only */
         h("span",{class:"grow"}),
         h("button",{class:"btn sm",onclick:cNew},icon("spark"),"New thread"),
@@ -2330,16 +2726,16 @@ function agentsPage(){
   return [h("div",{class:"card",id:"crewCost"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"This week"),helpBtn("crew")),h("div",{class:"skeleton",style:"height:70px;margin-top:10px"})),
     h("div",{class:"card"},h("div",{class:"row"},h("span",{class:"cbadge",style:"font-size:13px;padding:2px 10px"},"Claude"),h("h2",{class:"grow",style:"margin:0"},"Crew"),
       h("a",{class:"btn sm",href:"https://platform.claude.com/agents",target:"_blank",rel:"noopener"},"Open the Console")),
-    h("p",{class:"sub"},"Your crew of Managed Agents runs on Anthropic's side, in its own sandbox. Pick one, give it a task, and watch everything it does here: its messages, every tool it calls, and each status change. Billed to your API key."),pick),
+    h("p",{class:"sub"},"Cloud agents work in their own sandbox."),learnMore("Your crew of Managed Agents runs on Anthropic's side, in its own sandbox. Pick one, give it a task, and watch everything it does here: its messages, every tool it calls, and each status change. Billed to your API key."),pick),
     h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"What the agent is doing"),h("span",{class:"chip",id:"agStatus"},AG.status||"no session")),out),
     h("div",{class:"card",id:"crewSched"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"On a schedule"),h("span",{class:"chip"},"while the hub is open")),
-      h("p",{class:"sub"},"Give an agent the same job every day at a set time, or once. It runs while this hub is open; the result appears under What the agent is doing."),
+      h("p",{class:"sub"},"Repeat a job daily, or run it once."),learnMore("Give an agent the same job every day at a set time, or once. It runs while this hub is open; the result appears under What the agent is doing."),
       h("div",{id:"crewSchedBox"},h("div",{class:"skeleton",style:"height:60px"}))),
     h("div",{class:"card",id:"ccCard"},h("div",{class:"row"},h("span",{class:"cbadge",style:"font-size:13px;padding:2px 10px"},"Claude Code"),h("h2",{class:"grow",style:"margin:0"},"Claude Code, on your API key"),h("span",{class:"chip",id:"ccStatus"},"…")),
-      h("p",{class:"sub"},"The real Claude Code agent, working in your project folder here on this PC, billed to your API key (never your subscription). Every message, thinking step, tool call and result appears below as it happens; Send again to continue the same session."),
+      h("p",{class:"sub"},"Claude Code works in your project folder."),learnMore("The real Claude Code agent, working in your project folder here on this PC, billed to your API key (never your subscription). Every message, thinking step, tool call and result appears below as it happens; Send again to continue the same session."),
       h("div",{id:"ccForm"}),h("div",{id:"ccOut"})),
     h("div",{class:"card",id:"saCard"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"Subagents"),h("span",{class:"chip"},"/agents")),
-      h("p",{class:"sub"},"Specialists Claude Code can hand work to, exactly like Claude Code's /agents: each has its own system prompt, tools and model, and works in its own context. Every enabled one is given to each Claude Code run; ask for it by name (\"use the code-reviewer\") or let Claude pick from the description."),
+      h("p",{class:"sub"},"Helpers Claude Code can hand work to."),learnMore("Specialists Claude Code can hand work to, exactly like Claude Code's /agents: each has its own system prompt, tools and model, and works in its own context. Every enabled one is given to each Claude Code run; ask for it by name (\"use the code-reviewer\") or let Claude pick from the description."),
       h("div",{id:"saBox"},h("div",{class:"skeleton",style:"height:60px"})))];
 }
 let CC={run:"",since:0,events:[],session:store.get("ccSession",""),timer:0};
@@ -2505,7 +2901,7 @@ async function loadTeam(){
     h("div",{class:"card"},h("div",{class:"teamhead"},
       h("div",{class:"grow"},
         h("h2",{},d.first_run?"Pick a team for this machine":"Your team on this machine"),
-        h("p",{class:"sub",style:"margin:0"},"Each installed model was measured against this card: does it fit entirely, how much spills into memory, and what its compression costs in accuracy. Reputation is not part of it."),
+        h("p",{class:"sub",style:"margin:0"},"Models measured against your graphics card."),learnMore("Each installed model was measured against this card: does it fit entirely, how much spills into memory, and what its compression costs in accuracy. Reputation is not part of it."),
         h("div",{class:"hwpills"},
           h("span",{},icon("chip"),h("b",{},hw.gpu?shortGpu(hw.gpu):"No graphics card")),
           h("span",{},h("b",{},fmt(hw.vram_gb,1)+" GB")," graphics memory"),
@@ -2572,7 +2968,7 @@ function queuePage(){
     ...["bugfix","build","feature","refactor","test","optimize","review","secure","explore","hunt"].map(f=>h("option",{value:f},f)));
   return [h("div",{class:"card"},
     h("h2",{},"Work it does on its own"),
-    h("p",{class:"sub"},"Add tasks and let it work through them. Each runs in its own process, inside the day's limits. When one fails or ends 'not sure', it is tried again with a different approach -- a bug that would not reproduce gets a bug hunt instead -- and it gives up honestly when the approaches run out."),
+    h("p",{class:"sub"},"Add tasks. They run one by one."),learnMore("Add tasks and let it work through them. Each runs in its own process, inside the day's limits. When one fails or ends 'not sure', it is tried again with a different approach -- a bug that would not reproduce gets a bug hunt instead -- and it gives up honestly when the approaches run out."),
     h("div",{class:"qadd"},goal,flow,h("button",{class:"btn pri",onclick:qAdd},icon("arrow"),"Add")),
     h("div",{id:"qStats"}),
     h("div",{class:"row",style:"gap:8px;margin-bottom:12px"},
@@ -2664,7 +3060,39 @@ const TPL_CAT={
   security_lab:["Security","shield"], red_team:["Security","shield"], range:["Security","shield"],
   iot_device:["Devices","chip"]};
 let TPL_FILTER="All";
+/* The template catalog (GET /api/arch/templates/catalog): a colourful card grid with thumbnails, category chips in their hue,
+   difficulty, stack tags and Learn more. When the catalog is unavailable the older list below draws instead. */
+const TPLC={data:null,asked:false,cat:"All"};
+async function tplCatalogLoad(){TPLC.asked=true;try{TPLC.data=await api("/api/arch/templates/catalog");}catch(e){TPLC.data={available:false,templates:[]};}
+  if(TPLC.data.available&&TPLC.data.templates.length&&(page==="start"||page==="gallery"))render();}
+const TPL_HUES=["flow","agent","template","model","cost","system"];
+function tplHue(t){const c=String(t.colour||"").replace(/^-+/,"").replace(/^c-/,"").replace(/-(ink|bg)$/,"");return TPL_HUES.includes(c)?c:"template";}
+function tplCatalogGrid(t0,pick){
+  const all=TPLC.data.templates;
+  const cats=["All",...new Set(all.map(t=>t.category||"Other"))];
+  if(!cats.includes(TPLC.cat))TPLC.cat="All";
+  const hueOfCat=c=>{const t=all.find(x=>(x.category||"Other")===c);return t?tplHue(t):"system";};
+  const filt=h("div",{class:"tfilter",role:"group","aria-label":"Filter starting points by category"},
+    ...cats.map(c=>h("button",{type:"button","aria-pressed":String(c===TPLC.cat),class:c==="All"?"":"chip "+hueOfCat(c),onclick:()=>{TPLC.cat=c;render();}},c,
+      h("span",{class:"n"},String(c==="All"?all.length:all.filter(t=>(t.category||"Other")===c).length)))));
+  const shown=all.filter(t=>TPLC.cat==="All"||(t.category||"Other")===TPLC.cat);
+  const auto={id:"auto",name:"Let the Architect choose",description:"Picks a starting point from the words of your goal.",category:"Any",colour:"system",stack:[],difficulty:""};
+  const card=t=>{const on=t.id===t0,hue=tplHue(t),stack=Array.isArray(t.stack)?t.stack:t.stack?String(t.stack).split(/[,\s]+/).filter(Boolean):[];
+    return h("div",{class:"tcard2",role:"button",tabindex:0,"aria-pressed":String(on),style:"--hue:var(--c-"+hue+");--th-bg:var(--c-"+hue+"-bg)",
+        onclick:e=>{if(e.target.closest("details"))return;pick(t.id);},onkeydown:e=>{if((e.key==="Enter"||e.key===" ")&&!e.target.closest("details")){e.preventDefault();pick(t.id);}}},
+      t.thumb?h("img",{class:"tthumb",src:t.thumb,alt:"",loading:"lazy",width:320,height:120}):chainThumb(t.files||null,hue),
+      h("div",{class:"tbody"},
+        h("div",{class:"row tmeta"},h("span",{class:"chip "+hue},t.category||"Other"),t.difficulty?h("span",{class:"chip diff"},String(t.difficulty)):null),
+        h("h3",null,t.name||t.id),h("p",{class:"sub"},t.description||""),
+        stack.length?h("div",{class:"ttags"},...stack.slice(0,5).map(x=>h("span",{class:"tag"},x))):null,
+        t.long||(t.next_steps||[]).length?learnMore(t.long||"",(t.next_steps||[]).length?h("ul",null,...t.next_steps.map(x=>h("li",null,String(x)))):null):null),
+      on?h("span",{class:"sel"},icon("check")):null);};
+  return [filt,h("div",{class:"tgal2"},card(auto),...shown.map(card))];
+}
+
 function tplGallery(t0,pick){
+  if(TPLC.data&&TPLC.data.available&&TPLC.data.templates.length)return tplCatalogGrid(t0,pick);
+  if(!TPLC.asked)tplCatalogLoad();
   const all=[{id:"auto",title:"Let the Architect choose",blurb:"Picks a starting point from the wording of your goal, and falls back to the router model when the words are not enough.",stack:"auto",files:[],needs:[]},...S.templates];
   const catOf=t=>t.id==="auto"?["Any","spark"]:(TPL_CAT[t.id]||["Other","box"]);
   const cats=["All",...[...new Set(all.map(t=>catOf(t)[0]))]];
@@ -2726,7 +3154,7 @@ async function loadBacklog(){
   const more=h("input",{type:"checkbox"});
   box.innerHTML="";
   put(box,h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Backlog · let it work while you are away"),
-      h("p",{class:"sub"},"Goals the team works through in order, on its own, inside a time budget, every gate on. Propose asks the planner to turn what review, hunt and secure found into the next items; nothing runs until it is on this list. Every run keeps its undo.")),
+      h("p",{class:"sub"},"Goals run in order, on their own."),learnMore("Goals the team works through in order, on its own, inside a time budget, every gate on. Propose asks the planner to turn what review, hunt and secure found into the next items; nothing runs until it is on this list. Every run keeps its undo.")),
     h("span",{class:"chip "+(bl.items.some(i=>i.status==="todo")?"info":"")},`${bl.items.filter(i=>i.status==="todo").length} to do · ${bl.items.filter(i=>i.status==="done").length} done`)));
   for(const i of bl.items.slice(-20).reverse())put(box,h("div",{class:"check"},h("span",{class:"chip "+({todo:"info",doing:"warn",done:"good",failed:"bad"}[i.status]||"")},i.status),
     h("div",{class:"grow small"},i.goal,h("div",{class:"mute"},`${i.flow} · ${i.source}`+(i.why?" · "+i.why:"")+(i.result&&i.result.error?" · "+i.result.error:""))),
@@ -2808,7 +3236,7 @@ function readyCard(){
     const r=(t&&t.ready)||{},steps=r.steps||[],st=t&&t.status,p=t&&t.profile,n=installed().length;
     box.innerHTML="";
     put(box,h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Readiness checks"),
-        h("p",{class:"sub"},"What Get ready does, step by step: repair, a model, tune, optimize, prove the builder, check how it edits, a smoke test. Your models and the roles you assigned are never replaced.")),
+        h("p",{class:"sub"},"Get ready sets up this PC in five steps."),learnMore("What Get ready does, step by step: repair, a model, tune, optimize, prove the builder, check how it edits, a smoke test. Your models and the roles you assigned are never replaced.")),
       h("button",{class:"btn p",onclick:()=>startJob("/api/arch/ready",{root:run.root||undefined})},steps.length?"Run again":"Get ready")),
       h("div",{class:"row",style:"margin:6px 0 10px"},
         h("span",{class:"chip "+(S.ollama.ok?"good":"bad")},S.ollama.ok?`Ollama · ${n} model${n===1?"":"s"}`:"Ollama not reachable"),
@@ -2831,7 +3259,7 @@ function tunePage(){
 }
 function renderHistory(rows){
   const box=$("#histBox");if(!box)return;box.innerHTML="";
-  put(box,h("h2",null,"Run history"),h("p",{class:"sub"},"From your own runs: how often each role's reply passed the code checks, how long a call takes (median and slow tail), and the seconds spent per accepted reply. A faster model that fails more is the slower one."),
+  put(box,h("h2",null,"Run history"),h("p",{class:"sub"},"How often each job passed its checks."),learnMore("From your own runs: how often each role's reply passed the code checks, how long a call takes (median and slow tail), and the seconds spent per accepted reply. A faster model that fails more is the slower one."),
     rows.length?h("div",{style:"overflow-x:auto"},h("table",null,h("thead",null,h("tr",null,...["Role","Model","Calls","Accepted","Median","Slow tail (p95)","Per accepted"].map((x,i)=>h("th",{class:i>=2?"n":""},x)))),
       h("tbody",null,...rows.slice(0,30).map(r=>h("tr",null,h("td",null,roleName(r.role)),h("td",{class:"mono small"},r.model),h("td",{class:"n"},String(r.n)),
         h("td",{class:"n"},h("span",{class:"cell "+(r.rate>=75?"s-hi":r.rate>=45?"s-mid":"s-lo")},r.rate+"%")),
@@ -2877,7 +3305,7 @@ function renderIndex(ix){
   const go=async(body,msg)=>{try{await api("/api/arch/index",Object.assign({root:run.root},body));toast(msg);}catch(e){toast("Could not do that: "+e.message);}};
   const q=h("input",{type:"text",class:"grow",placeholder:"Try a request, e.g. add throttling to the API — shows the keyword, vector and fused rankings"});
   put(box,h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"What the prompt shows"),
-      h("p",{class:"sub"},"A small context window only carries a few files, so the ranking of files and functions is what makes a 4B-8B model usable. Keywords find exact names; a tiny embedding model (274 MB, loaded for a batch and released) also finds the function that does what you described in other words. Both are fused; the code checks still decide.")),
+      h("p",{class:"sub"},"Small models read few files, so ranking matters."),learnMore("A small context window only carries a few files, so the ranking of files and functions is what makes a 4B-8B model usable. Keywords find exact names; a tiny embedding model (274 MB, loaded for a batch and released) also finds the function that does what you described in other words. Both are fused; the code checks still decide.")),
     h("span",{class:"chip "+(on?"good":"warn")},on?"on · "+(ix.model||""):"off")));
   if(!on&&ix.suggest)put(box,h("div",{class:"check"},h("span",{class:"chip info"},"to turn on"),h("div",{class:"grow small"},h("code",null,"ollama pull "+ix.suggest[0]),h("div",{class:"mute"},`${ix.suggest[1]}; ${ix.suggest[2]}. Then it indexes each project on first use; an edit re-embeds only what changed.`))));
   else if(!on)put(box,h("div",{class:"mute small"},ix.state));
@@ -2893,7 +3321,7 @@ function renderOpt(t){
   const doApply=async(models)=>{try{await api("/api/arch/optimize",{models});toast("Settings written. Undo is available.");loadTune();}catch(e){toast("Could not apply: "+e.message);}};
   const doUndo=async()=>{try{await api("/api/arch/optimize",{undo:true});toast("Put back.");loadTune();}catch(e){toast("Could not undo: "+e.message);}};
   put(box,h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Settings that suit your models"),
-      h("p",{class:"sub"},"Each model family has sampling its makers recommend (Qwen3 thinking must not run near-greedy, Gemma wants about 1.0). Only empty values are filled; anything you set stays. Nothing here changes which model does which job.")),
+      h("p",{class:"sub"},"Recommended settings for each model family."),learnMore("Each model family has sampling its makers recommend (Qwen3 thinking must not run near-greedy, Gemma wants about 1.0). Only empty values are filled; anything you set stays. Nothing here changes which model does which job.")),
     h("button",{class:"btn",disabled:!t.opt_can_undo,onclick:doUndo},"Undo last apply"),
     h("button",{class:"btn p",disabled:!o.pending,onclick:()=>doApply(null)},o.pending?`Apply to ${o.pending} model(s)`:"Nothing to apply")));
   for(const m of o.models){
@@ -2919,7 +3347,7 @@ async function loadTune(){
   const p=t.profile,st=t.status;box.innerHTML="";
   const own=$("#ownBox");own.innerHTML="";
   if(t.machine_card){const mc=h("details",{class:"card-inner"},h("summary",null,"Machine card from the last Get ready (what was checked, what passed, what to fix)"),h("pre",{class:"mono small",style:"white-space:pre-wrap;margin-top:8px"},t.machine_card));window.__machine=mc;}
-  put(own,...(window.__machine?[window.__machine]:[]),h("h2",null,"Your models"),h("p",{class:"sub"},"Everything installed here, whatever the family (merges, abliterated and mixture-of-experts models included). Get ready, Tune and the suggestions below never delete, replace or reassign them."),
+  put(own,...(window.__machine?[window.__machine]:[]),h("h2",null,"Your models"),h("p",{class:"sub"},"Every model installed on this PC."),learnMore("Everything installed here, whatever the family (merges, abliterated and mixture-of-experts models included). Get ready, Tune and the suggestions below never delete, replace or reassign them."),
     (t.models||[]).length?h("div",{style:"overflow-x:auto"},h("table",null,h("thead",null,h("tr",null,...["Model","Kind","Size","Harness","Speed","Context","Your runs","Used for"].map((x,i)=>h("th",{class:i>=2&&i<=5&&i!==3?"n":""},x)))),
       h("tbody",null,...t.models.map(m=>h("tr",null,
         h("td",{class:"mono small"},m.name),
@@ -2984,7 +3412,7 @@ async function loadCodeHealth(){
   const goal=h("input",{type:"text",class:"grow",placeholder:"What should the Architect improve about itself? e.g. make the doctor report disk space per model"});
   const auto=h("input",{type:"checkbox"});
   put(sb,h("h2",null,"Improve this app, safely"),
-    h("p",{class:"sub"},"It edits a copy, never the running app. The copy must compile, add no fake code, pass its own self-test in a network-restricted process and run at least as many checks as now. You confirm before anything is promoted, and the last promotion can be rolled back."),
+    h("p",{class:"sub"},"Edits a copy, never the running app."),learnMore("It edits a copy, never the running app. The copy must compile, add no fake code, pass its own self-test in a network-restricted process and run at least as many checks as now. You confirm before anything is promoted, and the last promotion can be rolled back."),
     h("div",{class:"row"},h("span",{class:"chip "+(v.ok?"good":"warn")},!v.has_manifest?"no integrity record yet":v.ok?"matches its last verified state":`${v.modified.length+v.missing.length} file(s) differ from the last verified state`)),
     h("div",{class:"row",style:"margin-top:10px"},goal,h("label",{class:"sw"},auto,"promote automatically if every gate passes")),
     h("div",{class:"row",style:"margin-top:10px"},
@@ -3059,7 +3487,7 @@ function start(){
         String(a.title).replace(/\s*\(.*$/,"")))):null);
   return [h("div",{class:"card sflow"},
     h("div",{class:"sflow-head"},h("h2",null,"Start a new project"),
-      h("p",{class:"sub"},"Pick what you are making, say what it should do, give it a name. It starts as a small project whose tests already pass, and the team builds your idea on top.")),
+      h("p",{class:"sub"},"Pick a type, describe it, name it."),learnMore("Pick what you are making, say what it should do, give it a name. It starts as a small project whose tests already pass, and the team builds your idea on top.")),
     step(1,"What are you making?","Each starting point already works and has passing tests.",...(()=>{
       // six to start with, so steps 2 and 3 stay in view; the filters and "show all" reach every starting point
       const parts=tplGallery(t0,pick), gal=parts.find(x=>x&&x.classList&&x.classList.contains("tgal"));
@@ -3212,13 +3640,17 @@ function teamSummary(){
     h("button",{class:"btn p",onclick:()=>go("tiers")},"See your models")));
 }
 function overview(){
-  const out=[sheet(),getStarted(),quickCard(),teamSummary()];
-  if(!S.readyInfo)api("/api/arch/tune_info").then(t=>{S.readyInfo=t;if(page==="overview")render();}).catch(()=>{});
-  const more=h("details",{class:"card"},h("summary",{style:"cursor:pointer;font:600 15px var(--font-head)"},"More: one-click starters, readiness details, how it works"));
+  /* item 1: Home is the goal box and recent runs; the first-run steps only until they are done. The rest lives in Help. */
+  let fv={};try{fv=fvState();}catch(_){}
+  return fv.status!=="done"?[getStarted()]:[];
+}
+function homeMore(){
+  if(!S.readyInfo)api("/api/arch/tune_info").then(t=>{S.readyInfo=t;}).catch(()=>{});
+  const more=h("details",{class:"card"},h("summary",{class:"more-sum"},"One-click starters, readiness details, how it works"));
   put(more,h("div",{style:"margin-top:12px;display:grid;gap:14px"},oneShotCard(),readyCard(),
-    h("div",null,h("h3",{style:"margin:0 0 6px"},"How it works"),h("p",{class:"sub"},"Workflows call specialised models. Code checks (tests, linters, schema and contract validators) decide pass or fail wherever they can, not the model's opinion; a strict reviewer is used only for design quality. Every call is recorded, so verified work can become training data."))));
-  out.push(more);
-  return out;
+    h("div",null,h("h3",{style:"margin:0 0 6px"},"How it works"),h("p",{class:"sub"},"Models do the work. Tests decide if it passed."),
+      learnMore("Workflows call specialised models. Code checks (tests, linters, schema and contract validators) decide pass or fail wherever they can, not the model's opinion; a strict reviewer is used only for design quality. Every call is recorded, so verified work can become training data."))));
+  return more;
 }
 /* ---------- Models ---------- */
 function models(){
@@ -3233,10 +3665,12 @@ function models(){
       h("label",{class:"f"},"GPU GB/s",h("input",{type:"number",value:opts.gpu_bw,onchange:e=>{opts.gpu_bw=+e.target.value||192;refresh(true);}})),
       h("label",{class:"f"},"RAM GB/s",h("input",{type:"number",value:opts.ram_bw,onchange:e=>{opts.ram_bw=+e.target.value||50;refresh(true);}})),
       h("span",{class:"grow"}),h("button",{class:"btn",onclick:()=>refresh(true)},"Refresh")),
-    h("p",{class:"sub",style:"margin-top:10px"},"Fit = weights + context memory, spread over layers; the GPU takes what fits, the rest runs from RAM (about 4 GB kept for the OS). Speed is a bandwidth estimate; the Speed test gives the real number."),
+    h("p",{class:"sub",style:"margin-top:10px"},"How well each model fits this PC."),learnMore("Fit = weights + context memory, spread over layers; the GPU takes what fits, the rest runs from RAM (about 4 GB kept for the OS). Speed is a bandwidth estimate; the Speed test gives the real number."),
     ...(hw.notes||[]).map(n=>h("div",{class:"note warn"},n))));
   if(!S.ollama.ok){out.push(h("div",{class:"card"},h("h2",null,"Ollama is not running"),h("p",null,S.ollama.error||"")));return out;}
-  if(!S.models.length){out.push(h("div",{class:"card empty"},"No models installed. Use  ollama pull <name>  in a terminal."));return out;}
+  if(!S.models.length){out.push(S.ollama&&!S.ollama.ok?emptyState("models","Ollama is not running","Start the Ollama app, then press Refresh.","Refresh",()=>refresh(true))
+      :emptyState("models","No models yet","Models are the AI brains that run on your PC.","Copy: ollama pull llama3.2",()=>{try{navigator.clipboard.writeText("ollama pull llama3.2");toast("Copied. Paste it in a terminal.");}catch(_){toast("Type: ollama pull llama3.2");}},
+        h("a",{class:"link",href:"https://ollama.com/download",target:"_blank",rel:"noopener"},"Open the Ollama download page")));return out;}
   for(const m of installed().concat(S.models.filter(m=>m.embed)))out.push(modelCard(m));
   return out;
 }
@@ -3268,7 +3702,7 @@ function modelCard(m){
 function roles(){
   const out=[]; const ms=installed();
   out.push(h("div",{class:"card"},h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Different jobs need different strengths"),
-      h("p",{class:"sub",style:"margin:0"},"Each role lists the test categories it depends on. Recommendations use your measured scores; a role without measurements shows a labelled guess. Changes save immediately.")),
+      h("p",{class:"sub",style:"margin:0"},"Each job lists the tests it relies on."),learnMore("Each role lists the test categories it depends on. Recommendations use your measured scores; a role without measurements shows a labelled guess. Changes save immediately.")),
     h("button",{class:"btn p",disabled:!ms.length,onclick:async()=>{try{await api("/api/arch/apply_recommended",{});toast("Recommended team saved");refresh(true);}catch(e){toast.err("Not saved: "+e.message,6000);}}},"Apply recommended team"))));
   const groupLabel={Core:"Core — plan, design, judge",Builders:"Builders — write the code",Quality:"Quality — test, hunt, optimise",
     Security:"Security — harden, attack, defend",Infra:"Infra — network, config, ML"};
@@ -3328,7 +3762,7 @@ function flows(){
       h("div",{class:"row"},h("span",{class:"mute small"},"Roles:"),...f.roles.map(r=>{const a=(S.roles.find(x=>x.id===r)||{}).assigned;return h("span",{class:"chip "+(a?"":"warn"),title:a||"no model assigned: uses the fallback"},roleName(r)+": "+(a||"auto"));})),
       h("div",{class:"row",style:"margin-top:8px"},h("span",{class:"mute small"},"Produces:"),...f.produces.map(p=>h("code",null,p)))));
   }
-  out.push(h("div",{class:"card"},h("h2",null,"Why fixed flows"),h("p",{class:"sub",style:"margin:0"},"Current practice is to start with the simplest workflow that works (chained steps, routing, a generator and an evaluator) and to add free-running agents only where they measurably help. Fixed flows are predictable, cheaper and testable. Each flow can be switched off or simplified as your models improve: the judge, for example, can be set to off in Settings."),
+  out.push(h("div",{class:"card"},h("h2",null,"Why fixed flows"),h("p",{class:"sub",style:"margin:0"},"Start with the simplest workflow that works."),learnMore("Current practice is to start with the simplest workflow that works (chained steps, routing, a generator and an evaluator) and to add free-running agents only where they measurably help. Fixed flows are predictable, cheaper and testable. Each flow can be switched off or simplified as your models improve: the judge, for example, can be set to off in Settings."),
     h("p",{class:"small mute"},"Background: Anthropic, “Building effective agents” and “Harness design for long-running apps”.")));
   return out;
 }
@@ -3374,7 +3808,7 @@ function runPage(){
       h("pre",{class:"term",id:"term",tabindex:0}),
       h("div",{class:"row",style:"margin-top:10px",id:"inRow"},...["y","n","a","q"].map(k=>h("button",{class:"btn sm",title:{y:"yes, apply",n:"no, skip",a:"apply all remaining",q:"quit the run"}[k],onclick:()=>sendIn(k)},k)),
         h("input",{type:"text",class:"grow",id:"inTxt",placeholder:"reply to the Architect, then Enter",onkeydown:e=>{if(e.key==="Enter"){sendIn(e.target.value);e.target.value="";}}}))),
-    h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow"},"Past runs"),h("button",{class:"btn danger sm",onclick:()=>{if(confirm("Restore every file the most recent run changed (and remove files it created)?"))undoRun();}},"Undo last run")),h("div",{id:"runs",class:"mute boxlist"},"No project folder yet. Open “Where, and advanced” on the left and pick one; its runs show up here.")),
+    h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow"},"Past runs"),h("button",{class:"btn danger sm",onclick:()=>{if(confirm("Restore every file the most recent run changed (and remove files it created)?"))undoRun();}},"Undo last run")),h("div",{id:"runs",class:"mute boxlist"},"Pick a project first: its runs show up here.")),
     h("div",{class:"card"},h("h2",null,"Tools"),h("div",{class:"row"},...[["selftest","Self-test (no GPU needed)"],["flows","List workflows"],["show_config","Show settings"],["portfolio","List projects"]].map(([a,l])=>h("button",{class:"btn sm",onclick:()=>action(a)},l)))))
   )];
 }
@@ -3437,7 +3871,7 @@ function launchPage(){
   const root=h("input",{type:"text",id:"lnRoot",class:"grow",placeholder:"Folder of a project the Architect built, e.g. C:\\code\\myapp",value:run.root,oninput:e=>{run.root=e.target.value;store.set("root",run.root);built.launch=0;render();}});
   return [
     h("div",{class:"card"},h("h2",null,"Launch"),
-      h("p",{class:"sub"},"Starts the project's own run command as a real process on your machine — a real PID, a real port, a real HTTP check. Nothing here is simulated, and nothing here restricts outbound network access unless you set it to in Settings."),
+      h("p",{class:"sub"},"Starts your project like you would yourself."),learnMore("Starts the project's own run command as a real process on your machine — a real PID, a real port, a real HTTP check. Nothing here is simulated, and nothing here restricts outbound network access unless you set it to in Settings."),
       h("div",{class:"row"},h("label",{class:"f grow"},"Project folder",root),
         h("button",{class:"btn",onclick:()=>{built.launch=0;refresh(true);}},"Refresh")),
       h("div",{id:"lnStatus",class:"row",style:"margin-top:14px"}),
@@ -3483,7 +3917,7 @@ function doctorPage(){
   const root=h("input",{type:"text",id:"dxRoot",class:"grow",placeholder:"Project folder to check (default: the hub's own folder)",value:run.root,oninput:e=>{run.root=e.target.value;store.set("root",run.root);}});
   return [
     h("div",{class:"card"},h("h2",null,"Doctor"),
-      h("p",{class:"sub"},"Real probes, not assumptions: a real HTTP call to Ollama, a real socket bind on the hub's port, a real disk-usage check, a real file write. Run this first when something isn't working."),
+      h("p",{class:"sub"},"Real tests of this PC, not guesses."),learnMore("Real probes, not assumptions: a real HTTP call to Ollama, a real socket bind on the hub's port, a real disk-usage check, a real file write. Run this first when something isn't working."),
       h("div",{class:"row"},h("label",{class:"f grow"},"Project folder",root),
         h("button",{class:"btn p",onclick:runDoctor},"Run checks"),
         h("button",{class:"btn",id:"dxFixBtn",onclick:fixDoctor},"Self-repair what's fixable")),
@@ -3530,7 +3964,7 @@ async function fixDoctor(){
 function assessPage(){
   return [
     h("div",{class:"card"},h("h2",null,"Assess"),
-      h("p",{class:"sub"},"Reads your real hardware and the Scoreboard's measured (or, where unmeasured, clearly labelled guessed) scores -- not a new benchmark, just honesty about whether this rig and model lineup can actually carry a given workload."),
+      h("p",{class:"sub"},"Is this PC ready for each kind of work?"),learnMore("Reads your real hardware and the Scoreboard's measured (or, where unmeasured, clearly labelled guessed) scores -- not a new benchmark, just honesty about whether this rig and model lineup can actually carry a given workload."),
       h("div",{id:"asOut"},h("p",{class:"sub"},"Checking…"))),
   ];
 }
@@ -3548,7 +3982,7 @@ async function runAssess(){
     const drift=r.tuning_drift||[];
     put(out,h("div",{class:"card",style:"margin-top:10px"},h("div",{class:"row"},h("h3",{class:"grow"},r.tuned_from==="tune"?"Settings from your last Tune":"Settings for this machine (rough estimate)"),
         h("span",{class:"chip "+(drift.length?"warn":"good")},drift.length?drift.length+" setting(s) drifted":"already tuned")),
-      h("p",{class:"sub"},"Keeps this specific card/RAM from thrashing (context size, keep-alive, sampled attempts) -- not a quality tweak, that's what the Scoreboard measures. Self-tuning check: compares this recommendation against what's actually saved right now."),
+      h("p",{class:"sub"},"Keeps your graphics card from overloading."),learnMore("Keeps this specific card/RAM from thrashing (context size, keep-alive, sampled attempts) -- not a quality tweak, that's what the Scoreboard measures. Self-tuning check: compares this recommendation against what's actually saved right now."),
       h("div",{class:"small mute"},Object.entries(r.tuned_settings||{}).map(([k,v])=>`${k}=${v}`).join("  ·  ")),
       drift.length?h("div",{style:"margin-top:8px"},...drift.map(d=>h("div",{class:"small"},h("span",{class:"mono"},d.path),": currently ",h("b",null,String(d.current??"(unset/default)")),` → recommended `,h("b",null,String(d.recommended))))):null,
       r.tuned_from==="tune"?null:h("p",{class:"small mute",style:"margin-top:8px"},"These numbers come from your hardware alone. Tune measures real speeds with your own models and is the better source."),
@@ -3571,7 +4005,7 @@ function advisorPage(){
   const root=h("input",{type:"text",id:"adRoot",class:"grow",placeholder:"Project folder to examine (default: the hub's own folder)",value:run.root,oninput:e=>{run.root=e.target.value;store.set("root",run.root);}});
   return [
     h("div",{class:"card"},h("h2",null,"Advisor"),
-      h("p",{class:"sub"},"Combines the Doctor's real environment checks, the Assess page's hardware/workload read-out, a real static scan of this project's own code, and (if scope.json + findings.json are present) a real scope-vs-findings check -- into one ranked list. Every item cites the exact check, finding or config value it came from; nothing here is a model's impression of the code."),
+      h("p",{class:"sub"},"Your next steps, ranked by impact."),learnMore("Combines the Doctor's real environment checks, the Assess page's hardware/workload read-out, a real static scan of this project's own code, and (if scope.json + findings.json are present) a real scope-vs-findings check -- into one ranked list. Every item cites the exact check, finding or config value it came from; nothing here is a model's impression of the code."),
       h("div",{class:"row"},h("label",{class:"f grow"},"Project folder",root),
         h("button",{class:"btn p",onclick:runAdvise},"Propose next steps")),
       h("div",{id:"adOut",style:"margin-top:14px;display:flex;flex-direction:column;gap:8px"},h("p",{class:"sub"},"Click “Propose next steps” to combine everything into one list."))),
@@ -4207,7 +4641,7 @@ async function pollJob(){
   }catch(_){jobTimer=setTimeout(pollJob,4000);}
 }
 async function loadRuns(){
-  const box=$("#runs");if(!box)return;if(!run.root){box.textContent="No project folder yet. Open “Where, and advanced” on the left and pick one; its runs show up here.";return;}
+  const box=$("#runs");if(!box)return;if(!run.root){box.innerHTML="";box.append(emptyState("projects","Pick a project first","Runs belong to a project folder.","Choose project",()=>{go("overview");setTimeout(()=>$("#spRoot")&&$("#spRoot").focus(),50);}));return;}
   if(!box.querySelector("table")){box.innerHTML="";box.append(h("div",{class:"skeleton",style:"height:54px"}));}
   try{const rs=await api("/api/arch/runs?root="+encodeURIComponent(run.root));box.innerHTML="";
     if(!rs.length){box.textContent="No runs in this folder yet. Describe a change and press Start; each run is listed here with its report.";return;}
@@ -4266,7 +4700,7 @@ function tlDraw(t,body){
 }
 async function showTrace(r){
   const d=h("div",{class:"card modal",role:"dialog","aria-label":"Run timeline"},h("div",{class:"row"},h("h2",{class:"grow"},"Run timeline -- ",r.name),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),
-    h("p",{class:"sub"},"Every try of every step, read from the run's own trace: what it cost, how much of the prompt the server reused from its cache, what the checks said, and where code fixed the wiring. Prompts and replies are not shown here."),
+    h("p",{class:"sub"},"Every try, with its cost and result."),learnMore("Every try of every step, read from the run's own trace: what it cost, how much of the prompt the server reused from its cache, what the checks said, and where code fixed the wiring. Prompts and replies are not shown here."),
     h("div",{id:"traceBody",style:"max-height:70vh;overflow:auto"},h("p",{class:"sub"},"Loading…")));
   document.body.append(d);
   try{ const t=await api("/api/arch/trace?root="+encodeURIComponent(run.root)+"&run="+encodeURIComponent(r.name)); tlDraw(t,d.querySelector("#traceBody")); }
@@ -4277,7 +4711,7 @@ async function showTrace(r){
 let pf=null;
 function portfolio(){
   if(!pf)pf=JSON.parse(JSON.stringify(S.portfolio||[]));
-  const out=[h("div",{class:"card"},h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Your apps"),h("p",{class:"sub",style:"margin:0"},"List each app once: where it lives, how to test it, what it exposes and what it depends on. A run can then target an app by name, with that app's own test command. Cross-app changes are done one app at a time, guided by the interfaces you list here.")),
+  const out=[h("div",{class:"card"},h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Your apps"),h("p",{class:"sub",style:"margin:0"},"List each app once."),learnMore("List each app once: where it lives, how to test it, what it exposes and what it depends on. A run can then target an app by name, with that app's own test command. Cross-app changes are done one app at a time, guided by the interfaces you list here.")),
     h("button",{class:"btn",onclick:()=>{pf.push({name:"",path:"",stack:"",test_command:"",interfaces:[],depends_on:[],notes:""});render();}},"Add app"),
     h("button",{class:"btn p",onclick:async()=>{try{await api("/api/arch/portfolio",{apps:pf});pf=null;toast("Portfolio saved");refresh(true);}catch(e){toast.err(e.message,6000);}}},"Save")))];
   if(!pf.length)out.push(h("div",{class:"card empty"},"No apps yet. Add one to target it by name."));
@@ -4439,7 +4873,7 @@ function cmpFrame(theme){
 }
 function componentsPage(){
   return [h("div",{class:"card"},h("div",{class:"chead"},h("div",{class:"t"},h("h2",null,"Components"),
-      h("p",{class:"sub"},"Every part of the interface in the light and the dark theme, side by side: for checking a change to the look, the contrast, and that everything works from the keyboard. The rules are in docs/design_system.md.")),
+      h("p",{class:"sub"},"Every interface part, light and dark."),learnMore("Every part of the interface in the light and the dark theme, side by side: for checking a change to the look, the contrast, and that everything works from the keyboard. The rules are in docs/design_system.md.")),
     h("div",{class:"acts"},h("button",{class:"btn",onclick:()=>go("settings")},"Back to Settings")))),
     h("div",{class:"cmp-grid"},cmpFrame("light"),cmpFrame("dark")),
     cmpArt(),
@@ -4516,7 +4950,7 @@ function a11yWire(){
   const sb=$("#subtabs"); if(sb){sb.setAttribute("role","navigation");sb.setAttribute("aria-label","Pages in this place");}
   document.querySelectorAll(".accents button").forEach(b=>b.setAttribute("aria-label","Accent colour: "+b.title));
   const wrap=(name,fn)=>{const o=window[name]; if(typeof o==="function")window[name]=fn(o);};
-  wrap("render",o=>function(){if(page==="components"){if(!S)return;if(!built.components){const v=$("#view");v.innerHTML="";put(v,...componentsPage());built.components=1;}return;}return o.apply(this,arguments);});
+  wrap("render",o=>function(){if(page==="components"){if(!S)return;if(!built.components){const v=$("#view");v.innerHTML="";put(v,homeMore(),...componentsPage());built.components=1;}return;}return o.apply(this,arguments);});
   wrap("settings",o=>function(){const out=o.apply(this,arguments);out.push(h("div",{class:"card"},h("div",{class:"chead"},h("div",{class:"t"},h("h2",null,"Components"),
     h("p",{class:"sub"},"Every part of the interface on one page, light and dark side by side, with the keyboard model. For checking a change to the look.")),
     h("div",{class:"acts"},h("button",{class:"btn",onclick:()=>go("components")},"Open Components")))));return out;});
@@ -4609,7 +5043,7 @@ function settings(){
 function train(){
   return [
     h("div",{class:"card"},h("h2",null,"Verified work → training data, per role"),
-      h("p",{class:"sub"},"Every model call is traced and later labelled by the code checks (tests, validators, judge). Only accepted calls become examples, written to one file per role. A small model tuned on just one role, such as the evaluator's JSON, your SQL conventions or your UI style, is a realistic goal; one model that does everything is not."),
+      h("p",{class:"sub"},"Good work becomes training data."),learnMore("Every model call is traced and later labelled by the code checks (tests, validators, judge). Only accepted calls become examples, written to one file per role. A small model tuned on just one role, such as the evaluator's JSON, your SQL conventions or your UI style, is a realistic goal; one model that does everything is not."),
       h("div",{class:"row"},h("button",{class:"btn",onclick:()=>runAct("export_stats")},"Count examples"),h("button",{class:"btn p",onclick:()=>runAct("export")},"Export now"),h("button",{class:"btn",onclick:()=>runAct("train_check")},"Can this PC train?")),
       h("div",{class:"note warn"},"A few hundred accepted examples per role is a sensible minimum. Tuning on a model's own output can reinforce its mistakes, so only code-verified calls are kept. Compare before and after on the Scoreboard and keep the old model until the new one wins.")),
     h("div",{class:"card"},h("h2",null,"Fine-tune a small model (QLoRA)"),h("p",{class:"sub"},"train_lora.py has not been run on real hardware by its author. Read it first. Reinforcement learning with test rewards (GRPO) needs more GPU memory than a 6 GB card: rent a 24 GB GPU for that."),
@@ -4653,7 +5087,11 @@ function openThemePick(){
     ...THEMES.map(t=>h("div",{class:"mmrow tall",role:"menuitemradio","aria-checked":String(t===cur),tabindex:"-1",
       onclick:()=>{store.set("theme",t);applyTheme(t);closeThemePick(true);toast("Appearance: "+THEME_LABEL[t],1600);}},
       thSwatch(t),h("span",{class:"mmname"},THEME_LABEL[t],h("span",{class:"mmdesc"},THEME_DESC[t])),
-      h("span",{class:"mmcheck"},t===cur?icon("check"):null))));
+      h("span",{class:"mmcheck"},t===cur?icon("check"):null))),
+    h("div",{class:"mmhead","aria-hidden":"true"},"Accent"),
+    h("div",{class:"accents inpick",role:"group","aria-label":"Accent colour"},...[...document.querySelectorAll("aside .accents button")].map(src=>{
+      const b=h("button",{type:"button","data-acc":src.dataset.acc,"aria-label":"Accent: "+src.title,title:src.title,"aria-pressed":String((store.get("accent","blueprint"))===src.dataset.acc),
+        onclick:()=>{store.set("accent",src.dataset.acc);applyAccent(src.dataset.acc);m.querySelectorAll(".accents button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));toast("Accent: "+src.title,1400);}});return b;})));
   document.body.append(m);THPICK=m;
   const r=b?b.getBoundingClientRect():{left:8,top:window.innerHeight-8,bottom:window.innerHeight-8};
   const mh=m.offsetHeight, top=r.top-mh-8>=8?r.top-mh-8:Math.min(window.innerHeight-mh-8,r.bottom+8);
@@ -4774,9 +5212,12 @@ function openHelp(key){
   document.body.append(HELP_EL); close.focus();
 }
 /* "?" -- every shortcut on one panel. It is the same drawer as the page explainers, so Esc and a click outside close it. */
+const G_CHORDS={h:["overview","Home"],r:["console","Watch a run"],n:["run","New run"],w:["flows","Workflows"],a:["agents","Agent teams"],
+  m:["models","Models"],s:["costmap","Speed"],c:["advisor","Health check"],t:["settings","Settings"],e:["components","Help"]};
 const KEYS=[["Ctrl","K","Go to any page, or do something"],["?","","This list"],["/","","Saved commands (/review, /fix ...) in the Console"],
-  ["Enter","","Send what you typed"],["Shift","Enter","A new line instead of sending"],["Esc","","Close a panel; with nothing open, stop the run between steps"],
-  ["j","k","Walk the plan of the current run (Console)"],["1","4","Projects, Workspace, Models, Settings"],["Ctrl",".","Switch between your models and Claude (chat)"]];
+  ["Enter","","Send what you typed"],["Shift","Enter","A new line instead of sending"],["Esc","","Close a panel; pressed twice with nothing open, stop the run between steps"],
+  ["j","k","Walk the plan of the current run (Watch a run)"],["Ctrl","Enter","Start the job you typed on Home"],
+  ...Object.entries(G_CHORDS).map(([k,[,l]])=>["g",k,l]),["Ctrl",".","Switch between your models and Claude (chat)"]];
 function openKeys(){
   closeHelp(); HELP_BACK=document.activeElement;
   const close=h("button",{class:"btn sm",onclick:closeHelp},"Close");
@@ -4844,19 +5285,26 @@ function showText(title,text){
 function galleryPage(){
   const box=h("div",{id:"galBox"},h("div",{class:"skeleton",style:"height:140px"}));
   const q=h("input",{type:"search",class:"gal-q","aria-label":"Search the gallery",placeholder:"Search: bug, review, tests, overnight…",oninput:()=>galDraw()});
+  if(!TPLC.asked)tplCatalogLoad().then(()=>galDraw());
   setTimeout(async()=>{try{window.GAL=await api("/api/arch/gallery");}catch(e){window.GAL={packs:[],agents:[],error:e.message};}galDraw();},0);
   return [h("div",{class:"card"},h("h2",{style:"margin:0"},"Gallery"),
-    h("p",{class:"sub"},"Everything ready-made in one place. Look inside anything before using it; make your own copy when you want to change it."),q),box];
+    h("p",{class:"sub"},"Everything ready-made, in one place."),learnMore("Everything ready-made in one place. Look inside anything before using it; make your own copy when you want to change it."),q),box];
 }
 function galDraw(){
   const box=$("#galBox"); if(!box)return; box.innerHTML="";
   const term=(($(".gal-q")||{}).value||"").toLowerCase(), hit=t=>!term||t.toLowerCase().includes(term), G=window.GAL||{packs:[],agents:[]};
-  const card=(title,desc,tag,...btns)=>h("div",{class:"gal-card"},h("div",{class:"gal-tag"},tag),h("h3",null,title),h("p",{class:"small mute"},desc||""),h("div",{class:"gal-btns"},...btns));
+  const TAGHUE={workflow:"flow",pack:"template"};
+  const card=(title,desc,tag,...btns)=>h("div",{class:"gal-card",style:"--hue:var(--c-"+(TAGHUE[tag]||"agent")+")"},
+    tag==="workflow"?chainThumb(((S.flows||[]).find(f=>(f.title||f.id)===title)||{}).steps,"flow"):/^agent/.test(tag)?avatar(title,"agent"):chainThumb(null,"template"),
+    h("span",{class:"chip "+(TAGHUE[tag]||"agent")},tag),h("h3",null,title),h("p",{class:"small mute"},desc||""),h("div",{class:"gal-btns"},...btns));
   const flows=(S.flows||[]).filter(f=>hit((f.title||"")+" "+(f.blurb||"")+" "+f.id));
   const packs=(G.packs||[]).filter(x=>hit((x.title||"")+" "+x.name+" "+(x.goal_kind||"")));
   const agents=(G.agents||[]).filter(x=>hit((x.title||"")+" "+(x.purpose||"")+" "+x.name));
   const sect=(t,sub,items)=>items.length?h("section",{class:"card"},h("h2",{style:"margin:0"},t+" ",h("span",{class:"mute small"},String(items.length))),h("p",{class:"sub"},sub),h("div",{class:"gal-grid"},...items)):null;
+  const tpls=TPLC.data&&TPLC.data.available?TPLC.data.templates.filter(t=>hit((t.name||"")+" "+(t.description||"")+" "+(t.category||""))):[];
   box.append(...[
+    tpls.length?h("section",{class:"card"},h("h2",{style:"margin:0"},"Project templates ",h("span",{class:"mute small"},String(tpls.length))),h("p",{class:"sub"},"Starting points for a new project. Each one already passes its tests."),
+      h("div",{class:"tgal2"},...tplCatalogGrid("",id=>{run.template=id;go("start");})[1].children)):null,
     sect("Workflows","Step-by-step recipes the team follows. Every step is checked by code.",flows.map(f=>{const c=card(f.title||f.id,f.blurb,"workflow",
       h("button",{class:"btn sm",type:"button",onclick:()=>showFlowDetail(f.id)},"What's inside"),
       h("button",{class:"btn sm p",type:"button",onclick:()=>{run.flow=f.id;built={};go("run");}},"Use"));c.dataset.flow=f.id;return c;})),
@@ -4872,7 +5320,7 @@ function galDraw(){
 function computersPage(){
   setTimeout(async()=>{try{const r=await api("/api/arch/hosts",{});renderMachines(r.machines);compBench(r.machines);}catch(e){const b=$("#hostBox");if(b)b.textContent=e.message;}},0);
   return [h("div",{class:"card"},h("h2",{style:"margin:0"},"Computers"),
-      h("p",{class:"sub"},"Got another PC or a gaming rig with a graphics card? Install Ollama on it, add it here by its address, and the app measures it and sends work to whichever computer is fastest and free. If one goes offline, its work comes back to this PC by itself."),
+      h("p",{class:"sub"},"Add another PC to share the work."),learnMore("Got another PC or a gaming rig with a graphics card? Install Ollama on it, add it here by its address, and the app measures it and sends work to whichever computer is fastest and free. If one goes offline, its work comes back to this PC by itself."),
       h("div",{id:"compBench"})),
     h("div",{class:"card"},h("div",{id:"hostBox"},h("div",{class:"skeleton",style:"height:120px"})))];
 }
@@ -4924,7 +5372,7 @@ function blueprintsPage(){
     ...(S.flows||[]).map(f=>h("option",{value:f.id,selected:BP.from===f.id},(f.title||f.id)+" ("+f.id+")")));
   return [h("div",{class:"card"},
     h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"Blueprints"),helpBtn("blueprints")),
-    h("p",{class:"sub"},"Draw your own workflow: drag steps in, put them in order, pick who runs each one and which check decides it. Saving runs the same validator as the command line."),
+    h("p",{class:"sub"},"Drag steps in, set the order, save."),learnMore("Draw your own workflow: drag steps in, put them in order, pick who runs each one and which check decides it. Saving runs the same validator as the command line."),
     h("div",{class:"bp-recipes",role:"group","aria-label":"Start from a ready-made recipe"},h("span",{class:"lbl"},"Start from a recipe"),
       ...BP_RECIPES.map(([l,id,d])=>h("button",{class:"sp-recipe",type:"button",title:d,onclick:()=>{BP.title=l;bpLoad(id);toast(l+": loaded. Change any step, give it a name, then save.");}},l))),
     h("div",{class:"bp-top"},
@@ -5266,6 +5714,8 @@ $("#paletteBtn").addEventListener("click",openPalette);
 $("#keysBtn").addEventListener("click",()=>openKeys());
 
 /* ---------- keyboard: the whole app without reaching for the mouse ---------- */
+let ESC_AT=0,G_AT=0;
+/* "g" then a letter (bare digits used to fire while you read a page) */
 const typing=e=>{const t=e.target,n=t&&t.tagName;return n==="INPUT"||n==="TEXTAREA"||n==="SELECT"||(t&&t.isContentEditable);};
 document.addEventListener("keydown",e=>{
   if((e.ctrlKey||e.metaKey)&&(e.key==="k"||e.key==="K")){e.preventDefault();PAL?closePalette():openPalette();return;}
@@ -5273,7 +5723,10 @@ document.addEventListener("keydown",e=>{
     if(HELP_EL){e.preventDefault();closeHelp();return;}      // closing the explainer must never also stop a run
     if(PAL){closePalette();return;}
     if(THPICK){e.preventDefault();closeThemePick(true);return;}  // the theme picker closes first, a run is never stopped by it
-    if(EV.running){e.preventDefault();cStop();return;}
+    if(document.body.classList.contains("nav-open")){e.preventDefault();navClose();return;}
+    if(EV.running){e.preventDefault();const now=Date.now();
+      if(ESC_AT&&now-ESC_AT<2000){ESC_AT=0;cStop();toast("Stopping after this step");}
+      else{ESC_AT=now;toast("Press Esc again within 2 s to stop the run",2000);}return;}
   }
   if(typing(e))return;
   if(e.key==="/"){const i=$("#cIn");if(i){e.preventDefault();go("console");setTimeout(()=>$("#cIn")&&$("#cIn").focus(),0);}else{e.preventDefault();go("console");}return;}
@@ -5283,8 +5736,9 @@ document.addEventListener("keydown",e=>{
     EV.sel=Math.max(0,Math.min(EV.steps.length-1,(EV.sel<0?-1:EV.sel)+(e.key==="j"?1:-1)));
     renderDoing();return;
   }
-  const n=parseInt(e.key,10);
-  if(n>=1&&n<=TABS.length&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();go(TABS[n-1][3][0]);}
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
+  if(G_AT&&Date.now()-G_AT<1200){G_AT=0;const dest=G_CHORDS[e.key.toLowerCase()];if(dest){e.preventDefault();go(dest[0]);}return;}
+  if(e.key==="g"){G_AT=Date.now();return;}
 });
 /* ============================================================================================
    First visit: a short guided path for someone opening the hub for the first time. Five stops:
@@ -5536,14 +5990,17 @@ const HINTS={
   train:["Training data","Only work that passed its checks becomes training data. Claude-written text never does."]};
 function pageHint(id){
   const box=$("#pageHint"); if(!box)return; box.innerHTML="";
-  const x=HINTS[id]; if(!x||store.get("hint."+id,"")==="1")return;
+  const x=HINTS[id]; if(!x)return;
   const [t,d,more]=x;
-  const done=()=>{store.set("hint."+id,"1");box.innerHTML="";};
-  put(box,h("div",{class:"pghint",role:"note"},icon("question"),h("div",{class:"t"},h("b",{},"What is this? "+t.charAt(0).toUpperCase()+t.slice(1)),d),
+  if(store.get("hint."+id,"")==="1"||store.get("hint.seen","")==="1"){
+    const tt=$("#pageTitle");if(tt&&!tt.querySelector(".aboutq"))tt.append(h("button",{class:"aboutq",type:"button","aria-label":"About this page",title:d,
+      onclick:()=>more&&typeof HELP!=="undefined"&&HELP[more]?openHelp(more):toast(d,6000)},"?"));return;}
+  const done=()=>{store.set("hint."+id,"1");store.set("hint.seen","1");box.innerHTML="";pageHint(id);};
+  put(box,h("div",{class:"pghint",role:"note"},icon("question"),h("div",{class:"t"},h("b",{},t.charAt(0).toUpperCase()+t.slice(1)+". "),d),
     h("div",{class:"acts"},more&&typeof HELP!=="undefined"&&HELP[more]?h("button",{class:"btn sm",onclick:()=>openHelp(more)},"Tell me more"):null,
       h("button",{class:"btn sm",onclick:done,"aria-label":"Dismiss this note about "+t},"Got it"))));
 }
-function hintsReset(){for(const id of Object.keys(HINTS))try{localStorage.removeItem("hint."+id);}catch(_){} pageHint(page);toast("Page notes will show again, once per page.",3200);}
+function hintsReset(){for(const id of Object.keys(HINTS).concat(["seen"]))try{localStorage.removeItem("hint."+id);}catch(_){} pageHint(page);toast("Page notes will show again, once per page.",3200);}
 
 /* ============================================================================================
    Art direction (docs/art_direction.md). Display only: nothing here changes a page's words, order or behaviour.
@@ -5724,7 +6181,7 @@ const flTestsText=()=>FL.tests!=null?FL.tests:((FL.info&&FL.info.default_tests)|
 function fleetPage(){
   flLoadPlan(); setTimeout(()=>{flDrawTop();flDrawRows();flInfo();if(FL.watch)flPoll();},0);
   return [h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"Plan a fleet"),helpBtn("fleet")),
-      h("p",{class:"sub"},"Each agent gets a name, a brief, the files it owns and a spending cap; no two agents may own the same file. Claude agents work on your API key, local agents on this machine's models. When every agent has finished, the fleet runs the tests itself."),
+      h("p",{class:"sub"},"Each agent owns its own files and has a cap."),learnMore("Each agent gets a name, a brief, the files it owns and a spending cap; no two agents may own the same file. Claude agents work on your API key, local agents on this machine's models. When every agent has finished, the fleet runs the tests itself."),
       h("div",{id:"flTop"}),h("div",{id:"flRows",style:"margin-top:12px"}),h("div",{id:"flCheck"}),
       h("div",{class:"row",style:"margin-top:10px"},h("button",{class:"btn",onclick:()=>{FL.plan.push(flBlank(FL.plan.length+1));flSave();flDrawRows();}},"+ Agent"),
         h("button",{class:"btn sm",onclick:()=>go("library")},"From the library"),h("span",{class:"grow"}),
@@ -5830,7 +6287,7 @@ let MON={timer:0};
 function monitorPage(){
   setTimeout(monPoll,0);
   return [h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"Every agent, live"),h("span",{class:"chip",id:"monWhen"},"…"),helpBtn("monitor")),
-      h("p",{class:"sub"},"Read from the agents' own records on this machine, every 5 seconds while this page is open. Made from Claude agents' work: shown here, never used for training."),
+      h("p",{class:"sub"},"Live view of every agent. Refreshes every 5 s."),learnMore("Read from the agents' own records on this machine, every 5 seconds while this page is open. Made from Claude agents' work: shown here, never used for training."),
       h("div",{id:"monTotals"},h("div",{class:"skeleton",style:"height:60px"})),h("div",{id:"monConf"})),
     h("div",{class:"card"},h("h2",{},"Agents"),h("div",{id:"monAgents"})),
     h("div",{class:"ws-split"},h("div",{class:"card"},h("h2",{},"Lessons"),h("p",{class:"sub"},"Plain findings, worked out by code from the same data."),h("div",{id:"monLessons"})),
@@ -5884,7 +6341,7 @@ const clip=(s,n)=>{s=String(s||"");return s.length>n?s.slice(0,n-1)+"…":s;};
 function mapPage(){
   setTimeout(mapSources,0);
   return [h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"How it connects"),helpBtn("map")),
-      h("p",{class:"sub"},"Pick a run, a fleet, a workflow or a Claude Code run. Arrows go in order. Drag a box to move it; click it (or Tab to it and press Enter) for its prompt, tokens, cost and result."),
+      h("p",{class:"sub"},"Pick something to see how it connects."),learnMore("Pick a run, a fleet, a workflow or a Claude Code run. Arrows go in order. Drag a box to move it; click it (or Tab to it and press Enter) for its prompt, tokens, cost and result."),
       h("div",{class:"fgrid",id:"mpPick"},h("div",{class:"skeleton",style:"height:40px"})),
       h("div",{class:"mp-legend"},...MAP_TYPES.map(([,l,c])=>h("span",{},h("i",{style:"background:var("+c+")"}),l)))),
     h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0",id:"mpTitle"},"Nothing picked yet"),h("button",{class:"btn sm",onclick:mapReset},"Tidy up")),
@@ -6048,7 +6505,7 @@ async function libUse(name,inputs){
 function logbookPage(){
   setTimeout(lbLoad,0);
   return [h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"What every run taught us"),h("button",{class:"btn p",id:"lbIngest",onclick:lbIngest},"Ingest now"),helpBtn("logbook")),
-      h("p",{class:"sub"},"Your models' runs, Claude Code runs and fleets, read into one logbook on this machine. A result that could not be judged counts neither as a success nor as a failure."),
+      h("p",{class:"sub"},"Everything your models and Claude did."),learnMore("Your models' runs, Claude Code runs and fleets, read into one logbook on this machine. A result that could not be judged counts neither as a success nor as a failure."),
       h("div",{id:"lbStats"},h("div",{class:"skeleton",style:"height:80px"}))),
     h("div",{class:"card"},h("h2",{},"Have we done this before?"),h("p",{class:"sub"},"Describe a task: the logbook finds the past tasks most like it, the ones that worked first."),
       h("div",{class:"row"},h("input",{type:"search",id:"lbQ",placeholder:"e.g. add throttling to the API client","aria-label":"Describe a task",style:"min-width:0;flex:1 1 220px",onkeydown:e=>{if(e.key==="Enter")lbSearch();}}),

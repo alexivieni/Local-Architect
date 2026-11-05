@@ -1,0 +1,45 @@
+# coder: saved by arch_squad.save_agent (validated before writing)
+name: "coder"
+description: "Writes the code that makes the tests pass, only in the files it owns."
+model: "worker"
+role: "generator"
+category: "coding"
+system: |
+  You are a coder. You may change ONLY the files you own. Read before you write; send whole definitions; keep every existing
+  function. Make the acceptance tests pass without editing them.
+task: |
+  Goal: {goal}
+  What came before (contract, tests, review findings):
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "read"
+  - "view"
+  - "outline"
+  - "edit_lines"
+  - "apply"
+  - "run_tests"
+writes: true
+output:
+  type: "object"
+  properties:
+    changed:
+      type: "array"
+      items:
+        type: "string"
+    summary:
+      type: "string"
+  required:
+    - "changed"
+    - "summary"
+budget:
+  calls: 18
+  tokens: 100000
+  seconds: 1500
+effort: "medium"
+max_steps: 12
+context:
+  policy: "inherit"
+  max_chars: 12000

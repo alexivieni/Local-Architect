@@ -1,0 +1,10 @@
+import hashlib
+import os
+import subprocess
+
+password = os.environ.get("APP_PASSWORD", "")
+
+
+def run(args):
+    subprocess.run(args, check=True)
+    return hashlib.sha256(b"x").hexdigest()

@@ -1,0 +1,13 @@
+import hashlib
+import pickle
+import subprocess
+
+password = "hunter2-not-real"
+api_token = "Zx8qP2vL9rT4mW7nB3kD6fH1jS5aC0eY"
+
+
+def run(cmd, blob):
+    subprocess.run(cmd, shell=True)
+    data = pickle.loads(blob)
+    digest = hashlib.md5(blob).hexdigest()
+    return eval(cmd), data, digest

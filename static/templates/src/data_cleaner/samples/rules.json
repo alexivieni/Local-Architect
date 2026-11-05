@@ -1,0 +1,10 @@
+{
+  "columns": {
+    "name": {"type": "text", "case": "title", "required": true},
+    "email": {"type": "email", "required": true},
+    "joined": {"type": "date"},
+    "spend": {"type": "number"},
+    "active": {"type": "bool"}
+  },
+  "key": ["email"]
+}

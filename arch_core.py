@@ -92,10 +92,11 @@ DEFAULTS = {
                  "heavy_jobs": "one",                          # one = test suites, benchmarks and tuning run one at a time, below normal priority (arch_heavy.py); any = no lock
                  "postmortem": "on",                           # on = after a failed run the model explains the failure in plain words (postmortem.md), and a retry reads it; off = never
                  "recheck_before_retry": True,                 # a failed check is run once more, unchanged, before another model call: a flaky check makes the step "not sure" instead of a coin toss
-                 "config_strict": "medium"},                   # config files: findings at or above this severity fail the check (high|medium|low)
+                 "config_strict": "medium",
+                 "stable_context": True},                      # True = within a run the project context of one step keeps its first order, cards and memory lines (prompt-cache reuse); False = re-ranked per call                   # config files: findings at or above this severity fail the check (high|medium|low)
     "tests": {"command": ""},
     "tiers": {"router": "", "worker": "", "heavy": "", "draft": "", "cloud": ""},   # model TIERS: any installed model (Ollama tag or .gguf path) per slot; roles name a tier (arch_roles.TIER_OF); empty = the hardware profile's default
-    "server": {"kind": "auto", "binary": "", "port": 8081, "kv": "q8_0", "flash_attn": True, "draft": "auto", "parallel": 1, "ubatch": 256, "ctx": 0, "slots": True, "ngram": "auto", "cache_ram": 0, "make_room": "auto", "heavy_beside": "auto", "think_budget": 800, "fast_lane": "off", "fast_think_budget": 256, "idle_free_min": 15, "ollama_gpu": "auto", "ollama_keep_alive": "60s"},   # the resident llama-server (arch_server.py); auto = use it when the binary is installed, else Ollama. ctx 0 = the hardware profile's measured window.
+    "server": {"kind": "auto", "binary": "", "port": 8081, "kv": "q8_0", "flash_attn": True, "draft": "auto", "parallel": 1, "ubatch": 256, "ctx": 0, "slots": True, "ngram": "auto", "cache_ram": 0, "make_room": "auto", "heavy_beside": "auto", "think_budget": 800, "fast_lane": "off", "fast_think_budget": 256, "idle_free_min": 15, "ollama_gpu": "auto", "ollama_keep_alive": "60s", "slot_persist": "auto"},   # the resident llama-server (arch_server.py); auto = use it when the binary is installed, else Ollama. ctx 0 = the hardware profile's measured window.
     "flows": {"engine": "legacy", "budget_scale": 1.0},                 # legacy = the Python flow classes, YAML only fills ids no class provides; data = flows/*.yaml win; off = YAML ignored
     "cache": {"responses": True, "max_rows": 4000, "max_days": 30},   # arch_cache.py: remember temperature-0 replies so a retry or a repeated task costs nothing. Never used by `eval`, never at temperature > 0.
     "supervisor": {"daily_runs": 40, "daily_minutes": 240, "task_minutes": 15, "max_attempts": 3},   # arch_supervisor.py: the queue the machine works through on its own, and the ceilings that stop it running away
@@ -1280,13 +1281,28 @@ class Engine:
         except Exception:
             pass
 
+    def _slot_early_save(self, rec):
+        """server.slot_persist (auto): after the FIRST llama-server call of a run, save that slot's prompt memory for this project, so
+        the next run here restores the stable prefix (instructions + project context) even when this one is stopped before finish().
+        off = the old behaviour (restore at the start, save only at the end). Best effort, never raises."""
+        try:
+            mode = str((self.cfg.get("server") or {}).get("slot_persist", "auto")).lower()
+            if (mode == "off" or getattr(self, "_slot_saved", False) or rec.get("transport") != "llama"
+                    or rec.get("tier") not in ("worker", "heavy") or not keeps_prompt_memory(self.root)):
+                return
+            self._slot_saved = True
+            import arch_server
+            arch_server.slot_io("save", self.cfg, os.path.abspath(self.root), tier=rec["tier"], slot=int(getattr(self, "slot_id", 0) or 0))
+        except Exception:
+            pass
+
     def finish(self, ok, error=None):
         self._bring_back()
         self._release_ollama()
         if self.calls and keeps_prompt_memory(self.root):      # never for a throwaway folder (eval, temp, live test): nothing reopens it
             try:
                 import arch_server
-                arch_server.slot_io("save", self.cfg, os.path.abspath(self.root))
+                arch_server.slot_io("save", self.cfg, os.path.abspath(self.root), slot=int(getattr(self, "slot_id", 0) or 0))
             except Exception:
                 pass                     # a tier that stepped aside for a bigger model is back before the run is called done
         if self.calls and self.state_path:
@@ -1746,6 +1762,7 @@ class Engine:
         if cur["host"]:
             rec["host"] = cur["name"]
         self._trace(rec)
+        self._slot_early_save(rec)
         if _rb_key and rec.get("transport") != "claude":
             try:
                 import arch_replybudget as _rb
@@ -2064,7 +2081,7 @@ class Engine:
         except Exception:
             wanted = None                                                          # cannot tell: start what is planned, as before
         arch_server.ensure(self.cfg, say=self.say, wanted=wanted)                  # the resident llama-server, when installed and planned; else nothing happens
-        if arch_server.slot_io("restore", self.cfg, os.path.abspath(self.root)):
+        if arch_server.slot_io("restore", self.cfg, os.path.abspath(self.root), slot=int(getattr(self, "slot_id", 0) or 0)):
             self.say("[server] this project's prompt memory restored from disk")
         self._srv_ctx = {}                                                         # windows read before the servers started are stale
         team = {m for m in (self.cfg.get("roles") or {}).values() if m} | {m for m in (self.cfg.get("tiers") or {}).values() if m} | ({self.cfg["default_model"]} if self.cfg.get("default_model") else set())
@@ -2383,13 +2400,43 @@ class Engine:
         """Project context: handoff + spec if present, then the most relevant files in full, the rest outlined."""
         budget = budget or self.effective_context_chars()
         files = list_files(self.root, self.cfg)
+        # Prompt-cache stability (measured 2026-11-05 on 41 eval traces: 30-32% of local input reused). Within one run the context for
+        # one (flow, step) is pinned: the memory lines, the practice cards and the file order are those of its first call, and while no
+        # file changed the whole text is returned byte-identical (retries vary only the query's feedback, which goes at the prompt end).
+        stable = bool((self.cfg.get("behavior") or {}).get("stable_context", True))
+        g = str(getattr(self, "goal", "") or "")
+        qkey = g if (g and str(query).startswith(g)) else str(query)[:160]   # retries append failure text to the goal; sprints differ early
+        pin_key = (self.flow, self.step_name(), qkey, tuple(always))
+        pins = self.__dict__.setdefault("_ctx_pins", {})
+        pin = pins.setdefault(pin_key, {}) if stable else {}
+        sig = None
+        if stable:
+            snap = self.__dict__.setdefault("_ctx_mtimes", {})
+            sig = []
+            for f in files:
+                try:
+                    st = os.stat(os.path.join(self.root, f))
+                    sig.append((f, st.st_mtime_ns, st.st_size))
+                except OSError:
+                    sig.append((f, 0, -1))
+                snap.setdefault(f, sig[-1][1:])
+            sig = (tuple(sig), budget, tuple(always), os.environ.get("ARCHITECT_RETRY_HINT", ""))
+            if pin.get("sig") == sig and pin.get("out") is not None:
+                out = pin["out"]
+                self._contexts = ([out] + [c for c in getattr(self, "_contexts", []) if c != out])[:6]
+                return out
         parts, used = [], 0
         try_mem = None
         try:
-            import arch_memory
-            mcfg = self.cfg.get("memory") or {}
-            try_mem, mem_used = arch_memory.for_prompt(self.root, int(mcfg.get("prompt_chars", 1800)), top=mcfg.get("top_lines"))   # project.md plus the lessons and traps that earned their place
-            self.memory_used = sorted(set(getattr(self, "memory_used", []) + mem_used))
+            if stable and "mem" in self.__dict__.setdefault("_ctx_run", {}):
+                try_mem = self._ctx_run["mem"]
+            else:
+                import arch_memory
+                mcfg = self.cfg.get("memory") or {}
+                try_mem, mem_used = arch_memory.for_prompt(self.root, int(mcfg.get("prompt_chars", 1800)), top=mcfg.get("top_lines"))   # project.md plus the lessons and traps that earned their place
+                self.memory_used = sorted(set(getattr(self, "memory_used", []) + mem_used))
+                if stable:
+                    self._ctx_run["mem"] = try_mem
         except Exception:
             try_mem = None
         if try_mem:
@@ -2402,13 +2449,19 @@ class Engine:
         sk_cfg = (self.cfg.get("skills") or {})
         try:                                                                  # skills: one page about one way of working, only when the task calls for it
             import arch_skills
-            sk_text, sk_used = ("", []) if not sk_cfg.get("enabled", True) else arch_skills.for_prompt(
-                query, self.root, files=files, tier=getattr(self, "current_tier", ""),
-                limit=int(sk_cfg.get("max", 2)), budget=min(int(sk_cfg.get("budget", 4000)), max(0, int(budget * 0.2))),
-                min_score=sk_cfg.get("min_score"))
+            if "skills" in pin:                                               # re-picked per query, the cards changed on every retry
+                sk_text, sk_used = pin["skills"], []
+            else:
+                sk_text, sk_used = ("", []) if not sk_cfg.get("enabled", True) else arch_skills.for_prompt(
+                    query, self.root, files=files, tier=getattr(self, "current_tier", ""),
+                    limit=int(sk_cfg.get("max", 2)), budget=min(int(sk_cfg.get("budget", 4000)), max(0, int(budget * 0.2))),
+                    min_score=sk_cfg.get("min_score"))
+                if stable:
+                    pin["skills"] = sk_text
             if sk_text:
                 parts.append(sk_text.strip())
                 used += len(parts[-1])
+            if sk_text and sk_used:
                 self.skills_used = sorted(set(getattr(self, "skills_used", []) + sk_used))
                 arch_skills.mark_used(sk_used)
         except Exception:
@@ -2428,11 +2481,16 @@ class Engine:
         order = getattr(self, "_ctx_order", None)
         if order is None:
             order = self._ctx_order = {}
-        prev = [f for f in order.get(query, []) if f in ranked]
+        prev = [f for f in (order.get(query) or (order.get(pin_key) if stable else None) or []) if f in ranked]
         ranked = prev + [f for f in ranked if f not in prev]
         editing = set(getattr(self, "changed_files", []) or []) | set(getattr(self, "created", []) or [])
+        if stable:                                    # a file that changed on disk since the run first saw it is being edited too
+            snap = self._ctx_mtimes
+            editing |= {f for f, mt, sz in sig[0] if snap.get(f) != (mt, sz)}
         ranked = [f for f in ranked if f not in editing] + [f for f in ranked if f in editing]
         order[query] = list(ranked)
+        if stable:
+            order[pin_key] = list(ranked)
         shown, outlined = [], []
         for f in ranked:
             t, _ = read_text(os.path.join(self.root, f), 60000)
@@ -2456,6 +2514,8 @@ class Engine:
         if not files:
             parts.append("(the project folder has no source files yet)")
         out = "\n\n".join(parts)
+        if stable:
+            pin.update(sig=sig, out=out)
         self._contexts = ([out] + [c for c in getattr(self, "_contexts", []) if c != out])[:6]   # a prompt too big for its window cuts this first
         return out
 

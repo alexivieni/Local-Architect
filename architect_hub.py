@@ -1492,6 +1492,210 @@ def token_preview(b):
                    "input_tokens": est.get("input_tokens"), "context_tokens": ctx_n, "expected_out": est.get("expected_out")})
 
 
+# ---- Crew builder and By-job model selection (arch_squad / arch_select / arch_jobs are optional: a missing module or function
+# is reported as {"available": False, "why": ...}, never a crash)
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_SET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\.[A-Za-z0-9_.]{1,64}=.{0,400}$", re.S)
+
+
+def _optional(modname, fn):
+    """-> (callable, None) or (None, why) when the module or the function is not there yet."""
+    import importlib
+    try:
+        m = importlib.import_module(modname)
+    except Exception as ex:
+        return None, f"{modname}.py is not available yet ({type(ex).__name__})"
+    f = getattr(m, fn, None)
+    return (f, None) if callable(f) else (None, f"{modname}.{fn}() is not available yet")
+
+
+def squad_agents():
+    """GET /api/arch/squad/agents -> {available, agents:[{name, description, model, role, effort, tools, budget, output, context}]}."""
+    f, why = _optional("arch_squad", "list_agents")
+    if not f:
+        return {"available": False, "why": why, "agents": []}
+    rows, err = _guarded(f)
+    if err:
+        return {"available": False, "why": err, "agents": []}
+    keep = ("name", "description", "model", "role", "effort", "tools", "budget", "output", "context")
+    items = rows.items() if isinstance(rows, dict) else ((None, r) for r in (rows or []))   # arch_squad returns {name: def}
+    out = []
+    for key, r in items:
+        if not isinstance(r, dict):
+            continue
+        a = {k: r.get(k) for k in keep}
+        a["name"] = a["name"] or key
+        if r.get("problems"):
+            a["problems"] = [str(x) for x in r["problems"]][:10]
+        out.append(a)
+    return {"available": True, "agents": out}
+
+
+def _workflow_path(name):
+    import arch_squad as sq
+    return os.path.join(getattr(sq, "WORKFLOWS_DIR", os.path.join(HERE, "workflows")), name + ".yaml")
+
+
+def squad_workflows():
+    """GET /api/arch/squad/workflows -> {available, workflows:[{name, description, phases}]}."""
+    f, why = _optional("arch_squad", "list_workflows")
+    if not f:
+        return {"available": False, "why": why, "workflows": []}
+    rows, err = _guarded(f)
+    if err:
+        return {"available": False, "why": err, "workflows": []}
+    items = rows.items() if isinstance(rows, dict) else ((None, r) for r in (rows or []))   # {name: {name,title,description,phases,problems?}}
+    out = []
+    for key, r in items:
+        if not isinstance(r, dict):
+            continue
+        name = str(r.get("name") or key or "")
+        if not _NAME_RE.match(name):
+            continue
+        w = {"name": name, "title": r.get("title") or name, "description": r.get("description") or "", "phases": list(r.get("phases") or [])}
+        if r.get("problems"):                # shown as invalid in the Crew builder, not runnable
+            w["problems"] = [str(x) for x in r["problems"]][:10]
+        out.append(w)
+    return {"available": True, "workflows": out}
+
+
+def squad_save_agent(b):
+    """POST /api/arch/squad/agent {name, spec} -> {ok} or 400 with the validation error."""
+    name = str(b.get("name") or "").strip()
+    if not _NAME_RE.match(name):
+        raise ValueError("An agent name is letters, digits, '-', '_' or '.', up to 64 characters.")
+    spec = b.get("spec")
+    if not isinstance(spec, dict):
+        raise ValueError("spec must be an object of agent fields.")
+    f, why = _optional("arch_squad", "save_agent")
+    if not f:
+        raise ValueError(why)
+    res = f(name, spec)                     # ValueError (invalid spec) reaches the page as a 400 with its message
+    return {"ok": True, "name": name, "result": res if isinstance(res, (dict, list, str, int, float, bool)) or res is None else str(res)}
+
+
+def squad_run(b):
+    """POST /api/arch/squad/run {workflow, goal, owns, slots, fake, sets} -> starts `architect.py crew` as the hub job."""
+    wf = str(b.get("workflow") or "").strip()
+    if not _NAME_RE.match(wf):
+        raise ValueError("Pick a workflow.")
+    goal = str(b.get("goal") or "").strip()
+    if not goal:
+        raise ValueError("Type a goal first.")
+    if len(goal) > 4000:
+        raise ValueError("The goal is too long (4000 characters at most).")
+    try:
+        path = _workflow_path(wf)
+    except ImportError:
+        raise ValueError("arch_squad.py is not available yet")
+    if not os.path.isfile(path):
+        raise ValueError(f"No workflow named '{wf}'.")
+    argv = ["architect.py", "crew", path, "--goal", goal]
+    owns = b.get("owns") or []
+    if isinstance(owns, str):
+        owns = [x for x in re.split(r"[,\n]", owns)]
+    owns = [str(x).strip() for x in owns if str(x).strip()]
+    for o in owns:
+        if len(o) > 260 or ".." in o.replace("\\", "/").split("/") or "," in o:
+            raise ValueError(f"'{o[:60]}' is not a file path inside the project.")
+    if owns:
+        argv += ["--owns", ",".join(owns)]
+    if b.get("slots") not in (None, ""):
+        try:
+            slots = int(b["slots"])
+        except (TypeError, ValueError):
+            raise ValueError("slots must be a whole number.")
+        if not 1 <= slots <= 8:
+            raise ValueError("slots must be between 1 and 8.")
+        argv += ["--slots", str(slots)]
+    if b.get("fake"):
+        argv.append("--fake")
+    sets = [str(s).strip() for s in (b.get("sets") or []) if str(s).strip()]
+    for s in sets:
+        if not _SET_RE.match(s):
+            raise ValueError(f"'{s[:60]}' is not agent.field=value.")
+    ps, _ = _optional("arch_squad", "parse_sets")
+    if ps and sets:
+        ps(sets)                            # its ValueError names the bad override
+    for s in sets:
+        argv += ["--set", s]
+    mh.JOB.start("Crew: " + wf + ": " + goal[:50], argv)
+    return {"ok": True, "argv": argv[1:]}
+
+
+def select_why():
+    """GET /api/arch/select/why -> {available, jobs:[{job, current, best, C, pass_rate, ci, tok_s, fits, n, reason, suggestion}]}."""
+    f, why = _optional("arch_select", "why")
+    if not f:
+        return {"available": False, "why": why, "jobs": []}
+    d, err = _guarded(f, core.load_config(HERE))
+    if err:
+        return {"available": False, "why": err, "jobs": []}
+    keep = ("current", "best", "C", "pass_rate", "ci", "tok_s", "fits", "n", "reason", "suggestion")
+    rows = [dict({"job": str(k)}, **{f_: (v or {}).get(f_) for f_ in keep}) for k, v in (d or {}).items() if isinstance(v, dict)]
+    return _plain({"available": True, "jobs": rows})
+
+
+_JOB_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@+-]{0,127}$")
+
+
+def select_apply(b):
+    job, model = str(b.get("job") or ""), str(b.get("model") or "")
+    if not _JOB_RE.match(job):
+        raise ValueError("Unknown job.")
+    if not _MODEL_RE.match(model):
+        raise ValueError("That is not a model name.")
+    try:
+        import arch_jobs
+        known = getattr(arch_jobs, "JOBS", None)
+        if known and job not in known:
+            raise ValueError(f"'{job}' is not one of the jobs.")
+    except ImportError:
+        pass
+    mh.JOB.start(f"Use {model} for {job}", ["architect.py", "select", "--apply", job, model])
+    return {"ok": True}
+
+
+def select_screen(b):
+    argv = ["architect.py", "select", "--screen"]
+    if b.get("fake"):
+        argv.append("--fake")
+    for key, flag, rx in (("models", "--models", _MODEL_RE), ("jobs", "--jobs", _JOB_RE)):
+        v = b.get(key) or []
+        if isinstance(v, str):
+            v = [x.strip() for x in v.split(",")]
+        v = [str(x).strip() for x in v if str(x).strip()]
+        for x in v:
+            if not rx.match(x):
+                raise ValueError(f"'{x[:60]}' is not a valid {key[:-1]} name.")
+        if v:
+            argv += [flag, ",".join(v)]
+    mh.JOB.start("Screen models" + (" (fake)" if b.get("fake") else ""), argv)
+    return {"ok": True}
+
+
+
+_TPL_KEYS = ("id", "name", "description", "long", "category", "stack", "types", "difficulty", "colour", "files", "next_steps")
+
+
+def templates_catalog():
+    """GET /api/arch/templates/catalog -> {available, templates:[{id, name, ..., thumb}]} ; available False when the module is missing."""
+    try:
+        import arch_templates_catalog as tc
+        rows = tc.catalog()
+    except Exception as e:                       # missing module or a broken catalog: the UI falls back to the plain list
+        return {"available": False, "why": type(e).__name__ + ": " + str(e)[:200], "templates": []}
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", str(r.get("id", ""))):
+            continue
+        t = {k: r.get(k) for k in _TPL_KEYS}
+        t["thumb"] = "/templates/%s.svg" % t["id"] if os.path.isfile(os.path.join(HERE, "static", "templates", t["id"] + ".svg")) else None
+        out.append(t)
+    return {"available": True, "templates": out}
+
+
 class AHandler(mh.Handler):
     def do_GET(self):
         u = urlparse(self.path)
@@ -1636,6 +1840,19 @@ class AHandler(mh.Handler):
                     return self._send(200, f.read(), "font/woff2")
             except OSError:
                 return self._send(404, {"error": "font missing"})
+        if u.path.startswith("/templates/") and u.path.endswith(".svg"):   # template thumbnails (static/templates/<id>.svg)
+            tid = u.path[len("/templates/"):-4]
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", tid):
+                return self._send(400, {"error": "bad template id"})
+            try:
+                with open(os.path.join(HERE, "static", "templates", tid + ".svg"), "rb") as f:
+                    return self._send(200, f.read(), "image/svg+xml")
+            except OSError:
+                return self._send(404, {"error": "thumbnail missing"})
+        if u.path == "/api/arch/templates/catalog":     # the project template catalog (arch_templates_catalog), read-only
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            return self._send(200, templates_catalog())
         if u.path == "/api/arch/morning":               # the newest overnight report (tools/morning_report.py), read-only
             import glob as _glob
             fs = sorted(_glob.glob(os.path.join(core.data_dir(), "morning_*.md")), key=os.path.getmtime)
@@ -1896,6 +2113,11 @@ class AHandler(mh.Handler):
             except ValueError:
                 days = 7
             return self._send(200, costs_summary(days))
+        if u.path in ("/api/arch/squad/agents", "/api/arch/squad/workflows", "/api/arch/select/why"):
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            return self._send(200, {"/api/arch/squad/agents": squad_agents, "/api/arch/squad/workflows": squad_workflows,
+                                    "/api/arch/select/why": select_why}[u.path]())
         if u.path == "/api/arch/crew_schedule":
             if not self._host_ok():
                 return self._send(403, {"error": "bad host"})
@@ -2404,6 +2626,17 @@ class AHandler(mh.Handler):
             return logbook_ingest()
         if path == "/api/arch/library":
             return library_fill(b)
+        if path == "/api/arch/squad/agent":
+            return squad_save_agent(b)
+        if path == "/api/arch/squad/run":
+            return squad_run(b)
+        if path == "/api/arch/select/apply":
+            return select_apply(b)
+        if path == "/api/arch/select/undo":
+            mh.JOB.start("Undo the last model choice", ["architect.py", "select", "--undo"])
+            return {"ok": True}
+        if path == "/api/arch/select/screen":
+            return select_screen(b)
         if path == "/api/arch/token_preview":
             return token_preview(b)
         return super().route(path, b)

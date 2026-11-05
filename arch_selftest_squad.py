@@ -164,8 +164,121 @@ def run():
         ok(m2 and [p["label"] for p in m2[0]["children"]] == ["Build"] and only["categories"]["folded"].get("harness", 0) >= 1,
            "snapshot(categories=['coding']) keeps the builder and folds the rest", only["categories"])
 
+        # ---- the coding crew: every agent and workflow validates
+        crew_names = {"router", "planner", "architect", "spec-extractor", "test-author", "coder", "debugger", "refactorer", "reviewer",
+                      "security-reviewer", "docs-writer", "explainer", "ui-reviewer", "perf-tuner", "auditor", "builder", "verifier"}
+        ok(crew_names <= set(defs) and all("problems" not in defs[n] for n in crew_names), "all 17 crew agents validate",
+           sorted(crew_names - set(defs)))
+        ok(all(defs[n]["model"] in sq.TIERS and defs[n]["budget"] and defs[n]["effort"] in sq.EFFORTS and defs[n]["context"]["policy"]
+               for n in crew_names), "every agent has a tier, budget, effort and context policy")
+        ro = ["reviewer", "security-reviewer", "explainer", "debugger", "perf-tuner", "architect", "router"]
+        ok(all(not defs[n]["writes"] and not any(sq._tools()[t]["writes"] for t in defs[n]["tools"]) for n in ro),
+           "reviewers, explainer, debugger, perf-tuner, architect, router are read-only")
+        ok(defs["test-author"]["owns"] == ["tests"] and defs["spec-extractor"].get("code") == "spec", "test-author owns tests/; spec-extractor is code")
+        wfs_l = sq.list_workflows()
+        want_wf = {"bugfix_squad", "feature_squad", "review_squad", "refactor_squad", "explain_squad", "audit_build_verify"}
+        ok(want_wf <= set(wfs_l) and not any(wfs_l[k].get("problems") for k in want_wf), "all 6 workflows validate",
+           {k: wfs_l.get(k, {}).get("problems") for k in want_wf})
+        ok(all(p["kind"] and p["title"] for k in want_wf for p in wfs_l[k]["phases"]) and
+           any(p["kind"] == "loop" for p in wfs_l["feature_squad"]["phases"]), "list_workflows: phases with kinds for a UI")
+        dsc = sq.describe("coder")
+        ok(dsc["type"] == "agent" and "model" in dsc["fields"] and "effort" in dsc["fields"], "describe(agent): fields")
+        ok(sq.describe("review_squad")["type"] == "workflow", "describe(workflow)")
+        ok(sq.validate_workflow({"name": "x", "phases": [{"title": "a", "agent": "auditor", "when": "__import__('os')"}]}) != [],
+           "a when: that calls anything outside the safe evaluator is refused")
+        ok(sq.validate_workflow({"name": "x", "phases": [{"title": "l", "loop": {"max": 99, "until": "True",
+                                                                                 "stages": [{"agent": "auditor"}]}}]}) != [],
+           "a loop over the max is refused")
+
+        def jtypes(cw_):
+            return [json.loads(x) for x in open(os.path.join(cw_.dir, "journal.jsonl"), encoding="utf-8")]
+
+        # ---- fake end-to-end run of every workflow
+        runs = {}
+        for name in sorted(want_wf):
+            v, cw_ = sq.run_workflow(name, proj, "add a mul(a, b) function to app.py", vars={"owns": "app.py"}, cfg=cfg, data_dir=dd, slots=2)
+            runs[name] = cw_
+            ok(v == "pass" and cw_.records, f"fake end-to-end: {name} -> {v}",
+               [(r["label"], r["verdict"], r["why"]) for r in cw_.records if r["verdict"] != "ok"])
+            ok(all(isinstance(p.get("secs"), float) for p in cw_.phase_times) and
+               any(e["type"] == "phase_done" and "secs" in e for e in jtypes(cw_)), f"{name}: per-phase timing journaled")
+        b = runs["bugfix_squad"]
+        ok(b.loop_counts.get("Fix") == 1 and sum(1 for r in b.records if r["agent"] == "verifier") == 2,
+           "bugfix: two verifiers agree on pass, so the fix loop stops after 1", b.loop_counts)
+        pan = [e for e in jtypes(b) if e["type"] == "panel"]
+        ok(pan and pan[0]["majority"] == "pass" and pan[0]["votes"] == {"pass": 2}, "judge panel: majority journaled", pan)
+        f = runs["feature_squad"]
+        ok(f.loop_counts.get("Fix loop") == 2 and [r["agent"] for r in f.records][:4] == ["spec-extractor", "architect", "test-author", "coder"],
+           "feature: spec -> interface -> tests -> code; review findings keep the fix loop going to its max (2)", f.loop_counts)
+        sp = [r for r in f.records if r["agent"] == "spec-extractor"][0]
+        ok(sp["model"] == "code" and isinstance(sp["result"], dict) and "interface" in sp["result"], "spec-extractor runs arch_spec.spec in code")
+        rv = runs["review_squad"]
+        dd_ev = [r for r in rv.records if r["label"] == "verify-finding"]
+        ok(len([r for r in rv.records if r["phase"] == "Review"]) == 3 and len(dd_ev) == 1,
+           "review: 3 lenses in parallel, identical findings merged, each remaining finding verified", [r["label"] for r in rv.records])
+        rf = runs["refactor_squad"]
+        ok(any(e["type"] == "skipped" and e["title"] == "Review" for e in jtypes(rf)) and not any(r["phase"] == "Review" for r in rf.records),
+           "refactor: when: skips the review when the panel passed")
+        ok(len(runs["explain_squad"].records) == 4, "explain: 3 parallel readers -> synthesis")
+
+        # ---- loop stops at max; when: skips
+        wl = {"name": "loopmax", "phases": [
+            {"title": "Skip me", "when": "goal == 'never'", "agent": "auditor"},
+            {"title": "Loop", "loop": {"max": 3, "until": "last.verdict == 'fail'", "stages": [{"agent": "verifier", "label": "v"}]}},
+            {"title": "After", "when": "prev.verdict == 'pass'", "agent": "auditor", "label": "after"}]}
+        ok(sq.validate_workflow(wl) == [], "inline loop workflow validates", sq.validate_workflow(wl))
+        v, cl = sq.run_workflow(wl, proj, "x", cfg=cfg, data_dir=dd)
+        ev = jtypes(cl)
+        ok([e["iteration"] for e in ev if e["type"] == "loop"] == [1, 2, 3] and cl.loop_counts["Loop"] == 3,
+           "a loop whose check never passes stops at max", cl.loop_counts)
+        ok(any(e["type"] == "skipped" and e["title"] == "Skip me" for e in ev) and not any(r["phase"] == "Skip me" for r in cl.records)
+           and any(r["label"] == "after" for r in cl.records), "when: false skips the phase; when: true runs it")
+
+        # ---- overrides: model, effort, budget per agent, journaled
+        ov = sq.parse_sets(["coder.model=other:3b", "coder.effort=low", "coder.budget.calls=9", "slots=1"])
+        ok(ov == {"agents": {"coder": {"model": "other:3b", "effort": "low", "budget": {"calls": 9}}}, "slots": 1}, "parse_sets", ov)
+        ok(sq.parse_sets(["*.tools=read,grep"])["agents"]["*"]["tools"] == ["read", "grep"], "parse_sets: list values and * for every agent")
+        for badset in (["coder"], ["coder.nope=1"], ["slots=0"]):
+            try:
+                sq.parse_sets(badset)
+                ok(False, f"parse_sets refuses {badset}")
+            except ValueError:
+                ok(True, f"parse_sets refuses {badset}")
+        v, co = sq.run_workflow("bugfix_squad", proj, "fix add", vars={"owns": "app.py"}, overrides=ov, cfg=cfg, data_dir=dd)
+        cr = [r for r in co.records if r["agent"] == "coder"][0]
+        ok(cr["model"] == "other:3b" and cr["effort"] == "low" and cr["budget"]["calls"] == 9 and cr["overrides"]["effort"] == "low",
+           "an override changes the coder's model, effort and budget", {k: cr.get(k) for k in ("model", "effort", "budget", "why")})
+        dbg = [r for r in co.records if r["agent"] == "debugger"][0]
+        ok(dbg["model"] != "other:3b" and dbg["overrides"] == {}, "other agents keep their own definition")
+        ev = jtypes(co)
+        ok(co.slots == 1 and ev[0]["overrides"]["agents"]["coder"]["model"] == "other:3b" and
+           any(e["type"] == "started" and e.get("overrides", {}).get("model") == "other:3b" for e in ev), "overrides journaled (launched + started)")
+        v, cc = sq.run_workflow("explain_squad", proj, "x", overrides={"agents": {"explainer": {"model": "claude:opus", "tools": ["apply"]}}},
+                                cfg=cfg, data_dir=dd)
+        ok(v == "fail" and all(r["verdict"] == "refused" and "claude" in r["why"] for r in cc.records),
+           "an override to claude: or a write tool is refused", [r["why"] for r in cc.records][:1])
+
+        # ---- save_agent
+        af = os.path.join(tmp, "agents_out")
+        good = dict(sq._plain(defs["reviewer"]), name="my-reviewer", description="mine")
+        p = sq.save_agent("my-reviewer", good, folder=af)
+        ok(os.path.isfile(p) and sq.load_agent(p)["description"] == "mine" and sq._plain(sq.load_agent(p)) == sq._plain(sq._norm(good)),
+           "save_agent writes a definition that loads back the same")
+        for why, spec_ in (("claude model", dict(good, model="claude:x")), ("write tool on a read-only agent", dict(good, tools=["apply"])),
+                           ("name mismatch", dict(good, name="other")), ("bad effort", dict(good, effort="max"))):
+            try:
+                sq.save_agent("my-reviewer2", spec_, folder=af)
+                ok(False, f"save_agent refuses: {why}")
+            except ValueError:
+                ok(not os.path.exists(os.path.join(af, "my-reviewer2.yaml")), f"save_agent refuses: {why} (nothing written)")
+        ok(not [x for x in os.listdir(af) if ".tmp" in x], "save_agent leaves no temp file")
+
         # ---- the CLI
         import architect
+        rc = architect.main(["crew", "bugfix_squad", "--goal", "fix", "--root", proj, "--fake", "--owns", "app.py",
+                             "--set", "coder.effort=low"])
+        ok(rc == 0, "architect.py crew bugfix_squad --fake --set coder.effort=low runs and passes")
+        ok(sq.main(["--set", "bad"]) == 2 and sq.main(["--workflows"]) == 0, "main: a bad --set is refused; --workflows lists them")
         rc = architect.main(["crew", os.path.join(HERE, "workflows", "audit_build_verify.yaml"), "--goal", "check", "--root", proj, "--fake",
                              "--slots", "2"])
         ok(rc == 0, "architect.py crew <workflow> --fake runs and passes")

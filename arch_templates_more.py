@@ -136,3 +136,42 @@ KEYWORDS.update({
     'plugin_host': r"\b(plugins?|plug-ins?|plugin (?:host|system|architecture|loader)|extension system|add-?on system|extensible)\b",
     'docs_site': r"\b(docs? site|documentation (?:site|generator|website|portal)|static site generator|markdown to html|docs generator|ssg)\b",
 })
+
+
+# ================================================================================================ starters kept as real files
+# static/templates/src/<id>/ holds a starter as an ordinary folder (meta.json = title/blurb/stack/domains/run/needs; every other
+# file is template text with the same __NAME__/__PKG__ placeholders). Editing a starter is editing files, not escaped strings.
+import json as _json
+import os as _os
+
+SRC_DIR = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "static", "templates", "src")
+FILE_IDS = []
+
+
+def _load_src():
+    if not _os.path.isdir(SRC_DIR):
+        return
+    for tid in sorted(_os.listdir(SRC_DIR)):
+        root = _os.path.join(SRC_DIR, tid)
+        meta_path = _os.path.join(root, "meta.json")
+        if not _os.path.isfile(meta_path):
+            continue
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = _json.load(f)
+        files = dict(COMMON)
+        for folder, dirs, names in _os.walk(root):
+            dirs[:] = sorted(d for d in dirs if d not in ("__pycache__", ".pytest_cache", "node_modules"))
+            for n in sorted(names):
+                full = _os.path.join(folder, n)
+                rel = _os.path.relpath(full, root).replace(_os.sep, "/")
+                if rel == "meta.json" or n.endswith(".pyc"):
+                    continue
+                with open(full, "r", encoding="utf-8", newline="") as f:
+                    files[rel] = f.read().replace("\r\n", "\n")
+        _t(tid, meta["title"], meta["blurb"], meta["stack"], meta.get("domains", ["api"]), files, meta["run"], meta.get("needs"))
+        if meta.get("keywords"):
+            KEYWORDS[tid] = meta["keywords"]
+        FILE_IDS.append(tid)
+
+
+_load_src()

@@ -1,0 +1,26 @@
+# Refactor: plan -> refactor the owned files -> a panel of three verifiers (majority) -> a reviewer only when the panel did not pass.
+name: refactor-squad
+description: A planner splits the refactor, a refactorer changes only what it owns with the tests green, three verifiers vote, a reviewer looks closer when they do not agree on pass.
+phases:
+  - title: Plan
+    id: plan
+    agent: planner
+    label: plan
+  - title: Refactor
+    id: refactor
+    agent: refactorer
+    label: refactor
+    owns: "{owns}"
+  - title: Verify
+    id: verify
+    panel: verifier
+    n: 3
+    vote: verdict
+    label: verify
+    task: The behaviour must be unchanged. Run the tests and compare the changed code with what it replaced.
+  - title: Review
+    when: "phases.verify.verdict != 'pass'"
+    agent: reviewer
+    label: review
+    vars:
+      focus: behaviour changes hidden in the refactor

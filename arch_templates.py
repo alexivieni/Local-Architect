@@ -2769,6 +2769,10 @@ KEYWORDS = {
 def suggest(goal):
     """Pick a template from the wording of a goal. -> (template id, why)."""
     g = (goal or "").lower()
+    for tid in getattr(arch_templates_more, "FILE_IDS", ()):     # the file-based starters' phrases are specific
+        m = re.search(KEYWORDS.get(tid, r"(?!x)x"), g)
+        if m:
+            return tid, f"goal mentions '{m.group(0)}'"
     for tid in ("mcp_server", "agent_tool", "fastapi", "iot_device", "network_service", "fullstack",
                 "etl_pipeline", "state_machine", "event_bus", "plugin_host", "tui_app", "docs_site", "cli_tool",
                 "data_sql", "range", "red_team", "security_lab", "worker", "rest_api", "static_web", "python_lib",

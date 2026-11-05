@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "description": "Keep a short note for every site you visit.",
+  "permissions": ["storage", "activeTab"],
+  "action": {"default_popup": "popup.html", "default_title": "__NAME__"},
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [{"matches": ["https://*/*"], "js": ["content.js"], "run_at": "document_idle"}]
+}

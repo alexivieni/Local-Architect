@@ -1,0 +1,23 @@
+{
+  "name": "__PKG__",
+  "displayName": "__NAME__",
+  "description": "Word counts for the selection or the file.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": {"vscode": "^1.80.0"},
+  "categories": ["Other"],
+  "main": "./src/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {"command": "__PKG__.countWords", "title": "__NAME__: Count Words"},
+      {"command": "__PKG__.toggleStatus", "title": "__NAME__: Toggle Status Bar"}
+    ],
+    "configuration": {
+      "title": "__NAME__",
+      "properties": {
+        "__PKG__.excludeCode": {"type": "boolean", "default": true, "description": "Skip fenced code blocks in Markdown."}
+      }
+    }
+  }
+}

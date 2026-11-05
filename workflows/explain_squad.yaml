@@ -1,0 +1,24 @@
+# Explain: three readers look at different parts side by side, one explainer writes the answer from what they found.
+name: explain-squad
+description: Three read-only explainers read the structure, the data flow and the tests in parallel; a fourth writes one plain answer from their notes.
+phases:
+  - title: Read
+    id: read
+    parallel:
+      - agent: explainer
+        label: "read:structure"
+        vars:
+          focus: the modules and public functions involved
+      - agent: explainer
+        label: "read:dataflow"
+        vars:
+          focus: how data moves through the code involved
+      - agent: explainer
+        label: "read:tests"
+        vars:
+          focus: what the tests say the code must do
+  - title: Synthesis
+    agent: explainer
+    label: synthesis
+    vars:
+      focus: "write one answer from the readers' notes above; name files and functions"

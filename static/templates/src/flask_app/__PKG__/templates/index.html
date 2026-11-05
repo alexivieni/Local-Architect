@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>__NAME__</title>
+  <style>
+    :root { --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #111214; --fg: #f2f2f4; --muted: #a1a1a8; --line: #2c2d31; } }
+    body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+    main { max-width: 720px; margin: 0 auto; }
+    li { border-bottom: 1px solid var(--line); padding: 8px 0; list-style: none; }
+    .empty { color: var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>__NAME__</h1>
+  {% if notes %}
+  <ul>{% for n in notes %}<li><strong>{{ n.title }}</strong><br>{{ n.body }}</li>{% endfor %}</ul>
+  {% else %}
+  <p class="empty">No notes yet. POST to /api/notes to add one.</p>
+  {% endif %}
+</main>
+</body>
+</html>

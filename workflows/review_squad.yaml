@@ -1,0 +1,27 @@
+# Review: three lenses side by side -> merge duplicates in code -> an adversarial verifier checks each finding on its own.
+name: review-squad
+description: Correctness, security and performance reviewers read the code in parallel; duplicate findings are merged in code; every finding is then verified on its own.
+phases:
+  - title: Review
+    id: review
+    parallel:
+      - agent: reviewer
+        label: "review:correctness"
+        vars:
+          focus: correctness - wrong results, unhandled errors, edge cases
+      - agent: security-reviewer
+        label: "review:security"
+      - agent: perf-tuner
+        label: "review:perf"
+  - title: Dedupe
+    id: dedupe
+    code: dedupe_findings
+  - title: Verify each
+    id: verify
+    when: "len(prev.findings) > 0"
+    pipeline:
+      items_from: prev.findings
+      stages:
+        - agent: verifier
+          label: verify-finding
+          task: "Is this finding real? Read the file and line and say pass (real) or fail (not real): {item}"

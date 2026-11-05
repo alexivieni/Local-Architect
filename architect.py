@@ -1120,6 +1120,44 @@ def cmd_caches(args):
     return 0
 
 
+def cmd_select(args):
+    """Choose a model per job by measurement (arch_select). Read-only except --apply / --undo."""
+    import arch_jobs
+    import arch_select as sel
+    cfg = core.load_config()
+    split = lambda v: [x.strip() for x in v.split(",") if x.strip()] if v else None
+    allowed = split(args.allowed)
+    if args.apply:
+        job, model = args.apply
+        rec = arch_jobs.assign(cfg, job, model)
+        print(f"{job}: {', '.join(rec['before'])} -> {model} (select --undo puts back what was there)")
+        return 0
+    if args.undo:
+        rec = arch_jobs.undo()
+        print("nothing to undo" if not rec else f"restored the {rec['job']} roles to what they were before {rec['model']}")
+        return 0
+    if args.screen:
+        facts = sel._facts()
+        models = split(args.models) or [m["name"] for m in sel.candidates(cfg, facts, allowed)]
+        sel.screen(models, split(args.jobs), fake=args.fake, cfg=cfg, facts=facts)
+        return 0
+    if args.measure:
+        sel.measure(args.top_k, args.n, [int(x) for x in split(args.seeds) or ["1", "2"]], cfg=cfg, jobs=split(args.jobs), fake=args.fake)
+        return 0
+    if args.why:
+        import arch_hw
+        try:
+            hw = arch_hw.detect()
+        except Exception:
+            hw = None
+        w = sel.why(cfg, allowed=allowed, facts=sel._facts(), hw=hw, include_fake=args.fake)
+        print(json.dumps(w, indent=1) if args.json else sel.why_table(w))
+        return 0
+    p = sel.plan(cfg, split(args.models), split(args.jobs))
+    print(json.dumps(p, indent=1) if args.json else p["text"])
+    return 0
+
+
 def cmd_cost(args):
     """The report's loop cost model (Eq. 15-19) from this machine's traces: seconds per ACCEPTED change, per role and model."""
     import arch_costmodel as cm
@@ -1372,7 +1410,7 @@ def _run_suites(suite):
                 print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
                 rc |= 1
         # suites whose run() returns True when every check passed (art returns 0 like the older ones)
-        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "orchestration", "squad"):
+        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "orchestration", "squad", "select"):
             try:
                 _res = importlib.import_module("arch_selftest_" + _name).run()
                 rc |= (0 if (_res is True or (type(_res) is int and _res == 0)) else 1)     # False == 0, so check the type
@@ -1630,6 +1668,21 @@ def main(argv=None):
     mp_.add_argument("--json", action="store_true")
     cl_ = sub.add_parser("cleanup", help="close what the app started: model servers, Ollama models, Launch runs, leftover eval folders")
     cl_.add_argument("--yes", action="store_true")
+    se_ = sub.add_parser("select", help="choose a model PER JOB by measurement (C = seconds per passed task); --plan/--screen/--measure/--why/--apply/--undo")
+    se_.add_argument("--plan", action="store_true", help="what a screen would run and its estimated GPU minutes (default)")
+    se_.add_argument("--screen", action="store_true")
+    se_.add_argument("--measure", action="store_true")
+    se_.add_argument("--why", action="store_true")
+    se_.add_argument("--apply", nargs=2, metavar=("JOB", "MODEL"))
+    se_.add_argument("--undo", action="store_true")
+    se_.add_argument("--models", help="comma-separated model names")
+    se_.add_argument("--jobs", help="comma-separated jobs (route,plan,code,test,fix,review,security,infra,docs)")
+    se_.add_argument("--allowed", help="comma-separated models a suggestion may name (e.g. uncensored only); others are still shown")
+    se_.add_argument("--fake", action="store_true", help="scripted stand-in, no GPU")
+    se_.add_argument("--top-k", type=int, default=2)
+    se_.add_argument("--n", type=int, default=5)
+    se_.add_argument("--seeds", help="comma-separated seeds, default 1,2")
+    se_.add_argument("--json", action="store_true")
     co_ = sub.add_parser("cost", help="seconds per ACCEPTED change per role and model (the report's C = t / p-bar), or --planner to test Eq. 19")
     co_.add_argument("--root", help="one project folder (default: every portfolio project + this folder)")
     co_.add_argument("--watts", type=float, help="average power draw, to report energy E = P * C")
@@ -1645,7 +1698,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     fn = {"run": cmd_run, "flows": cmd_flows, "templates": cmd_templates, "route": cmd_route, "undo": cmd_undo,
           "portfolio": cmd_portfolio, "show-config": cmd_show, "serve": cmd_serve, "doctor": cmd_doctor, "assess": cmd_assess, "advise": cmd_advise,
-          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
+          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
     if not fn:
         ap.print_help()
         return 0

@@ -168,6 +168,45 @@ def run():
         ok(none["claude"]["totals"]["agents"] == 3 and none["categories"]["folded_total"] >= 1,
            "a filter hides agents but totals stay honest")
         ok(all(r.get("category") for r in loc["runs"]) or all("category" in r for r in allc["local"]["runs"]), "local runs carry a category")
+        # ---- cost, warnings, savings (fixtures, exact math)
+        P = orch.PRICE_TABLE
+        ok(P["opus"]["cache_read"] == round(P["opus"]["input"] * 0.1, 6) and P["sonnet"]["input"] < P["opus"]["input"], "price table: cache read 0.1x, write 1.25x")
+        ok(abs(orch.usd_for({"input": 10**6, "output": 10**6, "cache_read": 10**6, "cache_write": 10**6}, "opus")
+               - (P["opus"]["input"] + P["opus"]["output"] + P["opus"]["cache_read"] + P["opus"]["cache_write"])) < 1e-9, "usd math")
+        ok(orch.model_family("claude-opus-5-5") == "opus" and orch.model_family("qwen:7b") == "local" and orch.model_family("claude-x") == "claude",
+           "model families")
+
+        def ag(model="claude-opus-5-5", tools=None, edited=(), peak=0, **tk):
+            t = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+            t.update(tk)
+            return {"kind": "agent", "source": "claude", "model": model, "tool_calls": tools or {"Read": 1}, "edited": list(edited),
+                    "peak_context": peak, "tokens": t, "children": []}
+        W = orch.agent_warnings
+        ok(orch.W_LONG_CTX in W(ag(peak=200001, input=1)) and orch.W_LONG_CTX not in W(ag(peak=200000, input=1)), "warning: long context (>200k)")
+        ok(orch.W_CACHE in W(ag(input=90, cache_write=10)) and orch.W_CACHE not in W(ag(input=95, cache_write=5)), "warning: cache write share > 5%")
+        ok(orch.W_WRITE in W(ag(output=100001)) and orch.W_WRITE not in W(ag(output=100000)), "warning: output > 100k")
+        ok(orch.W_CHEAP in W(ag()) and orch.W_CHEAP not in W(ag(tools={"Edit": 1})) and orch.W_CHEAP not in W(ag(edited=["a.py"]))
+           and orch.W_CHEAP not in W(ag(model="claude-sonnet-5-5")), "warning: opus on a read-only agent")
+        a1, a2 = ag(input=10**6, output=100000), ag(model="qwen:7b", output=500)
+        a2["source"], a2["start"], a2["end"] = "local", 10.0, 12.5
+        wf = {"kind": "workflow", "tokens": {}, "children": [a1, a2]}
+        orch.apply_costs(wf)
+        want = (10**6 * P["opus"]["input"] + 100000 * P["opus"]["output"]) / 1e6
+        ok(abs(a1["cost"]["usd"] - want) < 1e-6 and a2["cost"]["usd"] == 0.0 and a2["cost"]["seconds"] == 2.5 and a2["cost"]["local"],
+           "agent cost; local = $0 plus seconds")
+        ok(abs(wf["cost"]["usd"] - want) < 1e-6 and wf["cost"]["seconds"] == 2.5, "workflow cost = sum of its agents")
+        sv = orch.build_savings([wf])
+        d = want - orch.usd_for(a1["tokens"], "sonnet")
+        ok(sv and sv[0]["kind"] == "read-only-to-sonnet" and abs(sv[0]["usd"] - round(d, 2)) < 1e-9 and "1 read-only agents on Sonnet" in sv[0]["text"],
+           "savings: read-only to Sonnet, exact dollars")
+        ws = [{"kind": "workflow", "children": [ag(output=200000), ag(peak=400000, cache_read=10**6), ag(input=50, cache_write=50)]}]
+        orch.apply_costs(ws[0])
+        sv2 = orch.build_savings(ws)
+        ok({"long-writing", "long-context", "short-lived-cache", "read-only-to-sonnet"} <= {x["kind"] for x in sv2}, "each saving kind appears")
+        us = [x["usd"] for x in sv2]
+        ok(us == sorted(us, reverse=True) and sv2 == orch.build_savings(ws), "savings ranked by dollars, deterministic")
+        ok("total_cost" in s2 and "savings" in s2 and "cost" in sess and all("warnings" in n for n in orch._agents(sess)),
+           "snapshot carries cost, warnings, savings")
         ok(set(orch.row(a)) == set(orch.COLUMNS) and a["source"] == "claude", "a Claude agent row has the shared columns")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

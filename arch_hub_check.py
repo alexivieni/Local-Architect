@@ -176,12 +176,52 @@ def run():
 
         # ---- five tabs over the pages, plus the Get-ready / tune / fake-code / self-improve endpoints
         tabs_src = re.search(r"const SIDEBAR=\[(.*?)\n\];", html, re.S)
-        tab_pages = [re.findall(r'"([a-z]+)"', grp) for grp in re.findall(r'\["[a-z]+","[^"]*","[A-Za-z]+",\[([^\]]*)\]\]', tabs_src.group(1))] if tabs_src else []
+        tab_pages = [re.findall(r'"([a-z]+)"', grp) for grp in re.findall(r'\["[a-z]+","[^"]*","[A-Za-z &]+",\[([^\]]*)\]\]', tabs_src.group(1))] if tabs_src else []
         groups = re.findall(r'\["(Work|Models|System)",\[', tabs_src.group(1)) if tabs_src else []
         page_ids = re.findall(r'\["([a-z]+)","[^"]*","[^"]*","[^"]*"\]', re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", html, re.S).group(1))
         flat = [x for g in tab_pages for x in g]
         check("the sidebar groups places under Work, Models and System and every page is reachable from exactly one of them",
               groups == ["Work", "Models", "System"] and len(tab_pages) >= 8 and sorted(flat) == sorted(page_ids) and len(set(flat)) == len(flat), (groups, tab_pages, page_ids))
+        check("the Crew builder and By job pages are reachable from the sidebar", {"crewbuild", "byjob"} <= set(flat) and "function crewBuilderPage()" in html and "function byJobPage()" in html, flat)
+        # ---- Crew builder + By-job endpoints: arch_squad / arch_select may not exist yet, so "available: false" is a pass too
+        sa, sw, sy = call("/api/arch/squad/agents"), call("/api/arch/squad/workflows"), call("/api/arch/select/why")
+        check("squad agents/workflows and select why answer with available + a list, never a crash",
+              all(isinstance(d.get("available"), bool) for d in (sa, sw, sy)) and isinstance(sa.get("agents"), list)
+              and isinstance(sw.get("workflows"), list) and isinstance(sy.get("jobs"), list), (sa, sw, sy))
+        if sa.get("available"):
+            check("the squad agents endpoint lists the 17 agents of arch_squad (a dict of definitions, read by .values())", len(sa.get("agents") or []) == 17, len(sa.get("agents") or []))
+            check("squad workflows carry phases with a kind", all(all(isinstance(p, dict) and p.get("kind") for p in w["phases"]) for w in sw.get("workflows") or []), sw)
+        check("no sidebar place has more than 5 sub-tabs except Models, and Agent teams has at most 5",
+              all(len(g) <= 6 for g in tab_pages) and any(set(g) >= {"agents", "fleet"} and len(g) <= 5 for g in tab_pages), tab_pages)
+        tc = call("/api/arch/templates/catalog")
+        check("the template catalog answers available + a list, never a crash", isinstance(tc.get("available"), bool) and isinstance(tc.get("templates"), list), tc)
+        check("each catalog template carries the card fields", all({"id", "name", "category", "difficulty", "colour", "thumb"} <= set(t) for t in tc.get("templates") or []), tc)
+        check("a template thumbnail with an unsafe id is refused", call("/templates/..%2Fhub_ui.svg").get("HTTP") in (400, 404))
+        check("Home leads with one headline, a Do it button, the practice project and no duplicate quick launch",
+              "What should your computer work on?" in html and '"Do it"' in html and "Use the practice project" in html and '"Quick launch"' not in html)
+        check("Esc stops a run only when pressed twice, and bare digits no longer navigate", "Press Esc again within 2 s" in html and "n<=TABS.length" not in html)
+        check("the V2 category colour tokens exist in light and dark, and the reduced-motion rule is one block",
+              html.count("--c-agent-bg:") >= 3 and html.count("prefers-reduced-motion:reduce") == 1, html.count("prefers-reduced-motion:reduce"))
+        check("each agent card carries model, effort, tools and budget", all({"name", "model", "effort", "tools", "budget"} <= set(a) for a in sa.get("agents") or []), sa)
+        check("each job row carries the measured columns", all({"job", "current", "best", "C", "pass_rate", "ci", "tok_s", "fits", "reason", "suggestion"} <= set(j) for j in sy.get("jobs") or []), sy)
+        check("saving an agent needs the token", call("/api/arch/squad/agent", {"name": "x", "spec": {}}, token=False).get("HTTP") in (401, 403))
+        check("an agent with a bad name is refused", call("/api/arch/squad/agent", {"name": "../evil", "spec": {}}).get("HTTP") == 400)
+        check("an agent spec that is not an object is refused", call("/api/arch/squad/agent", {"name": "builder", "spec": "x"}).get("HTTP") == 400)
+        check("a crew run needs a goal and a real workflow", call("/api/arch/squad/run", {"workflow": "nope_wf", "goal": ""}).get("HTTP") == 400
+              and call("/api/arch/squad/run", {"workflow": "../x", "goal": "g"}).get("HTTP") == 400
+              and call("/api/arch/squad/run", {"workflow": "nope_wf_zz", "goal": "g"}).get("HTTP") == 400)
+        check("a crew run refuses owned paths that climb out and bad slot counts",
+              call("/api/arch/squad/run", {"workflow": (sw.get("workflows") or [{"name": "x"}])[0]["name"], "goal": "g", "owns": ["../../etc"]}).get("HTTP") == 400
+              and call("/api/arch/squad/run", {"workflow": (sw.get("workflows") or [{"name": "x"}])[0]["name"], "goal": "g", "slots": 99}).get("HTTP") == 400)
+        check("a crew run needs the token", call("/api/arch/squad/run", {"workflow": "x", "goal": "g"}, token=False).get("HTTP") in (401, 403))
+        check("select apply refuses a bad job or model name", call("/api/arch/select/apply", {"job": "Bad Job!", "model": "m"}).get("HTTP") == 400
+              and call("/api/arch/select/apply", {"job": "coding", "model": "x; rm -rf /"}).get("HTTP") == 400)
+        check("select apply, undo and screen need the token", all(call(p_, {"job": "coding", "model": "m"}, token=False).get("HTTP") in (401, 403)
+              for p_ in ("/api/arch/select/apply", "/api/arch/select/undo", "/api/arch/select/screen")))
+        check("select screen refuses a bad model name", call("/api/arch/select/screen", {"fake": True, "models": ["a b;c"]}).get("HTTP") == 400)
+        check("Home quick-launch options write only settings that exist", "function qlOptions(" in html and all(
+            any(r[0] == k for rows in (st.get("settings_schema") or {}).values() for r in rows) for k in
+            ("behavior.review_mode", "behavior.thinking", "behavior.test_first", "behavior.best_of_n", "flows.budget_scale")))
         check("Home leads with a Get started checklist: four steps, each with one action, the current one highlighted",
               "function getStarted()" in html and html.count("t:\"Prepare this machine\"") == 1 and "Run your first task" in html and "gs-step" in html)
         ti = call("/api/arch/tune_info")

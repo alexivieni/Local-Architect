@@ -144,6 +144,8 @@ class LlamaTransport:
         if think is False and _thinks_in_tags(model) and messages and messages[-1].get("role") == "user":
             messages = list(messages[:-1]) + [dict(messages[-1], content=messages[-1]["content"].rstrip() + "\n/no_think")]   # Qwen3-style soft switch; the per-request flag is not honoured by every template
         body = {"model": model, "messages": messages, "stream": True, "stream_options": {"include_usage": True}, "cache_prompt": True}
+        if (options or {}).get("id_slot") is not None:          # same slot for a whole run, so its cached prompt is reused
+            body["id_slot"] = int(options["id_slot"])
         for k, v in options.items():
             if k in _OPT_MAP and v is not None:
                 body[_OPT_MAP[k]] = v

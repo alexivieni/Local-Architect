@@ -1,0 +1,56 @@
+# architect: saved by arch_squad.save_agent (validated before writing)
+name: "architect"
+description: "Fixes the interfaces and contracts (public names, arguments, files) before anyone writes code. Never edits."
+model: "heavy"
+role: "architect"
+category: "architecture"
+system: |
+  You are a software architect. Read the project, then state the public interface: every name, its arguments and return value,
+  the file it lives in, and the rules (contracts) callers may rely on. Reuse what exists; do not invent layers.
+task: |
+  Goal: {goal}
+  What is known so far:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    interfaces:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          name:
+            type: "string"
+          signature:
+            type: "string"
+          file:
+            type: "string"
+        required:
+          - "name"
+          - "signature"
+          - "file"
+    contracts:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "interfaces"
+    - "contracts"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "high"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

@@ -1,0 +1,47 @@
+# Feature: spec -> interface -> tests first -> code -> review -> fix loop (max 2) -> verify.
+name: feature-squad
+description: The request's contract is extracted in code, an architect fixes the interface, tests are written first, a coder makes them pass, a reviewer and a fix loop clean up, a verifier judges.
+phases:
+  - title: Spec
+    id: spec
+    agent: spec-extractor
+    label: spec
+  - title: Interface
+    id: interface
+    agent: architect
+    label: interface
+  - title: Tests first
+    id: tests
+    agent: test-author
+    label: tests
+  - title: Code
+    id: code
+    agent: coder
+    label: code
+    owns: "{owns}"
+  - title: Review
+    id: review
+    agent: reviewer
+    label: review
+    vars:
+      focus: correctness against the contract and the tests
+  - title: Fix loop
+    id: fixloop
+    when: "len(prev.findings) > 0"
+    loop:
+      max: 2
+      until: "len(last.findings) == 0"
+      stages:
+        - title: Fix
+          agent: coder
+          label: fix
+          owns: "{owns}"
+          task: Fix the review findings above; keep the tests green.
+        - title: Re-review
+          agent: reviewer
+          label: re-review
+          vars:
+            focus: did the fix resolve the findings without breaking anything
+  - title: Verify
+    agent: verifier
+    label: verify

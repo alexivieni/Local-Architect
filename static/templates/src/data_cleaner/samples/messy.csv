@@ -1,0 +1,7 @@
+name,email,joined,spend,active
+  ada   LOVELACE ,ADA@Example.com,2026-01-05,"1,234.50",yes
+grace hopper,grace@example.com,05/02/2026,12%,N
+Alan Turing,alan@example,2026/03/09,99,true
+  ada lovelace,ada@example.com,5 Jan 2026,1234.5,Y
+,nobody@example.com,2026-04-01,10,no
+Katherine Johnson,kj@example.com,not a date,5,1

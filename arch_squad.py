@@ -44,7 +44,16 @@ EFFORTS = {"low": False, "medium": None, "high": True}      # -> Engine.call(thi
 POLICIES = ("fresh", "inherit")
 CATEGORIES = ("coding", "end-to-end", "agentic", "ui", "system/it", "engineering", "architecture", "ai/models", "data", "harness", "other")
 KEYS = {"name", "description", "model", "role", "category", "system", "task", "tools", "writes", "output", "budget", "effort",
-        "max_steps", "context", "owns"}
+        "max_steps", "context", "owns", "code"}
+CODE_AGENTS = ("spec",)                                    # agents whose work is done by code, not a model (code: spec -> arch_spec.spec)
+OVERRIDABLE = ("model", "role", "category", "description", "system", "task", "tools", "writes", "output", "budget", "effort",
+               "max_steps", "context", "owns")
+FIELD_INFO = {"model": "a tier (worker | heavy | router) or a local model id (name:tag)", "role": "an engine role (arch_roles.ROLES)",
+              "category": "one of " + ", ".join(CATEGORIES), "description": "one line for people", "system": "the system prompt",
+              "task": "the task template ({goal}, {task}, {prev}, {focus}, workflow vars)", "tools": "allowed arch_tools names",
+              "writes": "may it change files (only the ones it owns)", "output": "'text' or a JSON schema",
+              "budget": "{calls, tokens, seconds}", "effort": "low | medium | high (reasoning on/default/off)",
+              "max_steps": "tool-loop turns, 1..40", "context": "{policy: fresh|inherit, max_chars}", "owns": "files it may change by default"}
 SCHEMA_BEGIN, SCHEMA_END = "RESULT SCHEMA (JSON):", "END OF SCHEMA"
 
 
@@ -114,7 +123,14 @@ def validate(d):
         p.append("context: {policy: fresh|inherit, max_chars: a number above 0}")
     if not isinstance(d.get("owns", []), list):
         p.append("owns: a list of files")
+    if d.get("code") is not None and d.get("code") not in CODE_AGENTS:
+        p.append("code: one of " + ", ".join(CODE_AGENTS))
     return p
+
+
+def _plain(d):
+    """A definition without the bookkeeping keys load_agent/list_agents add (so it can be validated or saved again)."""
+    return {k: v for k, v in d.items() if not str(k).startswith("_") and k not in ("fields", "problems")}
 
 
 def _norm(d):
@@ -135,7 +151,7 @@ def load_agent(name_or_path, folder=None):
     """agents/<name>.yaml (or a path, or an already-loaded dict) -> a validated definition. ValueError lists the problems."""
     import arch_ci
     if isinstance(name_or_path, dict):
-        d, src = name_or_path, "(inline)"
+        d, src = _plain(name_or_path), name_or_path.get("_source") or "(inline)"
     else:
         src = name_or_path if os.path.isfile(str(name_or_path)) else \
             os.path.join(folder or AGENTS_DIR, str(name_or_path) + ".yaml")
@@ -157,6 +173,7 @@ def list_agents(folder=None):
         if fn.endswith(".yaml"):
             try:
                 d = load_agent(os.path.join(folder, fn))
+                d["fields"] = list(OVERRIDABLE)
                 out[d["name"]] = d
             except Exception as e:
                 out[fn[:-5]] = {"problems": [str(e)]}
@@ -220,6 +237,77 @@ def _owned_engine_class():
     return OwnedEngine
 
 
+# ---------------------------------------------------------------- run-time overrides
+
+def apply_overrides(d, overrides):
+    """A loaded definition + {"<agent name>" or "*": {field: value}} -> (new definition, the fields applied, problems).
+    budget and context merge into the definition's own; every other field replaces it. The result is validated again, so an override
+    can never put a crew agent on claude: or give a read-only agent a write tool."""
+    applied = {}
+    for key in ("*", d["name"]):
+        for k, v in ((overrides or {}).get(key) or {}).items():
+            applied[k] = v
+    if not applied:
+        return d, {}, []
+    bad = sorted(k for k in applied if k not in OVERRIDABLE)
+    if bad:
+        return d, applied, ["not overridable: " + ", ".join(bad)]
+    nd = dict(d)
+    for k, v in applied.items():
+        nd[k] = dict(d.get(k) or {}, **v) if k in ("budget", "context") and isinstance(v, dict) else v
+    probs = validate(_plain(nd))
+    if probs:
+        return d, applied, probs
+    src = d.get("_source")
+    nd = _norm(_plain(nd))
+    nd["_source"] = src
+    return nd, applied, []
+
+
+def _value(s):
+    s = s.strip()
+    try:
+        return json.loads(s)
+    except ValueError:
+        low = s.lower()
+        return {"true": True, "false": False, "yes": True, "no": False}.get(low, s)
+
+
+def parse_sets(items):
+    """CLI --set values -> an overrides dict for run_workflow.
+    "coder.model=qwen3:8b" -> {"agents": {"coder": {"model": "qwen3:8b"}}}; "coder.budget.calls=5" nests; "*.effort=low" means every
+    agent; "slots=2" is top level; "coder.tools=read,grep" is a list. Values are JSON when they parse (numbers, true, [..]), else text.
+    ValueError on a malformed item."""
+    out = {"agents": {}}
+    for raw in items or []:
+        if "=" not in str(raw):
+            raise ValueError(f"--set wants name.field=value (got {raw!r})")
+        key, val = str(raw).split("=", 1)
+        parts = [x.strip() for x in key.strip().split(".") if x.strip()]
+        v = _value(val)
+        if parts == ["slots"]:
+            if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+                raise ValueError("slots=N with N a whole number above 0")
+            out["slots"] = v
+            continue
+        if len(parts) < 2:
+            raise ValueError(f"--set wants agent.field=value (got {raw!r})")
+        agent_name, field, rest = parts[0], parts[1], parts[2:]
+        if field not in OVERRIDABLE:
+            raise ValueError(f"{field!r} is not an agent field (one of {', '.join(OVERRIDABLE)})")
+        if field in ("tools", "owns") and isinstance(v, str):
+            v = [x.strip() for x in v.split(",") if x.strip()]
+        slot = out["agents"].setdefault(agent_name, {})
+        if rest:
+            cur = slot.setdefault(field, {})
+            for r in rest[:-1]:
+                cur = cur.setdefault(r, {})
+            cur[rest[-1]] = v
+        else:
+            slot[field] = v
+    return out
+
+
 # ---------------------------------------------------------------- the crew
 
 def _quiet(_m):
@@ -262,15 +350,19 @@ class Crew:
     """One local orchestration run. Thread-safe: parallel() and pipeline() call agent() from worker threads."""
 
     def __init__(self, root, goal="", workflow="adhoc", cfg=None, slots=None, data_dir=None, say=None, engine_factory=None,
-                 run_id=None, description="", vars=None):
+                 run_id=None, description="", vars=None, overrides=None):
         import arch_core as core
         self.root = os.path.abspath(root)
         self.goal, self.workflow, self.description = goal, workflow, description
         self.cfg = cfg or core.load_config(self.root)
         self.say = say or _quiet
         self.vars = dict(vars or {})
+        self.overrides = {str(k): dict(v or {}) for k, v in ((overrides or {}).get("agents") or {}).items()}
         srv = self.cfg.get("server") or {}
+        slots = slots or (overrides or {}).get("slots")
         self.slots = max(1, int(slots or srv.get("parallel") or 1))
+        self.phase_times = []
+        self.loop_counts = {}
         self._sem = threading.Semaphore(self.slots)
         self._lock = threading.RLock()
         self._local = threading.local()
@@ -286,7 +378,7 @@ class Crew:
         os.makedirs(self.dir, exist_ok=True)
         self.phase_title = None
         self._event({"type": "launched", "workflow": workflow, "description": description, "goal": goal, "root": self.root,
-                     "slots": self.slots})
+                     "slots": self.slots, "overrides": {"agents": self.overrides, "slots": (overrides or {}).get("slots")}})
 
     # -- journal
     def _event(self, rec):
@@ -330,6 +422,7 @@ class Crew:
         """Run one agent. -> its result (a dict/list matching the output schema, or text), or None when it failed for any reason.
         The record (tokens, cache, verdict ...) is appended to self.records and written as agent-<id>.json."""
         d = load_agent(defn)
+        d, applied, oprobs = apply_overrides(d, self.overrides)
         b = dict(d.get("budget") or {}, **(budget or {}))
         owns = _owns_list(owns if owns is not None else d.get("owns"))
         with self._lock:
@@ -342,7 +435,21 @@ class Crew:
                "role": d["role"], "category": d["category"], "owns": owns, "effort": d["effort"], "budget": b,
                "context_policy": d["context"]["policy"], "output": "schema" if isinstance(d["output"], dict) else "text",
                "tools_allowed": list(d["tools"]), "tools": {}, "edited": [], "calls": [], "verdict": None, "result": None,
-               "why": None, "start": time.time()}
+               "why": None, "start": time.time(), "overrides": applied}
+        if oprobs:
+            rec.update(verdict="refused", why="overrides break the definition: " + "; ".join(oprobs))
+            self._finish(rec)
+            return None
+        if d.get("code"):
+            rec["model"] = "code"
+            self._event({"type": "started", "agentId": aid, "label": label, "phase": ph, "agent": d["name"], "parent": parent,
+                         "overrides": applied})
+            try:
+                rec["result"], rec["verdict"], rec["why"] = self._code_agent(d, task, context, vars)
+            except Exception as ex:
+                rec.update(verdict="failed", why=f"{type(ex).__name__}: {str(ex)[:300]}", result=None)
+            self._finish(rec)
+            return rec["result"] if rec["verdict"] == "ok" else None
         if not owns and d["writes"]:
             rec["note"] = "owns nothing: its write tools were removed"
         try:
@@ -351,7 +458,8 @@ class Crew:
             rec.update(verdict="refused", why=str(ex))
             self._finish(rec)
             raise
-        self._event({"type": "started", "agentId": aid, "label": label, "phase": ph, "agent": d["name"], "parent": parent})
+        self._event({"type": "started", "agentId": aid, "label": label, "phase": ph, "agent": d["name"], "parent": parent,
+                     "overrides": applied})
         e = None
         try:
             with self._sem:
@@ -373,6 +481,20 @@ class Crew:
                 self._harvest(e, rec)
         self._finish(rec)
         return rec["result"] if rec["verdict"] == "ok" else None
+
+    def _code_agent(self, d, task, context, vars_):
+        """An agent whose work is code (no model): code: spec -> arch_spec.spec(goal + task). Its output schema is still checked."""
+        import arch_schemas
+        if d["code"] == "spec":
+            import arch_spec
+            val = arch_spec.spec((self.goal + " " + (task or "")).strip())
+        else:
+            return None, "failed", f"unknown code agent {d['code']!r}"
+        if isinstance(d["output"], dict):
+            bad = arch_schemas.errors(val, d["output"])
+            if bad:
+                return None, "schema", "the code result breaks the schema: " + "; ".join(bad[:3])
+        return val, "ok", None
 
     def _brief(self, d, task, owns, context, vars_):
         v = dict(self.vars)
@@ -600,8 +722,49 @@ def phase(title):
 
 # ---------------------------------------------------------------- workflows as data
 
+PHASE_KINDS = ("agent", "parallel", "pipeline", "loop", "panel", "code")
+LOOP_MAX = 10
+
+
+def _code_dedupe_findings(prev, ctx):
+    """Merge the findings of several reviewers: one entry per (file, line, problem start); each counts the reviews that saw it."""
+    rows = prev if isinstance(prev, list) else [prev]
+    seen, out = {}, []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        for f in r.get("findings") or []:
+            if not isinstance(f, dict):
+                continue
+            key = (str(f.get("file") or "").replace("\\", "/").lower(), f.get("line"),
+                   re.sub(r"\W+", " ", str(f.get("problem") or "")).strip().lower()[:60])
+            if key in seen:
+                seen[key]["seen_by"] += 1
+                continue
+            g = dict(f, seen_by=1)
+            seen[key] = g
+            out.append(g)
+    return {"findings": out, "summary": f"{len(out)} distinct findings from {len(rows)} reviews"}
+
+
+def _code_collect(prev, ctx):
+    return {"results": prev if isinstance(prev, list) else [prev]}
+
+
+CODE_STEPS = {"dedupe_findings": _code_dedupe_findings, "collect": _code_collect}
+
+
+def _resolve_workflow(path):
+    p = str(path)
+    if os.path.isfile(p):
+        return p
+    cand = os.path.join(WORKFLOWS_DIR, p if p.endswith(".yaml") else p + ".yaml")
+    return cand if os.path.isfile(cand) else p
+
+
 def load_workflow(path):
     import arch_ci
+    path = _resolve_workflow(path)
     with open(path, encoding="utf-8") as f:
         w = arch_ci.load_yaml(f.read())
     probs = validate_workflow(w)
@@ -610,61 +773,348 @@ def load_workflow(path):
     return w
 
 
+def _phase_kind(ph):
+    kinds = [k for k in PHASE_KINDS if k in ph]
+    return kinds[0] if len(kinds) == 1 else None
+
+
+def _check_expr(expr):
+    """None when expr is an expression arch_dataflow's safe evaluator accepts, else the reason."""
+    import ast
+    import arch_dataflow
+    try:
+        ast.parse(str(expr), mode="eval")
+    except SyntaxError as e:
+        return f"not an expression: {e.msg}"
+    try:
+        arch_dataflow.evaluate(expr, {})           # the whitelist check runs first; missing names are nothing
+    except ValueError as e:
+        return str(e)
+    except Exception:
+        pass
+    return None
+
+
+def _validate_phase(ph, where, need_title=True, depth=0):
+    p = []
+    if not isinstance(ph, dict) or (need_title and not ph.get("title")):
+        return [f"{where}: needs a title"]
+    kind = _phase_kind(ph)
+    if kind is None:
+        return [f"{where}: exactly one of " + ", ".join(PHASE_KINDS)]
+    if "when" in ph:
+        bad = _check_expr(ph["when"])
+        if bad:
+            p.append(f"{where}: when: {bad}")
+    if kind == "code":
+        if ph["code"] not in CODE_STEPS:
+            p.append(f"{where}: code: one of " + ", ".join(CODE_STEPS))
+        return p
+    if kind == "loop":
+        lp = ph["loop"] if isinstance(ph["loop"], dict) else {}
+        st = lp.get("stages")
+        if depth or not isinstance(st, list) or not st:
+            return p + [f"{where}: loop needs stages (and loops do not nest)"]
+        mx = lp.get("max", 2)
+        if isinstance(mx, bool) or not isinstance(mx, int) or not 1 <= mx <= LOOP_MAX:
+            p.append(f"{where}: loop max: 1..{LOOP_MAX}")
+        if not lp.get("until"):
+            p.append(f"{where}: loop needs until: (an expression over last, stages, prev, i)")
+        else:
+            bad = _check_expr(lp["until"])
+            if bad:
+                p.append(f"{where}: until: {bad}")
+        for j, s in enumerate(st):
+            p += _validate_phase(s, f"{where} stage {j + 1}", need_title=False, depth=1)
+        return p
+    if kind == "panel":
+        n = ph.get("n", 3)
+        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= 9:
+            p.append(f"{where}: panel n: 1..9")
+        entries = [{"agent": ph["panel"]}]
+    elif kind == "agent":
+        entries = [ph]
+    elif kind == "parallel":
+        entries = ph["parallel"]
+    else:
+        pl = ph["pipeline"] or {}
+        entries = pl.get("stages")
+        if "items_from" in pl:
+            bad = _check_expr(pl["items_from"])
+            if bad:
+                p.append(f"{where}: items_from: {bad}")
+    if not isinstance(entries, list) or not entries:
+        return p + [f"{where}: {kind} needs entries"]
+    for en in entries:
+        try:
+            load_agent(en.get("agent") if isinstance(en, dict) else None)
+        except Exception as e:
+            p.append(f"{where}: {e}")
+    return p
+
+
 def validate_workflow(w):
     if not isinstance(w, dict) or not w.get("name") or not isinstance(w.get("phases"), list) or not w["phases"]:
         return ["a workflow needs a name and a non-empty list of phases"]
     p = []
     for i, ph in enumerate(w["phases"]):
-        where = f"phase {i + 1}"
-        if not isinstance(ph, dict) or not ph.get("title"):
-            p.append(f"{where}: needs a title")
-            continue
-        kinds = [k for k in ("agent", "parallel", "pipeline") if k in ph]
-        if len(kinds) != 1:
-            p.append(f"{where}: exactly one of agent, parallel, pipeline")
-            continue
-        entries = [ph] if kinds[0] == "agent" else (ph["parallel"] if kinds[0] == "parallel" else (ph["pipeline"] or {}).get("stages"))
-        if not isinstance(entries, list) or not entries:
-            p.append(f"{where}: {kinds[0]} needs entries")
-            continue
-        for en in entries:
-            try:
-                load_agent(en.get("agent") if isinstance(en, dict) else None)
-            except Exception as e:
-                p.append(f"{where}: {e}")
+        p += _validate_phase(ph, f"phase {i + 1}")
     return p
 
 
-def run_workflow(w, root, goal, vars=None, **kw):
-    """Run a workflow dict. Each phase gets the previous phase's results as {prev} (inherit policy). -> (verdict, crew)."""
-    vars_ = dict(vars or {}, goal=goal)
-    crew = Crew(root, goal, workflow=w["name"], description=w.get("description", ""), vars=vars_, **kw)
-    prev = None
-    for ph in w["phases"]:
-        crew.phase(ph["title"])
+def _majority(results, key):
+    """-> (the value a strict majority of the WHOLE panel gave, or None; the vote counts). A judge that failed counts against."""
+    votes = {}
+    for r in results:
+        if isinstance(r, dict) and r.get(key) is not None:
+            votes[str(r[key])] = votes.get(str(r[key]), 0) + 1
+    win = [v for v, c in votes.items() if c * 2 > len(results)]
+    return (win[0] if win else None), votes
 
-        def spec(en):
-            v = dict(vars_, **(en.get("vars") or {}))
-            owns = en.get("owns")
-            return {"agent": en["agent"], "task": render(en.get("task", ""), v), "label": render(en.get("label") or "", v) or None,
-                    "owns": render(owns, v) if isinstance(owns, str) else owns, "context": prev, "vars": en.get("vars"),
-                    "budget": en.get("budget")}
+
+def _run_phase(crew, ph, ctx, title):
+    """One phase (or loop stage). -> its result (prev for the next phase). OwnershipClash propagates."""
+    import arch_dataflow
+    kind = _phase_kind(ph)
+    vars_, prev = ctx["vars"], ctx["prev"]
+
+    def spec(en, label_extra=""):
+        v = dict(vars_, **(en.get("vars") or {}))
+        owns = en.get("owns")
+        lab = render(en.get("label") or "", v) or None
+        return {"agent": en["agent"], "task": render(en.get("task", ""), v), "label": (lab + label_extra) if lab else None,
+                "owns": render(owns, v) if isinstance(owns, str) else owns, "context": prev, "vars": en.get("vars"),
+                "budget": en.get("budget")}
+    if kind == "code":
+        return CODE_STEPS[ph["code"]](prev, ctx)
+    if kind == "parallel":
+        return [r for r in crew.parallel([spec(en) for en in ph["parallel"]]) if r is not None]
+    if kind == "pipeline":
+        pl = ph["pipeline"]
+        items = pl.get("items") or []
+        if pl.get("items_from"):
+            got = arch_dataflow.evaluate(pl["items_from"], ctx)
+            items = list(got) if isinstance(got, (list, tuple)) else []
+        return [r for r in crew.pipeline(items, *[spec(s) for s in pl["stages"]]) if r is not None]
+    if kind == "panel":
+        n = int(ph.get("n", 3))
+        base = dict(ph, agent=ph["panel"])
+        base["label"] = ph.get("label") or ph["panel"]
+        res = crew.parallel([spec(base, f"#{k + 1}") for k in range(n)])
+        key = ph.get("vote", "verdict")
+        win, votes = _majority(res, key)
+        crew._event({"type": "panel", "title": title, "agent": ph["panel"], "n": n, "votes": votes, "majority": win})
+        return {key: win, "votes": votes, "results": [r for r in res if r is not None], "agreed": votes.get(win, 0) if win else 0}
+    if kind == "loop":
+        lp = ph["loop"]
+        mx = int(lp.get("max", 2))
+        last, passed, i = prev, False, 0
+        for i in range(1, mx + 1):
+            stages = {}
+            for j, st in enumerate(lp["stages"]):
+                sctx = dict(ctx, prev=last, last=last, stages=stages, i=i)
+                stitle = st.get("title") or st.get("label") or st.get("agent") or st.get("panel") or f"stage {j + 1}"
+                if "when" in st and not arch_dataflow.evaluate(st["when"], sctx):
+                    crew._event({"type": "skipped", "title": f"{title}/{stitle}", "when": st["when"], "iteration": i})
+                    continue
+                last = _run_phase(crew, st, sctx, f"{title}/{stitle}")
+                stages[st.get("id") or re.sub(r"\W+", "_", str(stitle).lower()).strip("_")] = last
+            try:
+                passed = bool(arch_dataflow.evaluate(lp["until"], dict(ctx, prev=last, last=last, stages=stages, i=i)))
+            except Exception:
+                passed = False
+            crew._event({"type": "loop", "title": title, "iteration": i, "max": mx, "passed": passed})
+            if passed:
+                break
+        crew.loop_counts[title] = i
+        return last
+    s = spec(ph)
+    return crew.agent(s["agent"], s["task"], label=s["label"], owns=s["owns"], context=s["context"], budget=s["budget"])
+
+
+def run_workflow(w, root=None, goal="", vars=None, overrides=None, **kw):
+    """Run a workflow (a dict, a path, or a workflows/ name). -> (verdict, crew).
+    Each phase gets the previous phase's result as {prev}. A phase with `when:` runs only when that expression (arch_dataflow's safe
+    evaluator over goal, vars, prev, phases.<id>) is true. overrides = {"agents": {"<name>"|"*": {field: value}}, "slots": N}
+    (parse_sets builds it from --set); every agent record and the journal say which overrides applied."""
+    import arch_dataflow
+    if not isinstance(w, dict):
+        w = load_workflow(w)
+    root = root or os.getcwd()
+    vars_ = dict(vars or {}, goal=goal)
+    vars_.setdefault("owns", "")
+    crew = Crew(root, goal, workflow=w["name"], description=w.get("description", ""), vars=vars_, overrides=overrides, **kw)
+    prev, phases = None, {}
+    for ph in w["phases"]:
+        ctx = {"goal": goal, "vars": vars_, "prev": prev, "phases": phases}
+        pid = ph.get("id") or re.sub(r"\W+", "_", ph["title"].lower()).strip("_")
+        t0 = time.time()
+        if "when" in ph:
+            try:
+                go = bool(arch_dataflow.evaluate(ph["when"], ctx))
+            except Exception as ex:
+                go = False
+                crew.say(f"[-] {ph['title']}: when: could not be read ({ex}); skipped")
+            if not go:
+                crew._event({"type": "skipped", "title": ph["title"], "when": ph["when"]})
+                crew.phase_times.append({"title": ph["title"], "kind": _phase_kind(ph), "secs": 0.0, "skipped": True})
+                crew.say(f"[-] {ph['title']}: skipped (when: {ph['when']})")
+                continue
+        crew.phase(ph["title"])
         try:
-            if "parallel" in ph:
-                res = crew.parallel([spec(en) for en in ph["parallel"]])
-                prev = [r for r in res if r is not None]
-            elif "pipeline" in ph:
-                pl = ph["pipeline"]
-                res = crew.pipeline(pl.get("items") or [], *[spec(s) for s in pl["stages"]])
-                prev = [r for r in res if r is not None]
-            else:
-                s = spec(ph)
-                prev = crew.agent(s["agent"], s["task"], label=s["label"], owns=s["owns"], context=s["context"], budget=s["budget"])
+            prev = _run_phase(crew, ph, ctx, ph["title"])
         except OwnershipClash as ex:
             crew.say(f"[x] {ph['title']}: refused before running: {ex}")
             return crew.close("refused"), crew
+        phases[pid] = prev
+        secs = round(time.time() - t0, 3)
+        crew.phase_times.append({"title": ph["title"], "kind": _phase_kind(ph), "secs": secs, "skipped": False})
+        crew._event({"type": "phase_done", "title": ph["title"], "kind": _phase_kind(ph), "secs": secs, "ok": prev not in (None, [])})
         crew.say(f"[{'ok' if prev not in (None, []) else '-'}] {ph['title']}: " + _cut(json.dumps(prev, ensure_ascii=False, default=str), 200))
     return crew.close(), crew
+
+
+# ---------------------------------------------------------------- catalogue for a UI: list, describe, save
+
+def _phase_summary(ph):
+    kind = _phase_kind(ph)
+    if kind == "parallel":
+        agents = [en.get("agent") for en in ph["parallel"] if isinstance(en, dict)]
+    elif kind == "pipeline":
+        agents = [en.get("agent") for en in (ph["pipeline"] or {}).get("stages") or [] if isinstance(en, dict)]
+    elif kind == "loop":
+        agents = [a for st in (ph["loop"] or {}).get("stages") or [] if isinstance(st, dict) for a in _phase_summary(st)["agents"]]
+    elif kind == "panel":
+        agents = [ph["panel"]] * int(ph.get("n", 3))
+    elif kind == "agent":
+        agents = [ph["agent"]]
+    else:
+        agents = []
+    row = {"title": ph.get("title") or ph.get("label") or ph.get("agent") or ph.get("panel"), "kind": kind, "agents": agents}
+    if "when" in ph:
+        row["when"] = ph["when"]
+    if kind == "loop":
+        row.update(max=ph["loop"].get("max", 2), until=ph["loop"].get("until"))
+    if kind == "code":
+        row["code"] = ph["code"]
+    return row
+
+
+def list_workflows(folder=None):
+    """-> {name: {name, title, description, path, phases: [{title, kind, agents, when?, ...}], problems?}} for workflows/*.yaml."""
+    import arch_ci
+    folder = folder or WORKFLOWS_DIR
+    out = {}
+    for fn in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        if not fn.endswith(".yaml"):
+            continue
+        path = os.path.join(folder, fn)
+        try:
+            with open(path, encoding="utf-8") as f:
+                w = arch_ci.load_yaml(f.read()) or {}
+        except Exception as e:
+            out[fn[:-5]] = {"name": fn[:-5], "path": path, "problems": [str(e)], "phases": []}
+            continue
+        row = {"name": fn[:-5], "title": w.get("name"), "description": w.get("description", ""), "path": path,
+               "phases": [_phase_summary(ph) for ph in w.get("phases") or [] if isinstance(ph, dict) and _phase_kind(ph)]}
+        probs = validate_workflow(w)
+        if probs:
+            row["problems"] = probs
+        out[fn[:-5]] = row
+    return out
+
+
+def describe(name):
+    """An agent or workflow name -> a dict for a person or a UI: what it is, its fields (agents) or its phases (workflows)."""
+    ag = list_agents()
+    if name in ag:
+        d = ag[name]
+        if "problems" in d:
+            return {"type": "agent", "name": name, "problems": d["problems"]}
+        row = {k: d.get(k) for k in ("name", "description", "model", "role", "category", "code", "tools", "writes", "effort", "budget",
+                                      "max_steps", "context", "owns", "output")}
+        return dict(row, type="agent", fields={k: FIELD_INFO[k] for k in OVERRIDABLE})
+    wf = list_workflows()
+    key = name[:-5] if str(name).endswith(".yaml") else name
+    hit = wf.get(key) or next((v for v in wf.values() if v.get("title") == name), None)
+    if hit:
+        return dict(hit, type="workflow")
+    raise KeyError(f"no agent or workflow called {name!r}")
+
+
+def _scalar_yaml(x):
+    if isinstance(x, bool):
+        return "true" if x else "false"
+    if x is None:
+        return "null"
+    if isinstance(x, (int, float)):
+        return str(x)
+    if isinstance(x, dict):
+        return "{}"
+    if isinstance(x, list):
+        return "[]"
+    return json.dumps(str(x), ensure_ascii=False)
+
+
+def _dump_yaml(v, ind=0):
+    """A small YAML writer for agent definitions (mappings, lists, strings, numbers, booleans); block text for multi-line strings.
+    save_agent reads the text back with arch_ci.load_yaml and refuses anything that does not come back equal."""
+    pad = " " * ind
+    lines = []
+    if isinstance(v, dict):
+        for k, x in v.items():
+            if isinstance(x, (dict, list)) and x:
+                lines.append(f"{pad}{k}:")
+                lines += _dump_yaml(x, ind + 2)
+            elif isinstance(x, str) and "\n" in x:
+                lines.append(f"{pad}{k}: |")
+                lines += [(pad + "  " + ln) if ln else "" for ln in x.rstrip("\n").split("\n")]
+            else:
+                lines.append(f"{pad}{k}: {_scalar_yaml(x)}")
+        return lines
+    for x in v:
+        if isinstance(x, dict) and x:
+            sub = _dump_yaml(x, ind + 2)
+            lines.append(pad + "- " + sub[0].lstrip())
+            lines += sub[1:]
+        else:
+            lines.append(pad + "- " + _scalar_yaml(x))
+    return lines
+
+
+def save_agent(name, spec, folder=None):
+    """Validate a definition, then write agents/<name>.yaml atomically (temp file + os.replace). -> the path.
+    ValueError with the problems when it is invalid, when its name is not `name`, or when the YAML would not read back the same;
+    nothing is written then."""
+    import arch_ci
+    if not re.match(r"^[a-z][a-z0-9_-]{0,40}$", str(name or "")):
+        raise ValueError(f"name: lower-case letters, digits, - or _ (got {str(name)[:40]!r})")
+    d = _plain(dict(spec or {}))
+    d.setdefault("name", name)
+    if d["name"] != name:
+        raise ValueError(f"the definition is called {d['name']!r}, not {name!r}")
+    probs = validate(d)
+    if probs:
+        raise ValueError("; ".join(probs))
+    order = ["name", "description", "model", "role", "category", "code", "system", "task", "tools", "writes", "output", "budget",
+             "effort", "max_steps", "context", "owns"]
+    d = {k: d[k] for k in order if k in d}
+    for k in ("system", "task"):
+        if not d[k].endswith("\n") and "\n" in d[k]:
+            d[k] += "\n"
+    text = f"# {name}: saved by arch_squad.save_agent (validated before writing)\n" + "\n".join(_dump_yaml(d)) + "\n"
+    back = arch_ci.load_yaml(text)
+    if back != d:
+        diff = sorted(k for k in d if back.get(k) != d.get(k))
+        raise ValueError("would not read back the same (fields: " + ", ".join(diff) + ")")
+    folder = folder or AGENTS_DIR
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, name + ".yaml")
+    tmp = path + f".tmp{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    os.replace(tmp, path)
+    return path
 
 
 # ---------------------------------------------------------------- the scripted fake model (tests and --fake)
@@ -748,19 +1198,29 @@ def main(argv=None):
     ap.add_argument("--slots", type=int, default=None, help="agents at once (default: Settings > Server > parallel)")
     ap.add_argument("--fake", action="store_true", help="use the scripted fake model (no real model is loaded)")
     ap.add_argument("--agents", action="store_true", help="list and validate agents/*.yaml, then stop")
+    ap.add_argument("--set", action="append", default=[], metavar="AGENT.FIELD=VALUE",
+                    help="override an agent field for this run (coder.model=qwen3:8b, coder.effort=low, *.budget.calls=4, slots=2)")
+    ap.add_argument("--workflows", action="store_true", help="list and validate workflows/*.yaml, then stop")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    try:
+        overrides = parse_sets(a.set)
+    except ValueError as ex:
+        print(f"[x] --set: {ex}")
+        return 2
+    if a.workflows:
+        rows = list_workflows()
+        for n, w in rows.items():
+            print(f"{'[x]' if w.get('problems') else '[ok]'} {n}: " + ("; ".join(w['problems']) if w.get('problems') else
+                  " -> ".join(f"{p['title']}({p['kind']})" for p in w['phases'])))
+        return 0 if all(not w.get("problems") for w in rows.values()) else 1
     if a.agents or not a.workflow:
         rows = list_agents()
         for n, d in rows.items():
             print(f"{'[x]' if 'problems' in d else '[ok]'} {n}: " + ("; ".join(d['problems']) if 'problems' in d else
                   f"{d['model']}/{d['role']}, tools {', '.join(d['tools'])}, output {'schema' if isinstance(d['output'], dict) else 'text'}"))
         return 0 if all("problems" not in d for d in rows.values()) else 1
-    path = a.workflow
-    if not os.path.isfile(path):
-        cand = os.path.join(WORKFLOWS_DIR, path if path.endswith(".yaml") else path + ".yaml")
-        path = cand if os.path.isfile(cand) else path
-    w = load_workflow(path)
+    w = load_workflow(a.workflow)
     root = os.path.abspath(a.root or os.getcwd())
     cfg = core.load_config(root)
     srv = None
@@ -768,12 +1228,14 @@ def main(argv=None):
         srv, over = start_fake()
         cfg = core.deep_merge(cfg, over)
     try:
-        verdict, crew = run_workflow(w, root, a.goal, vars={"owns": a.owns}, cfg=cfg, slots=a.slots, say=print)
+        verdict, crew = run_workflow(w, root, a.goal, vars={"owns": a.owns}, overrides=overrides, cfg=cfg,
+                                    slots=a.slots, say=print)
     finally:
         if srv is not None:
             srv.shutdown()
     out = {"verdict": verdict, "run_id": crew.run_id, "journal": os.path.join(crew.dir, "journal.jsonl"),
-           "agents": [{k: r.get(k) for k in ("agentId", "label", "phase", "verdict", "why", "totals")} for r in crew.records]}
+           "agents": [{k: r.get(k) for k in ("agentId", "label", "phase", "verdict", "why", "totals", "model", "effort", "overrides")}
+                      for r in crew.records], "phases": crew.phase_times}
     print(json.dumps(out, indent=1, default=str) if a.json else
           f"{w['name']}: {verdict}; {len(crew.records)} agents, peak {crew.peak_concurrency} at once (cap {crew.slots}); journal {out['journal']}")
     return 0 if verdict == "pass" else 1
