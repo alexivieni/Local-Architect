@@ -33,10 +33,10 @@ def classify(result):
         return "environment"
     if WIRING.search(text):
         return "wiring"
-    hidden = [j for j in judges if j.get("type") == "python_assert"]
+    others = [j for j in judges if j.get("type") != "tests_pass"]
     own = [j for j in judges if j.get("type") == "tests_pass"]
-    if hidden and all(j.get("ok") for j in hidden) and own and not all(j.get("ok") for j in own):
-        return "tests"
+    if others and all(j.get("ok") for j in others) and own and not all(j.get("ok") for j in own):
+        return "tests"                                      # every other check passed: only the project's tests disagree
     if TIMEOUT.search(text):
         return "timeout"
     return "behaviour"

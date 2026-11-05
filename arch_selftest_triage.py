@@ -20,6 +20,8 @@ def run():
         ("server loading -> environment", {"verdict": "fail", "error": "llama-server said: Loading model", "judges": [J("python_assert", False, "AssertionError")]}, "environment"),
         ("hidden passed, own tests failed -> tests", {"verdict": "fail", "judges": [J("python_assert", True), J("tests_pass", False, "1 failed, 4 passed")]}, "tests"),
         ("a refusal -> refusal", {"verdict": "fail", "judges": [J("no_refusal", False, "declined: I can't help with that")]}, "refusal"),
+        ("hidden passed but the refactor was not done (file_lacks failed) -> behaviour, not tests",
+         {"verdict": "fail", "judges": [J("python_assert", True), J("file_lacks", False, "dates.py still contains: _norm_b"), J("tests_pass", False, "1 error")]}, "behaviour"),
         ("an assertion -> behaviour", {"verdict": "fail", "judges": [J("python_assert", False, "AssertionError: same url must give the same code")]}, "behaviour"),
         ("a timeout -> timeout", {"verdict": "fail", "judges": [J("tests_pass", False, "Command timed out")]}, "timeout"),
     ]
@@ -28,7 +30,7 @@ def run():
         got = T.classify(r)
         results.append(got == want)
         print(f"  {'PASS' if got == want else 'FAIL'}  {name}" + ("" if got == want else f"   (got {got})"))
-    ok = T.summarize([c[1] for c in cases]) == {"wiring": 3, "environment": 2, "tests": 1, "refusal": 1, "behaviour": 1, "timeout": 1}
+    ok = T.summarize([c[1] for c in cases]) == {"wiring": 3, "environment": 2, "tests": 1, "refusal": 1, "behaviour": 2, "timeout": 1}
     results.append(ok)
     print(f"  {'PASS' if ok else 'FAIL'}  summarize counts failures by family")
     n = sum(results)
