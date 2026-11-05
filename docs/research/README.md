@@ -33,3 +33,5 @@ November 2026. [PDF](Engineering_Local_Agentic_Coding_Harnesses_Vieni_2026.pdf) 
 | §11 Phase 4: learning from tests | RL from pass/fail rewards on labelled runs | Verified traces → `arch_dataset.py` → `train_lora.py` (SFT/DPO today; GRPO needs a 24 GB GPU) |
 
 **Implementation status, section by section and equation by equation:** [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+
+**Evaluation protocol** (tasks, judges, oracle proofs, data separation, measures, the regression gate, H1 pairing): [EVALUATION_PROTOCOL.md](EVALUATION_PROTOCOL.md). **Results so far:** [H2 decode speed](H2_decode_speed.md); H1 results land in [H1_results.md](H1_results.md) when the run finishes.
