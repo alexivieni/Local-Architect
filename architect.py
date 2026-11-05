@@ -1143,6 +1143,15 @@ def cmd_cost(args):
     return 0
 
 
+def cmd_memplan(args):
+    """Worker x parallel slots x window: layers on the card, the decode bound and what N candidates cost (Eq. 5, 7, 11, 21)."""
+    import arch_memplan
+    rows = arch_memplan.plan(models=[m for m in (args.models or "").split(",") if m] or None,
+                             windows=tuple(int(w) for w in (args.windows or "4096,8192").split(",")))
+    print(json.dumps(rows, indent=1) if args.json else arch_memplan.report(rows))
+    return 0
+
+
 def cmd_cleanup(args):
     """Close what the app started (model servers, Ollama models, Launch runs, leftover eval folders). Without --yes it only lists."""
     import arch_cleanup
@@ -1363,7 +1372,7 @@ def _run_suites(suite):
                 print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
                 rc |= 1
         # suites whose run() returns True when every check passed (art returns 0 like the older ones)
-        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "idle", "cachehygiene", "cachespage", "offcard", "promptprefix", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring"):
+        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "promptprefix", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring"):
             try:
                 _res = importlib.import_module("arch_selftest_" + _name).run()
                 rc |= (0 if (_res is True or (type(_res) is int and _res == 0)) else 1)     # False == 0, so check the type
@@ -1608,6 +1617,10 @@ def main(argv=None):
     ex_.add_argument("--kv", choices=["f16", "q8_0", "q4_0"], default="q8_0")
     ex_.add_argument("--quants", help="also show this model at other storage formats")
     ex_.add_argument("--json", action="store_true")
+    mp_ = sub.add_parser("memplan", help="which worker, how many parallel slots, which window: layers on the card and what N candidates cost")
+    mp_.add_argument("--models", help="comma-separated model names (default: every passport with an architecture)")
+    mp_.add_argument("--windows", help="comma-separated windows, default 4096,8192")
+    mp_.add_argument("--json", action="store_true")
     cl_ = sub.add_parser("cleanup", help="close what the app started: model servers, Ollama models, Launch runs, leftover eval folders")
     cl_.add_argument("--yes", action="store_true")
     co_ = sub.add_parser("cost", help="seconds per ACCEPTED change per role and model (the report's C = t / p-bar), or --planner to test Eq. 19")
@@ -1625,7 +1638,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     fn = {"run": cmd_run, "flows": cmd_flows, "templates": cmd_templates, "route": cmd_route, "undo": cmd_undo,
           "portfolio": cmd_portfolio, "show-config": cmd_show, "serve": cmd_serve, "doctor": cmd_doctor, "assess": cmd_assess, "advise": cmd_advise,
-          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "cleanup": cmd_cleanup, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches}.get(a.cmd)
+          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches}.get(a.cmd)
     if not fn:
         ap.print_help()
         return 0
