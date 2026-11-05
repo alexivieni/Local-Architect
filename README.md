@@ -20,22 +20,21 @@ Architect runs that loop entirely on your own hardware. It rests on three parts,
 ## Architecture
 
 ```mermaid
-flowchart LR
-  U["Request"] --> R["Router<br/>qwen3 1.7B · CPU"]
-  R --> F["Flow<br/>YAML steps, budgets"]
-  F --> X["Retrieve<br/>AST skeleton · FTS5 + TF-IDF"]
-  X --> W["Worker<br/>abliterated 8B · GPU"]
-  W --> A["Apply edit<br/>read-before-edit · undo"]
-  A --> G{"Gates<br/>tests · parse · scanners"}
-  G -- "pass" --> V["Accept"]
-  G -- "fail" --> FB["Failure text<br/>in the prompt tail"]
-  FB --> W
-  G -- "stalled" --> H["Heavy<br/>35B MoE · experts in RAM"]
+flowchart TB
+  U["Request"] --> R["Router · qwen3 1.7B · CPU"]
+  R --> F["Flow · YAML steps + budgets"]
+  F --> X["Retrieve · AST skeleton · FTS5 + TF-IDF"]
+  X --> W["Worker · abliterated 8B · GPU"]
+  W --> A["Apply edit · read first · undo"]
+  A --> G{{"Gates · tests · parse · scanners"}}
+  G -- "fail: failure text<br/>in the prompt tail" --> W
+  G -- "stalled" --> H["Heavy · 35B MoE<br/>experts in RAM"]
   H --> A
-  H -. "opt-in, spend-capped" .-> CL["Claude tier"]
+  H -. "opt-in, capped" .-> CL["Claude tier"]
+  G -- "pass" --> V["Accept"]
   V --> T[("trace.jsonl")]
-  T --> LB["Logbook · playbooks · route learning"]
-  T --> DS["Verified local work only<br/>dataset · LoRA · eval gate · promote"]
+  T --> LB["Logbook · playbooks<br/>route learning"]
+  T --> DS["Verified local work only<br/>dataset · LoRA · eval gate"]
 ```
 
 Each step is data (`flows/*.yaml`): a tier, a prompt file, its gates, retries and a `{calls, tokens, seconds}` budget, enforced
@@ -77,7 +76,7 @@ The report's equations are implemented in the code. Each one comes with its para
 
 **Memory fit.** A model fits on the card only if its weights, its KV cache and the runtime overhead fit together:
 
-$$\kappa = 2\,L\,h_{kv}\,d_h\,b, \qquad M + \kappa n + O \le V \quad\Longrightarrow\quad n^{\ast} = \left\lfloor \frac{V - O - M}{\kappa} \right\rfloor$$
+$$\kappa = 2 L h_{kv} d_h b, \qquad M + \kappa n + O \le V \quad\Longrightarrow\quad n^{\ast} = \left\lfloor \frac{V - O - M}{\kappa} \right\rfloor$$
 
 **Decoding is bandwidth-bound.** Each token reads every active weight and its cache once, from wherever they live:
 
@@ -85,22 +84,26 @@ $$t_{tok} \approx \sum_{\tau \in \lbrace \text{gpu},\ \text{ram},\ \text{disk} \
 
 **Call time with a cached prefix.** ρ is the share of the prompt served from the KV cache:
 
-$$t = (1-\rho)\,\frac{n_{in}}{r_p} + n_{out}\, t_{tok}$$
+$$t = (1-\rho) \frac{n_{in}}{r_p} + n_{out}  t_{tok}$$
 
 **Time per accepted change.** This is the quantity a model is judged by. It uses the attempt-weighted pass rate $\bar p$ over
 attempts $1, \dots, k$:
 
-$$C = \frac{t}{\bar p}, \qquad \bar p = \frac{\sum_{i=1}^{k} Q_{i-1}\, p_i}{\sum_{i=1}^{k} Q_{i-1}}, \qquad Q_i = \prod_{j \le i} (1 - p_j)$$
+$$C = \frac{t}{\bar p}, \qquad \bar p = \frac{\sum_{i=1}^{k} Q_{i-1}  p_i}{\sum_{i=1}^{k} Q_{i-1}}, \qquad Q_i = \prod_{j \le i} (1 - p_j)$$
 
 **Placing roles.** For role counts $c_r$, swaps $S$ and swap cost $\lambda$, moving the planner from a small model $s$ to a large
 model $\ell$ pays only when the builder time it saves exceeds the planner time it adds:
 
-$$J = \sum_r c_r \frac{t_r}{p_r} + \lambda S, \qquad c_b\, t_b \left(\frac{1}{p_b} - \frac{1}{p_b'}\right) > c_r \left(\frac{t_\ell}{p_\ell} - \frac{t_s}{p_s}\right) + \lambda\, \Delta S$$
+$$J = \sum_r c_r \frac{t_r}{p_r} + \lambda S, \qquad c_b  t_b \left(\frac{1}{p_b} - \frac{1}{p_b'}\right) > c_r \left(\frac{t_\ell}{p_\ell} - \frac{t_s}{p_s}\right) + \lambda  \Delta S$$
 
 **Loop control, retrieval and self-improvement.** A step is stalled when it repeats itself. Retrieval rankings are fused by
 reciprocal rank. A self-edit is promoted only when every gate passes and no checks were removed:
 
-$$h_i = h_{i-1} \ \lor\ f_i = f_{i-1} \ \lor\ h_i = h_{i-2}, \qquad \mathrm{RRF}(d) = \sum_j \frac{1}{60 + \mathrm{rank}_j(d)}, \qquad \mathrm{Gates}(H') \land \lvert \mathrm{checks}(H') \rvert \ge \lvert \mathrm{checks}(H) \rvert$$
+$$\text{stalled} \iff h_i = h_{i-1} \ \lor\ f_i = f_{i-1} \ \lor\ h_i = h_{i-2}$$
+
+$$\mathrm{RRF}(d) = \sum_j \frac{1}{60 + \mathrm{rank}_j(d)}$$
+
+$$\text{promote } H' \iff \mathrm{Gates}(H') \land \lvert \mathrm{checks}(H') \rvert \ge \lvert \mathrm{checks}(H) \rvert$$
 
 | Equation | Where it runs | Measured on the reference laptop |
 |---|---|---|
