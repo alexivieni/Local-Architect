@@ -72,6 +72,39 @@ def check():
 
 # ------------------------------------------------------------------ curation (no GPU, no third-party imports)
 
+def row_model(row):
+    meta = row.get("meta") or {}
+    return meta.get("for_model") or meta.get("model") or None
+
+
+def pick_model(rows, model=None):
+    """An adapter fits ONE base. -> (rows for that model, error or None). With `model`, keep only its rows; without it, refuse a file
+    whose rows come from more than one model (rows with no model recorded are counted as their own 'unknown' model)."""
+    models = sorted({str(row_model(r) or "unknown") for r in rows})
+    if model:
+        kept = [r for r in rows if row_model(r) == model]
+        return kept, (None if kept else f"no samples for model {model!r} (the file has: {', '.join(models) or 'none'})")
+    if len(models) > 1:
+        return rows, ("this file mixes models (" + ", ".join(models) + "); pass --model <the worker you will put the adapter on> "
+                      "or use its own tier-<tier>.<model>.sft.jsonl")
+    return rows, None
+
+
+def base_error(model, base):
+    """Refuse a --base that does not fit the served model (arch_dataset.base_matches). Unknown model -> no refusal, a warning upstream."""
+    if not model:
+        return None
+    try:
+        sys.path.insert(0, HERE)
+        import arch_dataset
+    except Exception:
+        return None
+    ok = arch_dataset.base_matches(model, base)
+    if ok is False:
+        return f"--base {base} does not match {model} (expected {arch_dataset.base_for(model)}); an adapter only fits its own base"
+    return None
+
+
 def made_by_claude(row):
     """True for a sample a cloud model wrote or taught. Looks at every place an export may record it."""
     meta = row.get("meta") or {}
@@ -244,6 +277,8 @@ def main(argv=None):
     ap.add_argument("--gguf", action="store_true", help="export a q4_k_m GGUF and write an Ollama Modelfile")
     ap.add_argument("--export-only", action="store_true", help="GGUF + Modelfile from <out>/adapter; no training")
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--model", default=None, help="train only on this served model's samples (the worker the adapter is for)")
+    ap.add_argument("--force-base", action="store_true", help="train even when --base does not match --model")
     a = ap.parse_args(argv)
     if a.check:
         return check()
@@ -253,6 +288,15 @@ def main(argv=None):
         print(f"No training file at {a.data}. Run:  python architect.py dataset")
         return 1
     rows, broken = read_jsonl(a.data)
+    rows, err = pick_model(rows, a.model)
+    if err:
+        print("Refused: " + err)
+        return 2
+    mdl = a.model or (str(row_model(rows[0])) if rows and row_model(rows[0]) else None)
+    berr = base_error(mdl, a.base)
+    if berr and not a.force_base:
+        print("Refused: " + berr)
+        return 2
     cur = curate(rows, a.min_quality, a.curriculum, a.weight)
     if a.dry_run:
         print("\n".join(describe(cur, a.data, broken, a.epochs, load_stats(a.out))))

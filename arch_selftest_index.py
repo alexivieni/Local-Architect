@@ -121,7 +121,9 @@ def run():
         check("the status helper tells the hub on/off and the index size", st_["state"] == "on" and st_["model"] == "sqlite-fts5" and st_["chunks"] > 0, st_)
         import arch_params as params
         paths = params.all_schema_paths()
-        check("the retrieval settings are in the schema and the embedding-model ones are gone", {"retrieval.mode", "retrieval.chunk_lines", "retrieval.max_chunks"} <= paths and "retrieval.embed_model" not in paths and "retrieval.keep_alive" not in paths)
+        check("the retrieval settings are in the schema; the optional embed_model is there but off (\"\") by default, so keyword-only is the default path",
+              {"retrieval.mode", "retrieval.chunk_lines", "retrieval.max_chunks", "retrieval.embed_model"} <= paths and "retrieval.keep_alive" not in paths
+              and core.DEFAULTS["retrieval"].get("embed_model") == "" and st_["model"] == "sqlite-fts5", (sorted(p_ for p_ in paths if p_.startswith("retrieval.")), core.DEFAULTS["retrieval"].get("embed_model")))
         try:
             params.validate_settings_patch({"retrieval.mode": "vectors"})
             check("an unknown retrieval mode is refused by the validator", False)

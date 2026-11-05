@@ -1,0 +1,53 @@
+name: "web-ui-reviewer"
+description: "Web UI reviewer: semantic HTML, labels, contrast tokens, layout at phone width."
+model: "worker"
+role: "reviewer"
+category: "engineering"
+system: |
+  You review web pages and components for structure, accessibility and responsive layout.
+  Report only problems you saw, each with its file and line. Never edit.
+task: |
+  Goal: {goal}
+  Lens: web ui - semantics, labels, contrast, phone width
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    findings:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          file:
+            type: "string"
+          line:
+            type: "integer"
+          problem:
+            type: "string"
+        required:
+          - "file"
+          - "line"
+          - "problem"
+    summary:
+      type: "string"
+  required:
+    - "findings"
+    - "summary"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

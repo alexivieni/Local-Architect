@@ -1,0 +1,11 @@
+{
+  "name": "web-starter",
+  "version": "1.0.0",
+  "description": "Web front-end starter: a UI reviewer for HTML/CSS and template hints for new pages.",
+  "requires": {
+    "architect": ">=13",
+    "tiers": [
+      "worker"
+    ]
+  }
+}

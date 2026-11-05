@@ -109,7 +109,33 @@ def load_all(root=None):
                 continue
             if rec:
                 out[rec["name"].lower()] = rec
+    _add_plugin_skills(out, root)
     return out
+
+
+def _add_plugin_skills(out, root):
+    """Skills from enabled plugins: key = the bare name when free, else <plugin>:<name>. Shipped/project skills win a clash."""
+    try:
+        import arch_plugins
+        dirs = arch_plugins.skill_dirs(root)
+    except Exception:
+        return
+    for folder, plugin in dirs:
+        for fn in sorted(os.listdir(folder)):
+            if not fn.lower().endswith(".md"):
+                continue
+            p = os.path.join(folder, fn)
+            try:
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    rec = parse(f.read(), p, "plugin")
+            except OSError:
+                continue
+            if not rec:
+                continue
+            rec["plugin"] = plugin
+            rec["qualified"] = f"{plugin}:{rec['name']}".lower()
+            key = rec["name"].lower()
+            out[key if key not in out else rec["qualified"]] = rec
 
 
 # ---------------------------------------------------------------- choosing

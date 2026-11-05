@@ -23,6 +23,11 @@ What is deliberately left out, and why:
   * two tries that do not share a task. A retry appends its failure to the same prompt, so the two prompts share a long prefix; two
     unrelated questions do not. Without that check, any two unlabelled calls by one role in one run looked like a preference pair.
   * samples too long to train on a small card.
+  * Claude work: a run with any `claude` transport or `claude:` model call, and every run arch_learn.exclude_from_training() names.
+  * the ledger's FORMAT REFERENCE few-shot block in a prompt, unless it quotes this same local model's own reply (else it is cut off).
+  * SFT/distillation/trajectories from a real-project run whose final verdict is not "pass" (its in-run DPO pairs stay).
+  * a reply with an unterminated <think, or cut off at its limit (done_reason "length"); complete <think> blocks go to meta.thinking.
+  * any path under evals/runs/bench, and an eval run whose eval_task.json does not parse (fail closed).
 
 Output goes to `hub_data/datasets/`, per role AND per tier (`worker.sft.jsonl`, `tier-worker.sft.jsonl`, ...), because a tier is what you
 actually fine-tune: one adapter for the worker, trained on everything the worker is asked to do. Files from an earlier export that this one
@@ -50,9 +55,94 @@ SECRET = [
     re.compile(r"\bsk-[A-Za-z0-9_\-]{20,}\b"),
     re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b"),
     re.compile(r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b"),
-    re.compile(r"(?i)\b(password|passwd|secret|api[_-]?key|access[_-]?token|client[_-]?secret)\b\s*[:=]\s*['\"]?[^\s'\"]{8,}"),
+    # keyword = LITERAL value. The name may carry prefixes/suffixes joined by underscores (aws_secret_access_key, DB_PASSWORD, auth_token),
+    # an optional closing quote (JSON keys), then : or = (not ==). The value must be a literal: a quoted string of 8+ characters, or an
+    # unquoted run of 8+ that holds a digit and is not followed by '(' '.' '[' (a call or an attribute: password = get_password()).
+    re.compile(r"(?i)(?<![A-Za-z0-9])[A-Za-z0-9_]*(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|token|client[_-]?secret)"
+               r"[A-Za-z0-9_]*['\"]?\s*[:=](?!=)\s*(?:(['\"])(?![<{$%])[^'\"\s]{8,}\1|(?=[A-Za-z0-9+/_\-]*\d)(?=[A-Za-z0-9+/_\-]*[A-Za-z])[A-Za-z0-9+/_\-]{8,}(?![\w.(\[]))"),
     re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{20,}"),
+    re.compile(r"(?i)\bauthorization['\"]?\s*[:=]\s*['\"]?basic\s+[A-Za-z0-9+/]{8,}={0,2}"),
 ]
+
+THINK_DONE = re.compile(r"<think(?:ing)?>(.*?)</think(?:ing)?>\s*", re.S)
+FORMAT_REF = "\n\nFORMAT REFERENCE ("           # what arch_core.Engine._call appends to the end of a user turn (arch_ledger.example_for)
+
+
+def split_think(reply):
+    """<think> policy for training (one policy, documented in RECIPE.md): complete <think>...</think> blocks are cut out of the reply and
+    returned separately (kept in meta.thinking, never trained as the answer); a reply with an opening '<think' and no close is unusable.
+    -> (reply_without_thinking, thinking_text, unterminated)."""
+    r = reply or ""
+    thinking = "\n".join(m.strip() for m in THINK_DONE.findall(r))
+    rest = THINK_DONE.sub("", r)
+    return rest, thinking, bool(re.search(r"<think", rest, re.I))
+
+
+def strip_format_ref(user, model, examples=None):
+    """The ledger's few-shot block at the end of a user turn. Kept only when the example it quotes is verifiably this SAME local model's
+    own reply (found in the ledger with that model); otherwise cut off, because it may be another model's (or Claude's) text.
+    -> (user, "none" | "kept" | "stripped")."""
+    i = (user or "").find(FORMAT_REF)
+    if i < 0:
+        return user, "none"
+    quoted = user[i:].split("):\n", 1)[-1].strip()
+    if examples is None:
+        try:
+            import arch_ledger
+            examples = arch_ledger.load().get("_examples") or []
+        except Exception:
+            examples = []
+    m = str(model or "")
+    if quoted and not m.startswith(("claude:", "fake:")):
+        for e in examples:
+            if e.get("model") == m and (e.get("reply") or "").strip() == quoted:
+                return user, "kept"
+    return user[:i].rstrip(), "stripped"
+
+
+def _claude_run_ids():
+    """The Logbook's Claude-made task ids (arch_learn.exclude_from_training), as normalised run folders. Trace tasks are 'trace:<abs run dir>'."""
+    try:
+        import arch_learn
+        ids = arch_learn.exclude_from_training()
+    except Exception:
+        return set()
+    out = set()
+    for i in ids or ():
+        s = str(i)
+        out.add(s)
+        if s.startswith("trace:"):
+            out.add(os.path.normcase(os.path.abspath(s[6:])))
+    return out
+
+
+def _is_bench_path(p):
+    return "/evals/runs/bench" in os.path.normcase(os.path.abspath(p)).replace("\\", "/").lower()
+
+
+def template_overlap(tasks=None):
+    """Holdout-by-template self-check: template ids that appear in BOTH a training task and a bench (or holdout) task. -> sorted list.
+    A non-empty list means the benchmark measures templates the adapter was trained on (only other variants of them)."""
+    import arch_eval
+    if tasks is None:
+        tasks = list(arch_eval.load_tasks())
+        try:
+            import importlib.util
+            p = os.path.join(arch_eval.EVALS_DIR, "families", "distributed.py")
+            spec = importlib.util.spec_from_file_location("evals.families.distributed_all", p)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            tasks += [dict(t, family="distributed") for t in mod.all_tasks()]
+        except Exception:
+            pass
+    tr, be = set(), set()
+    for t in tasks:
+        k = t.get("template")
+        if not k:
+            continue
+        k = (t.get("family") or t.get("flow") or "?") + ":" + str(k)
+        (tr if arch_eval.bucket_for(t) == "train" else be).add(k)
+    return sorted(tr & be)
 
 
 def has_secret(*texts):
@@ -76,7 +166,44 @@ def runs_of(root):
         return []
 
 
-def roots(root, include_portfolio=False, include_eval_training=True):
+SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", "env", "site-packages", "AppData", "$Recycle.Bin", ".cache",
+             ".npm", ".cargo", ".rustup", ".nuget", ".gradle", ".m2", "dist", "build"}
+
+
+def discover(base, depth=6):
+    """Project folders under `base` (at most `depth` levels down) that hold `.arch/runs/<run>/trace.jsonl`. Bounded and read-only:
+    dependency folders, VCS folders and AppData (where the self-tests' throwaway homes live) are never entered."""
+    out, stack = [], [(os.path.abspath(base), 0)]
+    while stack:
+        d, lvl = stack.pop()
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        if ".arch" in names and runs_of(d):
+            out.append(d)
+        if lvl >= depth:
+            continue
+        for n in names:
+            if n in SKIP_DIRS or n.startswith("."):
+                continue
+            p = os.path.join(d, n)
+            if os.path.isdir(p) and not os.path.islink(p):
+                stack.append((p, lvl + 1))
+    return sorted(out)
+
+
+def is_bench(root):
+    """True for the benchmark bucket (benchmark families and held-out tasks): never a training root."""
+    try:
+        import arch_eval
+        b = arch_eval.kept_runs_dir("bench")
+    except Exception:
+        return False
+    return os.path.normcase(os.path.abspath(root)) == os.path.normcase(os.path.abspath(b))
+
+
+def roots(root, include_portfolio=False, include_eval_training=True, include_discovered=False, base=None, depth=6):
     """The project folders to read. Live eval runs of TRAINING tasks are kept in their own root (`arch_eval.kept_runs_dir("train")`)
     because each task's folder is thrown away; benchmark and held-out tasks are kept elsewhere and never read here."""
     out = [os.path.abspath(root)]
@@ -94,7 +221,11 @@ def roots(root, include_portfolio=False, include_eval_training=True):
             p = (app or {}).get("path") or (app or {}).get("folder")
             if p and os.path.isdir(p) and os.path.abspath(p) not in out:
                 out.append(os.path.abspath(p))
-    return out
+    if include_discovered:
+        for p in discover(base or os.path.expanduser("~"), depth):
+            if p not in out:
+                out.append(p)
+    return [p for p in out if not is_bench(p)]     # the holdout is never read, however the root list was built
 
 
 def read_trace(path):
@@ -180,22 +311,56 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
     seen_sft, seen_dpo = set(), set()
     cands = {}              # (role, task key) -> the best accepted sample so far
 
+    claude_ids = _claude_run_ids()
+    try:
+        import arch_ledger
+        ledger_examples = arch_ledger.load().get("_examples") or []
+    except Exception:
+        ledger_examples = []
     for root in root_list:
+        if is_bench(root) or _is_bench_path(root):
+            stats["bench_skipped"] += len(runs_of(root))
+            continue
         for run in runs_of(root):
             stats["runs"] += 1
-            try:                                       # a kept eval run whose HIDDEN checks did not pass teaches nothing, whatever
-                with open(os.path.join(run, "eval_task.json"), encoding="utf-8") as _f:   # its in-run gates said (review 2026-11-05)
-                    if (json.load(_f) or {}).get("verdict") != "pass":
-                        stats["eval_not_passed"] += 1
-                        continue
-            except (OSError, ValueError):
-                pass
+            if _is_bench_path(run):
+                stats["bench_skipped"] += 1            # any path under evals/runs/bench is the holdout, wherever the root list came from
+                continue
+            if os.path.normcase(os.path.abspath(run)) in claude_ids:
+                stats["claude_runs"] += 1              # the Logbook marks this task as Claude's (arch_learn.exclude_from_training)
+                continue
+            et = None
+            et_path = os.path.join(run, "eval_task.json")
+            if os.path.exists(et_path):
+                try:
+                    with open(et_path, encoding="utf-8") as _f:
+                        et = json.load(_f)
+                    if not isinstance(et, dict):
+                        raise ValueError("eval_task.json is not an object")
+                except (OSError, ValueError):
+                    stats["eval_task_unreadable"] += 1 # fail closed: an eval run that cannot be classified might be the holdout
+                    continue
+                if et.get("bucket") and et.get("bucket") != "train":
+                    stats["bench_skipped"] += 1        # a benchmark/holdout run copied anywhere else is still the holdout
+                    continue
+                if et.get("verdict") != "pass":        # a kept eval run whose HIDDEN checks did not pass teaches nothing (review 2026-11-05)
+                    stats["eval_not_passed"] += 1      # counted, so the report shows what the hidden-check rule withholds
+                    stats["eval_not_passed_accepted_marks"] += sum(
+                        1 for m in read_full(os.path.join(run, "trace.jsonl"))["marks"].values() if m.get("accepted") is True)
+                    continue
             full = read_full(os.path.join(run, "trace.jsonl"))
             calls, marks = full["calls"], full["marks"]
             run_name = os.path.basename(run)
             by_step = collections.defaultdict(list)
+            n_claude = full.get("claude", 0) + sum(1 for c in calls.values() if str(c.get("model") or "").startswith("claude:"))
+            if n_claude:
+                stats["claude_runs"] += 1              # Claude took part in this run: none of it is local work to fine-tune on
+                stats["claude"] += n_claude
+                continue
+            # Real-project runs (no eval_task.json): an SFT sample needs the RUN to have passed, not only its own step. Preference pairs
+            # inside a failed run stay: "this try failed, the next try of the same step passed" holds whatever the run's ending was.
+            run_pass = et is not None or (full.get("verdict") or {}).get("verdict") == "pass"
 
-            stats["claude"] += full.get("claude", 0)           # cloud replies, dropped while reading
             escalated_steps = {((e.get("role") or "?"), _step_key(e.get("step"))) for e in full["escalations"]}
             tries_seen, first_tier = collections.Counter(), {}
 
@@ -204,8 +369,15 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                 role = c.get("role") or "?"
                 if roles and role not in roles:
                     continue
+                mdl = str(c.get("model") or "")
+                if mdl.startswith("fake:"):
+                    stats["fixture"] += 1              # the scripted test stand-in: its replies are fixtures, not work
+                    continue
+                if mdl.startswith("claude:"):
+                    stats["claude"] += 1               # Claude-written whatever transport recorded it: never fine-tuning data
+                    continue
                 if _is_cache_hit(c):
-                    stats["cached"] += 1               # a reply reused from the cache was already exported when it was first produced
+                    stats["cached"] += 1              # a reply reused from the cache was already exported when it was first produced
                     continue
                 m = marks.get(cid)
                 if not m:
@@ -224,8 +396,14 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                 tries_seen[skey] += 1
                 first_tier.setdefault(skey, c.get("tier") or "worker")
                 sys_t, user = _turns(c)
-                reply = c.get("reply") or ""
-                if not user or not reply:
+                reply, thinking, unterminated = split_think(c.get("reply") or "")
+                if unterminated:
+                    stats["think_unterminated"] += 1   # an opened <think> that never closed: the answer is not there to learn
+                    continue
+                user, fref = strip_format_ref(user, mdl, ledger_examples)
+                if fref != "none":
+                    stats["format_ref_" + fref] += 1   # the few-shot block is someone else's text unless it is this model's own
+                if not user or not reply.strip():
                     stats["empty"] += 1
                     continue
                 if has_secret(sys_t, user, reply):
@@ -235,11 +413,15 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                     stats["too_long"] += 1
                     continue
                 tier = c.get("tier") or "worker"
-                rec = {"accepted": bool(verdict), "system": sys_t, "user": user, "reply": reply, "model": c.get("model"),
+                rec = {"accepted": bool(verdict), "system": sys_t, "user": user, "reply": reply, "thinking": thinking, "model": c.get("model"),
                        "tier": tier, "id": cid, "flow": c.get("flow"), "prompt_ref": c.get("prompt_ref") or "", "call": c}
                 by_step[skey].append(rec)
 
-                if verdict:
+                if verdict and not run_pass:
+                    stats["run_not_passed"] += 1       # the step passed but the run did not: kept only as the winning half of a pair
+                elif verdict and c.get("done_reason") == "length":
+                    stats["truncated"] += 1            # cut off at its token limit: not a whole answer to imitate
+                elif verdict:
                     diff = difficulty(c, reply, try_no + 1, skey in escalated_steps or tier != first_tier[skey])
                     q = quality_score(c, reply, try_no, max_chars)
                     if q < min_quality:
@@ -247,6 +429,8 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                         continue
                     row = _sample(sys_t, user, reply, role, tier, c, run_name, source="accepted")
                     row["meta"].update({"quality": q, "difficulty": diff, "tags": _tags(diff)})
+                    if thinking:
+                        row["meta"]["thinking"] = thinking[:4000]
                     key = (role, near_key(user)) if dedupe else (role, hashlib.sha1((user + "\n#\n" + reply).encode("utf-8", "replace")).hexdigest())
                     old = cands.get(key)
                     if old is not None:
@@ -297,6 +481,9 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                 student_failed = any((not t["accepted"]) and t["model"] == esc.get("from_model") for t in tries)
                 if not (teacher and student_failed):
                     continue
+                if not run_pass or (teacher["call"] or {}).get("done_reason") == "length":
+                    stats["distill_withheld"] += 1     # same SFT rules as above: a passed run, a whole reply
+                    continue
                 key = hashlib.sha1(("D" + near_key(teacher["user"]) if dedupe else "D" + teacher["user"] + teacher["reply"]).encode("utf-8", "replace")).hexdigest()
                 if key in seen_sft:
                     stats["duplicates"] += 1
@@ -315,12 +502,16 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                 row["meta"]["taught_by"] = esc.get("to_model")
                 row["meta"]["taught_by_tier"] = esc.get("to_tier")
                 row["meta"]["for_tier"] = target
+                row["meta"]["for_model"] = esc.get("from_model")   # the student: the per-model tier file is the one it goes into
                 row["meta"]["why"] = (esc.get("why") or "")[:200]
                 distill[target].append(row)
                 stats["distill"] += 1
 
             # ---- tool trajectories: one sample per tool loop, rebuilt from the call id each tool record carries
-            traj.extend(_trajectories(full, run_name, roles, max_chars, stats))
+            if run_pass:
+                traj.extend(_trajectories(full, run_name, roles, max_chars, stats))
+            elif full["tools"]:
+                stats["traj_run_not_passed"] += 1
 
     for (role, _k), row in cands.items():
         sft[role].append(row)
@@ -435,6 +626,8 @@ def _trajectories(full, run_name, roles, max_chars, stats):
         return out
     by_step = collections.defaultdict(list)
     for cid, c in full["calls"].items():
+        if str(c.get("model") or "").startswith(("fake:", "claude:")):
+            continue                                    # fixtures and Claude-written turns never enter a trajectory
         if c.get("role") and (not roles or c["role"] in roles):
             by_step[(c.get("flow"), c.get("role"))].append(cid)
     for (_flow, role), cids in by_step.items():
@@ -449,17 +642,22 @@ def _trajectories(full, run_name, roles, max_chars, stats):
             continue
         first = full["calls"][chain[0]]
         sys_t, user = _turns(first)
+        user, _fr = strip_format_ref(user, first.get("model"))
+        parts = [split_think(full["calls"][cid].get("reply") or "") for cid in chain + [final]]
+        if any(p[2] for p in parts):
+            stats["think_unterminated"] += 1
+            continue
         msgs = ([{"role": "system", "content": sys_t}] if sys_t else []) + [{"role": "user", "content": user}]
         size = len(sys_t) + len(user)
         for cid in chain:
             c = full["calls"][cid]
-            msgs.append({"role": "assistant", "content": c.get("reply") or ""})
+            msgs.append({"role": "assistant", "content": split_think(c.get("reply") or "")[0]})
             for t in tools_by_call[cid]:
                 res = f"{t.get('tool')} -> " + str(t.get("result") or "")[:1500]
                 msgs.append({"role": "tool", "name": str(t.get("tool") or ""), "content": res})
                 size += len(res)
             size += len(c.get("reply") or "")
-        msgs.append({"role": "assistant", "content": full["calls"][final].get("reply") or ""})
+        msgs.append({"role": "assistant", "content": split_think(full["calls"][final].get("reply") or "")[0]})
         size += len(full["calls"][final].get("reply") or "")
         if size > max_chars * 2:
             stats["traj_too_long"] += 1
@@ -474,9 +672,62 @@ def _trajectories(full, run_name, roles, max_chars, stats):
 
 # ------------------------------------------------------------------ writing
 
-def write(data, out_dir):
-    """Write every set, remove anything a previous export left behind, and return the summary."""
+def slug(model):
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", str(model or "unknown")).strip("-.") or "unknown"
+
+
+# A LoRA only fits the base it was trained on. The Ollama/GGUF model the worker runs -> the Hugging Face base to train from.
+BASES = [
+    (r"qwen3[^0-9]*(?<![0-9.])4b\b", "unsloth/Qwen3-4B-Instruct-2507"),
+    (r"qwen3[^0-9]*(?<![0-9.])8b\b", "unsloth/Qwen3-8B"),
+    (r"qwen3[^0-9]*(?<![0-9.])14b\b", "unsloth/Qwen3-14B"),
+    (r"qwen2\.5-coder[^0-9]*(?<![0-9.])7b\b", "unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit"),
+    (r"qwen2\.5-coder[^0-9]*(?<![0-9.])14b\b", "unsloth/Qwen2.5-Coder-14B-Instruct-bnb-4bit"),
+    (r"qwen2\.5-coder[^0-9]*(?<![0-9.])3b\b", "unsloth/Qwen2.5-Coder-3B-Instruct-bnb-4bit"),
+]
+
+
+def base_for(model):
+    """-> the training base for this served model, or None when it is not known (then the recipe says so instead of guessing)."""
+    m = str(model or "").lower()
+    if "moe" in m or re.search(r"\ba\d+b\b", m):
+        return None                                   # mixture-of-experts: not a LoRA-on-6GB target, and no safe guess
+    for rx, base in BASES:
+        if re.search(rx, m):
+            return base
+    return None
+
+
+def base_matches(model, base):
+    """Does this HF base fit this served model? Same family word and same parameter size. Unknown model -> None (cannot tell)."""
+    want = base_for(model)
+    if not want:
+        return None
+    return want.lower() == str(base or "").lower() or (
+        re.sub(r"-(instruct|bnb-4bit|2507)", "", want.lower()) == re.sub(r"-(instruct|bnb-4bit|2507)", "", str(base or "").lower()))
+
+
+def configured_tiers(root=None):
+    """{tier: model} the settings name (empty tiers left out)."""
+    try:
+        cfg = core.load_config(root or os.getcwd())
+        return {t: m for t, m in (cfg.get("tiers") or {}).items() if m and t in TIERS}
+    except Exception:
+        return {}
+
+
+def _row_model(r):
+    m = r.get("meta") or {}
+    return m.get("for_model") or m.get("model") or "unknown"
+
+
+def write(data, out_dir, tier_models=None):
+    """Write every set, remove anything a previous export left behind, and return the summary.
+
+    Tier files are PER MODEL: `tier-<tier>.<model-slug>.sft.jsonl`, because an adapter fits one base. `tier-<tier>.sft.jsonl` holds only
+    the rows of the model configured for that tier (`tier_models`, default: the settings); with no configured model it is not written."""
     os.makedirs(out_dir, exist_ok=True)
+    tier_models = configured_tiers() if tier_models is None else dict(tier_models)
     written, wrote_files = {}, set()
 
     def dump(name, rows):
@@ -495,8 +746,17 @@ def write(data, out_dir):
     for tier, rows in (data.get("distill") or {}).items():
         dump(f"distill-{tier}.sft.jsonl", rows)
         by_tier[tier].extend(rows)
+    per_model = collections.defaultdict(lambda: collections.defaultdict(int))
     for tier, rows in sorted(by_tier.items()):
-        dump(f"tier-{tier}.sft.jsonl", rows)             # what you actually fine-tune: one adapter per tier
+        groups = collections.defaultdict(list)
+        for r in rows:
+            groups[_row_model(r)].append(r)
+        for mdl, grp in sorted(groups.items()):
+            dump(f"tier-{tier}.{slug(mdl)}.sft.jsonl", grp)  # one adapter fits one base: one file per model
+            per_model[tier][mdl] = len(grp)
+        want = tier_models.get(tier) or (next(iter(groups)) if len(groups) == 1 else None)   # unconfigured: only when unambiguous
+        if want:
+            dump(f"tier-{tier}.sft.jsonl", groups.get(want, []))   # what you actually fine-tune: the configured model's rows only
 
     dpo_by_tier = collections.defaultdict(list)
     for role, rows in (data.get("dpo") or {}).items():
@@ -504,7 +764,14 @@ def write(data, out_dir):
         for r in rows:
             dpo_by_tier[r["meta"].get("rejected_tier") or "worker"].append(r)
     for tier, rows in sorted(dpo_by_tier.items()):
-        dump(f"tier-{tier}.dpo.jsonl", rows)
+        groups = collections.defaultdict(list)
+        for r in rows:
+            groups[r["meta"].get("rejected_model") or "unknown"].append(r)
+        for mdl, grp in sorted(groups.items()):
+            dump(f"tier-{tier}.{slug(mdl)}.dpo.jsonl", grp)
+        want = tier_models.get(tier) or (next(iter(groups)) if len(groups) == 1 else None)
+        if want:
+            dump(f"tier-{tier}.dpo.jsonl", groups.get(want, []))
     if data.get("traj"):
         dump("trajectories.jsonl", data["traj"])
 
@@ -523,7 +790,8 @@ def write(data, out_dir):
         f.write(report_text(rep) + "\n")
     summary = {"stats": data["stats"], "report": rep, "files": written, "removed_stale": stale,
                "per_role": {r: {"sft": len((data.get("sft") or {}).get(r, [])), "dpo": len((data.get("dpo") or {}).get(r, []))} for r in roles_seen},
-               "per_tier": {t: {"sft": len(rows), "dpo": len(dpo_by_tier.get(t, []))} for t, rows in by_tier.items()}}
+               "per_tier": {t: {"sft": len(rows), "dpo": len(dpo_by_tier.get(t, []))} for t, rows in by_tier.items()},
+               "per_model": {t: dict(v) for t, v in per_model.items()}, "tier_models": tier_models}
     with open(os.path.join(out_dir, "summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=1)
     with open(os.path.join(out_dir, "RECIPE.md"), "w", encoding="utf-8") as f:
@@ -535,8 +803,21 @@ def recipe(summary, out_dir):
     st = summary.get("stats") or {}
     n_sft, n_dpo, n_tr = st.get("sft", 0), st.get("dpo", 0), st.get("traj", 0)
     per_tier = summary.get("per_tier") or {}
-    best = max(per_tier.items(), key=lambda kv: kv[1]["sft"])[0] if per_tier else "worker"
-    biggest = os.path.join(out_dir, f"tier-{best}.sft.jsonl")
+    per_model = (summary.get("per_model") or {}).get("worker") or {}
+    best = "worker"
+    worker = (summary.get("tier_models") or {}).get("worker") or ""
+    base = base_for(worker) if worker else None
+    biggest = os.path.join(out_dir, f"tier-worker.{slug(worker)}.sft.jsonl" if worker else "tier-worker.sft.jsonl")
+    n_worker = per_model.get(worker, 0) if worker else 0
+    if not worker:
+        target_line = ("- **No worker model is configured** (Settings > Models > tiers.worker), so no training target is named. "
+                       "Per-model files: " + (", ".join(f"`tier-worker.{slug(m)}.sft.jsonl` ({n})" for m, n in sorted(per_model.items())) or "none") + ".")
+    elif not base:
+        target_line = (f"- Your worker is `{worker}`. **No known training base matches it**, so no command is given: an adapter trained "
+                       "on another base will not load on it. Find that model's exact Hugging Face base before training.")
+    else:
+        target_line = f"- Train your worker `{worker}` from `{os.path.basename(biggest)}` ({n_worker} samples) on base `{base}`."
+    others = [f"`tier-worker.{slug(m)}.sft.jsonl` ({n})" for m, n in sorted(per_model.items()) if m != worker]
     lines = [
         "# Training the worker on your own runs",
         "",
@@ -544,7 +825,19 @@ def recipe(summary, out_dir):
         "agreed, nothing fake. Replies whose checks could not run were left out, and so was anything that looked like a credential.",
         "",
         f"- SFT samples: **{n_sft}**   preference pairs: **{n_dpo}**   tool trajectories: **{n_tr}**   taught by a bigger tier: **{st.get('distill', 0)}**",
-        f"- Train the **{best}** tier from `{os.path.basename(biggest)}` ({per_tier.get(best, {}).get('sft', 0)} samples).",
+        target_line,
+        ("- Samples from other models are in their own files and are NOT for this adapter: " + ", ".join(others) + ".") if others else "",
+        "",
+        "## What is in the samples, and what is not",
+        "",
+        "- Only runs whose final verdict was **pass** give SFT samples (tool trajectories and distillation too). Preference pairs may come",
+        "  from a run that failed overall: the failed try and the passing try of the same step are still a true pair.",
+        "- **Thinking:** a complete `<think>...</think>` block is cut out of the reply and kept in `meta.thinking`; the model is trained on",
+        "  the answer only. A reply with an unterminated `<think` is skipped, and so is a reply cut off at its token limit",
+        "  (`done_reason: length`).",
+        "- The ledger's `FORMAT REFERENCE` few-shot block is cut from the prompt unless it quotes this same local model's own reply.",
+        "- Nothing Claude wrote or took part in (a `claude` transport, a `claude:` model, a Logbook task marked by_claude), no benchmark",
+        "  or holdout run, and no eval run whose `eval_task.json` cannot be read.",
         "",
         "## Is there enough yet?",
         "",
@@ -564,12 +857,12 @@ def recipe(summary, out_dir):
         "",
         "```bash",
         "pip install unsloth trl datasets          # once; needs a network, unlike everything else here",
-        "python train_lora.py --data " + biggest.replace("\\", "/") + " \\",
-        "    --base unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit \\",
-        "    --out hub_data/adapters/worker-lora --epochs 2 --max-seq 4096",
+        ("python train_lora.py --data " + biggest.replace("\\", "/") + " \\") if base else "# no command: see the target line above",
+        (f"    --model {worker} --base {base} \\") if base else "",
+        "    --out hub_data/adapters/worker-lora --epochs 2 --max-seq 4096" if base else "",
         "```",
         "",
-        "Pick the base model that matches the worker you are actually running, or the adapter will not fit it. A 7B at 4-bit trains in",
+        "`train_lora.py` refuses a file that mixes models, and a `--base` that does not match `--model`. A 7B at 4-bit trains in",
         "roughly 2-4 hours on a 6 GB card at a 4096 window; drop `--max-seq` to 2048 if it runs out of memory.",
         "",
         "## Then make it a model this app can use",
@@ -585,7 +878,7 @@ def recipe(summary, out_dir):
         "with a `Modelfile` of:",
         "",
         "```",
-        "FROM qwen2.5-coder:7b",
+        f"FROM {worker or '<your worker model>'}",
         "ADAPTER ./hub_data/adapters/worker-lora.gguf",
         "```",
         "",

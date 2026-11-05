@@ -491,6 +491,14 @@ def tune_info():
         cat = at.suggest(hw, rows, cfg, st.get("profile"))
         own = at.owned_models(rows, cfg, st.get("profile"))
         opt = arch_modelopt.plan(hw, rows, cfg, st.get("profile"))
+        try:  # passport family line + explain for the Models table; absent passports are simply skipped
+            import arch_passport
+            for o in own:
+                pp = arch_passport.load(o.get("name", "")) if isinstance(o, dict) else None
+                if isinstance(pp, dict):
+                    o["passport"] = {k: pp.get(k) for k in ("identity", "family_line", "explain") if pp.get(k) is not None}
+        except Exception:
+            pass
     except mh.OllamaError as e:
         own, cat, opt = [], {"as_of": None, "machine": {}, "suggestions": [], "error": e.msg}, None
     fit, index = None, None
@@ -1623,6 +1631,160 @@ def squad_run(b):
     return {"ok": True, "argv": argv[1:]}
 
 
+# ---- Plugins, Telemetry and Squad runs pages (arch_plugins / arch_telemetry / arch_squad are optional; a missing module or
+# function answers {"available": False, "why": ...}). Expensive GETs are cached for a few seconds; a change clears the cache.
+_TTL_CACHE = {}
+_TTL_LOCK = threading.Lock()
+
+
+def _ttl(key, seconds, fn):
+    """-> fn() at most once per `seconds` per key. ARCHITECT_NO_CACHE=1 turns it off (tests)."""
+    if os.environ.get("ARCHITECT_NO_CACHE") == "1":
+        return fn()
+    now = time.time()
+    with _TTL_LOCK:
+        hit = _TTL_CACHE.get(key)
+        if hit and now - hit[0] < seconds:
+            return hit[1]
+    val = fn()
+    with _TTL_LOCK:
+        _TTL_CACHE[key] = (now, val)
+        if len(_TTL_CACHE) > 64:
+            for k in sorted(_TTL_CACHE, key=lambda k: _TTL_CACHE[k][0])[:16]:
+                _TTL_CACHE.pop(k, None)
+    return val
+
+
+def _ttl_drop(prefix):
+    with _TTL_LOCK:
+        for k in [k for k in _TTL_CACHE if k.startswith(prefix)]:
+            _TTL_CACHE.pop(k, None)
+
+
+_PROVIDES = ("agents", "workflows", "skills", "commands", "hooks")
+
+
+def plugins_list():
+    """GET /api/arch/plugins -> {available, plugins:[{name, version, description, enabled, trusted, provides, problems}]}."""
+    def get():
+        f, why = _optional("arch_plugins", "list")
+        if not f:
+            return {"available": False, "why": why, "plugins": []}
+        rows, err = _guarded(f)
+        if err:
+            return {"available": False, "why": err, "plugins": []}
+        out = []
+        for r in (rows.values() if isinstance(rows, dict) else rows or []):
+            if not isinstance(r, dict) or not r.get("name"):
+                continue
+            pv = r.get("provides") if isinstance(r.get("provides"), dict) else {}
+            out.append({"name": str(r["name"]), "version": str(r.get("version") or ""), "description": str(r.get("description") or "")[:400],
+                        "enabled": bool(r.get("enabled")), "trusted": bool(r.get("trusted")),
+                        "provides": {k: [str(x) for x in (pv.get(k) or [])][:50] if isinstance(pv.get(k), (list, tuple))
+                                     else (pv.get(k) or 0) for k in _PROVIDES},
+                        "problems": [str(x) for x in (r.get("problems") or [])][:10], "source": str(r.get("source") or r.get("path") or "")})
+        return {"available": True, "plugins": out}
+    return _plain(_ttl("plugins", 5, get))
+
+
+def plugins_change(action, b):
+    """POST /api/arch/plugins/{enable,disable,trust,install,remove}. trust needs {confirm: true}; install takes {path}."""
+    if action not in ("enable", "disable", "trust", "install", "remove"):
+        raise ValueError("unknown plugin action")
+    f, why = _optional("arch_plugins", action)
+    if not f:
+        raise ValueError(why)
+    if action == "install":
+        p = str(b.get("path") or "").strip().strip('"')
+        if not p or len(p) > 1000 or not (os.path.isdir(p) or (os.path.isfile(p) and p.lower().endswith(".zip"))):
+            raise ValueError("Give a plugin folder or a .zip file that exists on this PC.")
+        name = f(p)
+        _ttl_drop("plugins")
+        return {"ok": True, "name": str(name), **plugins_list()}
+    name = str(b.get("name") or "")
+    if not _NAME_RE.match(name):
+        raise ValueError("bad plugin name")
+    if action == "trust" and b.get("confirm") is not True:
+        raise ValueError("Trusting a plugin lets its hooks and commands run code on this PC. Say confirm: true.")
+    f(name)
+    _ttl_drop("plugins")
+    return {"ok": True, "name": name, **plugins_list()}
+
+
+def telemetry_summary(window):
+    """GET /api/arch/telemetry/summary?window=seconds -> {available, window, calls, tokens_in, ...}."""
+    def get():
+        f, why = _optional("arch_telemetry", "summary")
+        if not f:
+            return {"available": False, "why": why, "window": window}
+        s, err = _guarded(f, window)
+        if err or not isinstance(s, dict):
+            return {"available": False, "why": err or "summary() returned nothing", "window": window}
+        return {"available": True, "window": window, **s}
+    return _plain(_ttl(f"tele.sum.{window}", 5, get))
+
+
+def telemetry_events(since=None, run=None, kinds=None, limit=300):
+    """GET /api/arch/telemetry/events?since=&run=&kinds=a,b -> {available, events:[...]} (newest last, at most `limit`)."""
+    f, why = _optional("arch_telemetry", "read")
+    if not f:
+        return {"available": False, "why": why, "events": []}
+    rows, err = _guarded(f, since=since, run=run or None, kinds=kinds or None, limit=limit)
+    if err:
+        return {"available": False, "why": err, "events": []}
+    return _plain({"available": True, "events": list(rows or [])[-limit:]})
+
+
+def telemetry_timeline(run_id):
+    """GET /api/arch/telemetry/timeline?run= -> {available, run, spans:[{kind, start, end, duration, children}]}."""
+    if not _NAME_RE.match(run_id or ""):
+        return {"available": False, "why": "give a run id", "spans": []}
+
+    def get():
+        f, why = _optional("arch_telemetry", "timeline")
+        if not f:
+            return {"available": False, "why": why, "spans": []}
+        t, err = _guarded(f, run_id)
+        if err:
+            return {"available": False, "why": err, "spans": []}
+        spans = t.get("spans") if isinstance(t, dict) else t
+        return {"available": True, "run": run_id, "spans": list(spans or [])}
+    return _plain(_ttl("tele.tl." + run_id, 3, get))
+
+
+def squad_runs():
+    """GET /api/arch/squad/runs -> {available, runs:[{run_id, workflow, started, status, agents, cached}]}."""
+    def get():
+        f, why = _optional("arch_squad", "list_runs")
+        if not f:
+            return {"available": False, "why": why, "runs": []}
+        rows, err = _guarded(f)
+        if err:
+            return {"available": False, "why": err, "runs": []}
+        keep = ("run_id", "workflow", "started", "status", "agents", "cached")
+        return {"available": True, "runs": [{k: r.get(k) for k in keep} for r in (rows or []) if isinstance(r, dict)][:200]}
+    return _plain(_ttl("squad.runs", 5, get))
+
+
+def squad_resume(b):
+    """POST /api/arch/squad/resume {run_id} -> starts `architect.py crew <workflow> --resume <run_id>` as the hub job."""
+    rid = str(b.get("run_id") or "")
+    if not _NAME_RE.match(rid):
+        raise ValueError("bad run id")
+    row = next((r for r in squad_runs().get("runs") or [] if r.get("run_id") == rid), None)
+    if not row:
+        raise ValueError("no such run")
+    wf = str(row.get("workflow") or "")
+    if not _NAME_RE.match(wf):
+        raise ValueError("that run has no workflow name")
+    argv = ["architect.py", "crew", wf, "--resume", rid]
+    if b.get("fake"):
+        argv.append("--fake")
+    mh.JOB.start("Crew: resume " + rid[:40], argv)
+    _ttl_drop("squad.")
+    return {"ok": True, "run_id": rid, "argv": argv[1:]}
+
+
 def select_why():
     """GET /api/arch/select/why -> {available, jobs:[{job, current, best, C, pass_rate, ci, tok_s, fits, n, reason, suggestion}]}."""
     f, why = _optional("arch_select", "why")
@@ -2113,11 +2275,50 @@ class AHandler(mh.Handler):
             except ValueError:
                 days = 7
             return self._send(200, costs_summary(days))
+        if u.path in ("/api/arch/plugins", "/api/arch/telemetry/summary", "/api/arch/telemetry/events", "/api/arch/telemetry/timeline",
+                      "/api/arch/squad/runs"):
+            # Plugins, Telemetry and Squad runs pages: read-only, short-TTL cached, "available: false" when a module is missing
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            q = parse_qs(u.query)
+            one = lambda k, d="": (q.get(k) or [d])[0]
+            if u.path == "/api/arch/plugins":
+                return self._send(200, plugins_list())
+            if u.path == "/api/arch/squad/runs":
+                return self._send(200, squad_runs())
+            if u.path == "/api/arch/telemetry/timeline":
+                return self._send(200, telemetry_timeline(one("run")))
+            if u.path == "/api/arch/telemetry/summary":
+                try:
+                    w = max(60, min(30 * 86400, int(one("window", "3600"))))
+                except ValueError:
+                    w = 3600
+                return self._send(200, telemetry_summary(w))
+            try:
+                since = float(one("since")) if one("since") else None
+            except ValueError:
+                since = None
+            kinds = [k for k in one("kinds").split(",") if re.match(r"^[a-z0-9_.]{1,40}$", k)] or None
+            run_id = one("run") if _NAME_RE.match(one("run")) else None
+            return self._send(200, telemetry_events(since, run_id, kinds))
         if u.path in ("/api/arch/squad/agents", "/api/arch/squad/workflows", "/api/arch/select/why"):
             if not self._host_ok():
                 return self._send(403, {"error": "bad host"})
             return self._send(200, {"/api/arch/squad/agents": squad_agents, "/api/arch/squad/workflows": squad_workflows,
                                     "/api/arch/select/why": select_why}[u.path]())
+        if u.path in ("/api/arch/selfimprove/sessions", "/api/arch/selfimprove/session", "/api/arch/selfimprove/suggest"):
+            # Improve itself (Machine > Improve itself): read-only views of the loop's sessions (arch_selfimprove.loop)
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            import arch_selfimprove as si
+            try:
+                if u.path.endswith("/sessions"):
+                    return self._send(200, {"sessions": si.sessions(), "history": si.history()[-20:]})
+                if u.path.endswith("/suggest"):
+                    return self._send(200, si.suggest())
+                return self._send(200, si.load_session((parse_qs(u.query).get("id") or [""])[0]))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
         if u.path == "/api/arch/crew_schedule":
             if not self._host_ok():
                 return self._send(403, {"error": "bad host"})
@@ -2380,6 +2581,35 @@ class AHandler(mh.Handler):
                 argv.append("--yes")
             mh.JOB.start("Self-improve: " + goal[:50], argv)
             return {"ok": True}
+        if path in ("/api/arch/selfimprove/start", "/api/arch/selfimprove/again"):
+            argv = ["architect.py", "self-improve", "--rounds", str(max(1, min(10, int(b.get("rounds") or (1 if path.endswith("again") else 3)))))]
+            if path.endswith("again"):
+                sid = str(b.get("id") or "")
+                if not re.fullmatch(r"[A-Za-z0-9_-]{4,80}", sid):
+                    raise ValueError("bad session id")
+                argv += ["--resume", sid]
+            else:
+                goal = str(b.get("goal") or "").strip()[:2000]
+                if goal:
+                    argv += ["--goal", goal]
+            if b.get("fake") is True:
+                argv.append("--fake")
+            mh.JOB.start("Improve itself" + (": " + str(b.get("goal"))[:50] if b.get("goal") else ""), argv)   # never --yes: promote is its own button
+            return {"ok": True}
+        if path == "/api/arch/selfimprove/promote":
+            import arch_selfimprove as si
+            if b.get("confirm") is not True:
+                raise ValueError("Promotion needs your confirmation.")
+            try:
+                return {"ok": True, "session": si.promote_session(str(b.get("id") or ""), confirm=True, say=lambda m: None)}
+            except PermissionError as e:
+                raise ValueError(str(e))
+        if path == "/api/arch/selfimprove/discard":
+            import arch_selfimprove as si
+            return {"ok": True, "session": si.discard_session(str(b.get("id") or ""))}
+        if path == "/api/arch/selfimprove/rollback":
+            import arch_selfimprove as si
+            return {"ok": True, "result": si.rollback_session(say=lambda m: None)}
         if path == "/api/arch/self_rollback":
             mh.JOB.start("Roll back last self-improvement", ["architect.py", "self-rollback"])
             return {"ok": True}
@@ -2630,6 +2860,10 @@ class AHandler(mh.Handler):
             return squad_save_agent(b)
         if path == "/api/arch/squad/run":
             return squad_run(b)
+        if path == "/api/arch/squad/resume":
+            return squad_resume(b)
+        if path.startswith("/api/arch/plugins/"):
+            return plugins_change(path.rsplit("/", 1)[1], b)
         if path == "/api/arch/select/apply":
             return select_apply(b)
         if path == "/api/arch/select/undo":

@@ -99,9 +99,13 @@ def rrf(rankings, k=60):
     return sorted(score.items(), key=lambda x: -x[1])
 
 
-def hybrid(hits, tfidf_ranked):
-    """Fuse the TF-IDF file order with the FTS5 chunk hits. -> (files best first, {file: [chunk names the index found]})."""
-    by_file, fts_files = {}, []
+def hybrid(hits, tfidf_ranked, dense=None):
+    """Fuse the TF-IDF file order with the FTS5 chunk hits (and, only when given, the optional dense hits from arch_embed).
+    -> (files best first, {file: [chunk names the index found]})."""
+    by_file, fts_files, dense_files = {}, [], []
+    for c, s in dense or []:
+        if c.get("kind", "code") == "code" and c["path"] not in dense_files:
+            dense_files.append(c["path"])
     for c, s in hits:
         if c.get("kind", "code") != "code":
             continue
@@ -109,7 +113,7 @@ def hybrid(hits, tfidf_ranked):
             fts_files.append(c["path"])
         by_file.setdefault(c["path"], []).append(c["name"])
     tf = [f for f, s in tfidf_ranked if s > 0]                    # a zero score is "no evidence", not a rank: it must not tie with a real hit
-    fused = [f for f, _ in rrf([tf, fts_files])]
+    fused = [f for f, _ in rrf([tf, fts_files] + ([dense_files] if dense_files else []))]
     for f, _ in tfidf_ranked:                                      # files neither side ranked keep their old order at the tail
         if f not in fused:
             fused.append(f)
@@ -126,6 +130,12 @@ class Retriever:
         self.mode = ((cfg.get("retrieval") or {}).get("mode") or "hybrid")
         self.index = arch_fts.Index(root) if (self.mode == "hybrid" and arch_fts.available()) else None
         self.dirty, self.off_reason, self.last = True, None, None
+        self.chunks = []
+        try:
+            import arch_embed
+            self.embedder = arch_embed.for_cfg(root, cfg)          # None unless retrieval.embed_model is set
+        except Exception:
+            self.embedder = None
         if self.mode == "hybrid" and not arch_fts.available():
             self.off_reason = "this Python's SQLite has no FTS5; keyword ranking only"
         elif self.mode != "hybrid":
@@ -149,6 +159,7 @@ class Retriever:
             self.dirty = False
             self.say(f"    [index] {self.off_reason}; using the keyword ranking")
             return
+        self.chunks = cs
         st = self.index.refresh(cs, kind="code")
         mem = memory_chunks(self.root, self.read_text)
         if mem or st.get("new") or st.get("dropped"):
@@ -169,7 +180,13 @@ class Retriever:
         if not self.active():
             return [f for f, _ in tfidf_ranked], {}
         hits = self.index.search(query[:4000], top=24)
-        return hybrid(hits, tfidf_ranked)
+        dense = None
+        if self.embedder is not None:
+            dense = self.embedder.search(query, self.chunks, top=24)       # None on any failure -> keyword-only
+            if dense is None and self.embedder.error:
+                self.say(f"    [index] {self.embedder.error}")
+                self.embedder = None
+        return hybrid(hits, tfidf_ranked, dense)
 
     def search(self, query, top=12, kind=None):
         """Direct chunk search (the `search` tool and the hub): -> [{"path","name","start","end","kind","score"}]. Indexes first if needed."""

@@ -70,6 +70,25 @@ def load_all(root=None):
                 continue
             if rec:
                 out[rec["name"]] = rec
+    try:
+        import arch_plugins
+        dirs = arch_plugins.command_dirs(root)
+    except Exception:
+        dirs = []
+    for folder, plugin in dirs:                  # enabled plugins: bare name when free, else plugin:name; shipped/project win
+        for fn in sorted(os.listdir(folder)):
+            if not fn.lower().endswith(".md"):
+                continue
+            p = os.path.join(folder, fn)
+            try:
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    rec = parse(f.read(), p, "plugin")
+            except OSError:
+                continue
+            if rec:
+                rec["plugin"] = plugin
+                rec["qualified"] = f"{plugin}:{rec['name']}"
+                out[rec["name"] if rec["name"] not in out else rec["qualified"]] = rec
     return out
 
 
@@ -92,7 +111,7 @@ def expand(text, root=None, commands=None):
     if not name:
         return {"ok": False, "why": "that is not a command", "suggestions": []}
     have = commands if commands is not None else load_all(root)
-    c = have.get(name)
+    c = have.get(name) or next((x for x in have.values() if x.get("qualified") == name), None)
     if not c:
         close = sorted(have, key=lambda n: (0 if n.startswith(name[:2]) else 1, abs(len(n) - len(name)), n))[:4]
         return {"ok": False, "why": f"there is no /{name} command here", "suggestions": close}

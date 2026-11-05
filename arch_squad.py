@@ -27,6 +27,7 @@ reads these next to the Claude transcripts with the same columns.
 Standard library only (YAML through arch_ci.load_yaml).
 """
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -59,6 +60,249 @@ SCHEMA_BEGIN, SCHEMA_END = "RESULT SCHEMA (JSON):", "END OF SCHEMA"
 
 class OwnershipClash(ValueError):
     """Two agents would own the same file. Raised before any of them runs."""
+
+
+class CrewBudgetExhausted(RuntimeError):
+    """The workflow-level budget is spent: no further agent starts; the run ends not_sure."""
+
+
+# ---------------------------------------------------------------- budget, fingerprints, replay, cache, telemetry, plugins
+
+BUDGET_KEYS = ("calls", "tokens", "seconds")
+
+
+class Budget:
+    """A whole-run ceiling {calls, tokens, seconds}: spent / remaining. Thread-safe."""
+
+    def __init__(self, limits=None):
+        self.limits = {k: v for k, v in (limits or {}).items() if k in BUDGET_KEYS and isinstance(v, (int, float))
+                       and not isinstance(v, bool) and v > 0}
+        self.spent = {"calls": 0, "tokens": 0}
+        self.t0 = time.time()
+        self._lk = threading.Lock()
+
+    def charge(self, calls=0, tokens=0):
+        with self._lk:
+            self.spent["calls"] += int(calls or 0)
+            self.spent["tokens"] += int(tokens or 0)
+
+    def remaining(self):
+        """None when there is no ceiling, else {key: what is left} (may be <= 0)."""
+        if not self.limits:
+            return None
+        with self._lk:
+            used = dict(self.spent, seconds=time.time() - self.t0)
+        return {k: v - used[k] for k, v in self.limits.items()}
+
+    def status(self):
+        return {"limits": self.limits, "spent": dict(self.spent, seconds=round(time.time() - self.t0, 1)),
+                "remaining": self.remaining()}
+
+
+def parse_budget(text):
+    """'calls=20,tokens=50000,seconds=600' -> dict. ValueError on a bad item."""
+    out = {}
+    for it in [x.strip() for x in str(text or "").split(",") if x.strip()]:
+        k, _, v = it.partition("=")
+        if k.strip() not in BUDGET_KEYS:
+            raise ValueError(f"budget keys: {', '.join(BUDGET_KEYS)} (got {k!r})")
+        try:
+            out[k.strip()] = float(v) if "." in v else int(v)
+        except ValueError:
+            raise ValueError(f"budget {k}: a number (got {v!r})")
+        if out[k.strip()] <= 0:
+            raise ValueError(f"budget {k}: above 0")
+    return out
+
+
+def cache_allowed():
+    return os.environ.get("ARCHITECT_NO_CACHE") != "1" and os.environ.get("ARCHITECT_EVAL") != "1"
+
+
+def why_not(use_cache=None):
+    """Plain words: why the agent-step cache is not used (None when it is)."""
+    if os.environ.get("ARCHITECT_NO_CACHE") == "1":
+        return "ARCHITECT_NO_CACHE=1 turns every cache off"
+    if os.environ.get("ARCHITECT_EVAL") == "1":
+        return "never during eval: a benchmark must measure the model"
+    if use_cache is False:
+        return "turned off for this run (--no-cache)"
+    return None
+
+
+SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".venv"}
+FP_MAX_FILES = 3000
+
+
+def files_fingerprint(root, owns=None):
+    """sha256 over file contents: the owned files/folders, or (owns None) the project's files outside dot-folders. A missing file
+    counts as missing (so creating it changes the fingerprint)."""
+    h = hashlib.sha256()
+    root = os.path.abspath(root)
+    paths = []
+    if owns:
+        for o in owns:
+            p = os.path.join(root, str(o))
+            if os.path.isdir(p):
+                for dp, dns, fns in os.walk(p):
+                    dns[:] = sorted(x for x in dns if not x.startswith(".") and x not in SKIP_DIRS)
+                    paths += [os.path.join(dp, f) for f in sorted(fns)]
+            else:
+                paths.append(p)
+    else:
+        for dp, dns, fns in os.walk(root):
+            dns[:] = sorted(x for x in dns if not x.startswith(".") and x not in SKIP_DIRS)
+            paths += [os.path.join(dp, f) for f in sorted(fns) if not f.endswith((".pyc", ".log"))]
+            if len(paths) > FP_MAX_FILES:
+                break
+    for p in paths[:FP_MAX_FILES]:
+        rel = os.path.relpath(p, root).replace("\\", "/")
+        try:
+            st = os.stat(p)
+            if st.st_size > 2_000_000:
+                h.update(f"{rel}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
+                continue
+            with open(p, "rb") as f:
+                h.update(rel.encode() + b"\0" + hashlib.sha256(f.read()).digest() + b"\n")
+        except OSError:
+            h.update(rel.encode() + b"\0missing\n")
+    return h.hexdigest()
+
+
+def _cache_get(dd, key, days=30):
+    p = os.path.join(dd, "orchestration", "cache", key + ".json")
+    try:
+        if time.time() - os.path.getmtime(p) > max(1, days) * 86400:
+            return None
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def cache_stats(data_dir=None):
+    """The 'agent steps' cache layer: {entries, bytes, path} (for arch_cachestats)."""
+    import arch_core as core
+    d = os.path.join(data_dir or core.data_dir(), "orchestration", "cache")
+    n = b = 0
+    for fn in os.listdir(d) if os.path.isdir(d) else []:
+        if fn.endswith(".json"):
+            n += 1
+            try:
+                b += os.path.getsize(os.path.join(d, fn))
+            except OSError:
+                pass
+    return {"layer": "agent steps", "entries": n, "bytes": b, "path": d, "why_not": why_not()}
+
+
+def _prior_records(rdir):
+    """A finished (or crashed) run's agent records with verdict ok -> {step_key: record}."""
+    out = {}
+    for fn in sorted(os.listdir(rdir)) if os.path.isdir(rdir) else []:
+        if fn.startswith("agent-") and fn.endswith(".json") and ".trace" not in fn:
+            try:
+                with open(os.path.join(rdir, fn), encoding="utf-8") as f:
+                    r = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if isinstance(r, dict) and r.get("step_key") and r.get("verdict") == "ok" and r.get("result") is not None:
+                r["_run"] = os.path.basename(rdir)
+                out.setdefault(r["step_key"], r)
+    return out
+
+
+def _find_run(dd, which, workflow=None, exclude=None):
+    """'last' -> the newest run of this workflow (any workflow when none matches); an id -> that id when its folder exists."""
+    base = os.path.join(dd, "orchestration", "local")
+    if which != "last":
+        return which if os.path.isdir(os.path.join(base, str(which))) else None
+    rows = [r for r in list_runs(dd) if r["run_id"] != exclude]
+    same = [r for r in rows if r.get("workflow") == workflow]
+    return (same or rows)[0]["run_id"] if (same or rows) else None
+
+
+def list_runs(data_dir=None, limit=50):
+    """-> [{run_id, workflow, started, status, agents, cached, replayed, resume_from}], newest first."""
+    import arch_core as core
+    base = os.path.join(data_dir or core.data_dir(), "orchestration", "local")
+    rows = []
+    for rid in os.listdir(base) if os.path.isdir(base) else []:
+        jp = os.path.join(base, rid, "journal.jsonl")
+        if not os.path.isfile(jp):
+            continue
+        row = {"run_id": rid, "workflow": None, "started": None, "status": "running", "agents": 0, "cached": 0, "replayed": 0,
+               "resume_from": None}
+        try:
+            with open(jp, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        j = json.loads(line)
+                    except ValueError:
+                        continue
+                    t = j.get("type")
+                    if t == "launched":
+                        row.update(workflow=j.get("workflow"), started=j.get("t"), resume_from=j.get("resume_from"))
+                    elif t == "result":
+                        row["agents"] += 1
+                    elif t == "cached":
+                        row["cached"] += 1
+                    elif t == "replayed":
+                        row["replayed"] += 1
+                    elif t == "done":
+                        row["status"] = j.get("verdict")
+        except OSError:
+            continue
+        rows.append(row)
+    rows.sort(key=lambda r: (r["started"] or 0, r["run_id"]), reverse=True)
+    return rows[:limit]
+
+
+def _tele(kind, **fields):
+    """arch_telemetry.emit when that module exists; never fails a run."""
+    try:
+        import arch_telemetry
+        arch_telemetry.emit(kind, **fields)
+    except Exception:
+        pass
+
+
+def _plugin_dirs(kind):
+    """[(plugin name, folder)] from enabled plugins (arch_plugins.agent_dirs()/workflow_dirs()), [] when the module is missing."""
+    try:
+        import arch_plugins
+        got = getattr(arch_plugins, kind + "_dirs")()
+    except Exception:
+        return []
+    out = []
+    for x in got or []:
+        if isinstance(x, (tuple, list)) and len(x) == 2:
+            out.append((str(x[0]), str(x[1])))
+        elif isinstance(x, str):
+            out.append((os.path.basename(os.path.dirname(os.path.abspath(x))), x))
+    return [(n, d) for n, d in out if os.path.isdir(d)]
+
+
+def _project_dir(kind, root=None):
+    d = os.path.join(os.path.abspath(root or os.getcwd()), ".arch", kind)
+    return d if os.path.isdir(d) else None
+
+
+def _find_named(name, kind, ext=".yaml", root=None):
+    """A bare or plugin:name -> its file: shipped wins a bare-name clash, then the project's .arch/<kind>/, then plugins."""
+    shipped = AGENTS_DIR if kind == "agents" else WORKFLOWS_DIR
+    name = str(name)
+    fn = name if name.endswith(ext) else name + ext
+    if ":" in name:
+        plug, _, bare = name.partition(":")
+        bare = bare if bare.endswith(ext) else bare + ext
+        for n, d in _plugin_dirs(kind[:-1]):
+            if n == plug and os.path.isfile(os.path.join(d, bare)):
+                return os.path.join(d, bare)
+        return None
+    for d in [shipped, _project_dir(kind, root)] + [d for _, d in _plugin_dirs(kind[:-1])]:
+        if d and os.path.isfile(os.path.join(d, fn)):
+            return os.path.join(d, fn)
+    return None
 
 
 # ---------------------------------------------------------------- definitions
@@ -130,7 +374,7 @@ def validate(d):
 
 def _plain(d):
     """A definition without the bookkeeping keys load_agent/list_agents add (so it can be validated or saved again)."""
-    return {k: v for k, v in d.items() if not str(k).startswith("_") and k not in ("fields", "problems")}
+    return {k: v for k, v in d.items() if not str(k).startswith("_") and k not in ("fields", "problems", "scope", "plugin")}
 
 
 def _norm(d):
@@ -155,6 +399,8 @@ def load_agent(name_or_path, folder=None):
     else:
         src = name_or_path if os.path.isfile(str(name_or_path)) else \
             os.path.join(folder or AGENTS_DIR, str(name_or_path) + ".yaml")
+        if not folder and not os.path.isfile(src):
+            src = _find_named(name_or_path, "agents") or src
         with open(src, encoding="utf-8") as f:
             d = arch_ci.load_yaml(f.read())
     probs = validate(d)
@@ -165,18 +411,33 @@ def load_agent(name_or_path, folder=None):
     return d
 
 
-def list_agents(folder=None):
-    """-> {name: definition or {"problems": [...]}} for every agents/*.yaml."""
+def list_agents(folder=None, root=None):
+    """-> {name: definition or {"problems": [...]}} for every agents/*.yaml. Without a folder it also lists the project's
+    .arch/agents/ (scope project) and enabled plugins' agents (scope plugin, as plugin:name when the bare name is taken);
+    shipped agents win a bare-name clash."""
     out = {}
-    folder = folder or AGENTS_DIR
-    for fn in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
-        if fn.endswith(".yaml"):
+    sources = [(folder, "folder", None)] if folder else \
+        [(AGENTS_DIR, "shipped", None), (_project_dir("agents", root), "project", None)] + \
+        [(d, "plugin", n) for n, d in _plugin_dirs("agent")]
+    for fold, scope, plug in sources:
+        for fn in sorted(os.listdir(fold)) if fold and os.path.isdir(fold) else []:
+            if not fn.endswith(".yaml"):
+                continue
             try:
-                d = load_agent(os.path.join(folder, fn))
+                d = load_agent(os.path.join(fold, fn))
                 d["fields"] = list(OVERRIDABLE)
-                out[d["name"]] = d
+                key = d["name"]
             except Exception as e:
-                out[fn[:-5]] = {"problems": [str(e)]}
+                d, key = {"problems": [str(e)]}, fn[:-5]
+            if scope != "folder":
+                d["scope"] = scope
+            if plug:
+                d["plugin"] = plug
+                if key in out:
+                    key = f"{plug}:{key}"
+            elif key in out:
+                continue
+            out[key] = d
     return out
 
 
@@ -350,7 +611,8 @@ class Crew:
     """One local orchestration run. Thread-safe: parallel() and pipeline() call agent() from worker threads."""
 
     def __init__(self, root, goal="", workflow="adhoc", cfg=None, slots=None, data_dir=None, say=None, engine_factory=None,
-                 run_id=None, description="", vars=None, overrides=None):
+                 run_id=None, description="", vars=None, overrides=None, resume_from=None, use_cache=None, replay=None,
+                 budget=None):
         import arch_core as core
         self.root = os.path.abspath(root)
         self.goal, self.workflow, self.description = goal, workflow, description
@@ -374,11 +636,35 @@ class Crew:
         self.engine_factory = engine_factory
         dd = data_dir or core.data_dir()
         self.run_id = run_id or time.strftime("%Y%m%d_%H%M%S") + f"_{os.getpid() % 10000:04d}_{re.sub(r'[^A-Za-z0-9]+', '-', workflow)[:30]}"
+        base_id, n = self.run_id, 1
+        while not run_id and os.path.exists(os.path.join(dd, "orchestration", "local", self.run_id)):
+            n += 1                                   # two runs in the same second must never share a journal
+            self.run_id = f"{base_id}-{n}"
         self.dir = os.path.join(dd, "orchestration", "local", self.run_id)
         os.makedirs(self.dir, exist_ok=True)
         self.phase_title = None
+        self.data_dir = dd
+        sq = self.cfg.get("squad") or {}
+        self.replay = sq.get("replay", True) if replay is None else bool(replay)
+        self.use_cache = cache_allowed() if use_cache is None else bool(use_cache)
+        self.cache_days = int(sq.get("step_cache_days", 30) or 30)
+        self.budget = Budget(budget)
+        self.budget_hit = False
+        self.resume_from = None
+        self._prior = {}
+        if resume_from and self.replay:
+            self.resume_from = _find_run(dd, resume_from, workflow, exclude=self.run_id)
+            self._prior = _prior_records(os.path.join(dd, "orchestration", "local", self.resume_from)) if self.resume_from else {}
+        self.replayed = self.cached = 0
         self._event({"type": "launched", "workflow": workflow, "description": description, "goal": goal, "root": self.root,
-                     "slots": self.slots, "overrides": {"agents": self.overrides, "slots": (overrides or {}).get("slots")}})
+                     "slots": self.slots, "overrides": {"agents": self.overrides, "slots": (overrides or {}).get("slots")},
+                     "resume_from": self.resume_from, "cache": self.use_cache, "budget": self.budget.limits})
+        _tele("crew.launched", run=self.run_id, workflow=workflow, resume_from=self.resume_from)
+
+    def log(self, text):
+        """A narrator line in the journal (the workflow tool's log())."""
+        self._event({"type": "log", "phase": self.phase_title, "text": str(text)[:2000]})
+        self.say("[log] " + str(text)[:300])
 
     # -- journal
     def _event(self, rec):
@@ -452,6 +738,44 @@ class Crew:
             return rec["result"] if rec["verdict"] == "ok" else None
         if not owns and d["writes"]:
             rec["note"] = "owns nothing: its write tools were removed"
+        # -- workflow budget: an exhausted run stops further agents (the run ends not_sure, never pass)
+        left = self.budget.remaining()
+        if left is not None and any(v <= 0 for v in left.values()):
+            self.budget_hit = True
+            rec.update(verdict="budget", why="the workflow budget is spent: " + json.dumps(self.budget.status()))
+            self._event({"type": "budget_exhausted", "agentId": aid, "label": label, "status": self.budget.status()})
+            self._finish(rec)
+            raise CrewBudgetExhausted(rec["why"])
+        if left:
+            for k, v in left.items():
+                b[k] = min(b[k], v) if k in b else v
+                b[k] = int(b[k]) if k != "seconds" else max(1, b[k])
+            b = {k: v for k, v in b.items() if v > 0}
+            rec["budget"] = b
+        # -- replay (resume) and the step cache
+        writer = bool(d["writes"] and owns)
+        try:
+            key = self.step_key(d, task, owns, context, vars, label)
+            ckey = self.step_key(d, task, owns, context, vars, label, files=True)
+        except Exception:
+            key = ckey = None
+        rec["step_key"], rec["cache_key"] = key, ckey
+        hit = self._lookup(key, ckey, owns, writer) if key else None
+        if hit is not None:
+            src, old = hit
+            rec.update(verdict="ok", result=old.get("result"), why=None, edited=old.get("edited") or [],
+                       model=old.get("model") or rec["model"], brief=old.get("brief"), post_hash=old.get("post_hash"))
+            rec["replayed" if src != "cache" else "cached"] = old.get("_run") if src != "cache" else True
+            with self._lock:
+                if src == "cache":
+                    self.cached += 1
+                else:
+                    self.replayed += 1
+            self._event({"type": "replayed" if src != "cache" else "cached", "agentId": aid, "label": label, "phase": ph,
+                         "agent": d["name"], "key": key, "from_run": old.get("_run")})
+            _tele("crew.agent", run=self.run_id, agent=d["name"], label=label, outcome=src, calls=0, tokens=0)
+            self._finish(rec)
+            return rec["result"]
         try:
             self._claim(aid, label, owns)
         except OwnershipClash as ex:
@@ -479,8 +803,64 @@ class Crew:
                 self._owners.pop(aid, None)
             if e is not None:
                 self._harvest(e, rec)
+        if writer:
+            rec["post_hash"] = files_fingerprint(self.root, owns)
         self._finish(rec)
+        t = rec["totals"]
+        self.budget.charge(t["calls"], t["tokens_in"] + t["tokens_out"])
+        if rec["verdict"] == "ok" and ckey and self.use_cache:
+            self._store(ckey, rec)
+        _tele("crew.agent", run=self.run_id, agent=d["name"], label=label, outcome=rec["verdict"], calls=t["calls"],
+              tokens=t["tokens_in"] + t["tokens_out"], secs=rec.get("secs"))
         return rec["result"] if rec["verdict"] == "ok" else None
+
+    # -- replay / cache
+    def _model_id(self, d):
+        if d["model"] not in TIERS:
+            return d["model"]
+        own = str((self.cfg.get("roles") or {}).get(d["role"]) or "")
+        return own + "|" + str((self.cfg.get("tiers") or {}).get(d["model"]) or d["model"])
+
+    def step_key(self, d, task, owns, context, vars_, label, files=False):
+        """sha256 over the definition (after overrides), the rendered brief (which holds the previous phase's result, so a changed
+        upstream result changes every key after it) and the resolved model. files=True (the cross-run step cache) adds the files the
+        agent depends on: its owned files, else the project's files. A writer never hashes its files into the key: it replays only
+        when its owned files are already in the state it left them (post_hash)."""
+        system, body = self._brief(d, task, owns, context, vars_)
+        parts = {"def": _plain(d), "system": system, "body": body, "model": self._model_id(d), "label": label}
+        if files:                                      # the cross-run key never crosses projects
+            parts["root"] = os.path.normcase(os.path.abspath(self.root))
+            if not (d["writes"] and owns):
+                parts["files"] = files_fingerprint(self.root, owns or None)
+        parts["def"].pop("_source", None)
+        return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+    def _usable(self, old, owns, writer):
+        if not isinstance(old, dict) or old.get("verdict") != "ok" or old.get("result") is None:
+            return False
+        return not writer or (old.get("post_hash") and old["post_hash"] == files_fingerprint(self.root, owns))
+
+    def _lookup(self, key, ckey, owns, writer):
+        if self.replay and key in self._prior and ckey and self._prior[key].get("cache_key") == ckey                 and self._usable(self._prior[key], owns, writer):   # same project, same files it read: never a stale replay
+            return "resume", self._prior[key]
+        if self.use_cache and ckey:
+            old = _cache_get(self.data_dir, ckey, self.cache_days)
+            if self._usable(old, owns, writer):
+                return "cache", old
+        return None
+
+    def _store(self, key, rec):
+        try:
+            d = os.path.join(self.data_dir, "orchestration", "cache")
+            os.makedirs(d, exist_ok=True)
+            row = {k: rec.get(k) for k in ("verdict", "result", "edited", "model", "brief", "post_hash", "agent", "label")}
+            row.update(_run=self.run_id, saved=time.time())
+            tmp = os.path.join(d, key + f".tmp{os.getpid()}_{threading.get_ident()}")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(row, f, ensure_ascii=False, default=str)
+            os.replace(tmp, os.path.join(d, key + ".json"))
+        except OSError:
+            pass
 
     def _code_agent(self, d, task, context, vars_):
         """An agent whose work is code (no model): code: spec -> arch_spec.spec(goal + task). Its output schema is still checked."""
@@ -682,9 +1062,14 @@ class Crew:
 
     def close(self, verdict=None):
         bad = sum(1 for r in self.records if r["verdict"] != "ok")
+        if verdict is None and self.budget_hit:
+            verdict = "not_sure"
         verdict = verdict or ("pass" if self.records and not bad else ("fail" if self.records else "empty"))
         self._event({"type": "done", "verdict": verdict, "agents": len(self.records), "failed": bad,
-                     "peak_concurrency": self.peak_concurrency})
+                     "peak_concurrency": self.peak_concurrency, "replayed": self.replayed, "cached": self.cached,
+                     "budget": self.budget.status()})
+        _tele("crew.done", run=self.run_id, workflow=self.workflow, verdict=verdict, agents=len(self.records),
+              replayed=self.replayed, cached=self.cached)
         return verdict
 
 
@@ -722,7 +1107,8 @@ def phase(title):
 
 # ---------------------------------------------------------------- workflows as data
 
-PHASE_KINDS = ("agent", "parallel", "pipeline", "loop", "panel", "code")
+PHASE_KINDS = ("agent", "parallel", "pipeline", "loop", "panel", "code", "log")
+INPUT_TYPES = ("string", "integer", "number", "boolean", "list")
 LOOP_MAX = 10
 
 
@@ -759,7 +1145,9 @@ def _resolve_workflow(path):
     if os.path.isfile(p):
         return p
     cand = os.path.join(WORKFLOWS_DIR, p if p.endswith(".yaml") else p + ".yaml")
-    return cand if os.path.isfile(cand) else p
+    if os.path.isfile(cand):
+        return cand
+    return _find_named(p, "workflows") or p
 
 
 def load_workflow(path):
@@ -806,6 +1194,8 @@ def _validate_phase(ph, where, need_title=True, depth=0):
         bad = _check_expr(ph["when"])
         if bad:
             p.append(f"{where}: when: {bad}")
+    if kind == "log":
+        return p if isinstance(ph["log"], str) and ph["log"].strip() else p + [f"{where}: log: a line of text"]
     if kind == "code":
         if ph["code"] not in CODE_STEPS:
             p.append(f"{where}: code: one of " + ", ".join(CODE_STEPS))
@@ -859,7 +1249,47 @@ def validate_workflow(w):
     p = []
     for i, ph in enumerate(w["phases"]):
         p += _validate_phase(ph, f"phase {i + 1}")
+    if "budget" in w and Budget(w["budget"]).limits != (w["budget"] or {}):
+        p.append("budget: {calls, tokens, seconds} with numbers above 0")
+    ins = w.get("inputs")
+    if ins is not None:
+        if not isinstance(ins, dict):
+            p.append("inputs: a mapping name -> {type, required, default}")
+        else:
+            for k, spec_ in ins.items():
+                if not isinstance(spec_, dict) or spec_.get("type", "string") not in INPUT_TYPES:
+                    p.append(f"inputs.{k}: type one of " + ", ".join(INPUT_TYPES))
+    if "returns" in w and not (isinstance(w["returns"], dict) and w["returns"].get("type") in ("object", "array", "string")):
+        p.append("returns: a JSON schema with a type")
     return p
+
+
+def check_inputs(w, vars_):
+    """Workflow inputs: -> (vars with defaults and converted types, problems)."""
+    out, probs = dict(vars_ or {}), []
+    for k, spec_ in (w.get("inputs") or {}).items():
+        t = spec_.get("type", "string")
+        if out.get(k) in (None, ""):
+            if "default" in spec_:
+                out[k] = spec_["default"]
+            elif spec_.get("required"):
+                probs.append(f"input {k} is required")
+            continue
+        v = out[k]
+        try:
+            if t == "integer":
+                out[k] = int(v)
+            elif t == "number":
+                out[k] = float(v)
+            elif t == "boolean":
+                out[k] = v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes", "on")
+            elif t == "list":
+                out[k] = v if isinstance(v, list) else [x.strip() for x in str(v).split(",") if x.strip()]
+            else:
+                out[k] = str(v)
+        except (TypeError, ValueError):
+            probs.append(f"input {k}: not a {t} ({v!r})")
+    return out, probs
 
 
 def _majority(results, key):
@@ -887,6 +1317,10 @@ def _run_phase(crew, ph, ctx, title):
                 "budget": en.get("budget")}
     if kind == "code":
         return CODE_STEPS[ph["code"]](prev, ctx)
+    if kind == "log":
+        crew.log(render(ph["log"], dict(vars_, prev=prev if isinstance(prev, str) else json.dumps(prev, default=str)[:500],
+                                        **{"prev.summary": (prev or {}).get("summary", "") if isinstance(prev, dict) else ""})))
+        return prev
     if kind == "parallel":
         return [r for r in crew.parallel([spec(en) for en in ph["parallel"]]) if r is not None]
     if kind == "pipeline":
@@ -941,9 +1375,16 @@ def run_workflow(w, root=None, goal="", vars=None, overrides=None, **kw):
     if not isinstance(w, dict):
         w = load_workflow(w)
     root = root or os.getcwd()
-    vars_ = dict(vars or {}, goal=goal)
+    vars_, iprobs = check_inputs(w, vars)
+    vars_["goal"] = goal
     vars_.setdefault("owns", "")
+    if "budget" not in kw or kw.get("budget") is None:
+        kw["budget"] = w.get("budget")
     crew = Crew(root, goal, workflow=w["name"], description=w.get("description", ""), vars=vars_, overrides=overrides, **kw)
+    if iprobs:
+        crew.say("[x] " + "; ".join(iprobs))
+        crew._event({"type": "refused", "why": "; ".join(iprobs)})
+        return crew.close("refused"), crew
     prev, phases = None, {}
     for ph in w["phases"]:
         ctx = {"goal": goal, "vars": vars_, "prev": prev, "phases": phases}
@@ -966,11 +1407,26 @@ def run_workflow(w, root=None, goal="", vars=None, overrides=None, **kw):
         except OwnershipClash as ex:
             crew.say(f"[x] {ph['title']}: refused before running: {ex}")
             return crew.close("refused"), crew
+        except CrewBudgetExhausted as ex:
+            crew.say(f"[-] {ph['title']}: {ex}")
+            crew.budget_hit = True
+            return crew.close("not_sure"), crew
+        if crew.budget_hit:
+            crew.say(f"[-] {ph['title']}: the workflow budget ran out; the run stops here (not_sure)")
+            return crew.close("not_sure"), crew
         phases[pid] = prev
         secs = round(time.time() - t0, 3)
         crew.phase_times.append({"title": ph["title"], "kind": _phase_kind(ph), "secs": secs, "skipped": False})
         crew._event({"type": "phase_done", "title": ph["title"], "kind": _phase_kind(ph), "secs": secs, "ok": prev not in (None, [])})
         crew.say(f"[{'ok' if prev not in (None, []) else '-'}] {ph['title']}: " + _cut(json.dumps(prev, ensure_ascii=False, default=str), 200))
+    crew.final = prev
+    if isinstance(w.get("returns"), dict):
+        import arch_schemas
+        bad = arch_schemas.errors(prev, w["returns"]) if prev is not None else ["no result"]
+        crew._event({"type": "returns", "ok": not bad, "problems": bad[:5]})
+        if bad:
+            crew.say("[x] the workflow result breaks its returns: schema: " + "; ".join(bad[:3]))
+            return crew.close("fail"), crew
     return crew.close(), crew
 
 
@@ -1003,12 +1459,16 @@ def _phase_summary(ph):
 def list_workflows(folder=None):
     """-> {name: {name, title, description, path, phases: [{title, kind, agents, when?, ...}], problems?}} for workflows/*.yaml."""
     import arch_ci
-    folder = folder or WORKFLOWS_DIR
     out = {}
-    for fn in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
-        if not fn.endswith(".yaml"):
+    folders = [(folder, None)] if folder else [(WORKFLOWS_DIR, None), (_project_dir("workflows"), "project")] + \
+        [(d, n) for n, d in _plugin_dirs("workflow")]
+    for fn, path, plug in [(fn, os.path.join(fo, fn), pl) for fo, pl in folders if fo and os.path.isdir(fo)
+                           for fn in sorted(os.listdir(fo))]:
+        if not fn.endswith(".yaml") or (plug == "project" and fn[:-5] in out):
             continue
-        path = os.path.join(folder, fn)
+        if plug and plug != "project":
+            if fn[:-5] in out:
+                fn = f"{plug}:{fn}"
         try:
             with open(path, encoding="utf-8") as f:
                 w = arch_ci.load_yaml(f.read()) or {}
@@ -1201,8 +1661,24 @@ def main(argv=None):
     ap.add_argument("--set", action="append", default=[], metavar="AGENT.FIELD=VALUE",
                     help="override an agent field for this run (coder.model=qwen3:8b, coder.effort=low, *.budget.calls=4, slots=2)")
     ap.add_argument("--workflows", action="store_true", help="list and validate workflows/*.yaml, then stop")
+    ap.add_argument("--resume", nargs="?", const="last", default=None, metavar="RUN_ID",
+                    help="replay the unchanged agents of an earlier run (default: the last run of this workflow)")
+    ap.add_argument("--no-replay", action="store_true", help="never replay earlier results, even with --resume")
+    ap.add_argument("--no-cache", action="store_true", help="do not use the agent-step cache")
+    ap.add_argument("--budget", default=None, metavar="calls=,tokens=,seconds=", help="a ceiling for the whole run")
+    ap.add_argument("--runs", action="store_true", help="list the local crew runs, then stop")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.runs:
+        rows = list_runs()
+        for r in rows:
+            print(f"{r['run_id']}: {r['workflow']} {r['status']}, {r['agents']} agents ({r['replayed']} replayed, {r['cached']} cached)")
+        return 0
+    try:
+        budget = parse_budget(a.budget) if a.budget else None
+    except ValueError as ex:
+        print(f"[x] --budget: {ex}")
+        return 2
     try:
         overrides = parse_sets(a.set)
     except ValueError as ex:
@@ -1229,11 +1705,13 @@ def main(argv=None):
         cfg = core.deep_merge(cfg, over)
     try:
         verdict, crew = run_workflow(w, root, a.goal, vars={"owns": a.owns}, overrides=overrides, cfg=cfg,
-                                    slots=a.slots, say=print)
+                                    slots=a.slots, say=print, resume_from=a.resume, replay=False if a.no_replay else None,
+                                    use_cache=False if a.no_cache else None, budget=budget)
     finally:
         if srv is not None:
             srv.shutdown()
     out = {"verdict": verdict, "run_id": crew.run_id, "journal": os.path.join(crew.dir, "journal.jsonl"),
+           "resume_from": crew.resume_from, "replayed": crew.replayed, "cached": crew.cached, "budget": crew.budget.status(),
            "agents": [{k: r.get(k) for k in ("agentId", "label", "phase", "verdict", "why", "totals", "model", "effort", "overrides")}
                       for r in crew.records], "phases": crew.phase_times}
     print(json.dumps(out, indent=1, default=str) if a.json else

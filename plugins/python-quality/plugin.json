@@ -1,0 +1,11 @@
+{
+  "name": "python-quality",
+  "version": "1.0.0",
+  "description": "Python review as one unit: a Python reviewer agent, a review-then-verify workflow, /lint and a clean-Python skill.",
+  "requires": {
+    "architect": ">=13",
+    "tiers": [
+      "worker"
+    ]
+  }
+}

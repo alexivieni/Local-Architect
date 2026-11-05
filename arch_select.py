@@ -171,6 +171,7 @@ def screen(models, jobs=None, fake=False, cfg=None, n=SCREEN_TASKS, seed=0, fact
     fb = {m["name"]: m for m in facts}
     runner = runner or (fake_runner(fb) if fake else live_runner(cfg))
     ask_for = ask_for or (fake_ask if fake else (lambda m: arch_probe.live_ask(m)))
+    models = screen_order(models, jobs, fb)
     rows = []
     with _locked(fake, cfg, say):
         for model in models:
@@ -260,6 +261,26 @@ def _stats(rows):
     return out
 
 
+def _prior(model, job, fb=None):
+    """-> (score 0-1, reasons) from arch_modelknow (family knowledge); (None, [why]) when it cannot be read. Orders and breaks ties only."""
+    try:
+        import arch_modelknow
+        return arch_modelknow.job_prior((fb or {}).get(model) or model, job)
+    except Exception as ex:
+        return None, [f"no family prior ({ex})"]
+
+
+def screen_order(models, jobs=None, fb=None):
+    """Models most likely to do well on these jobs (family prior) are screened first; the measurement still decides."""
+    jobs = jobs or list(arch_jobs.JOBS)
+
+    def key(m):
+        v = [_prior(m, j, fb)[0] for j in jobs]
+        v = [x for x in v if x is not None]
+        return -(sum(v) / len(v)) if v else 0.0
+    return sorted(models, key=key)
+
+
 def _fits(model, fb, hw):
     m = fb.get(model)
     if not m or not hw:
@@ -286,7 +307,7 @@ def why(cfg=None, rows=None, allowed=None, facts=None, hw=None, vol=None, includ
         pts = {m: s for (j, m), s in st.items() if j == job and (not allowed or m in allowed or m == cm_)}
         c = pts.get(cm_)
         eligible = [s for m, s in pts.items() if s["C"] is not None and s["p"] >= PASS_FLOOR and (not allowed or m in allowed)]
-        best = min(eligible, key=lambda s: s["C"]) if eligible else None
+        best = min(eligible, key=lambda s: (s["C"], -(_prior(s["model"], job, fb)[0] or 0))) if eligible else None   # ties: family prior
         v = (vol.get(job) or {}).get("calls")
         try:
             pc = cm.p_cheapest([dict(s, kind=job) for s in pts.values()], draws=500).get(job, {}) if pts else {}
@@ -321,6 +342,7 @@ def why(cfg=None, rows=None, allowed=None, facts=None, hw=None, vol=None, includ
                     "tok_s": show["tok_s"] if show else None, "fits": _fits(show["model"], fb, hw) if show else None,
                     "n": show["n"] if show else 0, "volume": v, "volume_source": (vol.get(job) or {}).get("source"),
                     "reason": reason, "suggestion": sug, "p_cheapest": pc,
+                    "prior": _prior(show["model"] if show else cm_, job, fb)[0], "prior_reasons": _prior(show["model"] if show else cm_, job, fb)[1],
                     "models": sorted(pts.values(), key=lambda s: s["C"] if s["C"] is not None else 1e18)}
     return out
 

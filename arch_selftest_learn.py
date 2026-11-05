@@ -79,7 +79,7 @@ def run():
 def _fresh(proj, name, records):
     run_dir = os.path.join(proj, ".arch", "runs", name)
     shutil.rmtree(os.path.join(proj, ".arch", "runs"), ignore_errors=True)
-    _trace(run_dir, records)
+    _trace(run_dir, records + [{"type": "verdict", "verdict": "pass"}])
     return run_dir
 
 

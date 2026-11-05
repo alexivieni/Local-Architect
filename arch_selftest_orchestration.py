@@ -75,6 +75,9 @@ def _data_fixture(base):
             "reply": "FILE: a.py\n```\ndef add(a, b):\n    return a + b\n```"}
     good = os.path.join(rd, "r1")
     _w(os.path.join(good, "trace.jsonl"), [call, dict(call, id=2, cached_exact=True, prompt_tokens=0, gen_tokens=0, prefix_reused_est=0),
+        dict(call, id=4, transport="llama", cache_n=300, tok_s=40.0, prompt_tokens=500, prefix_reused_est=300),
+        dict(call, id=5, transport="llama", cache_n=0, tok_s=20.0, prompt_tokens=500, prefix_reused_est=0),
+        dict(call, id=6, transport="llama", tier="heavy", cache_n=0, tok_s=5.0, prompt_tokens=0),
         {"type": "mark", "id": 1, "accepted": True}, {"type": "verdict", "verdict": "pass", "flow": "build"}])
     bad = os.path.join(rd, "r2")
     _w(os.path.join(bad, "trace.jsonl"), [call, {"type": "mark", "id": 1, "accepted": True},
@@ -122,15 +125,45 @@ def run():
 
         dd = _data_fixture(tmp)
         loc = orch.local_section(limit=10, data_dir=dd, roots=[])
-        ok(loc["totals"]["runs"] == 3 and loc["totals"]["cached_exact"] == 1, "local runs and exact cache hits")
+        ok(loc["totals"]["runs"] == 3 and loc["totals"]["cached_exact"] == 1, "local runs; exact cache hit = cache_n > 0 (an Ollama flag is not one)")
+        T = loc["totals"]
+        ok(T["llama_calls"] == 3 and T["llama_prefix_reuse_share"] == 0.3, "llama-only prefix reuse reported separately")
+        ok(T["worker_decode_tok_s"]["median"] == 30.0 and T["worker_decode_tok_s"]["n"] == 2,
+           "worker speed = median decode tok/s of tier=worker, transport=llama calls, with n")
         r1 = [r for r in loc["runs"] if r["run"] == "r1"][0]
-        ok(r1["verdict"] == "pass" and r1["tokens_in"] == 1000 and r1["prefix_reuse_share"] == 0.4 and r1["peak_ctx_pct"] == 30,
+        ok(r1["verdict"] == "pass" and r1["tokens_in"] == 2000 and r1["prefix_reuse_share"] == 0.55 and r1["peak_ctx_pct"] == 30,
            "per-run tokens, prefix reuse, ctx%")
         ok(loc["by_tier"]["worker"]["models"]["m:7b"] >= 2, "calls by tier/model")
 
         empty = os.path.join(tmp, "emptyproj")
         os.makedirs(empty)
         tr = orch.training_section(data_dir=dd, project_root=empty)
+        # ---- per-message-model pricing, 1h cache writes, <synthetic>, shell writes
+        mx = os.path.join(tmp, "mixed.jsonl")
+        rows = [_asst("x1", {"input_tokens": 10**6, "output_tokens": 0}), _asst("x2", {"input_tokens": 10**6, "output_tokens": 0}),
+                _asst("x3", {"input_tokens": 10**6, "output_tokens": 0, "cache_creation_input_tokens": 999,
+                             "cache_creation": {"ephemeral_5m_input_tokens": 10**6, "ephemeral_1h_input_tokens": 10**6}}),
+                _asst("x4", {"input_tokens": 10**9, "output_tokens": 10**9})]
+        rows[0]["message"]["model"] = "claude-opus-5"
+        rows[1]["message"]["model"] = "claude-sonnet-5-5"
+        rows[2]["message"]["model"] = "claude-opus-5"
+        rows[3]["message"]["model"] = "<synthetic>"
+        _w(mx, rows)
+        pm = orch.parse_transcript(mx)
+        ok(set(pm["by_model"]) == {"claude-opus-5", "claude-sonnet-5-5"} and pm["model"] == "claude-opus-5", "<synthetic> messages skipped")
+        ok(pm["by_model"]["claude-opus-5"]["cache_write"] == 2 * 10**6 and pm["cache_write_1h"] == 10**6,
+           "cache writes from the 5m/1h split, not cache_creation_input_tokens")
+        node = {"kind": "agent", "model": pm["model"], "by_model": pm["by_model"], "tokens": {}}
+        want = (2 * 5.0 + 5.0 * 1.25 + 5.0 * 2.0) + 2.0         # opus-5 at $5 in: 2M input, 1M 5m write, 1M 1h write; + 1M sonnet input
+        ok(abs(orch.usd_node(node) - want) < 1e-6, f"each message model priced by its exact id (opus-5 $5/$25): {orch.usd_node(node)} vs {want}")
+        ok(orch._price("opus", "claude-opus-5")["output"] == 25.0 and orch._price("opus", "claude-opus-9")["input"] == orch.PRICE_TABLE["opus"]["input"],
+           "exact id first, family as fallback")
+        ok(orch.shell_writes("echo hi > src/app.py") and orch.shell_writes("Set-Content -Path a.txt x") and orch.shell_writes("git commit -m x")
+           and not orch.shell_writes("ls -la 2>/dev/null") and not orch.shell_writes("cat a > C:/Users/me/AppData/Local/Temp/x.txt")
+           and not orch.shell_writes("grep -n foo a.py"), "shell writes outside temp detected; reads and temp writes are not")
+        sw = os.path.join(tmp, "shell.jsonl")
+        _w(sw, [_asst("s1", {"input_tokens": 1, "output_tokens": 1}, tools=[("b1", "Bash", {"command": "sed -i s/a/b/ main.py"})])])
+        ok(orch._edits({"shell_writes": orch.parse_transcript(sw)["shell_writes"]}), "an agent writing through Bash is not read-only")
         ok("error" not in tr, "training counts computed: " + str(tr.get("error", "")))
         ok(tr.get("train_bucket_runs") == 3, "kept train-bucket runs counted")
         ex = tr.get("excluded") or {}

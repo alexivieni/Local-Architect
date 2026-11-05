@@ -125,12 +125,12 @@ def run():
     check("the output box grows with its content and scrolls inside itself", ".term{height:auto;min-height:180px;max-height:min(60vh,560px)}" in calm)
     check("empty output, runs and queue each say what to do",
           ".term:empty::before{content:" in calm and "No runs in this folder yet. Describe a change" in html and "Nothing queued yet. Type a task above" in html
-          and "No project folder yet. Open" in html)
+          and 'emptyState("projects","Pick a project first","Runs belong to a project folder.","Choose project"' in html)  # 2026-11-05: an empty state with its action
     check("runs and queue show a loading shimmer first", 'box.append(h("div",{class:"skeleton"' in html and 'id:"qList"},h("li",{class:"skeleton"' in html)
     check("long lists scroll inside their box", ".boxlist{max-height:420px;overflow:auto}" in calm and ".qlist{max-height:" in calm)
 
     # ---- 4. plain words
-    check("the page title matches the sub-tab you clicked", '$("#pageTitle").textContent=SUBNAME[id]||p[2]' in html)
+    check("the page title matches the sub-tab you clicked (Home is called Home)", '$("#pageTitle").textContent=id==="overview"?"Home":(SUBNAME[id]||p[2])' in html)
     check("jargon renamed: 'resident' -> 'loaded', 'call trace' -> 'model calls', 'fake model' -> 'no GPU needed'",
           '" models")),"loaded"))' in html and '"model calls")' in html and "Self-test (no GPU needed)" in html)
 
@@ -143,9 +143,9 @@ def run():
           and '$("#keysBtn").addEventListener("click"' in html and 'id="keysBtn"' in html)
     check("the shortcuts list names Ctrl+K, Esc, / and j/k", all(f'["{k}"' in html for k in ("Ctrl", "Esc", "/", "j")) and "const KEYS=[" in html)
     check("Esc closes a panel before it would ever stop a run",
-          html.index("if(HELP_EL){e.preventDefault();closeHelp();return;}") < html.index("if(EV.running){e.preventDefault();cStop();return;}"))
+          html.index("if(HELP_EL){e.preventDefault();closeHelp();return;}") < html.index("if(EV.running){e.preventDefault();"))
     check("focus is always visible (no outline:none on :focus-visible)", ":focus-visible{outline:none" not in css and ":focus-visible{outline:2px solid var(--acc)" in calm)
-    check("the page-enter transition stands down under reduced motion", "@media (prefers-reduced-motion:reduce){#view,.card{animation:none!important}}" in calm)
+    check("the page-enter transition stands down under reduced motion", "@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;" in calm)  # the one global block covers #view and .card
 
     # ---- the script still parses
     node = shutil.which("node")

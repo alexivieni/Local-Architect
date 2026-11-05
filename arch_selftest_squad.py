@@ -18,6 +18,144 @@ def ok(cond, what, detail=None):
     print(("[ok] " if cond else "[x] ") + what + ("" if cond or detail is None else f"  -- {str(detail)[:300]}"))
 
 
+def resume_checks(sq, orch, core, proj, dd, cfg, tmp):
+    W = {"name": "resume3", "phases": [
+        {"title": "Audit", "agent": "auditor", "task": "look at app.py"},
+        {"title": "Note", "log": "audit said {prev.summary}"},
+        {"title": "Review", "agent": "reviewer", "task": "review"},
+        {"title": "Verify", "agent": "verifier", "task": "verify"}]}
+    ok(not sq.validate_workflow(W), "a workflow with a log: phase validates", sq.validate_workflow(W))
+
+    def default_engine(d, owns):
+        e = sq._owned_engine_class()(proj, "crew", "g", cfg, review="auto", say=sq._quiet, persist=False)
+        e.owns = tuple(owns)
+        return e
+
+    def dying(d, owns):                                  # the run "crashes" at phase 3 (Verify)
+        if d["name"] == "verifier":
+            raise RuntimeError("benchmark yield")
+        return default_engine(d, owns)
+    v1, c1 = sq.run_workflow(W, proj, "g", cfg=cfg, data_dir=dd, engine_factory=dying, use_cache=False)
+    ok(v1 == "fail" and [r["verdict"] for r in c1.records] == ["ok", "ok", "failed"], "first run: phases 1-2 ok, phase 3 dies",
+       [r["verdict"] for r in c1.records])
+    jl = open(os.path.join(c1.dir, "journal.jsonl"), encoding="utf-8").read()
+    ok('"type": "log"' in jl and "audit said" in jl, "log: line written to the journal")
+    v2, c2 = sq.run_workflow(W, proj, "g", cfg=cfg, data_dir=dd, resume_from=c1.run_id, use_cache=False)
+    rs = c2.records
+    ok(v2 == "pass" and c2.resume_from == c1.run_id, "resume: the run passes", (v2, c2.resume_from))
+    ok([bool(r.get("replayed")) for r in rs] == [True, True, False], "resume: phases 1-2 replayed, phase 3 ran",
+       [r.get("replayed") for r in rs])
+    ok(all(r["totals"]["calls"] == 0 for r in rs[:2]) and rs[2]["totals"]["calls"] > 0, "resume: replayed agents cost 0 model calls",
+       [r["totals"]["calls"] for r in rs])
+    v3, c3 = sq.run_workflow(W, proj, "g", cfg=cfg, data_dir=dd, resume_from="last", replay=False, use_cache=False)
+    ok(not any(r.get("replayed") for r in c3.records), "--no-replay: nothing replayed")
+    # a failed/None result is never replayed: phase 3 of run 1 failed, so resuming from it reran phase 3 (above); none-verdicts too
+    ok(all(k for k in sq._prior_records(c1.dir)) and len(sq._prior_records(c1.dir)) == 2, "only ok results are replay candidates")
+    # writer replay needs its post-state
+    WW = {"name": "wr", "phases": [{"title": "Build", "agent": "builder", "task": "FAKE:WRITE gen.py", "owns": "gen.py"},
+                                   {"title": "Check", "agent": "reviewer", "task": "check"}]}
+    vw, cw = sq.run_workflow(WW, proj, "g", cfg=cfg, data_dir=dd, use_cache=False)
+    vw2, cw2 = sq.run_workflow(WW, proj, "g", cfg=cfg, data_dir=dd, resume_from=cw.run_id, use_cache=False)
+    ok(vw == "pass" and cw2.records[0].get("replayed"), "writer replays while its file is as it left it",
+       (vw, [r["verdict"] for r in cw.records], cw2.records[0].get("replayed")))
+    with open(os.path.join(proj, "gen.py"), "w") as f:
+        f.write("X = 2  # edited by hand\n")
+    vw3, cw3 = sq.run_workflow(WW, proj, "g", cfg=cfg, data_dir=dd, resume_from=cw2.run_id, use_cache=False)
+    ok(not cw3.records[0].get("replayed"), "an edited owned file makes the writer re-run")
+
+    # step cache: hit, miss on file change, off by flag/env
+    os.environ.pop("ARCHITECT_NO_CACHE", None)
+    try:
+        a = sq.Crew(proj, "g", cfg=cfg, data_dir=dd, workflow="cache")
+        ok(a.use_cache is True and sq.why_not() is None, "cache on when not disabled")
+        r1 = a.agent("auditor", "cache me")
+        b = sq.Crew(proj, "g", cfg=cfg, data_dir=dd, workflow="cache")
+        r2 = b.agent("auditor", "cache me")
+        ok(r1 == r2 and b.cached == 1 and b.records[-1]["totals"]["calls"] == 0, "same def+brief+model+files -> cache hit, 0 calls")
+        jl = open(os.path.join(b.dir, "journal.jsonl"), encoding="utf-8").read()
+        ok('"type": "cached"' in jl, "a cache hit is marked in the journal")
+        with open(os.path.join(proj, "app.py"), "a") as f:
+            f.write("# changed\n")
+        c = sq.Crew(proj, "g", cfg=cfg, data_dir=dd, workflow="cache")
+        c.agent("auditor", "cache me")
+        ok(c.cached == 0, "a changed project file -> cache miss")
+        d_ = sq.Crew(proj, "g", cfg=cfg, data_dir=dd, workflow="cache", use_cache=False)
+        d_.agent("auditor", "cache me")
+        ok(d_.cached == 0 and sq.why_not(False), "--no-cache: no hit, and why_not says so")
+        ok(sq.cache_stats(dd)["entries"] >= 1, "cache_stats reports the agent-steps layer")
+    finally:
+        os.environ["ARCHITECT_NO_CACHE"] = "1"
+    ok(sq.Crew(proj, "g", cfg=cfg, data_dir=dd, workflow="x").use_cache is False and "NO_CACHE" in sq.why_not(),
+       "ARCHITECT_NO_CACHE=1 turns the step cache off")
+
+    # workflow budget
+    WB = dict(W, name="budget", budget={"calls": 1})
+    vb, cb = sq.run_workflow(WB, proj, "g", cfg=cfg, data_dir=dd, use_cache=False)
+    ok(vb == "not_sure", "an exhausted workflow budget ends the run not_sure (never pass)", vb)
+    ok(len([r for r in cb.records if r["verdict"] not in ("budget",)]) <= 1 and any(r["verdict"] == "budget" for r in cb.records),
+       "budget exhaustion stops further agents", [r["verdict"] for r in cb.records])
+    ok(sq.parse_budget("calls=3,tokens=100") == {"calls": 3, "tokens": 100}, "parse_budget")
+    try:
+        sq.parse_budget("calls=0")
+        ok(False, "parse_budget refuses 0")
+    except ValueError:
+        ok(True, "parse_budget refuses 0")
+    st = cb.budget.status()
+    ok(st["spent"]["calls"] >= 1 and st["remaining"]["calls"] <= 0, "budget status: spent and remaining", st)
+
+    # inputs / returns
+    WI = {"name": "inp", "inputs": {"n": {"type": "integer", "required": True}},
+          "returns": {"type": "object", "required": ["findings"]}, "phases": [{"title": "A", "agent": "auditor", "task": "n={n}"}]}
+    ok(not sq.validate_workflow(WI), "inputs/returns validate", sq.validate_workflow(WI))
+    ok(sq.validate_workflow(dict(WI, inputs={"n": {"type": "weird"}})), "a bad input type is refused")
+    vi, _ = sq.run_workflow(WI, proj, "g", cfg=cfg, data_dir=dd)
+    ok(vi == "refused", "a missing required input refuses the run", vi)
+    vi2, ci2 = sq.run_workflow(WI, proj, "g", vars={"n": "3"}, cfg=cfg, data_dir=dd)
+    ok(vi2 == "pass" and ci2.vars["n"] == 3, "input converted; result matches returns:", vi2)
+    vi3, _ = sq.run_workflow(dict(WI, returns={"type": "object", "required": ["nope"]}), proj, "g", vars={"n": 1}, cfg=cfg, data_dir=dd)
+    ok(vi3 == "fail", "a final result that breaks returns: fails the run", vi3)
+
+    # list_runs + orchestration view
+    rows = sq.list_runs(dd)
+    r2 = next((r for r in rows if r["run_id"] == c2.run_id), None)
+    ok(r2 and r2["replayed"] == 2 and r2["resume_from"] == c1.run_id and r2["status"] == "pass", "list_runs shows replayed/resume_from",
+       r2)
+    tree = orch.build_crew_run(c2.dir)
+    ok(tree["replayed"] == 2 and tree["resume_from"] == c1.run_id and tree["logs"], "orchestration tree reads replay markers and logs",
+       {k: tree.get(k) for k in ("replayed", "resume_from")})
+    ok("telemetry" in orch.crew_section(data_dir=dd), "crew_section carries a telemetry summary slot")
+
+    # plugin dirs (a fixture module standing in for arch_plugins)
+    import types
+    pdir = os.path.join(tmp, "plugins", "kit")
+    os.makedirs(os.path.join(pdir, "agents"))
+    os.makedirs(os.path.join(pdir, "workflows"))
+    spec_ = dict(sq._plain(sq.load_agent("auditor")), name="kit-auditor", description="from a plugin")
+    sq.save_agent("kit-auditor", spec_, folder=os.path.join(pdir, "agents"))
+    sq.save_agent("auditor", dict(spec_, name="auditor", description="plugin clash"), folder=os.path.join(pdir, "agents"))
+    with open(os.path.join(pdir, "workflows", "kitflow.yaml"), "w") as f:
+        f.write("name: kitflow\nphases:\n  - title: A\n    agent: kit-auditor\n    task: look\n")
+    old_mod = sys.modules.get("arch_plugins")
+    fake = types.ModuleType("arch_plugins")
+    fake.agent_dirs = lambda: [("kit", os.path.join(pdir, "agents"))]
+    fake.workflow_dirs = lambda: [("kit", os.path.join(pdir, "workflows"))]
+    sys.modules["arch_plugins"] = fake
+    try:
+        ag = sq.list_agents()
+        ok("kit-auditor" in ag and ag["kit-auditor"].get("plugin") == "kit", "plugin agents listed", sorted(ag)[:5])
+        ok(ag["auditor"].get("scope") == "shipped" and ag.get("kit:auditor", {}).get("description") == "plugin clash",
+           "shipped wins a bare-name clash; the plugin's is kit:auditor")
+        ok(sq.load_agent("kit-auditor")["description"] == "from a plugin" and
+           sq.load_agent("kit:auditor")["description"] == "plugin clash", "load_agent resolves bare and plugin:name")
+        ok("kitflow" in sq.list_workflows() and sq.load_workflow("kitflow")["name"] == "kitflow", "plugin workflows load")
+    finally:
+        if old_mod is None:
+            sys.modules.pop("arch_plugins", None)
+        else:
+            sys.modules["arch_plugins"] = old_mod
+    ok("kit-auditor" not in sq.list_agents(), "no plugin module -> no plugin agents")
+
+
 def run():
     N[0] = N[1] = 0
     tmp = tempfile.mkdtemp(prefix="squad_st_")
@@ -272,6 +410,9 @@ def run():
             except ValueError:
                 ok(not os.path.exists(os.path.join(af, "my-reviewer2.yaml")), f"save_agent refuses: {why} (nothing written)")
         ok(not [x for x in os.listdir(af) if ".tmp" in x], "save_agent leaves no temp file")
+
+        # ---- resume, step cache, workflow budget, log lines, inputs/returns, plugin dirs
+        resume_checks(sq, orch, core, proj, dd, cfg, tmp)
 
         # ---- the CLI
         import architect

@@ -71,7 +71,7 @@ DEFAULTS = {
     "storage": {"archive": "",                         # a second drive for copies of run records (arch_archive.py); "" = off
                 "slot_cache_gb": 4.0,                  # saved prompt memory (server/slots, ~0.2-0.4 GB a project): least recently used beyond this is dropped at each save (arch_cachehygiene.py)
                 "slot_max_age_days": 30},              # a saved prompt memory unused this long is offered for removal by `architect.py caches` (asked, never automatic)
-    "behavior": {"review_mode": "ask", "offline_tests": True, "best_of_n": 1, "evaluator": "final",   # final | each | off
+    "behavior": {"model_defaults": "off", "telemetry": "on", "telemetry_mb": 20, "rank_cache": "on", "review_mode": "ask", "offline_tests": True, "best_of_n": 1, "evaluator": "final",   # final | each | off
                  "playwright": "auto", "seed": None,
                  "mutation": "on", "mutation_max": 8,          # test flow: how many code mutations to try
                  "min_gain_pct": 10, "bench_runs": 5,          # optimize flow: required speed-up, benchmark repetitions
@@ -107,7 +107,10 @@ DEFAULTS = {
     "online": {"enabled": False, "allow_pip": False, "cloud_tier": "off", "cloud_model": "claude:claude-opus-5-5",
                "cloud_cache": True, "cloud_cache_ttl": "5m", "cloud_fast": False,      # arch_cloud.py: local cache of Claude replies (30 days); Anthropic prompt-cache lifetime 5m | 1h
                "ultra_worker": "claude:claude-sonnet-5-5", "ultra_skeptic": "claude:claude-haiku-5-5"},   # ultracode helpers; the lead stays on the chosen model   # the ONE switch for anything that leaves this machine on the harness's own behalf (catalog verify, Hugging Face facts, pip repairs). Off = the app behaves identically with no network at all.
-    "retrieval": {"mode": "hybrid", "chunk_lines": 60, "max_chunks": 20000},   # arch_index.py: SQLite FTS5 over functions + TF-IDF files, fused; no vectors, no embedding model
+    "retrieval": {"mode": "hybrid", "chunk_lines": 60, "max_chunks": 20000,   # arch_index.py: SQLite FTS5 over functions + TF-IDF files, fused
+                  "embed_model": "", "embed_host": ""},                        # arch_embed.py: optional dense ranking, "" = keyword-only (default)
+    "plugins": {"enabled": True, "trust_project": False, "disabled": []},      # arch_plugins.py
+    "squad": {"replay": True, "step_cache_days": 30},                            # arch_squad.py: crew --resume replay, agent step cache
     "files": {"extensions": [".py", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".html", ".css", ".json", ".sql", ".md", ".txt",
                              ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".go", ".rs", ".java", ".cs", ".rb", ".php"],
               "ignored_dirs": [], "protected_dirs": []},
@@ -298,16 +301,63 @@ def _terms(text):
     return out
 
 
+def _tel_mirror(rec, run_id):
+    """Mirror one trace record into the unified telemetry stream (arch_telemetry). Never raises."""
+    try:
+        import arch_telemetry
+        r = dict(rec)
+        kind = r.pop("type", "event")
+        r.pop("t", None)
+        for k in ("kind", "sid", "parent", "run"):
+            if k in r:
+                r["rec_" + k] = r.pop(k)
+        if kind == "call":
+            r["cache"] = {"state": "hit" if r.get("cached") else "miss"}
+        arch_telemetry.emit(kind, run=run_id, **r)
+    except Exception:
+        pass
+
+
+def _tel_swallow(where, ex):
+    try:
+        import arch_telemetry
+        arch_telemetry.swallow(where, ex)
+    except Exception:
+        pass
+
+
+_TERMS = {}          # abspath -> (mtime_ns, size, Counter): rank_files term memo
+_TERMS_CAP = 6000
+_TERMS_STATS = {"hit": 0, "miss": 0}
+
+
+def _file_terms(root, f, cfg=None):
+    ap = os.path.join(root, f)
+    st = os.stat(ap)
+    key = (st.st_mtime_ns, st.st_size)
+    got = _TERMS.get(ap)
+    if (((cfg or DEFAULTS).get("behavior") or {}).get("rank_cache", "on") != "off" and got and got[:2] == key):
+        _TERMS_STATS["hit"] += 1
+        return got[2]
+    _TERMS_STATS["miss"] += 1
+    t, _ = read_text(ap, 200000)
+    c = collections.Counter(_terms(f.replace("/", " ") * 3 + " " + t))
+    if len(_TERMS) >= _TERMS_CAP:
+        for k in list(_TERMS)[: _TERMS_CAP // 4]:
+            _TERMS.pop(k, None)
+    _TERMS[ap] = (key[0], key[1], c)
+    return c
+
+
 def rank_files(root, cfg, query, files=None):
     """TF-IDF ranking of files against a query (stdlib). -> [(file, score)] best first."""
     files = files or list_files(root, cfg)
     docs, df = {}, collections.Counter()
     for f in files:
         try:
-            t, _ = read_text(os.path.join(root, f), 200000)
+            c = _file_terms(root, f, cfg)
         except OSError:
             continue
-        c = collections.Counter(_terms(f.replace("/", " ") * 3 + " " + t))
         docs[f] = c
         df.update(c.keys())
     n = max(len(docs), 1)
@@ -317,6 +367,11 @@ def rank_files(root, cfg, query, files=None):
         tot = sum(c.values()) or 1
         s = sum((1 + math.log(c[w])) * math.log(1 + n / df[w]) * q[w] for w in q if w in c) / math.sqrt(tot)
         scores.append((f, s))
+    try:
+        import arch_telemetry
+        arch_telemetry.emit("cache.rank_terms", hits=_TERMS_STATS["hit"], misses=_TERMS_STATS["miss"], files=len(docs))
+    except Exception:
+        pass
     return sorted(scores, key=lambda x: -x[1])
 
 
@@ -1431,6 +1486,32 @@ class Engine:
                 return m
         return ""
 
+    def _model_defaults(self, model, role, ro, mo, options, free_temp=True, free_think=True):
+        """behavior.model_defaults = auto: the model family's own sampling/thinking (arch_modelknow.settings_for) fill ONLY what
+        the person left unset (no role/model override, no explicit argument). Changes `options` in place; -> what was applied.
+        off (the default) -> {} and nothing changes."""
+        if self.cfg["behavior"].get("model_defaults", "off") != "auto" or str(model).startswith("claude:"):
+            return {}
+        try:
+            import arch_jobs
+            import arch_modelknow
+            job = arch_jobs.job_of(role) or "code"
+            got = arch_modelknow.settings_for(model, job) or {}
+        except Exception:
+            return {}
+        mine = set((mo.get("sampling") or {})) | set((ro.get("sampling") or {}))
+        applied = {"job": job, "source": got.get("source")}
+        samp = {k: v for k, v in (got.get("sampling") or {}).items()
+                if k not in mine and not (k == "temperature" and not free_temp) and isinstance(v, (int, float))}
+        if samp:
+            options.update(samp)
+            applied["sampling"] = samp
+        if free_think and "think" not in ro and "think" not in mo and isinstance(got.get("thinking"), bool):
+            applied["thinking"] = got["thinking"]
+        if got.get("tool_format"):
+            applied["tool_format"] = got["tool_format"]      # recorded for the trace; tool calls are parsed as before
+        return applied if len(applied) > 2 else {}
+
     def call(self, role, user, extra_system="", json_out=False, think=None, temperature=None, num_predict=None, label=None, schema=None):
         """One model call as a role. Safe to call from several threads at once: counters, budgets and the trace are updated one at a time,
         while the wait for the model itself is shared -- which is the only part worth running side by side."""
@@ -1499,15 +1580,22 @@ class Engine:
             # Qwen3's own card: thinking 0.6 / 0.95 / 20, otherwise 0.7 / 0.8 / 20, min_p 0; never greedy for a thinking model
             options.update({"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0} if th else
                            {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0})
+        model_defaults = self._model_defaults(model, role, ro, mo, options, temperature is None, think is None)
+        if "thinking" in model_defaults:
+            th = model_defaults["thinking"]
         base_user = user
-        if self.cfg["behavior"].get("learn_from_runs", "on") == "on" and not json_out and "FEEDBACK" not in user:
+        fewshot_model = None                    # whose past reply rode along as FORMAT REFERENCE (recorded in the call trace)
+        if (self.cfg["behavior"].get("learn_from_runs", "on") == "on" and not json_out and "FEEDBACK" not in user
+                and not os.environ.get("ARCHITECT_EVAL")):     # a measurement never sees past answers
             # First tries only: on a retry the feedback is the better signal, and an example there competes with it.
             try:
                 import arch_flows as _fl
                 import arch_ledger
-                ex = arch_ledger.example_for(role, user, root=self.root, named=_fl.named_files(self.goal or ""))
+                ex = arch_ledger.example_for(role, user, root=self.root, named=_fl.named_files(self.goal or ""), model=model)
             except Exception:
                 ex = None
+            if ex:
+                fewshot_model = ex.get("model") or model
             if ex:                              # at the END of the user turn, not in the system prompt: the system prompt + project context stay byte-identical
                 user = user.rstrip() + ("\n\nFORMAT REFERENCE (a past reply of yours for a similar request that passed the checks; copy its SHAPE, "   # across retries, so the server reuses the cached prefill
                                         "not its content):\n" + ex["reply"])
@@ -1758,7 +1846,9 @@ class Engine:
                "prompt_tokens": r["prompt_tokens"], "num_ctx": options["num_ctx"], "ctx_pct": ctx_pct, "ctx_overflow": ov, "gpu_pct": gpu,
                "prompt_est": est, "prefix_reused_est": reused, "load_s": r.get("load_s"), "transport": r.get("transport") or "ollama",
                "cached_exact": r.get("cached_tokens") is not None, "tier": self.tier_of(model, role),
-               "prompt_ref": getattr(self, "prompt_ref", ""), "system_sha": hashlib.sha256(sys_text.encode("utf-8", "replace")).hexdigest()[:12]}
+               "cache_n": r.get("cached_tokens"),        # llama-server timings.cache_n (exact prefix tokens served from its cache); None elsewhere
+               "prompt_ref": getattr(self, "prompt_ref", ""), "system_sha": hashlib.sha256(sys_text.encode("utf-8", "replace")).hexdigest()[:12],
+               "fewshot_model": fewshot_model, "model_defaults": model_defaults or None}
         if cur["host"]:
             rec["host"] = cur["name"]
         self._trace(rec)
@@ -2196,8 +2286,10 @@ class Engine:
         try:
             with open(os.path.join(self.run_dir, "trace.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        except OSError:
-            pass
+        except OSError as ex:
+            self.trace_drops = getattr(self, "trace_drops", 0) + 1
+            _tel_swallow("Engine._trace", ex)
+        _tel_mirror(rec, getattr(self, "run_id", ""))
         emit_event(rec, getattr(self, "run_id", ""))
 
     def _provenance(self, model, host=None):

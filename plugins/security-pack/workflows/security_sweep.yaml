@@ -1,0 +1,12 @@
+name: security-sweep
+description: The secrets auditor and the shipped security reviewer side by side, then the verifier.
+phases:
+  - title: Audit
+    parallel:
+      - agent: secrets-auditor
+        label: "audit:secrets"
+      - agent: security-reviewer
+        label: "audit:security"
+  - title: Verify
+    agent: verifier
+    label: verify

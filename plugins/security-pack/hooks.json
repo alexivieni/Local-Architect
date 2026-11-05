@@ -1,0 +1,11 @@
+{
+  "hooks": [
+    {
+      "name": "bandit",
+      "on": "after_check",
+      "match": "*.py",
+      "run": "python -m bandit -q {files}",
+      "blocking": false
+    }
+  ]
+}

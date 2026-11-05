@@ -82,6 +82,20 @@ def store_layer(data, kind):
     return out
 
 
+def agent_steps_layer(data):
+    """arch_squad's step cache (crew agents reused by a later run with identical inputs); None when arch_squad has no cache_stats."""
+    try:
+        import arch_squad
+        fn = getattr(arch_squad, "cache_stats", None)
+        st = fn(data) if fn else None
+    except Exception:
+        st = None
+    if not st:
+        return None
+    return {"id": "agent_steps", "name": "Agent steps", "where": st.get("path"), "entries": int(st.get("entries") or 0),
+            "bytes": int(st.get("bytes") or 0), "hits": None, "misses": None, "why_not": st.get("why_not")}
+
+
 def prefix_layer(roots=None):
     """Exact prefix reuse from run traces: rho = cached prompt tokens / prompt tokens (Eq. 15), per model and per flow."""
     if roots is None:
@@ -236,6 +250,9 @@ def ledger(roots=None, transcripts=True, transcript_dir=None, data=None):
     data = data or _data()
     layers = [route_layer(data), reply_layer(data), cloud_layer(data), prefix_layer(roots), store_layer(data, "slots"),
               store_layer(data, "lookup"), claude_layer(data, transcripts, transcript_dir)]
+    steps = agent_steps_layer(data)
+    if steps:
+        layers.insert(len(layers) - 1, steps)          # before Claude: it is a local layer
     for l in layers:
         l["state"] = _state(l)
     return {"t": time.time(), "layers": layers, "findings": findings(layers)}

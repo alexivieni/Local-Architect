@@ -253,7 +253,9 @@ def run():
         os.environ["ARCHITECT_DATA_DIR"] = os.path.join(tmp, "led_data")     # a clean history for this check
         lp = os.path.join(tmp, "led")
         os.makedirs(lp)
+        Loop.tags = ["ledfix:7b"]               # a local, non-fixture name: fake:/claude: replies are never stored as examples
         e = engine(lp, "build")
+        e.cfg["roles"] = {r: "ledfix:7b" for r in roles.ROLES}
         a = e.call("generator", "one")
         b = e.call("generator", "two")
         c3 = e.call("planner", "three")
@@ -262,11 +264,11 @@ def run():
         e.mark(b["id"], True)                    # the last label wins: the retry was accepted
         e.mark(c3["id"], False)
         e.finish(True)
-        sm = led.summary("fake:7b")
+        sm = led.summary("ledfix:7b")
         check("each marked call is counted once per model and role, the last mark wins", sm and sm["n"] == 3 and sm["ok"] == 2 and sm["by_role"]["generator"] == {"n": 2, "ok": 2, "rate": 100}
               and sm["by_role"]["planner"]["ok"] == 0, sm)
         e.finish(True)
-        check("finishing a run twice does not double count", led.summary("fake:7b")["n"] == 3)
+        check("finishing a run twice does not double count", led.summary("ledfix:7b")["n"] == 3)
         check("a model with no marked calls has no record (not a made-up zero)", led.summary("never-run:7b") is None)
         ov = led.roles_overview()
         gen = next(r for r in ov if r["role"] == "generator")
@@ -276,6 +278,7 @@ def run():
         check("a request with nothing in common gets no example (no random few-shot)", led.example_for("generator", "completely different zebra quantum topic") is None)
         check("a rejected reply is never offered as an example", all(e["role"] != "planner" for e in led.load().get("_examples", [])))
         e4 = engine(lp, "build")
+        e4.cfg["roles"] = {r: "ledfix:7b" for r in roles.ROLES}
         captured = []
         _orig_sc = core.stream_chat
         core.stream_chat = lambda model, msgs, *a, **k: (captured.append((msgs[0]["content"], msgs[-1]["content"])), _orig_sc(model, msgs, *a, **k))[1]

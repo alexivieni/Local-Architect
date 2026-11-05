@@ -78,9 +78,12 @@ def run():
           ".th-light,.th-dark{background:var(--bg);color:var(--ink)}" in css and "color-scheme:dark" in tokens)
 
     # ---- 2. the Components page
-    check("Components is a page in no tab, belonging to Settings, found by Ctrl+K",
-          'PAGES.push(["components",' in html and '"settings"]);' in html and "PAGES.find(p=>p[0]===id)||[])[4]" in html
-          and '"components"' not in re.search(r"const TABS=\[(.*?)\];", html, re.S).group(1))
+    # 2026-11-05 sidebar: Components is a registered page, a Help sub-tab hidden until "Show advanced pages", always found by Ctrl+K.
+    help_place = re.search(r'\["help","[a-z]+","Help",\[([^\]]*)\]\]', html)
+    adv = re.search(r"const ADVANCED=new Set\(\[([^\]]*)\]\)", html)
+    check("Components is a page, an advanced Help sub-tab (hidden by default), found by Ctrl+K",
+          '["components",' in html and help_place and '"components"' in help_place.group(1)
+          and adv and '"components"' in adv.group(1) and "const cmds=PAGES.map(" in html)
     check("Settings links to it, and render() draws it", 'onclick:()=>go("components")' in html and 'page==="components"' in html and "componentsPage()" in html)
     cp = html[html.find("function cmpFrame("):html.find("function componentsPage(")]
     parts = {"buttons": 'class:"btn p"', "chips": 'class:"chip good"', "cards": 'class:"card",role:"button"', "tabs": 'class:"subtabs"',
@@ -101,7 +104,7 @@ def run():
           all(k in html for k in ('e.key==="ArrowDown"', 'e.key==="Home"', 'e.key==="ArrowRight"&&i>=0', 'e.key==="ArrowLeft"||e.key==="Escape"'))
           and "menuNav(m," in html and "menuNav(menu,close)" in html and '"aria-expanded"' in html)
     check("Esc on an open menu closes the menu only, before the handler that would stop a run",
-          "e.stopImmediatePropagation();closeModelMenu()" in html and html.index("e.stopImmediatePropagation();closeModelMenu()") < html.index("if(EV.running){e.preventDefault();cStop();return;}") + 10**9)
+          "e.stopImmediatePropagation();closeModelMenu()" in html and html.index("e.stopImmediatePropagation();closeModelMenu()") < html.index("if(EV.running){e.preventDefault();") + 10**9)
     check("the command list and the slash list are comboboxes with an active option",
           'inp.setAttribute("role","combobox")' in html and 'ta.setAttribute("aria-activedescendant"' in html and 'inp.setAttribute("aria-activedescendant"' in html)
     check("focus stays inside an open dialog, and Space presses custom buttons", 'querySelectorAll(\'[aria-modal="true"]\')' in html

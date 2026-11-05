@@ -344,7 +344,7 @@ def _best_of_n_checks(check):
                         "from calc import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_add_negative():\n    assert add(-1, 1) == 0\n")
             with open(os.path.join(proj, "conftest.py"), "w", encoding="utf-8") as f:
                 f.write("")
-            cfg = core.deep_merge(core.load_config(proj), {"roles": {r: "fake:7b" for r in arch_roles.ROLES},
+            cfg = core.deep_merge(core.load_config(proj), {"roles": {r: "bonfix:7b" for r in arch_roles.ROLES},   # not fake: (fixture replies never become data)
                                                            "server": {"parallel": par}, "behavior": {"battery_saver": "off"}})
             e = core.Engine(proj, "build", "make add() work", cfg, review="auto", say=lambda *_a, **_k: None)
             os.makedirs(os.path.join(df.PROMPTS_DIR, "_selftest"), exist_ok=True)

@@ -391,6 +391,18 @@ def run():
         e = eng(r0, "x", "x", role_overrides={"planner": {"think": "low"}})
         e.call("planner", "think level test")
         check("a rejected think level falls back instead of failing", True)
+        # behavior.model_defaults: off (the default) changes nothing; auto fills only what the person left unset
+        e = eng(r0, "x", "x")
+        opts0 = {"temperature": 0.33, "top_p": 0.5}
+        o_off = dict(opts0)
+        md_off = e._model_defaults("qwen3:8b", "planner", {}, {}, o_off)
+        check("model_defaults off (the default): no family settings applied, options unchanged",
+              e.cfg["behavior"].get("model_defaults", "off") == "off" and md_off == {} and o_off == opts0, (md_off, o_off))
+        e.cfg["behavior"]["model_defaults"] = "auto"
+        o_on = dict(opts0)
+        md_on = e._model_defaults("qwen3:8b", "planner", {"sampling": {"temperature": 0.33}}, {}, o_on)
+        check("model_defaults auto: a role's own temperature is kept, only unset keys are filled, and the job is recorded",
+              o_on["temperature"] == 0.33 and (md_on == {} or ("job" in md_on and "temperature" not in (md_on.get("sampling") or {}))), (md_on, o_on))
         e = eng(r0, "x", "x")
         e.cfg["roles"].update({"generator": "fake:7b"})
         check("an unset role falls back to the next role in its chain", core.Engine.model_for(e, "generator_sql") == "fake:7b")

@@ -1,0 +1,9 @@
+name: python-review
+description: A Python-specific review, then the shipped verifier tries to prove each finding wrong.
+phases:
+  - title: Review
+    agent: python-reviewer
+    label: review
+  - title: Verify
+    agent: verifier
+    label: verify

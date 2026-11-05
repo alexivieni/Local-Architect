@@ -108,12 +108,131 @@ def record_run(run_dir, run_id):
     return n
 
 
+NOT_LOCAL = ("claude:", "fake:")   # Claude's text must never reach a local prompt (then a local training sample); fake: is a test fixture
+
+
+def _local(model):
+    return bool(model) and not str(model).startswith(NOT_LOCAL) and "claude" not in str(model).lower()
+
+
+_WORD = re.compile(r"[a-z0-9_]+")
+_FP = None
+
+
+def _norm_words(text):
+    return _WORD.findall(str(text or "").lower())
+
+
+def bench_fingerprints(refresh=False):
+    """Word 6-gram shingles of every benchmark goal (an eval task NOT tagged "training", or tagged "holdout"), from evals/.
+    Cached per process. -> set of shingles. A ledger example that shares one with a bench goal is benchmark content."""
+    global _FP
+    if _FP is not None and not refresh:
+        return _FP
+    out = set()
+    try:
+        import arch_eval
+        tasks = list(arch_eval.load_tasks())
+        try:                                               # families with an all_tasks() (every variant, holdouts included)
+            import importlib.util
+            import glob
+            for fp in glob.glob(os.path.join(arch_eval.EVALS_DIR, "families", "*.py")):
+                name = os.path.splitext(os.path.basename(fp))[0]
+                if name.startswith("_"):
+                    continue
+                txt = open(fp, encoding="utf-8").read()
+                if "def all_tasks" not in txt:
+                    continue
+                spec = importlib.util.spec_from_file_location("evals.families._fp_" + name, fp)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                tasks += list(mod.all_tasks())
+        except Exception:
+            pass
+        for t in tasks:
+            if arch_eval.bucket_for(t) != "bench":
+                continue
+            w = _norm_words(t.get("goal"))
+            for i in range(max(0, len(w) - 5)):
+                out.add(" ".join(w[i:i + 6]))
+        out -= _boilerplate()             # wording the harness itself puts in every prompt ("Plan the work as small SPRINTS ...")
+    except Exception:
+        pass
+    _FP = out
+    return out
+
+
+def _boilerplate():
+    """Shingles of the harness's own prompt text (code, prompts/, flows/, the training families' goals): shared by every prompt, so
+    never evidence of a benchmark task."""
+    import glob
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = set()
+    files = glob.glob(os.path.join(here, "arch_*.py")) + glob.glob(os.path.join(here, "prompts", "**", "*.md"), recursive=True)         + glob.glob(os.path.join(here, "flows", "*.yaml"))
+    for fp in files:
+        if os.path.basename(fp).startswith("arch_selftest"):
+            continue
+        try:
+            w = _norm_words(open(fp, encoding="utf-8", errors="replace").read())
+        except OSError:
+            continue
+        out.update(" ".join(w[i:i + 6]) for i in range(max(0, len(w) - 5)))
+    try:
+        import arch_eval
+        for t in arch_eval.load_tasks():
+            if arch_eval.bucket_for(t) == "train":
+                w = _norm_words(t.get("goal"))
+                out.update(" ".join(w[i:i + 6]) for i in range(max(0, len(w) - 5)))
+    except Exception:
+        pass
+    return out
+
+
+def is_bench_text(text, fps=None):
+    fps = bench_fingerprints() if fps is None else fps
+    if not fps:
+        return False
+    w = _norm_words(text)
+    return any(" ".join(w[i:i + 6]) in fps for i in range(max(0, len(w) - 5)))
+
+
 def _remember(led, c):
-    """Keep an accepted reply as a future example for the same role (your own successes are the cheapest few-shot data there is)."""
+    """Keep an accepted reply as a future example for the same role (your own successes are the cheapest few-shot data there is).
+    Never Claude's or a fixture's reply; an example is tagged `bench` when its request carries benchmark-task text, and `eval` when it
+    was recorded under ARCHITECT_EVAL (record_run refuses that today; the tag is the second lock). example_for skips both."""
+    if not _local(c.get("model")):
+        return
     user = next((m.get("content") for m in reversed(c["messages"]) if m.get("role") == "user"), "") or ""
     ex = led.setdefault("_examples", [])
-    ex.insert(0, {"role": c.get("role"), "model": c.get("model"), "flow": c.get("flow"), "req": user[:600], "reply": c["reply"][:EXAMPLE_CHARS], "t": c.get("t")})
+    row = {"role": c.get("role"), "model": c.get("model"), "flow": c.get("flow"), "req": user[:600], "reply": c["reply"][:EXAMPLE_CHARS], "t": c.get("t")}
+    if os.environ.get("ARCHITECT_EVAL"):
+        row["eval"] = True
+    if is_bench_text(user):
+        row["bench"] = True
+    ex.insert(0, row)
     del ex[KEEP_EXAMPLES:]
+
+
+def clean(led=None, save=True):
+    """Drop stored examples that must never be shown: Claude/fixture models, benchmark content, eval-tagged. -> counts."""
+    own = led is None
+    led = load() if own else led
+    ex = led.get("_examples") or []
+    fps = bench_fingerprints()
+    kept, why = [], {"not_local": 0, "bench": 0, "eval": 0}
+    for e in ex:
+        if not _local(e.get("model")):
+            why["not_local"] += 1
+        elif e.get("eval"):
+            why["eval"] += 1
+        elif e.get("bench") or is_bench_text(e.get("req"), fps) or is_bench_text(e.get("reply"), fps):
+            why["bench"] += 1
+        else:
+            kept.append(e)
+    led["_examples"] = kept
+    if save and own and len(kept) != len(ex):
+        _save(led)
+    return {"before": len(ex), "after": len(kept), "dropped": why}
 
 
 _BLOCK = re.compile(r"^\s*(FILE|EDIT|DEF):\s*([^\s:]+)", re.M)
@@ -137,12 +256,16 @@ def _safe_example(e, root, named):
     return True
 
 
-def example_for(role, user, led=None, root=None, named=()):
+def example_for(role, user, led=None, root=None, named=(), model=None):
     """The most similar accepted past reply for this role, or None. Plain term overlap; no model call.
-    With `root`, an example is skipped when it would mislead rather than help (see _safe_example)."""
+    With `root`, an example is skipped when it would mislead rather than help (see _safe_example). With `model`, only that model's own
+    replies are candidates. Never during a benchmark (ARCHITECT_EVAL), never a Claude/fixture reply, never a bench/eval-tagged one."""
+    if os.environ.get("ARCHITECT_EVAL"):
+        return None                       # a measurement must not see past answers, least of all to its own tasks
     led = led if led is not None else load()
     named = set(named or ())
-    pool = [e for e in led.get("_examples") or [] if e.get("role") == role and e.get("reply") and _safe_example(e, root, named)]
+    pool = [e for e in led.get("_examples") or [] if e.get("role") == role and e.get("reply") and _local(e.get("model"))
+            and not e.get("bench") and not e.get("eval") and (model is None or e.get("model") == model) and _safe_example(e, root, named)]
     if not pool:
         return None
     q = set(core._terms(user[:2000]))
@@ -189,3 +312,9 @@ def summary(model, led=None):
     by = {r: {"n": v["n"], "ok": v["ok"], "rate": round(100 * v["ok"] / v["n"]) if v["n"] else None} for r, v in roles.items() if v.get("n")}
     n, ok = sum(v["n"] for v in by.values()), sum(v["ok"] for v in by.values())
     return {"n": n, "ok": ok, "rate": round(100 * ok / n) if n else None, "by_role": by} if n else None
+
+
+if __name__ == "__main__":
+    import sys
+    if "--clean" in sys.argv:
+        print(json.dumps(clean(), indent=1))

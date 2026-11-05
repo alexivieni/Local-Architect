@@ -86,14 +86,14 @@ def run():
     check("the page's code is one block in hub_ui.html", bool(block) and "function cachesPage(){" in block and "async function loadCaches(" in block)
 
     # ---- the place, the icon, the drawing
-    tabs = re.search(r"const TABS=\[(.*?)\];", html, re.S).group(1)
-    models = re.search(r'\["team","chip","Models",\[(.*?)\]\]', tabs)
-    check("Caches is a page in the Models place, right after the Cost map",
-          bool(models) and '"costmap","caches"' in models.group(1) and tabs.count('"caches"') == 1)
+    tabs = re.search(r"const SIDEBAR=\[(.*?)\n\];", html, re.S).group(1)
+    check("Caches is its own place in the Models group, reachable from exactly one place",
+          '["cachesp","db","Caches",["caches"]]' in tabs and tabs.count('"caches"') == 1)
     nav = re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", html, re.S).group(1)
-    check("it has a navigation entry with a plain description, and a page title", '["caches","' in nav and 'caches:"Caches"' in html)
+    check("it has a navigation entry with a plain description, and a page title",
+          re.search(r'\["caches","[a-z0-9-]+","Caches","[^"]+"\]', nav) is not None)
     symbols = set(re.findall(r'<symbol id="i-([a-z0-9-]+)"', html))
-    icon = re.search(r'\bcaches:"([\w-]+)"', html[html.find("const PAGE_ICON="):html.find("const PAGE_ART=")])
+    icon = re.search(r'\["caches","([a-z0-9-]+)"', nav)
     art = re.search(r'\bcaches:"([\w-]+)"', html[html.find("const PAGE_ART="):html.find("const SEC_ART=")])
     check("it has its own icon from the sprite and the Models drawing", bool(icon) and icon.group(1) in symbols and bool(art) and art.group(1) == "models",
           (icon and icon.group(1), art and art.group(1)))

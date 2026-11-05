@@ -475,23 +475,25 @@ def run():
         import architect as cli_mod
         import arch_selfimprove as si_mod
         _captured = {}
-        _orig_cmd_run, _orig_improve = cli_mod.cmd_run, si_mod.improve
+        _orig_cmd_run, _orig_improve, _orig_loop = cli_mod.cmd_run, si_mod.improve, si_mod.loop
         cli_mod.cmd_run = lambda a: _captured.setdefault("run_root", a.root) or 0
         si_mod.improve = lambda goal, **kw: _captured.update(goal=goal, kw=kw) or {"ok": True}
+        si_mod.loop = lambda goal=None, **kw: _captured.update(loop_goal=goal, loop_kw=kw) or {"status": "passed"}   # the iterative loop: stubbed, never run here
         try:
             class _A:
                 pass
             args = _A()
-            for k in ("root", "app", "goal", "domains", "repro", "model", "role_model", "max_revisions", "best_of", "set"):
+            for k in ("root", "app", "goal", "domains", "repro", "model", "role_model", "max_revisions", "best_of", "set",
+                      "goal_opt", "rounds", "resume"):
                 setattr(args, k, None)
+            args.fake, args.allow_gate_edits, args.full_gates = False, False, False
             args.flow, args.review, args.autofix = "review", "dry", False
             args.yes, args.suite, args.allow_safety_edits, args.keep = False, "all", False, False
-            try:
-                cli_mod.cmd_self_improve(args)
-                needs_goal = False
-            except SystemExit:
-                needs_goal = True
-            check("self-improve: without a goal it asks for one and changes nothing", needs_goal and not _captured, _captured)
+            rc0 = cli_mod.cmd_self_improve(args)
+            # rule changed 2026-11-05: no goal = the iterative squad loop picks the top failing check, on a candidate copy -- still never a plain run on the install
+            check("self-improve: without a goal it runs the iterative loop on a candidate copy, never a plain run on the install",
+                  rc0 == 0 and "loop_goal" in _captured and _captured["loop_goal"] is None and "run_root" not in _captured and "goal" not in _captured, _captured)
+            _captured.clear()
             args.goal = "make it faster"
             rc = cli_mod.cmd_self_improve(args)
             check("self-improve: with no --root it goes through the candidate/gate pipeline, never a plain run on the install",
@@ -501,7 +503,7 @@ def run():
             cli_mod.cmd_self_improve(args)
             check("self-improve: an explicit --root is respected as a plain run on that folder", _captured.get("run_root") == args.root and "goal" not in _captured, _captured)
         finally:
-            cli_mod.cmd_run, si_mod.improve = _orig_cmd_run, _orig_improve
+            cli_mod.cmd_run, si_mod.improve, si_mod.loop = _orig_cmd_run, _orig_improve, _orig_loop
 
         # ---- the detections / scope_guard / ioc_watch add-ons: the SAME red/blue/IOC capability, dropped
         # onto templates that have nothing to do with security -- proves "usable everywhere", not baked in

@@ -25,10 +25,16 @@ def run():
     check("each Simple-mode step says its state in words, not only with a colour or symbol", 'h("span",{class:"sr-only"}," — "+label[st])' in ui and '"aria-hidden":"true"' in ui)
     check("icon-only and arrow buttons get spoken names after every render", "function a11yPass(" in ui and '"↑":"Move up","↓":"Move down"' in ui and "MutationObserver" in ui)
     check("clickable non-buttons become keyboard-reachable and answer Enter/Space", 'setAttribute("tabindex","0")' in ui and 'e.key==="Enter"||e.key===" "' in ui)
-    check("Simple mode is a real page with plain-language step names", '["simple","spark","Simple"' in ui and "const PLAIN_STEP=" in ui and "Writing the change" in ui)
-    check("Simple mode is the default and Advanced is one click away (remembered)", 'store.get("uiMode","simple")' in ui and 'setMode("advanced")' in ui)
-    check("the main box and the folder field have accessible names", '"aria-label":"What do you want done?"' in ui and '"aria-label":"Project folder"' in ui)
-    check("starter recipes are real buttons in a labelled group", 'role:"group","aria-label":"Start from an example"' in ui and 'class:"sp-recipe",type:"button"' in ui)
+    # 2026-11-05 one-box Home (docs/telemetry/ui_rebuild_log.md 26): the old Simple page is Home ("overview"); old ids still land there.
+    check("Home (the old Simple mode) is a real page with plain-language step names",
+          '["overview","home","Start"' in ui and 'simple:"overview"' in ui and "const PLAIN_STEP=" in ui and "Writing the change" in ui)
+    check("Home is the default and Advanced (Console) is one click away",
+          'if(!PAGES.some(x=>x[0]===id))id="overview"' in ui and 'function setMode(m){go(m==="simple"?"overview":"console");}' in ui)
+    check("the main box and the folder field have accessible names (a visible label tied to each)",
+          'h("label",{class:"sp-lbl",for:"spGoal"},"What do you want done?")' in ui and 'id:"spGoal"' in ui
+          and 'for:"spRoot"},"Project folder' in ui and 'id:"spRoot",role:"combobox"' in ui)
+    check("starter recipes are real buttons in a labelled group",
+          'role:"group","aria-labelledby":"spTryL"' in ui and 'id:"spTryL"},"Try:"' in ui and 'class:"sp-recipe",type:"button"' in ui)
     n = sum(results)
     print(f"\n  {'ALL ' + str(n) + ' A11Y CHECKS PASSED' if n == len(results) else str(len(results) - n) + ' of ' + str(len(results)) + ' A11Y CHECKS FAILED'}")
     return n == len(results)

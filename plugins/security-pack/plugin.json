@@ -1,0 +1,11 @@
+{
+  "name": "security-pack",
+  "version": "1.0.0",
+  "description": "Security sweep: a secrets auditor, a sweep workflow, /secrets and a secret-handling skill; an optional bandit hook.",
+  "requires": {
+    "architect": ">=13",
+    "tiers": [
+      "worker"
+    ]
+  }
+}

@@ -158,6 +158,12 @@ def run():
           and _tl.syntax_error("a.py", "def f():\n    return 1\n") == "" and _tl.syntax_error("x.json", "{bad") != ""
           and _tl.syntax_error("x.json", '{"a": 1}') == "" and _tl.syntax_error("x.md", "# any") == ""
           and {"view", "edit_lines"} <= set(_tl.TOOLS), [n for n in _tl.TOOLS])
+    import arch_tools as _tl
+    check("safe edits: a Python edit that would not parse is caught with the parser's line and message; good Python and JSON pass, "
+          "and file types without a parser are accepted", _tl.syntax_error("a.py", "def f(:\n  pass\n").startswith("line 1")
+          and _tl.syntax_error("a.py", "def f():\n    return 1\n") == "" and _tl.syntax_error("x.json", "{bad") != ""
+          and _tl.syntax_error("x.json", '{"a": 1}') == "" and _tl.syntax_error("x.md", "# any") == ""
+          and {"view", "edit_lines"} <= set(_tl.TOOLS), [n for n in _tl.TOOLS])
     import arch_schemas as _sc
     good = {"sprints": [{"name": "api", "goal": "add /health", "files": ["app/main.py"], "acceptance": [{"id": "a1", "text": "GET /health is 200"}]}]}
     bad = {"sprints": [{"name": "x", "goal": "y", "files": ["../etc/passwd", "C:/Windows/x.py"], "acceptance": []}]}

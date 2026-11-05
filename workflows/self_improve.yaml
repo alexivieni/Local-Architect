@@ -1,0 +1,34 @@
+# The app working on ITSELF, one round. arch_selfimprove.loop runs these phases in a THROWAWAY COPY of the install and adds the
+# code steps between them (plan check, ownership, gates). Run: python architect.py self-improve --goal "..." [--rounds N] [--fake]
+name: self-improve
+description: Auditors read the app's own code side by side, a planner splits the fix into owned files, builders change only those, a verifier tries to prove it wrong; code gates decide.
+phases:
+  - title: Audit
+    id: audit
+    parallel:
+      - agent: auditor
+        label: "audit:correctness"
+        vars:
+          focus: correctness - wrong results, unhandled errors, edge cases, in the code the goal is about
+      - agent: auditor
+        label: "audit:safety"
+        vars:
+          focus: safety - paths, subprocess and network use on the default path
+      - agent: auditor
+        label: "audit:tests"
+        vars:
+          focus: tests - which selftest suite covers the code the goal is about, and what it does not check
+  - title: Plan
+    id: plan
+    agent: si-planner
+    label: plan
+  - title: Build
+    id: build
+    agent: builder
+    label: build
+    owns: "{owns}"
+  - title: Verify
+    id: verify
+    agent: verifier
+    label: "verify:adversarial"
+    task: "Assume the change is wrong. Re-read every changed line and say pass only with evidence."

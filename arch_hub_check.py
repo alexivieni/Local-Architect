@@ -189,16 +189,50 @@ def run():
               all(isinstance(d.get("available"), bool) for d in (sa, sw, sy)) and isinstance(sa.get("agents"), list)
               and isinstance(sw.get("workflows"), list) and isinstance(sy.get("jobs"), list), (sa, sw, sy))
         if sa.get("available"):
-            check("the squad agents endpoint lists the 17 agents of arch_squad (a dict of definitions, read by .values())", len(sa.get("agents") or []) == 17, len(sa.get("agents") or []))
+            check("the squad agents endpoint lists the 18 agents of arch_squad (17 + si-planner) (a dict of definitions, read by .values())", len(sa.get("agents") or []) == 18, len(sa.get("agents") or []))
             check("squad workflows carry phases with a kind", all(all(isinstance(p, dict) and p.get("kind") for p in w["phases"]) for w in sw.get("workflows") or []), sw)
-        check("no sidebar place has more than 5 sub-tabs except Models, and Agent teams has at most 5",
-              all(len(g) <= 6 for g in tab_pages) and any(set(g) >= {"agents", "fleet"} and len(g) <= 5 for g in tab_pages), tab_pages)
+        check("no sidebar place has more than 5 sub-tabs (Models included), and Agent teams has at most 5",
+              all(len(g) <= 5 for g in tab_pages) and any(set(g) >= {"agents", "fleet"} and len(g) <= 5 for g in tab_pages), tab_pages)
+        check("the Plugins, Telemetry, Squad runs and one Health page are in the sidebar; old checkup ids land on Health",
+              {"plugins", "telemetry", "squadruns", "doctor"} <= set(flat) and "advisor" not in flat
+              and 'advisor:"doctor"' in html and 'health:"doctor"' in html and "function healthPage()" in html and '"Run checkup"' in html, flat)
+        check("Settings has a 'Show advanced pages' toggle, off by default, and the palette traps focus and returns it",
+              "Show advanced pages" in html and 'store.get("showAdvanced","0")' in html and 'e.key==="Tab"' in html and "openPalette.back" in html)
+        check("no hard-coded px font sizes are left on the page (they are rem, so the browser's text size applies)",
+              not re.search(r"font-size:\d+(\.\d+)?px", html), re.findall(r"font-size:\d+(?:\.\d+)?px", html)[:5])
+        pl = call("/api/arch/plugins")
+        check("plugins answers available + a list, never a crash", isinstance(pl.get("available"), bool) and isinstance(pl.get("plugins"), list), pl)
+        check("trusting a plugin without confirm, a bad name, and installing from a missing folder are refused",
+              call("/api/arch/plugins/trust", {"name": "x"}).get("HTTP") == 400 and call("/api/arch/plugins/enable", {"name": "../x"}).get("HTTP") == 400
+              and call("/api/arch/plugins/install", {"path": os.path.join(work, "nope")}).get("HTTP") == 400
+              and call("/api/arch/plugins/enable", {"name": "x"}, token=False).get("HTTP") in (401, 403))
+        tsum, tev = call("/api/arch/telemetry/summary?window=600"), call("/api/arch/telemetry/events?kinds=llm.call,BAD%20KIND")
+        check("telemetry summary and events answer available + their shape, never a crash",
+              isinstance(tsum.get("available"), bool) and tsum.get("window") == 600 and isinstance(tev.get("available"), bool) and isinstance(tev.get("events"), list), (tsum, tev))
+        if tsum.get("available"):
+            check("the telemetry summary carries the card fields", {"calls", "tokens_in", "tokens_out", "errors"} <= set(tsum), tsum)
+        ttl = call("/api/arch/telemetry/timeline?run=..%2Fx")
+        check("a timeline for an unsafe run id is refused as not available, not a crash", ttl.get("available") is False and ttl.get("spans") == [], ttl)
+        srn = call("/api/arch/squad/runs")
+        check("squad runs answer available + a list; resuming an unknown or unsafe run is refused",
+              isinstance(srn.get("available"), bool) and isinstance(srn.get("runs"), list)
+              and call("/api/arch/squad/resume", {"run_id": "../x"}).get("HTTP") == 400
+              and call("/api/arch/squad/resume", {"run_id": "no_such_run_1"}).get("HTTP") == 400, srn)
         tc = call("/api/arch/templates/catalog")
         check("the template catalog answers available + a list, never a crash", isinstance(tc.get("available"), bool) and isinstance(tc.get("templates"), list), tc)
         check("each catalog template carries the card fields", all({"id", "name", "category", "difficulty", "colour", "thumb"} <= set(t) for t in tc.get("templates") or []), tc)
         check("a template thumbnail with an unsafe id is refused", call("/templates/..%2Fhub_ui.svg").get("HTTP") in (400, 404))
         check("Home leads with one headline, a Do it button, the practice project and no duplicate quick launch",
               "What should your computer work on?" in html and '"Do it"' in html and "Use the practice project" in html and '"Quick launch"' not in html)
+        check("Home: nothing above #spTitle (no subtabs, no page tip, no page title on Home)",
+              "body.sheet-wrap #subtabs,body.sheet-wrap #pageHint{display:none}" in html and ".sheet-wrap .top{display:none}" in html
+              and 'h("div",{class:"sp-head"},h("h2",{class:"sp-title",id:"spTitle"}' in html and '"aria-label":"About this page"' in html)
+        check("Home: Do it is disabled while the goal box is empty, with a tooltip",
+              'b.disabled=!g;b.title=g?"Start (Ctrl+Enter)":"Type what you want done"' in html and 'id:"spGo"' in html)
+        check("Home: the project combobox lists recentRoots (last 5) + practice + paste",
+              'store.get("recentRoots"' in html and '.slice(0,5)' in html and 'role:"combobox"' in html and '"Paste a path…"' in html and 'role:"listbox"' in html)
+        check("top bar live chip is capped at 360px with ellipsis and never wraps",
+              "#liveChip.livechip{max-width:360px;" in html and "text-overflow:ellipsis" in html and "white-space:nowrap" in html)
         check("Esc stops a run only when pressed twice, and bare digits no longer navigate", "Press Esc again within 2 s" in html and "n<=TABS.length" not in html)
         check("the V2 category colour tokens exist in light and dark, and the reduced-motion rule is one block",
               html.count("--c-agent-bg:") >= 3 and html.count("prefers-reduced-motion:reduce") == 1, html.count("prefers-reduced-motion:reduce"))
@@ -323,6 +357,10 @@ def run():
             check("every script block on the hub page parses (a syntax error would mean a blank page)", not bad, "; ".join(bad))
         else:
             check("the hub page's script parses (node not installed here: brackets balanced instead)", js.count("(") == js.count(")") and js.count("{") == js.count("}") and js.count("[") == js.count("]"))
+        tdz = tdz_scan(js)
+        check("no top-level const/let is read at load time before its declaration (a TDZ error blanks the whole hub)", not tdz, tdz[:5])
+        check("the TDZ scan itself catches the G_CHORDS shape and ignores reads inside functions",
+              tdz_scan("const K=[...Object.entries(G)];\nconst G={};") == [("G", 1)] and tdz_scan("function f(){return G;}\nconst h=()=>G;\nconst G=1;") == [])
         check("tune_info carries the last live-test result slot", "livetest" in ti, list(ti))
         check("tune_info lists the other machines (none yet) with the power state", ti.get("machines", {}).get("hosts") == [] and "power" in ti["machines"], ti.get("machines"))
         rr = call("/api/arch/hosts", {"add": {"name": "desk", "address": "127.0.0.1:1"}})
@@ -367,6 +405,21 @@ def run():
         check("the backlog takes an item from the hub and lists it", r.get("ok") and any(i["goal"].startswith("add a health") for i in call("/api/arch/backlog?root=" + proj2)["items"]), r)
         check("the last run's report is readable for the Studio thread", "report" in call("/api/arch/report?root=" + proj2))
         check("the new actions need the hub token", all(call(p_, {"tag": "a:b", "confirm": True}, token=False).get("HTTP") in (401, 403) for p_ in ("/api/arch/pull", "/api/arch/ready", "/api/arch/tune", "/api/arch/self_rollback")))
+        # Improve itself (Machine > Improve itself): the page, its reads, and every change behind the token
+        si_posts = ("/api/arch/selfimprove/start", "/api/arch/selfimprove/again", "/api/arch/selfimprove/promote",
+                    "/api/arch/selfimprove/discard", "/api/arch/selfimprove/rollback")
+        check("Improve itself: every change needs the hub token",
+              all(call(p_, {"id": "si00000000", "confirm": True}, token=False).get("HTTP") in (401, 403) for p_ in si_posts))
+        sis = call("/api/arch/selfimprove/sessions")
+        check("Improve itself: the session list and history are readable", isinstance(sis.get("sessions"), list) and isinstance(sis.get("history"), list), sis)
+        check("Improve itself: a bad session id is refused", call("/api/arch/selfimprove/session?id=../x").get("HTTP") == 400)
+        check("Improve itself: promote refuses without a confirmation or a passed session",
+              call("/api/arch/selfimprove/promote", {"id": "si00000000"}).get("HTTP") == 400
+              and call("/api/arch/selfimprove/promote", {"id": "si00000000", "confirm": True}).get("HTTP") == 400)
+        check("Improve itself: the page is under Machine (at most 5 sub-tabs) with goal, Suggest, timeline, diff, Promote/Discard/Another round, Rollback",
+              '["machine","server","Machine",["doctor","assess","computers","tune","selfimprove"]]' in html
+              and all(x in html for x in ("function selfImprovePage", "Suggest something", "/api/arch/selfimprove/suggest", "si-diff",
+                                          '"Promote"', '"Discard"', '"Another round"', "Roll back last promotion", "could not run", "emptyState(")))
     finally:
         hub.terminate()
         fake.shutdown()
@@ -375,6 +428,149 @@ def run():
     ok = all(results)
     print(f"  {'ALL ' + str(len(results)) + ' HUB CHECKS PASSED' if ok else str(results.count(False)) + ' of ' + str(len(results)) + ' HUB CHECKS FAILED'}")
     return 0 if ok else 1
+
+
+_ID = re.compile(r"[A-Za-z_$][\w$]*")
+_REGEX_BEFORE = set("(,=:[!&|?{};+-*%<>~^")
+
+
+def tdz_scan(js):
+    """-> [(name, line)] for every top-level const/let read before its declaration by code that runs at load time.
+
+    A simple ordered scan, not a parser: strings, template literals, comments and regex literals are skipped; code inside a
+    function body (function ... {}, method(...) {}, x => {...}, or an expression arrow up to its end) is deferred and ignored.
+    It can miss a use (a top-level call into a function that reads the name), but a hit is a real load-time read."""
+    toks = []                      # (kind, text, pos, fdepth)
+    i, n = 0, len(js)
+    stack = []                     # per open bracket: True when it is a function body
+    arrow = []                     # bracket depths at which an expression-bodied arrow is open
+    pend_fn = False                # saw `function`; the next "{" after its params is a body
+    prev = ""                      # last significant char/token for regex detection
+    prev_tok = ""
+    fdepth = 0
+
+    def depth():
+        return len(stack)
+    while i < n:
+        c = js[i]
+        if c in " \t\r\n":
+            i += 1
+            continue
+        if js.startswith("//", i):
+            j = js.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if js.startswith("/*", i):
+            j = js.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        if c in "\"'":
+            j = i + 1
+            while j < n and js[j] != c:
+                j += 2 if js[j] == "\\" else 1
+            i = j + 1
+            prev, prev_tok = "a", ""
+            continue
+        if c == "`":
+            j, lvl = i + 1, 0
+            while j < n:
+                if js[j] == "\\":
+                    j += 2
+                    continue
+                if js.startswith("${", j):
+                    lvl += 1
+                    j += 2
+                    continue
+                if js[j] == "}" and lvl:
+                    lvl -= 1
+                elif js[j] == "`" and not lvl:
+                    break
+                j += 1
+            i = j + 1
+            prev, prev_tok = "a", ""
+            continue
+        if c == "/" and (prev in _REGEX_BEFORE or prev == "" or prev_tok in ("return", "typeof", "case")):
+            j, cls = i + 1, False
+            while j < n and js[j] != "\n":
+                if js[j] == "\\":
+                    j += 2
+                    continue
+                if js[j] == "[":
+                    cls = True
+                elif js[j] == "]":
+                    cls = False
+                elif js[j] == "/" and not cls:
+                    break
+                j += 1
+            j += 1
+            while j < n and (js[j].isalpha()):
+                j += 1
+            i = j
+            prev, prev_tok = "a", ""
+            continue
+        m = _ID.match(js, i)
+        if m:
+            w = m.group(0)
+            if w == "function":
+                pend_fn = True
+            toks.append(("id", w, i, fdepth, js[i - 1] == "." if i else False))
+            prev, prev_tok = "a", w
+            i = m.end()
+            continue
+        if js.startswith("=>", i):
+            k = i + 2
+            while k < n and js[k] in " \t\r\n":
+                k += 1
+            if k < n and js[k] == "{":
+                stack.append(True)
+                fdepth += 1
+                i = k + 1
+            else:
+                arrow.append(depth())
+                fdepth += 1
+                i += 2
+            prev, prev_tok = "=", ""
+            continue
+        if c in "([{":
+            # close expression arrows never happens on open
+            body = False
+            if c == "{":
+                if pend_fn:
+                    body, pend_fn = True, False
+                elif prev == ")":
+                    body = True                 # method(...) { } / if(...) { }: treated as deferred (may miss, never false hit)
+            stack.append(body)
+            if body:
+                fdepth += 1
+            prev, prev_tok = c, ""
+            i += 1
+            continue
+        if c in ")]}":
+            while arrow and arrow[-1] == depth():
+                arrow.pop()
+                fdepth -= 1
+            if stack:
+                if stack.pop():
+                    fdepth -= 1
+            prev, prev_tok = c, ""
+            i += 1
+            continue
+        if c in ",;":
+            while arrow and arrow[-1] == depth():
+                arrow.pop()
+                fdepth -= 1
+        prev, prev_tok = c, ""
+        i += 1
+    decl = {}
+    for k, t in enumerate(toks):
+        if t[1] in ("const", "let") and t[3] == 0 and k + 1 < len(toks) and toks[k + 1][0] == "id":
+            decl.setdefault(toks[k + 1][1], toks[k + 1][2])
+    hits = []
+    for t in toks:
+        _, w, pos, fd, dotted = t
+        if fd == 0 and not dotted and w in decl and pos < decl[w]:
+            hits.append((w, js.count("\n", 0, pos) + 1))
+    return hits
 
 
 def _http_code(url):

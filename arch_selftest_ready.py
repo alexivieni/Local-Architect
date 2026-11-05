@@ -102,6 +102,7 @@ def run():
         check("the flows put what is known about the project (the scan profile, and any memory) at the top of their context",
               ctxt.startswith("=== what is known about this project ===") and "Test command" in ctxt and "app.py" in ctxt, ctxt[:200])
         shutil.rmtree(os.path.join(proj, ".arch"))
+        eng = core.Engine(proj, "review", "x", core.load_config(proj), review="dry", say=quiet, persist=False)   # a new run: memory is pinned per run (stable_context)
         check("with no profile and no memory, nothing is put at the top of the context", "what is known about this project" not in eng.context("charge"))
         arch_scan.write(proj, p)
 

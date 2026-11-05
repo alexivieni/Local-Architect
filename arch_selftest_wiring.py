@@ -214,7 +214,7 @@ def run():
                  {"type": "assist", "id": 1, "fixes": [{"file": "salesreport/__init__.py", "why": "export"}]},
                  {"type": "call", "id": 2, "role": "generator", "model": "w", "label": "sprint2-try1",
                   "messages": [{"role": "system", "content": "s"}, {"role": "user", "content": "write the tests for the package"}], "reply": "FILE: y"},
-                 {"type": "mark", "id": 2, "accepted": True}]
+                 {"type": "mark", "id": 2, "accepted": True}, {"type": "verdict", "verdict": "pass"}]
         with open(os.path.join(rd, "trace.jsonl"), "w", encoding="utf-8") as f:
             f.write("\n".join(json.dumps(r_) for r_ in trace))
         data = DS.build([os.path.join(home, "proj")], dedupe=False)

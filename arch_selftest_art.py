@@ -145,8 +145,10 @@ def run():
     sym_bodies = re.findall(r'<symbol id="i-[a-z0-9-]+"[^>]*>(.*?)</symbol>', html, re.S)
     first = re.search(r'<script>\r?\n"use strict";', html)
     js = html[first.start() if first else 0:].replace("\r\n", "\n")
-    page_icon = _obj(js, "PAGE_ICON")
-    tabs = re.findall(r'\["(\w+)","([\w-]+)","[^"]+",\[', re.search(r"const TABS=\[(.*?)\];", js, re.S).group(1))
+    nav_src = re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", js, re.S).group(1)
+    # PAGE_ICON is derived from the registered pages: id -> icon
+    page_icon = dict(re.findall(r'\["([a-z]+)","([\w-]+)","[^"]*","[^"]*"\]', nav_src))
+    tabs = re.findall(r'\["(\w+)","([\w-]+)","[^"]+",\[', (re.search(r"const SIDEBAR=\[(.*?)\n\];", js, re.S) or re.search(r"const TABS=\[(.*?)\];", js, re.S)).group(1))
     pages = re.findall(r'\["([a-z]+)","[^"]*","[^"]*","[^"]*"\]', re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", js, re.S).group(1)) + ["components"]
     head_icons = re.findall(r',"([\w-]+)"\]', re.search(r"const HEAD_ICON=\[(.*?)\];", js, re.S).group(1)) if "const HEAD_ICON=[" in js else []
     check("one grid and one stroke: every symbol is 24 x 24 and draws with the inherited stroke (no colours, no stroke widths of its own)",
@@ -192,10 +194,10 @@ def run():
           and '$("#themeBtn").setAttribute("aria-haspopup","menu")' in js)
     check("each look is previewed in its own tokens (.th-<name>), and an unknown stored value falls back to Auto",
           'h("span",{class:"thsw th-"+t' in js and 'if(!THEMES.includes(t))t="system";' in js)
-    check("Esc closes the picker before it could ever stop a run", js.index("if(THPICK){e.preventDefault();closeThemePick(true);return;}") < js.index("if(EV.running){e.preventDefault();cStop();return;}"))
+    check("Esc closes the picker before it could ever stop a run", js.index("if(THPICK){e.preventDefault();closeThemePick(true);return;}") < js.index("if(EV.running){e.preventDefault();"))
 
     # ---- 7. signs of life, calm
-    sec = js[js.find("Art direction (docs/art_direction.md). Display only"):js.find('go("console");refresh(true)')]
+    sec = js[js.find("Art direction (docs/art_direction.md). Display only"):js.find('go("overview");refresh(true)')]
     check("the Workspace tab breathes while a run or a job works (the side chip says it in words)",
           "body.is-busy .nav[data-sec=console]::after" in layer and 'document.body.classList.toggle("is-busy"' in sec and 'attributeFilter:["hidden","class"]' in sec)
     check("loading blocks shimmer, from tokens", ".card>div.st-load::after" in layer and "animation:shimmer" in layer)

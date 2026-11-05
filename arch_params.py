@@ -33,6 +33,9 @@ SETTINGS = {
         ("limits.max_file_bytes", "int", "Largest file read (bytes)", "", (1000, 20000000)),
     ],
     "Behaviour": [
+        ("behavior.telemetry", "choice:on,off", "Local telemetry", "on = one local event stream (model calls, cache hits and misses, steps, checks, swallowed errors) in hub_data/telemetry/events.jsonl. Never leaves this machine. off = write nothing.", None),
+        ("behavior.telemetry_mb", "int", "Telemetry file size (MB)", "The event stream rolls at this size; one older generation is kept.", (1, 2000)),
+        ("behavior.rank_cache", "choice:on,off", "Remember file terms between context builds", "on = file ranking re-reads only files whose size or time changed. off = read every file every time.", None),
         ("behavior.review_mode", "choice:ask,auto,dry", "Default review mode", "ask = you approve every diff", None),
         ("behavior.evaluator", "choice:final,each,off", "Strict judge", "final = once per build; each = every sprint; off = code checks only", None),
         ("behavior.best_of_n", "int", "Best of N (sampled attempts)", "Run a step N times and keep the first that passes checks; 1 = off.", (1, 5)),
@@ -85,12 +88,24 @@ SETTINGS = {
             ("behavior.record_live", "choice:on,off", "Record what the machine is doing", "on = while the hub runs, every 5 seconds one line with RAM, graphics memory, GPU temperature and power, the power source and the running model servers goes to hub_data/live.log (two files of about 2 MB, written straight to disk), so a freeze or a crash leaves evidence of what led up to it. off = nothing is recorded.", None),
             ("behavior.heavy_jobs", "choice:one,any", "Heavy jobs", "one = test suites, benchmarks, tuning and self-improvement run one at a time and below normal priority: a second one waits for the first, and the desktop stays usable (a laptop that ran four at once crashed). any = no waiting, normal priority.", None),
             ("behavior.postmortem", "choice:on,off", "Explain failures", "After a run fails, the model reads what happened (the checks that failed, the last feedback) and writes a short explanation in plain words next to the run (postmortem.md). When the queue retries the task, the retry is given that explanation. Costs one model call per failed run; never runs during a benchmark.", None),
+            ("behavior.model_defaults", "choice:auto,off", "Model family defaults", "auto = each model's own family settings (sampling, thinking; arch_modelknow) fill in only what you have not set yourself for that role or model, and the call trace records which were applied. off = unchanged.", None),
             ("behavior.fold_failed_sprints", "bool", "Carry on past a failed sprint", "In unattended runs, a sprint that still fails after its retries hands its work to the next sprint instead of ending the build, so the later parts of the request are still attempted. The build only counts as complete if the last sprint passes. Off: the build stops at the first sprint that will not pass, so you can look at it.", None),
     ],
     "Retrieval": [
         ("retrieval.mode", "choice:hybrid,tfidf", "What the prompt shows", "hybrid = the file ranking fused with a full-text index of your functions (SQLite FTS5 inside the project; nothing to download, nothing on the GPU); tfidf = the file ranking only.", None),
         ("retrieval.chunk_lines", "int", "Chunk size for non-Python files (lines)", "Python is chunked per function/class.", (10, 400)),
         ("retrieval.max_chunks", "int", "Largest project to index (chunks)", "Above this the index stays off for that project.", (100, 200000)),
+        ("retrieval.embed_model", "text", "Embedding model (optional)", "Optional Ollama embedding model (e.g. bge-m3:latest) fused into retrieval ranking; empty = keyword-only. Asked with keep_alive 0; it only orders what the prompt shows.", None),
+        ("retrieval.embed_host", "text", "Embedding host", "Ollama host for the embedding model; blank = the Ollama host. Loopback only (127.0.0.1 / localhost).", None),
+    ],
+    "Plugins": [
+        ("plugins.enabled", "bool", "Load plugins", "Bundles of agents, workflows, skills, commands and hooks (python architect.py plugins). Off = none are loaded.", None),
+        ("plugins.trust_project", "bool", "Trust plugins inside the project", "A plugin in <project>/.arch/plugins is loaded only when this is on. Plugins that run code still need to be trusted one by one.", None),
+        ("plugins.disabled", "list", "Disabled plugins", "Comma separated plugin names never loaded.", None),
+    ],
+    "Squad": [
+        ("squad.replay", "bool", "Replay unchanged agents", "crew --resume: an agent whose inputs and files did not change reuses its earlier result instead of running again.", None),
+        ("squad.step_cache_days", "int", "Agent step cache (days)", "How long a finished agent step can be reused by a later run with identical inputs.", (1, 365)),
     ],
     "Server": [
         ("server.kind", "choice:auto,llama,ollama", "Model server", "auto = the resident llama-server when its program is installed (bin/llama-server), otherwise Ollama. llama = require it. ollama = never start llama-server.", None),

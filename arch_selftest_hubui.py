@@ -189,19 +189,23 @@ def run():
         # ---------------------------------------------------------------- the page
         html = open(os.path.join(HERE, "hub_ui.html"), encoding="utf-8").read()
         check("visible names: no 'Ultracode' or 'Claude agents' label is left; Council and Crew are there",
-              '"Ultracode"' not in html and '"Claude agents"' not in html and 'h("span",{class:"mmname"},"Council"' in html and 'agents:"Crew"' in html)
+              '"Ultracode"' not in html and '"Claude agents"' not in html and 'h("span",{class:"mmname"},"Council"' in html and '["crewbuild","crew","Crew builder"' in html)  # 2026-11-05: Crew lives on as the Crew builder page
         check("the stored setting key and the old trigger words are untouched (chatUltra is still what the toggle saves)",
               html.count('store.set("chatUltra"') == 1 and "chatUltra" in html)
         check("the word 'council' in a message sends ultra:true (Console and Studio both use chatFlags)",
               r"/\bcouncil\b/" in html and html.count("ultra:fl.ultra") == 2 and 'ultra:store.get("chatUltra","0")==="1"}' not in html)
         check("the Council toggle explains itself: several agents debate, skeptics challenge, one lead rules",
               "skeptics" in html and "one lead" in html and "title:COUNCIL_TIP" in html)
-        tabs_src = re.search(r"const TABS=\[(.*?)\];", html, re.S)
-        tab_pages = [re.findall(r'"([a-z]+)"', g) for g in re.findall(r'\["[a-z]+","[^"]*","[A-Za-z]+",\[([^\]]*)\]\]', tabs_src.group(1))]
-        page_ids = re.findall(r'\["([a-z]+)","[^"]*","[^"]*","[^"]*"\]', re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", html, re.S).group(1))
-        flat = [x for g in tab_pages for x in g]
-        check("Blueprints is a page in the Workspace tab, and every page is still reachable from exactly one tab",
-              "blueprints" in page_ids and "blueprints" in tab_pages[1] and sorted(flat) == sorted(page_ids) and len(set(flat)) == len(flat), (tab_pages, page_ids))
+        # 2026-11-05: the places live in SIDEBAR ([section, [[place, icon, label, [sub-tab page ids]]]]); TABS is derived from it.
+        side_src = re.search(r"const SIDEBAR=\[(.*?)\n\];", html, re.S)
+        places = re.findall(r'\["([a-z]+)","[^"]*","[^"]*",\[([^\]]*)\]\]', side_src.group(1)) if side_src else []
+        tab_pages = {pl: re.findall(r'"([a-z]+)"', g) for pl, g in places}
+        nav = re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", html, re.S)
+        page_ids = re.findall(r'\["([a-z]+)","[^"]*","[^"]*","[^"]*"\]', nav.group(1)) if nav else []
+        flat = [x for g in tab_pages.values() for x in g]
+        check("Blueprints is a page in the Workflows place, and every page is still reachable from exactly one place",
+              "blueprints" in page_ids and "blueprints" in tab_pages.get("workflows", []) and sorted(flat) == sorted(page_ids)
+              and len(set(flat)) == len(flat), (sorted(set(page_ids) ^ set(flat)), [x for x in flat if flat.count(x) > 1]))
         check("Blueprints: drag and drop with HTML5 events, a palette of the eight kinds, a click-to-edit card, and an SVG line",
               all(s in html for s in ("ondragstart:", "ondragover:bpOver", "ondrop:bpDrop", 'class="bp-wire"', "function bpEditor", "function bpDrawPal"))
               and all(f"{k}:[" in html for k in ("generate", "code", "ask_json", "judge", "doc", "sample_n", "cascade", "tool_loop")))
@@ -215,7 +219,7 @@ def run():
         check("Crew shows the week's costs and the schedule (list, remove, add)",
               '"/api/arch/costs?days=7"' in html and '"/api/arch/crew_schedule"' in html and "{remove:sid}" in html and "Add to the schedule" in html)
         check("a '?' explainer on the Console, Crew and Blueprints pages, closed by Esc before Esc can stop a run",
-              all(f'helpBtn("{k}")' in html for k in ("console", "crew", "blueprints")) and html.index("if(HELP_EL){e.preventDefault();closeHelp();return;}") < html.index("if(EV.running){e.preventDefault();cStop();return;}"))
+              all(f'helpBtn("{k}")' in html for k in ("console", "crew", "blueprints")) and html.index("if(HELP_EL){e.preventDefault();closeHelp();return;}") < html.index("if(EV.running){e.preventDefault();"))
         check("error notes have their own colours (note bad was unstyled)", ".note.bad{" in html)
         blocks = [b.replace('"__HUB_TOKEN__"', '"x"') for b in re.findall(r"<script>(.*?)</script>", html, re.S)]
         js = "\n".join(blocks)

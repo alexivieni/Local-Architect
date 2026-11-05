@@ -122,6 +122,20 @@ def load(root, cfg=None):
                 out += rows
             else:
                 untrusted.append({"path": pf, "hooks": rows})
+    try:                                                  # enabled plugins: their hooks run only once the plugin is trusted
+        import arch_plugins
+        pfiles = arch_plugins.hook_files(root, cfg if cfg else None)
+    except Exception:
+        pfiles = []
+    for path, plugin, ok in pfiles:
+        rows = _read(path)
+        for r in rows:
+            r["plugin"] = plugin
+        if rows:
+            if ok is True:
+                out += rows
+            else:
+                untrusted.append({"path": path, "hooks": rows, "plugin": plugin})
     return {"hooks": out, "untrusted": untrusted}
 
 
@@ -238,7 +252,8 @@ def summary(root, cfg=None):
     """For `status` and the hub: what is set up, and what is waiting for approval."""
     found = load(root, cfg)
     return {"active": [{"on": h["on"], "run": h["run"], "blocking": h["blocking"], "match": h["match"],
-                        "where": "this project" if h["source"].endswith(PROJECT_REL) else "this machine"}
+                        "where": ("plugin " + h["plugin"]) if h.get("plugin") else
+                        "this project" if h["source"].endswith(PROJECT_REL) else "this machine"}
                        for h in found["hooks"]],
             "waiting_for_approval": [{"path": u["path"], "count": len(u["hooks"]),
                                       "commands": [x["run"] for x in u["hooks"]]} for u in found["untrusted"]]}

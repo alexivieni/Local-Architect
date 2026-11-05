@@ -92,6 +92,21 @@ def cache_share(read, inp, write):
 
 
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+SHELL_TOOLS = ("Bash", "PowerShell")
+SYNTHETIC = "<synthetic>"
+_WRITE_RE = re.compile(r"(?<![<>=!-])>{1,2}(?![=&])|\b(?:Set-Content|Add-Content|Out-File|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|"
+                       r"rm|mv|cp|tee|touch|mkdir|rmdir|truncate|patch)\b|sed\s+-i|git\s+(?:commit|apply|am|add|rm|mv|push|merge|rebase)\b|"
+                       r"open\([^)]*['\"][wa]b?['\"]|write_text\(|\.write\(", re.I)
+_TEMP_RE = re.compile(r"temp|tmp|scratch", re.I)
+
+
+def shell_writes(cmd):
+    """True when a Bash/PowerShell command looks like it writes somewhere other than a temp/scratch path.
+    Heuristic: a write verb or a redirect, and no temp/scratch path anywhere in the command (a temp mention keeps it read-only)."""
+    if not isinstance(cmd, str) or not cmd.strip():
+        return False
+    c = re.sub(r"\d?>&\d|\d?>\s*(?:/dev/null|\$null|nul\b)", " ", cmd, flags=re.I)    # fd juggling and discards are not writes
+    return bool(_WRITE_RE.search(c)) and not _TEMP_RE.search(c)
 CATEGORIES = ("coding", "end-to-end", "agentic", "ui", "system/it", "engineering", "architecture", "ai/models", "data", "harness", "other")
 TINY_TOKENS = 20000   # an agent that edited nothing and used fewer tokens than this (all kinds together) starts collapsed
 # The same columns for a Claude agent and a local crew agent (arch_squad): the page shows both side by side.
@@ -230,7 +245,7 @@ def rows(tree):
 
 def parse_crew_journal(path):
     """<data_dir>/orchestration/local/<run>/journal.jsonl -> {meta, agents: {id: {label, phase, verdict}}, phases: [titles]}."""
-    out = {"meta": {}, "agents": {}, "phases": [], "done": None}
+    out = {"meta": {}, "agents": {}, "phases": [], "done": None, "replayed": 0, "cached": 0, "logs": [], "budget_exhausted": False}
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -249,6 +264,14 @@ def parse_crew_journal(path):
                     out["agents"].setdefault(j["agentId"], {}).update(label=j.get("label"), phase=j.get("phase"), agent=j.get("agent"))
                 elif t == "result" and j.get("agentId"):
                     out["agents"].setdefault(j["agentId"], {})["verdict"] = j.get("verdict")
+                elif t in ("replayed", "cached") and j.get("agentId"):
+                    out[t] += 1
+                    out["agents"].setdefault(j["agentId"], {}).update(label=j.get("label"), phase=j.get("phase"), agent=j.get("agent"),
+                                                                      reused=t, from_run=j.get("from_run"))
+                elif t == "log":
+                    out["logs"].append({"phase": j.get("phase"), "text": j.get("text"), "t": j.get("t")})
+                elif t == "budget_exhausted":
+                    out["budget_exhausted"] = True
                 elif t == "done":
                     out["done"] = j
     except OSError:
@@ -277,7 +300,9 @@ def crew_agent(rec, journal_row=None):
             "owns": rec.get("owns") or [], "budget": rec.get("budget"), "effort": rec.get("effort"),
             "category": rec.get("category") if rec.get("category") not in (None, "other") else None,
             "category_reason": f"declared in agents/{rec.get('agent')}.yaml" if rec.get("category") not in (None, "other") else None,
-            "parent": rec.get("parent"), "children": []}
+            "parent": rec.get("parent"), "children": [],
+            "replayed": rec.get("replayed") or jr.get("from_run") if (rec.get("replayed") or jr.get("reused") == "replayed") else None,
+            "cached": bool(rec.get("cached") or jr.get("reused") == "cached")}
 
 
 def build_crew_run(rdir):
@@ -286,7 +311,10 @@ def build_crew_run(rdir):
     rid = os.path.basename(rdir)
     wf = {"kind": "workflow", "source": "local", "id": rid, "label": meta.get("workflow") or rid, "description": meta.get("description"),
           "goal": meta.get("goal"), "slots": meta.get("slots"), "verdict": (j.get("done") or {}).get("verdict"),
-          "peak_concurrency": (j.get("done") or {}).get("peak_concurrency"), "tokens": {}, "children": []}
+          "peak_concurrency": (j.get("done") or {}).get("peak_concurrency"), "tokens": {}, "children": [],
+          "resume_from": meta.get("resume_from"), "replayed": j.get("replayed", 0), "cached": j.get("cached", 0),
+          "logs": (j.get("logs") or [])[-50:], "budget_exhausted": j.get("budget_exhausted", False),
+          "budget": (j.get("done") or {}).get("budget")}
     phases = {}
     for t in j.get("phases") or []:
         phases[t] = {"kind": "phase", "source": "local", "id": rid + ":" + str(t), "label": t, "tokens": {}, "children": []}
@@ -321,8 +349,15 @@ def crew_section(limit=10, data_dir=None):
             tot[k] += _int(t["total"].get(k))
         agents += t["total"]["agents"]
         peak = max(peak, t["total"]["peak_context"])
-    return {"runs_found": len(runs), "workflows": trees,
+    tele = None
+    try:
+        import arch_telemetry
+        tele = arch_telemetry.summary(86400)
+    except Exception:
+        tele = None
+    return {"runs_found": len(runs), "workflows": trees, "telemetry": tele,
             "totals": dict(tot, agents=agents, workflows=len(trees), peak_context=peak, all_tokens=sum(tot.values()),
+                           replayed=sum(_int(t.get("replayed")) for t in trees), cached=sum(_int(t.get("cached")) for t in trees),
                            cache_hit_share=cache_share(tot["cache_read"], tot["input"], tot["cache_write"]))}
 
 
@@ -339,7 +374,8 @@ def parse_transcript(path):
     """One transcript (.jsonl) -> per-agent numbers. Streamed assistant lines that share a message id are counted once."""
     r = {"model": None, "start": None, "end": None, "prompt": "", "result": "", "tools": {}, "turns": 0,
          "input_tokens": 0, "output_tokens": 0, "cache_read": 0, "cache_write": 0, "peak_context": 0,
-         "spawns": {}, "edited": [], "session_id": None, "agent_id": None, "title": None}
+         "spawns": {}, "edited": [], "session_id": None, "agent_id": None, "title": None,
+         "cache_write_1h": 0, "by_model": {}, "shell_writes": []}
     seen = set()
     try:
         f = open(path, "r", encoding="utf-8", errors="replace")
@@ -370,6 +406,8 @@ def parse_transcript(path):
                     r["prompt"] = _cut(t, PROMPT_CHARS)
             if j.get("type") != "assistant":
                 continue
+            if m.get("model") == SYNTHETIC:
+                continue                    # a client-made placeholder message: no model ran, no tokens were billed
             r["model"] = m.get("model") or r["model"]
             for b in (m.get("content") or []) if isinstance(m.get("content"), list) else []:
                 if isinstance(b, dict) and b.get("type") == "tool_use":
@@ -379,6 +417,8 @@ def parse_transcript(path):
                     fp = bi.get("file_path") or bi.get("notebook_path")
                     if name in EDIT_TOOLS and isinstance(fp, str) and fp not in r["edited"] and len(r["edited"]) < 50:
                         r["edited"].append(fp)
+                    if name in SHELL_TOOLS and shell_writes(bi.get("command")) and len(r["shell_writes"]) < 20:
+                        r["shell_writes"].append(_cut(str(bi.get("command")), 200))
                     if name in ("Agent", "Task") and b.get("id"):
                         inp = b.get("input") if isinstance(b.get("input"), dict) else {}
                         r["spawns"][b["id"]] = inp.get("description") or ""
@@ -392,6 +432,15 @@ def parse_transcript(path):
             seen.add(mid)
             i, o = _int(u.get("input_tokens")), _int(u.get("output_tokens"))
             cr, cw = _int(u.get("cache_read_input_tokens")), _int(u.get("cache_creation_input_tokens"))
+            cc = u.get("cache_creation") if isinstance(u.get("cache_creation"), dict) else None
+            w1h = 0
+            if cc and ("ephemeral_5m_input_tokens" in cc or "ephemeral_1h_input_tokens" in cc):
+                w5, w1h = _int(cc.get("ephemeral_5m_input_tokens")), _int(cc.get("ephemeral_1h_input_tokens"))
+                cw = w5 + w1h                # the split is exact; cache_creation_input_tokens is only the fallback
+            b = r["by_model"].setdefault(m.get("model") or "?", {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "cache_write_1h": 0})
+            for k, v in (("input", i), ("output", o), ("cache_read", cr), ("cache_write", cw), ("cache_write_1h", w1h)):
+                b[k] += v
+            r["cache_write_1h"] += w1h
             r["turns"] += 1
             r["input_tokens"] += i
             r["output_tokens"] += o
@@ -455,7 +504,8 @@ def _agent(path, meta, extra=None):
          "agent_type": (meta or {}).get("agentType"), "model": p.get("model"), "start": p.get("start"), "end": p.get("end"),
          "tool_calls": p.get("tools") or {}, "n_tool_calls": sum((p.get("tools") or {}).values()), "turns": p.get("turns", 0),
          "tokens": {"input": p.get("input_tokens", 0), "output": p.get("output_tokens", 0), "cache_read": p.get("cache_read", 0),
-                    "cache_write": p.get("cache_write", 0)},
+                    "cache_write": p.get("cache_write", 0), "cache_write_1h": p.get("cache_write_1h", 0)},
+         "by_model": p.get("by_model") or {}, "shell_writes": list(p.get("shell_writes") or []),
          "peak_context": p.get("peak_context", 0),
          "cache_hit_share": cache_share(p.get("cache_read"), p.get("input_tokens"), p.get("cache_write")),
          "prompt": p.get("prompt", ""), "result": p.get("result", ""), "edited": list(p.get("edited") or []),
@@ -468,7 +518,7 @@ def _agent(path, meta, extra=None):
 
 def _sum_into(tot, node):
     t = node.get("tokens") or {}
-    for k in ("input", "output", "cache_read", "cache_write"):
+    for k in ("input", "output", "cache_read", "cache_write", "cache_write_1h"):
         tot[k] = tot.get(k, 0) + _int(t.get(k))
 
 
@@ -650,9 +700,12 @@ def parse_run(trace):
                 calls.append({"id": j.get("id"), "t": j.get("t"), "role": j.get("role"), "tier": j.get("tier"),
                               "model": j.get("model"), "transport": j.get("transport"),
                               "tokens_in": _int(j.get("prompt_tokens")), "tokens_out": _int(j.get("gen_tokens")),
-                              "cached_exact": bool(j.get("cached_exact")) or j.get("done_reason") == "cached",
+                              "cache_n": _int(j.get("cache_n")) if j.get("cache_n") is not None else (
+                                  _int(j.get("prefix_reused_est")) if j.get("transport") == "llama" and j.get("cached_exact") else None),
+                              "reply_cached": j.get("done_reason") == "cached", "tok_s": j.get("tok_s"),
                               "prefix_reused": _int(j.get("prefix_reused") or j.get("prefix_reused_est")),
                               "ctx_pct": j.get("ctx_pct"), "num_ctx": j.get("num_ctx"), "secs": j.get("secs")})
+                calls[-1]["cached_exact"] = bool(calls[-1]["cache_n"])     # exact cache hit = the server served >0 prompt tokens from its cache
             elif j.get("type") == "verdict":
                 verdict, flow, meter = j.get("verdict"), flow or j.get("flow"), j.get("meter")
     return {"calls": calls, "verdict": verdict, "flow": flow, "meter": meter}
@@ -667,7 +720,9 @@ def local_section(limit=20, data_dir=None, roots=None):
             except OSError:
                 pass
     runs.sort(reverse=True)
-    out, tot = [], {"runs": len(runs), "calls": 0, "tokens_in": 0, "tokens_out": 0, "cached_exact": 0, "prefix_reused": 0}
+    out, tot = [], {"runs": len(runs), "calls": 0, "tokens_in": 0, "tokens_out": 0, "cached_exact": 0, "prefix_reused": 0,
+                    "reply_cached": 0, "llama_calls": 0, "llama_tokens_in": 0, "llama_prefix_reused": 0}
+    worker_tps = []
     by_tier = {}
     for m, bucket, root, tp in runs:
         r = _cached(tp, parse_run) or {}
@@ -678,6 +733,13 @@ def local_section(limit=20, data_dir=None, roots=None):
             tot["tokens_out"] += c["tokens_out"]
             tot["cached_exact"] += 1 if c["cached_exact"] else 0
             tot["prefix_reused"] += c["prefix_reused"]
+            tot["reply_cached"] += 1 if c.get("reply_cached") else 0
+            if c.get("transport") == "llama":            # the only server that reports its prefix reuse exactly (cache_n)
+                tot["llama_calls"] += 1
+                tot["llama_tokens_in"] += c["tokens_in"]
+                tot["llama_prefix_reused"] += _int(c.get("cache_n"))
+                if c.get("tier") == "worker" and isinstance(c.get("tok_s"), (int, float)) and c["tok_s"] > 0:
+                    worker_tps.append(float(c["tok_s"]))
             row = by_tier.setdefault(c.get("tier") or "?", {"calls": 0, "tokens_in": 0, "tokens_out": 0, "models": {}})
             row["calls"] += 1
             row["tokens_in"] += c["tokens_in"]
@@ -696,7 +758,12 @@ def local_section(limit=20, data_dir=None, roots=None):
                         "prefix_reuse_share": round(sum(c["prefix_reused"] for c in calls) / ti, 4) if ti else 0.0,
                         "peak_ctx_pct": max([_int(c.get("ctx_pct")) for c in calls] or [0]), "goal": _cut(goal or "", 200), "calls": calls})
             out[-1]["category"], out[-1]["category_reason"] = local_category(out[-1])
-    tot["prefix_reuse_share"] = round(tot["prefix_reused"] / tot["tokens_in"], 4) if tot["tokens_in"] else 0.0
+    tot["prefix_reuse_share"] = round(tot["prefix_reused"] / tot["tokens_in"], 4) if tot["tokens_in"] else 0.0   # mixes Ollama estimates
+    tot["llama_prefix_reuse_share"] = round(tot["llama_prefix_reused"] / tot["llama_tokens_in"], 4) if tot["llama_tokens_in"] else None
+    worker_tps.sort()
+    k = len(worker_tps)
+    tot["worker_decode_tok_s"] = {"median": (round((worker_tps[(k - 1) // 2] + worker_tps[k // 2]) / 2, 1) if k else None), "n": k,
+                                  "of": "tier=worker, transport=llama calls"}
     return {"totals": tot, "by_tier": by_tier, "runs": out}
 
 
@@ -774,14 +841,32 @@ def model_family(model):
     return "claude" if m.startswith("claude") else ("local" if m else None)
 
 
-def _price(fam):
+def _price(fam, model=None):
+    """The exact model id's price (arch_cloud.PRICES) when listed, else its family's."""
+    m = re.sub(r"-\d{8}$", "", str(model or "").lower().split(":", 1)[-1].split("[", 1)[0])
+    if m in _CLOUD_PRICES:
+        return _family_price(m)
     return PRICE_TABLE.get(fam) or PRICE_TABLE["opus"]
 
 
-def usd_for(tokens, fam):
-    t, p = tokens or {}, _price(fam)
+CACHE_WRITE_1H_X = 2.0                    # a 1-hour cache write costs 2x input (5-minute writes 1.25x)
+
+
+def usd_for(tokens, fam, model=None):
+    """tokens['cache_write'] holds every write; tokens['cache_write_1h'] the part written with the 1-hour lifetime."""
+    t, p = tokens or {}, _price(fam, model)
+    w1h = min(_int(t.get("cache_write_1h")), _int(t.get("cache_write")))
     return (_int(t.get("input")) * p["input"] + _int(t.get("output")) * p["output"] + _int(t.get("cache_read")) * p["cache_read"]
-            + _int(t.get("cache_write")) * p["cache_write"]) / 1e6
+            + (_int(t.get("cache_write")) - w1h) * p["cache_write"] + w1h * p["input"] * CACHE_WRITE_1H_X) / 1e6
+
+
+def usd_node(node, fam=None):
+    """Dollars for an agent/session's OWN tokens, priced per message model (an agent can switch models mid-transcript)."""
+    bm = {k: v for k, v in (node.get("by_model") or {}).items() if k != SYNTHETIC}
+    if bm:
+        return sum(0.0 if model_family(k) == "local" else
+                   usd_for(v, (fam or "opus") if k == "?" else model_family(k), None if k == "?" else k) for k, v in bm.items())
+    return usd_for(node.get("tokens"), fam or model_family(node.get("model")), node.get("model"))
 
 
 def _secs(node):
@@ -803,7 +888,8 @@ def _secs(node):
 
 
 def _edits(node):
-    return bool(node.get("edited")) or any(k in EDIT_TOOLS for k in (node.get("tool_calls") or {}))
+    """Edits files: an edit-tool call, or a Bash/PowerShell command that writes outside temp/scratch paths."""
+    return bool(node.get("edited")) or any(k in EDIT_TOOLS for k in (node.get("tool_calls") or {})) or bool(node.get("shell_writes"))
 
 
 def agent_warnings(node):
@@ -836,12 +922,12 @@ def apply_costs(node):
     if node.get("kind") == "agent":
         fam = model_family(node.get("model"))
         local = node.get("source") == "local" or fam == "local"
-        usd = 0.0 if local else round(usd_for(node.get("tokens"), fam), 6)
+        usd = 0.0 if local else round(usd_node(node, fam), 6)
         sec = _secs(node) if local else 0.0
         node["warnings"] = agent_warnings(node)
         node["cost"] = {"usd": usd, "seconds": sec, "local": local, "family": fam}
     elif node.get("kind") == "session":
-        usd = round(usd_for(node.get("tokens"), "opus"), 6) if any(_int(v) for v in (node.get("tokens") or {}).values()) else 0.0
+        usd = round(usd_node(node, "opus"), 6) if any(_int(v) for v in (node.get("tokens") or {}).values()) else 0.0
     for c in node.get("children", []):
         cc = apply_costs(c)
         usd += cc[0]
@@ -858,7 +944,8 @@ def build_savings(trees):
     ro = [a for a in ags if model_family(a.get("model")) == "opus" and not _edits(a)]
     if ro:
         d = sum(a["cost"]["usd"] - usd_for(a.get("tokens"), "sonnet") for a in ro)
-        out.append((d, f"Run the {len(ro)} read-only agents on Sonnet instead of Opus: ~${d:,.2f}", "read-only-to-sonnet", len(ro)))
+        out.append((d, f"Run the {len(ro)} read-only agents on Sonnet instead of Opus (no edit-tool calls, no shell writes outside temp): ~${d:,.2f}",
+                    "read-only-to-sonnet", len(ro)))
     lw = [a for a in ags if _int((a.get("tokens") or {}).get("output")) > LONG_OUTPUT and model_family(a.get("model")) in ("opus", "claude", "fable")]
     if lw:
         d = sum(_int(a["tokens"]["output"]) * (_price(model_family(a.get("model")))["output"] - son["output"]) / 1e6 for a in lw)

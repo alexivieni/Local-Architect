@@ -87,7 +87,7 @@ def run():
               freed == ["other:13b"] and Srv.loaded == ["mine:8b"] and Srv.generate_calls[-1] == {"model": "other:13b", "keep_alive": 0} and any("unloaded other:13b" in m for m in said), (freed, Srv.loaded, said))
         check("a second pass has nothing to unload", ol.free_gpu({"mine:8b"}, say=quiet) == [])
         secs = ol.warm("mine:8b")
-        check("warm loads a model ahead of the first call and reports the time", secs is not None and Srv.generate_calls[-1]["model"] == "mine:8b" and Srv.generate_calls[-1]["keep_alive"] == "30m")
+        check("warm loads a model ahead of the first call and reports the time", secs is not None and Srv.generate_calls[-1]["model"] == "mine:8b" and Srv.generate_calls[-1]["keep_alive"] == core.ollama_keep_alive())
         check("warm/unload against a dead server fail quietly (None/False), never raise", ol.warm("x", host="http://127.0.0.1:1", timeout=1) is None and ol.unload("x", host="http://127.0.0.1:1", timeout=1) is False)
         check("wait_up returns at once when the server answers and False when it never does", ol.wait_up(say=quiet) is True and ol.wait_up("http://127.0.0.1:1", seconds=1.5, say=quiet) is False)
         check("the start hint is one plain sentence for this OS", "ollama" in ol.start_hint().lower() and len(ol.start_hint()) < 200)

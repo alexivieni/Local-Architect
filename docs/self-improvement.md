@@ -1,23 +1,52 @@
 # Self-improvement in Architect
 
-The harness can improve its own code. The shape is the same as the generic recipe (plan one improvement, implement, test, review, document), with the
-decisions made the way Architect makes them: code gates, undo, nothing remote.
+The app can work on its own code the way a lead runs a team: audit, plan, build, verify, review, with every step journaled. It does
+this on your local models, in a throwaway copy, and code (not a model) decides what may go in.
 
 ```
-python architect.py self-improve "goal"      (hub: Health > Tune & improve > Self-improvement)
-   ├─ planner   (your model)   reads the ledger (roles that fail or retry most), the last run reports and the goal; picks ONE change
-   ├─ generator (your model)   edits a COPY of the install
-   ├─ gate      (code)         the full selftest suite + self-verify on the copy; a red suite stops here
-   ├─ reviewer  (your model)   reads the diff; its verdict is advisory, the suite's is binding
-   └─ install   (code)         the copy replaces the install; MANIFEST.sha256 is rewritten; the previous version is kept for `self-rollback`
+python architect.py self-improve --goal "make the doctor report disk space per model" [--rounds 3] [--fake] [--yes]
+python architect.py self-improve                     no goal: picks the top failing check, then the most frequent telemetry error, then the advisor
+python architect.py self-improve --resume SESSION    one more round on an earlier session's copy
+python architect.py self-rollback | self-history | self-verify
+hub: Machine > Improve itself
 ```
 
-Guardrails that are ON (they are the reason this is safe to leave running):
-- One improvement per run; protected paths (the selftests, the manifest, the guard) are never edited by the model.
-- The whole suite must be green on the copy before anything is installed. `self-rollback` returns to the last good install; `self-history` lists versions.
-- Budget: the run's `limits.max_calls` applies; a stalled fix loop escalates to a larger model you own, then stops.
+## One round (`workflows/self_improve.yaml`, run by `arch_selfimprove.loop`)
+```
+copy      make_candidate: the code only (never settings, results or run history), under <home>/.arch_self/candidates/
+Audit     3 auditors in parallel, read-only (correctness, safety, tests)
+Plan      si-planner -> {builders: [{owns, task}]}; check_plan (code): real paths in the copy, one owner per file, at most 4 builders x 6 files,
+          never generated files, never the gates (GATE_FILES) without --allow-gate-edits
+Build     one builder per plan entry, in parallel, each may write only its owned files (enforced by the squad engine)
+Verify    an adversarial verifier reads the plan and the diff; its verdict is advice fed to the next round
+Gates     round_gates (code), each pass | fail | could-not-run:
+            the copy differs; the gates themselves are untouched; only owned files changed; it compiles; no new fake code;
+            no new network calls (urllib/http.client/socket/requests/... counted per changed file); the selftest suites that cover
+            the changed modules pass (own suite + suites that import it, run in the copy, network-restricted);
+            the copy's own self-test; at least as many checks as the install; no eval regression (arch_eval.compare, oracle fake)
+```
+Cheap gates all run so the timeline shows every problem; the expensive ones are `could-not-run` after a cheap one failed. A round
+promotes only when every gate is `pass`: `could-not-run` blocks, as it does everywhere else in Architect.
 
-Where improvements come from (the planner reads, in order): `hub_data/ledger.json` (roles and models with the lowest accepted rate, highest p95),
-the last `.arch/runs/*/report.md`, then the goal you typed.
+## The loop
+A failed round's gate failures (and a verifier "fail") become `{feedback}` in the next round's planner brief, in the same copy. The loop
+stops when every gate passes, when a round fails the same gates with the same diff as the one before (no progress), or after N rounds.
+On all-pass it asks you (or `--yes`); `promote_session` re-checks that the copy and install still match what the gates saw, zips what it
+will overwrite, copies atomically, rewrites MANIFEST.sha256, and `self-rollback` restores the bytes.
 
-Not done: a nightly schedule. Run it by hand a few times, read the reports, then schedule `python architect.py self-improve "..."` with your OS scheduler if you want.
+## Visible
+- Each round is a crew run `<session>-r<n>` in `<data>/orchestration/local/` (phases, agents, `plan_check` and `gate` events, log lines):
+  the Orchestration and Squad runs pages show it.
+- Telemetry: `selfimprove.start`, `.round`, `.gate`, `.end`, `.promote`, `.discard`, `.rollback`.
+- The session (rounds, phases, agents, plan, gates, diff, status) is `<home>/.arch_self/loops/<id>.json`; the hub page reads it through
+  `GET /api/arch/selfimprove/sessions|session?id=|suggest`; `POST .../start|again|promote|discard|rollback` need the hub token, and
+  promote needs `confirm: true`. The hub never passes `--yes`.
+
+## --fake
+The scripted fake model (`arch_squad.start_fake`, loopback) runs every agent; a scripted plan and edit stand in for the planner and
+builder (round 1 adds a stub, which the fake-code gate stops; round 2 implements it). The full self-test, check floor and eval are
+`could-not-run` in --fake unless `--full-gates`, so a fake session cannot be promoted by accident.
+
+## Still true from the first version
+`improve()`/`gate()` (positional goal, any flow, `--flow`) are kept unchanged. Tests: `arch_selftest_selfimprove.py` (the loop, fixture
+install, scripted runners) and `arch_selftest_self.py` (the original pipeline, `selftest --suite full`).

@@ -153,8 +153,11 @@ def cmd_self_improve(args):
         return cmd_run(args)
     import arch_selfimprove as si
     goal = (args.goal or "").strip()
-    if not goal:
-        raise SystemExit("Say what to improve, in quotes. Example: self-improve \"make the doctor report disk space per model\"")
+    if args.goal_opt or args.rounds or args.fake or args.resume or not goal:     # the iterative squad loop (docs/self-improvement.md)
+        out = si.loop((args.goal_opt or goal or "").strip() or None, rounds=args.rounds or 3, fake=args.fake, yes=args.yes,
+                      allow_gate_edits=args.allow_gate_edits, suite="core" if args.suite == "all" and args.fake else args.suite,
+                      full=True if args.full_gates else None, resume=args.resume)
+        return 0 if out.get("status") in ("passed", "promoted") else 1
     extra = []                                    # the run options you gave are passed through to the flow (they were silently dropped)
     if getattr(args, "model", None):
         extra += ["--model", args.model]
@@ -886,6 +889,87 @@ def cmd_commands(args):
     return 0
 
 
+def cmd_plugins(args):
+    """Plugins: bundles of agents, workflows, skills, commands and hooks, switched on/off and trusted as one unit."""
+    import arch_plugins as P
+    root = os.path.abspath(args.root or os.getcwd())
+    act, x = args.action, args.target
+    need = {"show", "enable", "disable", "trust", "untrust", "install", "remove", "new", "pack"}
+    if act in need and not x:
+        print(f"plugins {act} needs a name" + (" or a path" if act == "install" else ""))
+        return 2
+    try:
+        if act == "list":
+            rows = P.list(root)
+            if args.json:
+                print(json.dumps(rows, indent=2))
+                return 0
+            if not rows:
+                print("No plugins. Make one with:  python architect.py plugins new NAME")
+            for r in rows:
+                t = {True: "trusted", False: "not trusted", None: "trust unknown"}[r["trusted"]]
+                pv = r["provides"]
+                counts = ", ".join(f"{len(pv[k])} {k}" for k in ("agents", "workflows", "skills", "commands", "hooks") if pv[k])
+                print(f"  {'[on] ' if r['enabled'] else '[off]'} {r['name']} {r['version']}  ({r['scope']}; "
+                      f"{t if r['needs_trust'] else 'no trust needed'})  {counts}")
+                print(f"        {r['description']}")
+                for pr in r["problems"]:
+                    print(f"        problem: {pr}")
+            return 0
+        if act == "show":
+            r = P.show(x, root)
+            if not r:
+                print(f"no plugin {x}")
+                return 1
+            print(json.dumps(r, indent=2))
+            return 0
+        if act in ("enable", "disable"):
+            ok = (P.enable if act == "enable" else P.disable)(x, root)
+            print(f"{x}: {act}d" if ok else f"no plugin {x} (or the state could not be saved)")
+            return 0 if ok else 1
+        if act in ("trust", "untrust"):
+            r = P.show(x, root)
+            if not r:
+                print(f"no plugin {x}")
+                return 1
+            if act == "trust":
+                print(f"Approving {x} {r['version']} from {r['dir']}. These commands may run from now on:")
+                for h in r["would_run"]:
+                    print(f"  {h['on']:<14} {h['run']}" + ("   [blocking]" if h["blocking"] else ""))
+                for a in r["code_agents"]:
+                    print(f"  code agent     {a}")
+                if not (r["would_run"] or r["code_agents"]):
+                    print("  (nothing executable: this plugin needs no trust)")
+            ok = P.trust(x, root, yes=(act == "trust"))
+            print(("Approved. Editing any file of the plugin undoes this." if act == "trust" else "Approval removed.") if ok
+                  else "Could not record that.")
+            return 0 if ok else 1
+        if act == "install":
+            print(f"installed {P.install(x)} (off: enable it with  plugins enable NAME)")
+            return 0
+        if act == "remove":
+            ok = P.remove(x)
+            print(f"removed {x}" if ok else f"{x} is not a plugin installed on this machine")
+            return 0 if ok else 1
+        if act == "new":
+            print(f"created {P.new(x)}")
+            return 0
+        if act == "pack":
+            print(f"wrote {P.pack(x, args.out, root)}")
+            return 0
+        if act == "validate":
+            res = P.validate(root)
+            bad = {k: v for k, v in res.items() if v}
+            for k, v in res.items():
+                print(f"  {'ok  ' if not v else 'FAIL'} {k}" + "".join("\n        " + p for p in v))
+            return 1 if bad else 0
+    except ValueError as e:
+        print(str(e))
+        return 1
+    print(f"unknown action {act}")
+    return 2
+
+
 def cmd_hooks(args):
     """Your own commands, run at fixed points in a run."""
     import arch_hooks
@@ -1204,6 +1288,10 @@ def cmd_cleanup(args):
 
 def cmd_explain(args):
     """Model options for this machine and a kind of work, in plain words first, numbers second, formula third."""
+    if getattr(args, "model", None):              # one model: what its family is known for and the settings it wants (arch_modelknow)
+        import arch_modelknow
+        print(arch_modelknow.explain(args.model))
+        return 0
     import arch_hw
     import arch_modelmath as mm
     import arch_passport
@@ -1410,9 +1498,10 @@ def _run_suites(suite):
                 print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
                 rc |= 1
         # suites whose run() returns True when every check passed (art returns 0 like the older ones)
-        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "orchestration", "squad", "select"):
+        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "orchestration", "squad", "select", "plugins", "telemetry", "retrieval", "modelknow", "verifymachine", "selfimprove"):
             try:
-                _res = importlib.import_module("arch_selftest_" + _name).run()
+                _mod = importlib.import_module("arch_selftest_" + _name)
+                _res = (getattr(_mod, "run", None) or _mod.main)()       # retrieval has only main() -> 0/1
                 rc |= (0 if (_res is True or (type(_res) is int and _res == 0)) else 1)     # False == 0, so check the type
             except SystemExit as _e:
                 rc |= 0 if _e.code in (None, 0) else 1
@@ -1432,6 +1521,10 @@ def _run_suites(suite):
 
 def main(argv=None):
     _argv = list(sys.argv[1:] if argv is None else argv)
+    if _argv[:1] == ["bench-retrieval"]:     # keyword vs keyword+embedding retrieval benchmark (tools/retrieval_bench.py)
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+        import retrieval_bench
+        return retrieval_bench.main(_argv[1:])
     if _argv[:1] == ["crew"]:                # local agent workflows (arch_squad.py has its own arguments)
         import arch_squad
         return arch_squad.main(_argv[1:])
@@ -1463,6 +1556,12 @@ def main(argv=None):
     si.add_argument("--suite", choices=["core", "all"], default="all", help="which self-test suite the gate runs (default: all)")
     si.add_argument("--allow-safety-edits", action="store_true", help="let the change touch the network guard / gate / manifest (a human must have reviewed it)")
     si.add_argument("--keep", action="store_true", help="keep the candidate folder after the run")
+    si.add_argument("--goal", dest="goal_opt", help="the iterative loop: what to improve (no goal at all = pick the top failing check / error / advice)")
+    si.add_argument("--rounds", type=int, help="the iterative loop: at most N audit -> plan -> build -> verify -> gate rounds (default 3)")
+    si.add_argument("--fake", action="store_true", help="the iterative loop on the scripted fake model (no real model; gates that need one are could-not-run)")
+    si.add_argument("--full-gates", action="store_true", help="with --fake: still run the full self-test, check floor and eval gates")
+    si.add_argument("--allow-gate-edits", action="store_true", help="the iterative loop may change the gates themselves (a person must read the diff)")
+    si.add_argument("--resume", metavar="SESSION", help="another round on an earlier self-improve session's copy")
     si.add_argument("goal", nargs="?")
     si.add_argument("--flow", default="review", choices=["auto", *flows.FLOWS])
     si.add_argument("--domains", help="comma-separated: " + ",".join(flows.DOMAINS))
@@ -1612,6 +1711,13 @@ def main(argv=None):
     hk.add_argument("--trust", action="store_true", help="approve this project's hook file after reading what it runs")
     hk.add_argument("--example", action="store_true", help="print an example hook file")
     hk.add_argument("--json", action="store_true")
+    pg = sub.add_parser("plugins", help="bundles of agents, workflows, skills, commands and hooks: list, show, enable, disable, trust, install, remove, new, validate, pack")
+    pg.add_argument("action", nargs="?", default="list",
+                    choices=["list", "show", "enable", "disable", "trust", "untrust", "install", "remove", "new", "validate", "pack"])
+    pg.add_argument("target", nargs="?", help="a plugin name, or for install a folder or .zip")
+    pg.add_argument("--root", help="project folder (default: here)")
+    pg.add_argument("--out", help="pack: where to write the zip")
+    pg.add_argument("--json", action="store_true")
     pm = sub.add_parser("promote-model", help="switch a tier to a different model, only if your own fixed task set says it is no worse")
     pm.add_argument("--tier", required=True, choices=["router", "worker", "heavy", "draft"])
     pm.add_argument("--model", required=True, help="the model (or .gguf path) to switch that tier to")
@@ -1658,6 +1764,7 @@ def main(argv=None):
     ex_ = sub.add_parser("explain", help="model options for this machine and a kind of work: plain words first, then the numbers, then the formula")
     ex_.add_argument("--workload", choices=["edits", "long_doc", "reason", "batch", "tools"], default="edits")
     ex_.add_argument("--models", help="comma-separated model names (default: every passport)")
+    ex_.add_argument("--model", help="one model tag: its family, strengths per job and recommended settings (arch_modelknow)")
     ex_.add_argument("--ctx", type=int, default=8192)
     ex_.add_argument("--kv", choices=["f16", "q8_0", "q4_0"], default="q8_0")
     ex_.add_argument("--quants", help="also show this model at other storage formats")
@@ -1698,7 +1805,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     fn = {"run": cmd_run, "flows": cmd_flows, "templates": cmd_templates, "route": cmd_route, "undo": cmd_undo,
           "portfolio": cmd_portfolio, "show-config": cmd_show, "serve": cmd_serve, "doctor": cmd_doctor, "assess": cmd_assess, "advise": cmd_advise,
-          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
+          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "plugins": cmd_plugins, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
     if not fn:
         ap.print_help()
         return 0

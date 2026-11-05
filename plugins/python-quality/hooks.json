@@ -1,0 +1,11 @@
+{
+  "hooks": [
+    {
+      "name": "pyflakes",
+      "on": "after_apply",
+      "match": "*.py",
+      "run": "python -m pyflakes {files}",
+      "blocking": false
+    }
+  ]
+}

@@ -2,6 +2,8 @@
 the swap ledger, prefill-reuse detection (and that it never teaches a wrong chars-per-token ratio), the rule that every
 retry prompt keeps its stable part first, judge batching in the build flow, the fit sheet and the `fit` command.
 Scripted fake Ollama; no real model."""
+# The scripted stand-in model is named chainfix:7b, not fake:7b: the dataset export (rightly) drops every fake: reply as a fixture,
+# and this suite checks that export on these runs. Its data dir is throwaway, so nothing here reaches real training data.
 import json
 import os
 import re
@@ -78,7 +80,7 @@ def run():
             if self.path == "/api/ps":
                 return self._send({"models": []})
             if self.path == "/api/tags":
-                return self._send({"models": [{"name": n, "digest": "x", "size": 4 * GB, "details": {"parameter_size": "7B", "quantization_level": "Q4_K_M"}} for n in ("fake:7b", "judge:4b")]})
+                return self._send({"models": [{"name": n, "digest": "x", "size": 4 * GB, "details": {"parameter_size": "7B", "quantization_level": "Q4_K_M"}} for n in ("chainfix:7b", "judge:4b")]})
             return base.Fake.do_GET(self)
 
         def script(self, role, user, full, st):
@@ -116,14 +118,14 @@ def run():
         with open(os.path.join(root, "big.py"), "w") as f:
             f.write("def f(x):\n    return x\n" * 300)
         cfg = core.load_config(root)
-        cfg["roles"]["generator"] = "fake:7b"
+        cfg["roles"]["generator"] = "chainfix:7b"
         cfg["behavior"]["learn_from_runs"] = "off"
         # these checks pin the base build loop; the owner's real config must not leak in (a heavy tier to escalate to, the best-of-N
         # rescue round): both have their own checks in arch_selftest_loop / arch_selftest_llama
         cfg["tiers"]["heavy"] = ""
         cfg["behavior"]["stall_samples"] = 1
         for _r in ("planner", "architect", "evaluator"):
-            cfg["roles"][_r] = "fake:7b"
+            cfg["roles"][_r] = "chainfix:7b"
 
         # ---- prefill reuse: detected, reported, and kept out of the chars-per-token calibration
         e = core.Engine(root, "build", "g", cfg=cfg, review="auto", say=quiet)
@@ -131,13 +133,13 @@ def run():
         Chain.state["pec"] = None
         Chain.pec_small = False
         e.call("generator", big)
-        cpt0 = arch_tune.cpt_for(e.stats, "fake:7b")
+        cpt0 = arch_tune.cpt_for(e.stats, "chainfix:7b")
         Chain.pec_small = True
         r = e.call("generator", big + "\nFEEDBACK: again")
         Chain.pec_small = False
         check("a second call whose server-side prompt count is far below the estimate is counted as a cached-prefix hit",
               e.reuse["calls"] == 1 and e.reuse["tokens"] > 1000, e.reuse)
-        check("that call does not teach the chars-per-token ratio (it would have looked like 500 chars per token)", abs(arch_tune.cpt_for(e.stats, "fake:7b") - cpt0) < 0.01, (cpt0, arch_tune.cpt_for(e.stats, "fake:7b")))
+        check("that call does not teach the chars-per-token ratio (it would have looked like 500 chars per token)", abs(arch_tune.cpt_for(e.stats, "chainfix:7b") - cpt0) < 0.01, (cpt0, arch_tune.cpt_for(e.stats, "chainfix:7b")))
         trace = [json.loads(l) for l in open(os.path.join(e.run_dir, "trace.jsonl"), encoding="utf-8")]
         check("the trace records the estimate and the reused prefix per call", trace[-1]["prefix_reused_est"] > 1000 and trace[0]["prefix_reused_est"] == 0 and trace[-1]["prompt_est"] > 1000)
         cfg_small = json.loads(json.dumps(cfg))
@@ -151,12 +153,12 @@ def run():
         check("a retry whose prompt by estimate fills the window is warned about as a possible truncation, never counted as reuse",
               es.reuse["calls"] == 0 and rs["ctx_overflow"] == "estimated full" and any("by estimate" in n for n in es.ctx_events), (es.reuse, rs["ctx_overflow"], es.ctx_events))
         es.finish(True)
-        cpt_before = arch_tune.cpt_for(es.stats, "fake:7b")
+        cpt_before = arch_tune.cpt_for(es.stats, "chainfix:7b")
         Chain.state["pec_ratio"] = 0.75
         e5 = core.Engine(root, "build", "g", cfg=cfg, review="auto", say=quiet, persist=False)
         e5.call("generator", "y " * 3000)
         Chain.state["pec_ratio"] = None
-        check("a call that read only part of its prompt (between 60% and 90% of the estimate) teaches nothing about chars-per-token", abs(arch_tune.cpt_for(e5.stats, "fake:7b") - cpt_before) < 0.01, (cpt_before, arch_tune.cpt_for(e5.stats, "fake:7b")))
+        check("a call that read only part of its prompt (between 60% and 90% of the estimate) teaches nothing about chars-per-token", abs(arch_tune.cpt_for(e5.stats, "chainfix:7b") - cpt_before) < 0.01, (cpt_before, arch_tune.cpt_for(e5.stats, "chainfix:7b")))
         e.finish(True)
         rep = open(os.path.join(e.run_dir, "report.md"), encoding="utf-8").read()
         check("the run report ends with a Run economics block", "## Run economics" in rep and "Prompt reuse: 1 call(s)" in rep, rep[-500:])
@@ -191,7 +193,7 @@ def run():
         d2, _ = ch.defer_judge(e3)
         set_vram(6)
         cfg4 = json.loads(json.dumps(cfg3))
-        cfg4["roles"]["evaluator"] = "fake:7b"
+        cfg4["roles"]["evaluator"] = "chainfix:7b"
         d3, _ = ch.defer_judge(core.Engine(root, "build", "g", cfg=cfg4, review="auto", say=quiet, persist=False))
         cfg5 = json.loads(json.dumps(cfg3))
         cfg5["behavior"]["swap_aware"] = "off"

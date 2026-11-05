@@ -1,0 +1,2814 @@
+{
+ "_about": "Model family knowledge for arch_modelknow. One entry per family/line. Evidence tiers: [M] measured here (never stored in this file; comes from passports/results), [B] vendor card or published benchmark, [A] community report, [E] estimate. Entries are matched in order: specific lines (coder, hermes, distills) come before their base families. Priors are 0-1 starting points for ORDERING screens; measurement always decides. Research date 2026-11-05; sources listed per entry (model_landscape.md has the ones fetched today, the rest are vendor cards recalled, not re-fetched this session).",
+ "_jobs": [
+  "route",
+  "plan",
+  "code",
+  "test",
+  "fix",
+  "review",
+  "security",
+  "infra",
+  "docs",
+  "draft"
+ ],
+ "_sampling_defaults": {
+  "default": {
+   "temperature": 0.7,
+   "top_p": 0.9,
+   "min_p": 0.05,
+   "presence_penalty": 0.0
+  },
+  "code": {
+   "temperature": 0.2,
+   "top_p": 0.9,
+   "min_p": 0.05,
+   "presence_penalty": 0.0
+  },
+  "route": {
+   "temperature": 0.0,
+   "top_p": 1.0,
+   "min_p": 0.0,
+   "presence_penalty": 0.0
+  }
+ },
+ "modifiers": {
+  "abliterated": {
+   "match": [
+    "abliterat",
+    "\\bablit",
+    "refusal.?removed"
+   ],
+   "evidence": "[A]",
+   "effect": "refusal direction removed from the weights. Typically costs a few benchmark points (mlabonne reports roughly 0-5 points, recovered partly by a DPO heal), can add looping and can disturb strict JSON / tool-call output; test tool calling after it.",
+   "prior_delta": {
+    "code": -0.03,
+    "fix": -0.03,
+    "plan": -0.02,
+    "route": -0.03,
+    "security": 0.05,
+    "review": 0.0
+   },
+   "sources": [
+    "https://huggingface.co/blog/mlabonne/abliteration",
+    "https://huggingface.co/huihui-ai/Huihui-Qwen3.5-35B-A3B-abliterated"
+   ]
+  },
+  "uncensored": {
+   "match": [
+    "uncensor",
+    "dolphin",
+    "\\bnsfw\\b",
+    "\\bheretic\\b"
+   ],
+   "evidence": "[A]",
+   "effect": "fine-tuned or abliterated to drop refusals. Unless stated, the method is unknown: treat like abliteration (small quality cost, check structured output).",
+   "prior_delta": {
+    "code": -0.02,
+    "fix": -0.02,
+    "route": -0.02,
+    "security": 0.05
+   }
+  },
+  "distill": {
+   "match": [
+    "distill",
+    "\\br1\\b.*(qwen|llama)",
+    "opus.?reason",
+    "claude.?4"
+   ],
+   "evidence": "[A]",
+   "effect": "trained on a bigger model's answers. Gains are usually in reasoning style and length; claims are rarely benchmarked and long thinking costs time.",
+   "prior_delta": {
+    "plan": 0.02,
+    "route": -0.03
+   }
+  },
+  "coder": {
+   "match": [
+    "coder",
+    "codestral",
+    "devstral",
+    "\\bcode\\b",
+    "starcoder",
+    "codegemma",
+    "seed-coder"
+   ],
+   "evidence": "[E]",
+   "effect": "code-specialised line",
+   "prior_delta": {
+    "code": 0.08,
+    "fix": 0.06,
+    "test": 0.05,
+    "docs": -0.05,
+    "route": -0.03
+   }
+  },
+  "base": {
+   "match": [
+    "[-_ ]base\\b",
+    "-pt\\b",
+    "pretrain"
+   ],
+   "evidence": "[E]",
+   "effect": "a base (not instruction-tuned) model: it continues text, it does not follow chat instructions. Use only as a draft model or for FIM.",
+   "prior_delta": {
+    "route": -0.4,
+    "plan": -0.4,
+    "code": -0.3,
+    "fix": -0.3,
+    "test": -0.3,
+    "review": -0.4,
+    "security": -0.4,
+    "infra": -0.3,
+    "docs": -0.4
+   }
+  },
+  "instruct": {
+   "match": [
+    "instruct",
+    "\\bchat\\b",
+    "-it\\b"
+   ],
+   "evidence": "[E]",
+   "effect": "instruction-tuned chat model",
+   "prior_delta": {}
+  },
+  "mtp": {
+   "match": [
+    "\\bmtp\\b",
+    "-mtp",
+    "_mtp"
+   ],
+   "evidence": "[A]",
+   "effect": "carries multi-token-prediction heads: built-in speculative decoding (llama.cpp --spec-type draft-mtp) can give up to ~1.8x when the GGUF kept the MTP tensors.",
+   "prior_delta": {}
+  },
+  "vision": {
+   "match": [
+    "\\bvl\\b",
+    "vl:",
+    "vision",
+    "image-text-to-text",
+    "llava"
+   ],
+   "evidence": "[E]",
+   "effect": "vision-language model",
+   "prior_delta": {}
+  }
+ },
+ "families": [
+  {
+   "id": "lfm",
+   "line": "Liquid LFM 2/3",
+   "maker": "Liquid AI",
+   "lineage": "LFM2: hybrid short-convolution + attention small models (350M-2.6B dense, 8B-A1B MoE), built for on-device speed; LFM3 is a later line of the same design [E]",
+   "match": {
+    "name": [
+     "lfm"
+    ],
+    "arch": [
+     "lfm2",
+     "lfm3",
+     "lfm2moe"
+    ]
+   },
+   "known_for": "very fast small on-device models (CPU and laptop GPU), tool use and extraction at 1-3B",
+   "strengths": [
+    "fast prefill/decode for its size [B]",
+    "tool calling / structured output at small size [A]",
+    "cheap routing and summarising"
+   ],
+   "weaknesses": [
+    "not a strong coder at 1-3B [E]",
+    "short reasoning depth"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[E] small general model; no agentic-coding benchmarks found"
+   },
+   "tool_calling": {
+    "format": "native JSON tools in its chat template",
+    "reliability": "moderate",
+    "evidence": "[A]"
+   },
+   "json_schema": "good [A]",
+   "thinking": {
+    "mode": "none",
+    "tag": ""
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "own ChatML-like template; use the GGUF template (--jinja)"
+   },
+   "context": 32768,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.3,
+     "min_p": 0.15
+    },
+    "code": {
+     "temperature": 0.1
+    }
+   },
+   "jobs": {
+    "route": [
+     0.7,
+     "fast and good at short structured answers [A]"
+    ],
+    "docs": [
+     0.55,
+     "[E]"
+    ],
+    "review": [
+     0.3,
+     ""
+    ],
+    "plan": [
+     0.3,
+     ""
+    ],
+    "infra": [
+     0.3,
+     ""
+    ],
+    "code": [
+     0.2,
+     "[E] too small for edits"
+    ],
+    "fix": [
+     0.2,
+     ""
+    ],
+    "test": [
+     0.25,
+     ""
+    ],
+    "security": [
+     0.25,
+     ""
+    ],
+    "draft": [
+     0.2,
+     "own tokenizer: only drafts other LFMs [E]"
+    ]
+   },
+   "draft_group": "lfm",
+   "sources": [
+    "https://www.liquid.ai/blog/liquid-foundation-models-v2-our-second-series-of-generative-ai-models",
+    "https://huggingface.co/LiquidAI"
+   ]
+  },
+  {
+   "id": "qwen3-coder",
+   "line": "Qwen3-Coder",
+   "maker": "Alibaba Qwen",
+   "lineage": "Qwen3 MoE (30B-A3B, 480B-A35B), Qwen3-Next (Coder-Next 80B-A3B)",
+   "match": {
+    "name": [
+     "qwen3[-_.]?coder"
+    ],
+    "arch": []
+   },
+   "known_for": "agentic coding with a dedicated function-call format; non-thinking",
+   "strengths": [
+    "repo-level code edits",
+    "tool use in coding agents",
+    "long context 256k"
+   ],
+   "weaknesses": [
+    "no thinking mode",
+    "30B-A3B needs expert offload on 6 GB"
+   ],
+   "code_strength": {
+    "level": "strong",
+    "evidence": "[B] Qwen card ('excels' at agentic coding, no numbers for 30B); [B-3p] Coder-Next SWE-V ~70.6"
+   },
+   "tool_calling": {
+    "format": "qwen3_coder XML (<tool_call><function=...><parameter=...>)",
+    "reliability": "high",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [E]",
+   "thinking": {
+    "mode": "none",
+    "tag": null
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML; tool parser qwen3_coder, not hermes"
+   },
+   "context": 262144,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.7,
+     "top_p": 0.8,
+     "min_p": 0.0,
+     "presence_penalty": 0.0,
+     "top_k": 20,
+     "repeat_penalty": 1.05
+    },
+    "code": {
+     "temperature": 0.7,
+     "top_p": 0.8,
+     "min_p": 0.0,
+     "top_k": 20
+    }
+   },
+   "jobs": {
+    "code": [
+     0.9,
+     "code-specialised agentic coder [B]"
+    ],
+    "fix": [
+     0.85,
+     "trained on repair/agent traces [B]"
+    ],
+    "test": [
+     0.8,
+     "strong code generation [E]"
+    ],
+    "review": [
+     0.65,
+     "reads code well, no thinking [E]"
+    ],
+    "infra": [
+     0.65,
+     "configs/scripts are code [E]"
+    ],
+    "plan": [
+     0.5,
+     "no thinking mode [E]"
+    ],
+    "route": [
+     0.4,
+     "overkill and slow to load for routing [E]"
+    ],
+    "docs": [
+     0.5,
+     "fine but not its strength [E]"
+    ],
+    "security": [
+     0.55,
+     "code-aware, stock refusals [E]"
+    ],
+    "draft": [
+     0.0,
+     "too large to draft"
+    ]
+   },
+   "draft_group": "qwen3-151k",
+   "sources": [
+    "https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF"
+   ]
+  },
+  {
+   "id": "qwen2.5-coder",
+   "line": "Qwen2.5-Coder",
+   "maker": "Alibaba Qwen",
+   "lineage": "Qwen2.5 dense 0.5-32B",
+   "match": {
+    "name": [
+     "qwen2\\.?5[-_.]?coder"
+    ],
+    "arch": []
+   },
+   "known_for": "code completion and FIM; 2024 code leader at small sizes",
+   "strengths": [
+    "fill-in-the-middle",
+    "short function generation",
+    "small sizes for autocomplete"
+   ],
+   "weaknesses": [
+    "weak agentic/tool use",
+    "32k native context",
+    "superseded by Qwen3.x for agents"
+   ],
+   "code_strength": {
+    "level": "good",
+    "evidence": "[B] Qwen2.5-Coder tech report: 7B-Instruct HumanEval ~88, 32B ~92"
+   },
+   "tool_calling": {
+    "format": "Hermes <tool_call> JSON in ChatML",
+    "reliability": "moderate",
+    "evidence": "[A]"
+   },
+   "json_schema": "moderate [E]",
+   "thinking": {
+    "mode": "none",
+    "tag": null
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML; FIM tokens <|fim_prefix|> etc"
+   },
+   "context": 32768,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.7,
+     "top_p": 0.8,
+     "min_p": 0.05,
+     "top_k": 20,
+     "repeat_penalty": 1.05
+    },
+    "code": {
+     "temperature": 0.2,
+     "top_p": 0.8,
+     "min_p": 0.05
+    }
+   },
+   "jobs": {
+    "code": [
+     0.7,
+     "code-specialised [B]"
+    ],
+    "fix": [
+     0.6,
+     "small edits OK, weak at multi-file [E]"
+    ],
+    "test": [
+     0.6,
+     "unit tests fine [E]"
+    ],
+    "review": [
+     0.45,
+     "no reasoning mode [E]"
+    ],
+    "infra": [
+     0.5,
+     "scripts OK [E]"
+    ],
+    "plan": [
+     0.3,
+     "not a planner [E]"
+    ],
+    "route": [
+     0.35,
+     "[E]"
+    ],
+    "docs": [
+     0.4,
+     "[E]"
+    ],
+    "security": [
+     0.4,
+     "[E]"
+    ],
+    "draft": [
+     0.6,
+     "0.5-1.5B variants draft for Qwen2.5 targets [E]"
+    ]
+   },
+   "draft_group": "qwen2-151k",
+   "sources": [
+    "https://arxiv.org/abs/2409.12186",
+    "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct"
+   ]
+  },
+  {
+   "id": "deepseek-r1-distill",
+   "line": "DeepSeek-R1 distill",
+   "maker": "DeepSeek (on Qwen2.5 / Llama 3 bases)",
+   "lineage": "R1 reasoning traces distilled into Qwen2.5 1.5-32B and Llama 3.1 8B / 3.3 70B; R1-0528-Qwen3-8B",
+   "match": {
+    "name": [
+     "deepseek[-_.]?r1",
+     "r1[-_.]distill"
+    ],
+    "arch": []
+   },
+   "known_for": "long chain-of-thought math/reasoning in small sizes",
+   "strengths": [
+    "math and step reasoning"
+   ],
+   "weaknesses": [
+    "always thinks (slow)",
+    "weak tool calling",
+    "no system prompt recommended",
+    "obsolete vs Qwen3.5 thinking"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[B] R1 card LiveCodeBench: Qwen-7B 37.6, Qwen-14B 53.1"
+   },
+   "tool_calling": {
+    "format": "none",
+    "reliability": "low",
+    "evidence": "[B] card: no function calling"
+   },
+   "json_schema": "weak [A]",
+   "thinking": {
+    "mode": "always",
+    "tag": "<think>"
+   },
+   "template": {
+    "system_role": false,
+    "quirks": "put all instructions in the user turn; start answer with <think>"
+   },
+   "context": 131072,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "min_p": 0.0
+    },
+    "code": {
+     "temperature": 0.6,
+     "top_p": 0.95
+    }
+   },
+   "jobs": {
+    "plan": [
+     0.5,
+     "reasons, but slow [B]"
+    ],
+    "review": [
+     0.45,
+     "[E]"
+    ],
+    "code": [
+     0.35,
+     "[B] LCB modest"
+    ],
+    "fix": [
+     0.35,
+     "[E]"
+    ],
+    "test": [
+     0.3,
+     "[E]"
+    ],
+    "route": [
+     0.1,
+     "always thinks: too slow to route [E]"
+    ],
+    "docs": [
+     0.25,
+     "[E]"
+    ],
+    "security": [
+     0.3,
+     "[E]"
+    ],
+    "infra": [
+     0.3,
+     "[E]"
+    ],
+    "draft": [
+     0.0,
+     "[E]"
+    ]
+   },
+   "draft_group": "by-base",
+   "sources": [
+    "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+   ]
+  },
+  {
+   "id": "deepseek-coder-v2",
+   "line": "DeepSeek-Coder-V2",
+   "maker": "DeepSeek",
+   "lineage": "DeepSeek-V2 MoE (Lite 16B/2.4B active)",
+   "match": {
+    "name": [
+     "deepseek[-_.]?coder"
+    ],
+    "arch": []
+   },
+   "known_for": "2024 open coder MoE with FIM",
+   "strengths": [
+    "FIM",
+    "fast for size (2.4B active)"
+   ],
+   "weaknesses": [
+    "dated",
+    "weak agentic tool use"
+   ],
+   "code_strength": {
+    "level": "good",
+    "evidence": "[B] Lite-Instruct HumanEval 81.1 (card)"
+   },
+   "tool_calling": {
+    "format": "none (prompted JSON)",
+    "reliability": "low",
+    "evidence": "[E]"
+   },
+   "json_schema": "moderate [E]",
+   "thinking": {
+    "mode": "none",
+    "tag": null
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "own template; MLA attention"
+   },
+   "context": 131072,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "min_p": 0.05
+    },
+    "code": {
+     "temperature": 0.2,
+     "top_p": 0.95
+    }
+   },
+   "jobs": {
+    "code": [
+     0.6,
+     "[B]"
+    ],
+    "fix": [
+     0.5,
+     "[E]"
+    ],
+    "test": [
+     0.5,
+     "[E]"
+    ],
+    "review": [
+     0.4,
+     "[E]"
+    ],
+    "infra": [
+     0.45,
+     "[E]"
+    ],
+    "plan": [
+     0.3,
+     "[E]"
+    ],
+    "route": [
+     0.3,
+     "[E]"
+    ],
+    "docs": [
+     0.35,
+     "[E]"
+    ],
+    "security": [
+     0.35,
+     "[E]"
+    ],
+    "draft": [
+     0.0,
+     "[E]"
+    ]
+   },
+   "draft_group": "deepseek",
+   "sources": [
+    "https://huggingface.co/deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
+   ]
+  },
+  {
+   "id": "deepseek",
+   "line": "DeepSeek V2/V3",
+   "maker": "DeepSeek",
+   "lineage": "DeepSeek-V2/V3/V3.1 MoE (MLA)",
+   "match": {
+    "name": [
+     "deepseek"
+    ],
+    "arch": [
+     "deepseek2",
+     "deepseek3",
+     "deepseek"
+    ]
+   },
+   "known_for": "frontier-class open MoE (too large for this machine except Lite)",
+   "strengths": [
+    "general and code at large sizes",
+    "V3.1 hybrid thinking"
+   ],
+   "weaknesses": [
+    "V3 671B does not fit locally"
+   ],
+   "code_strength": {
+    "level": "strong",
+    "evidence": "[B] V3 card (large models only)"
+   },
+   "tool_calling": {
+    "format": "native JSON tools (V3+)",
+    "reliability": "moderate",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [B]",
+   "thinking": {
+    "mode": "optional",
+    "tag": "<think>"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "own template"
+   },
+   "context": 131072,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "min_p": 0.0
+    },
+    "code": {
+     "temperature": 0.3,
+     "top_p": 0.95
+    }
+   },
+   "jobs": {
+    "code": [
+     0.7,
+     "[B]"
+    ],
+    "fix": [
+     0.65,
+     "[B]"
+    ],
+    "plan": [
+     0.65,
+     "[B]"
+    ],
+    "review": [
+     0.6,
+     "[E]"
+    ],
+    "test": [
+     0.6,
+     "[E]"
+    ],
+    "infra": [
+     0.55,
+     "[E]"
+    ],
+    "route": [
+     0.3,
+     "too big to route [E]"
+    ],
+    "docs": [
+     0.5,
+     "[E]"
+    ],
+    "security": [
+     0.45,
+     "[E]"
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "deepseek",
+   "sources": [
+    "https://huggingface.co/deepseek-ai/DeepSeek-V3"
+   ]
+  },
+  {
+   "id": "hermes",
+   "line": "Hermes 2 Pro / 3 / 4",
+   "maker": "NousResearch",
+   "lineage": "fine-tunes of Llama 3/3.1 (Hermes 3, Hermes 4 70B/405B), Mistral (Hermes 2 Pro), Qwen3 14B (Hermes 4 14B)",
+   "match": {
+    "name": [
+     "hermes[-_ ]?[234]",
+     "nous[-_ ]?hermes",
+     "nousresearch/hermes",
+     "\\bhermes\\b"
+    ],
+    "exclude": [
+     "openhermes"
+    ],
+    "arch": []
+   },
+   "known_for": "tool calling with <tool_call> XML tags, steerable neutral alignment (follows the system prompt, few refusals), roleplay and structured JSON output",
+   "strengths": [
+    "function calling (Hermes format, the origin of vLLM's 'hermes' parser)",
+    "JSON mode with a schema in the system prompt",
+    "follows system prompts closely",
+    "few refusals without abliteration"
+   ],
+   "weaknesses": [
+    "coding only as good as its base (Llama 3.1 8B: basic)",
+    "long multi-file code edits"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[E] tracks the base: Llama 3.1 8B HumanEval 72.6 [B Meta card]; Hermes 4 14B (Qwen3 base) better [E]"
+   },
+   "tool_calling": {
+    "format": "Hermes <tool_call>{json}</tool_call> XML in ChatML; tools listed in <tools></tools> in the system prompt; results in <tool_response>",
+    "reliability": "high",
+    "evidence": "[B] Nous model cards (Hermes 2 Pro: 90% function-calling eval, 84% JSON-mode eval)"
+   },
+   "json_schema": "good [B] (dedicated JSON-mode training)",
+   "thinking": {
+    "mode": "optional",
+    "tag": "<think> (Hermes 4 hybrid reasoning; Hermes 2/3: none)"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML (<|im_start|>) even on Llama bases; the system prompt matters a lot (neutral alignment)"
+   },
+   "context": 131072,
+   "censorship": "lightly aligned (neutral, steerable)",
+   "sampling": {
+    "default": {
+     "temperature": 0.7,
+     "top_p": 0.9,
+     "min_p": 0.05,
+     "presence_penalty": 0.0
+    },
+    "code": {
+     "temperature": 0.3,
+     "top_p": 0.9,
+     "min_p": 0.05
+    },
+    "route": {
+     "temperature": 0.0,
+     "top_p": 1.0
+    }
+   },
+   "jobs": {
+    "route": [
+     0.75,
+     "reliable structured/tool output [B]"
+    ],
+    "review": [
+     0.6,
+     "follows rubric prompts closely [E]"
+    ],
+    "plan": [
+     0.55,
+     "JSON plans well; reasoning tracks base [E]"
+    ],
+    "docs": [
+     0.65,
+     "fluent writer [E]"
+    ],
+    "security": [
+     0.65,
+     "neutral alignment: fewer refusals on red-team work [E]"
+    ],
+    "infra": [
+     0.5,
+     "[E]"
+    ],
+    "code": [
+     0.4,
+     "weak at long code edits on 8B Llama base [E]"
+    ],
+    "fix": [
+     0.4,
+     "[E]"
+    ],
+    "test": [
+     0.4,
+     "[E]"
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "by-base",
+   "sources": [
+    "https://huggingface.co/NousResearch/Hermes-3-Llama-3.1-8B",
+    "https://huggingface.co/NousResearch/Hermes-2-Pro-Llama-3-8B",
+    "https://huggingface.co/NousResearch/Hermes-4-14B",
+    "https://github.com/NousResearch/Hermes-Function-Calling"
+   ]
+  },
+  {
+   "id": "openhermes",
+   "line": "OpenHermes 2/2.5",
+   "maker": "Teknium (NousResearch circle)",
+   "lineage": "Mistral 7B fine-tune (2023)",
+   "match": {
+    "name": [
+     "openhermes"
+    ],
+    "arch": []
+   },
+   "known_for": "2023 general chat fine-tune of Mistral 7B",
+   "strengths": [
+    "fluent chat"
+   ],
+   "weaknesses": [
+    "dated",
+    "no trained tool format",
+    "8k-32k context"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[B] card HumanEval ~50 (2.5)"
+   },
+   "tool_calling": {
+    "format": "none (prompted JSON)",
+    "reliability": "low",
+    "evidence": "[E]"
+   },
+   "json_schema": "weak [E]",
+   "thinking": {
+    "mode": "none",
+    "tag": null
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML"
+   },
+   "context": 8192,
+   "censorship": "lightly aligned",
+   "sampling": {
+    "default": {
+     "temperature": 0.7,
+     "top_p": 0.9,
+     "min_p": 0.05
+    },
+    "code": {
+     "temperature": 0.3,
+     "top_p": 0.9
+    }
+   },
+   "jobs": {
+    "docs": [
+     0.45,
+     "[E]"
+    ],
+    "route": [
+     0.35,
+     "[E]"
+    ],
+    "review": [
+     0.3,
+     "[E]"
+    ],
+    "plan": [
+     0.25,
+     "[E]"
+    ],
+    "code": [
+     0.2,
+     "[B] dated"
+    ],
+    "fix": [
+     0.2,
+     ""
+    ],
+    "test": [
+     0.2,
+     ""
+    ],
+    "security": [
+     0.3,
+     ""
+    ],
+    "infra": [
+     0.25,
+     ""
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "mistral-32k",
+   "sources": [
+    "https://huggingface.co/teknium/OpenHermes-2.5-Mistral-7B"
+   ]
+  },
+  {
+   "id": "dolphin",
+   "line": "Dolphin",
+   "maker": "Cognitive Computations (Eric Hartford)",
+   "lineage": "uncensored fine-tunes of Llama 3, Mistral/Mixtral, Qwen2.5, Phi; Dolphin 3.0 on Llama 3.1/3.2 and Qwen2.5",
+   "match": {
+    "name": [
+     "dolphin"
+    ],
+    "arch": []
+   },
+   "known_for": "uncensored by dataset filtering (not abliteration); steerable by system prompt; general coding/agentic data",
+   "strengths": [
+    "follows system prompt",
+    "no refusals",
+    "function calling in Dolphin 3"
+   ],
+   "weaknesses": [
+    "quality tracks base",
+    "no published benchmark for most releases"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[E] tracks base"
+   },
+   "tool_calling": {
+    "format": "Hermes-style <tool_call> in ChatML (Dolphin 3) [A]",
+    "reliability": "moderate",
+    "evidence": "[A]"
+   },
+   "json_schema": "moderate [E]",
+   "thinking": {
+    "mode": "none",
+    "tag": "<think> on R1 variants"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML; needs a system prompt"
+   },
+   "context": 32768,
+   "censorship": "uncensored (dataset)",
+   "sampling": {
+    "default": {
+     "temperature": 0.7,
+     "top_p": 0.9,
+     "min_p": 0.05
+    },
+    "code": {
+     "temperature": 0.3,
+     "top_p": 0.9,
+     "min_p": 0.05
+    }
+   },
+   "jobs": {
+    "security": [
+     0.65,
+     "no refusals [E]"
+    ],
+    "docs": [
+     0.55,
+     "[E]"
+    ],
+    "route": [
+     0.5,
+     "[E]"
+    ],
+    "review": [
+     0.45,
+     "[E]"
+    ],
+    "plan": [
+     0.45,
+     "[E]"
+    ],
+    "code": [
+     0.45,
+     "[E]"
+    ],
+    "fix": [
+     0.4,
+     "[E]"
+    ],
+    "test": [
+     0.4,
+     "[E]"
+    ],
+    "infra": [
+     0.45,
+     "[E]"
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "by-base",
+   "sources": [
+    "https://huggingface.co/cognitivecomputations/Dolphin3.0-Llama3.1-8B",
+    "https://erichartford.com/uncensored-models"
+   ]
+  },
+  {
+   "id": "bonsai",
+   "line": "Bonsai",
+   "maker": "PrismML (1-bit/ternary Bonsai); community repacks",
+   "lineage": "low-bit end-to-end quantised models on Qwen3/Qwen3.5 bases [A]",
+   "match": {
+    "name": [
+     "bonsai"
+    ],
+    "arch": []
+   },
+   "known_for": "very low bit (1-2 bit) builds that fit tiny memory",
+   "strengths": [
+    "fits small VRAM",
+    "fast"
+   ],
+   "weaknesses": [
+    "low-bit cost on code and structured output",
+    "provenance of repacks often unstated"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[E] Q2-class on a 9B; vendor claims near-FP16 for its own 1-bit training, unverified here"
+   },
+   "tool_calling": {
+    "format": "native JSON tools via base Qwen template",
+    "reliability": "low",
+    "evidence": "[E]"
+   },
+   "json_schema": "weak [E]",
+   "thinking": {
+    "mode": "optional",
+    "tag": "<think>"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "base Qwen ChatML"
+   },
+   "context": 32768,
+   "censorship": "varies (installed one says uncensored)",
+   "sampling": {
+    "default": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "min_p": 0.05,
+     "top_k": 20
+    },
+    "code": {
+     "temperature": 0.3,
+     "top_p": 0.9
+    }
+   },
+   "jobs": {
+    "route": [
+     0.45,
+     "fast [E]"
+    ],
+    "docs": [
+     0.45,
+     "[E]"
+    ],
+    "draft": [
+     0.3,
+     "same tokenizer as base; quality loss hurts acceptance [E]"
+    ],
+    "review": [
+     0.3,
+     "[E]"
+    ],
+    "plan": [
+     0.3,
+     "[E]"
+    ],
+    "code": [
+     0.25,
+     "avoid for code at Q2 [E]"
+    ],
+    "fix": [
+     0.25,
+     ""
+    ],
+    "test": [
+     0.25,
+     ""
+    ],
+    "security": [
+     0.35,
+     ""
+    ],
+    "infra": [
+     0.3,
+     ""
+    ]
+   },
+   "draft_group": "by-base",
+   "sources": [
+    "https://prismml.com",
+    "docs/research/model_landscape.md 2e"
+   ]
+  },
+  {
+   "id": "qwen3.6",
+   "line": "Qwen3.6",
+   "maker": "Alibaba Qwen",
+   "lineage": "Qwen3.5 hybrid Gated DeltaNet + attention; 35B-A3B MoE and 27B dense, MTP head",
+   "match": {
+    "name": [
+     "qwen3\\.6",
+     "qwen36"
+    ],
+    "arch": []
+   },
+   "known_for": "current community default for local agentic coding",
+   "strengths": [
+    "agentic coding (SWE-V 73.4 for 35B-A3B)",
+    "tool calling",
+    "262k context with tiny KV cache (2 KV heads)"
+   ],
+   "weaknesses": [
+    "needs expert offload on 6 GB",
+    "thinking on by default costs time"
+   ],
+   "code_strength": {
+    "level": "strong",
+    "evidence": "[B] Qwen3.6-35B-A3B card: SWE-V 73.4, LCB6 80.4, TB2 51.5"
+   },
+   "tool_calling": {
+    "format": "qwen3_coder XML / native JSON tools via Ollama",
+    "reliability": "high",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [B]",
+   "thinking": {
+    "mode": "optional",
+    "tag": "<think>; on by default; enable_thinking:false to turn off"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML; no /think soft switch"
+   },
+   "context": 262144,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "min_p": 0.0,
+     "top_k": 20,
+     "presence_penalty": 0.0
+    },
+    "code": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "top_k": 20
+    },
+    "nothink": {
+     "temperature": 0.7,
+     "top_p": 0.8,
+     "top_k": 20,
+     "presence_penalty": 1.5
+    }
+   },
+   "jobs": {
+    "code": [
+     0.9,
+     "[B] SWE-V 73.4"
+    ],
+    "fix": [
+     0.88,
+     "[B]"
+    ],
+    "plan": [
+     0.85,
+     "thinking + agentic [B]"
+    ],
+    "review": [
+     0.8,
+     "[E]"
+    ],
+    "test": [
+     0.8,
+     "[E]"
+    ],
+    "infra": [
+     0.75,
+     "[B] Terminal-Bench 51.5"
+    ],
+    "security": [
+     0.7,
+     "[E]"
+    ],
+    "docs": [
+     0.6,
+     "slow for docs [E]"
+    ],
+    "route": [
+     0.35,
+     "too heavy to route [E]"
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "qwen35-248k",
+   "sources": [
+    "https://huggingface.co/Qwen/Qwen3.6-35B-A3B"
+   ]
+  },
+  {
+   "id": "qwen3.8",
+   "line": "Qwen3.8",
+   "maker": "Alibaba Qwen (official only 27B and 2.4T-A95B)",
+   "lineage": "Qwen3.5 architecture",
+   "match": {
+    "name": [
+     "qwen3\\.8",
+     "qwen38"
+    ],
+    "arch": []
+   },
+   "known_for": "newest Qwen line; small community '3.8' builds are usually relabelled Qwen3.5-9B-class finetunes",
+   "strengths": [
+    "thinking",
+    "tools",
+    "262k context"
+   ],
+   "weaknesses": [
+    "small 3.8 builds have unverified provenance"
+   ],
+   "code_strength": {
+    "level": "good",
+    "evidence": "[E] if Qwen3.5-9B-class: LCB6 ~65 [B for 3.5-9B]"
+   },
+   "tool_calling": {
+    "format": "native JSON tools (Qwen template)",
+    "reliability": "moderate",
+    "evidence": "[E]"
+   },
+   "json_schema": "good [E]",
+   "thinking": {
+    "mode": "optional",
+    "tag": "<think>"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML"
+   },
+   "context": 262144,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "min_p": 0.0,
+     "top_k": 20
+    },
+    "code": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "top_k": 20
+    }
+   },
+   "jobs": {
+    "code": [
+     0.65,
+     "[E]"
+    ],
+    "fix": [
+     0.62,
+     "[E]"
+    ],
+    "plan": [
+     0.65,
+     "[E]"
+    ],
+    "review": [
+     0.6,
+     "[E]"
+    ],
+    "test": [
+     0.6,
+     "[E]"
+    ],
+    "infra": [
+     0.55,
+     "[E]"
+    ],
+    "security": [
+     0.5,
+     "[E]"
+    ],
+    "docs": [
+     0.55,
+     "[E]"
+    ],
+    "route": [
+     0.45,
+     "[E]"
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "qwen35-248k",
+   "sources": [
+    "https://github.com/QwenLM/Qwen3.8"
+   ]
+  },
+  {
+   "id": "qwen3.5",
+   "line": "Qwen3.5",
+   "maker": "Alibaba Qwen",
+   "lineage": "hybrid Gated DeltaNet + attention; dense 0.8/2/4/9/27B and 35B-A3B / 122B-A10B MoE; MTP",
+   "match": {
+    "name": [
+     "qwen3\\.5",
+     "qwen35"
+    ],
+    "arch": [
+     "qwen35",
+     "qwen35moe"
+    ]
+   },
+   "known_for": "2026 small dense worker/draft line and 35B-A3B MoE",
+   "strengths": [
+    "thinking",
+    "tools",
+    "262k context, tiny KV"
+   ],
+   "weaknesses": [
+    "0.8-2B weak at tools"
+   ],
+   "code_strength": {
+    "level": "good",
+    "evidence": "[B] Qwen3.5-9B LCB6 65.6, 4B 55.8; 35B-A3B SWE-V 70.0"
+   },
+   "tool_calling": {
+    "format": "native JSON tools (Qwen template; qwen3_coder parser)",
+    "reliability": "moderate",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [E]",
+   "thinking": {
+    "mode": "optional",
+    "tag": "<think>; on by default"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML"
+   },
+   "context": 262144,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "min_p": 0.0,
+     "top_k": 20
+    },
+    "code": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "top_k": 20
+    },
+    "nothink": {
+     "temperature": 0.7,
+     "top_p": 0.8,
+     "top_k": 20,
+     "presence_penalty": 1.5
+    }
+   },
+   "jobs": {
+    "code": [
+     0.7,
+     "[B]"
+    ],
+    "fix": [
+     0.68,
+     "[B]"
+    ],
+    "plan": [
+     0.7,
+     "[E]"
+    ],
+    "review": [
+     0.65,
+     "[E]"
+    ],
+    "test": [
+     0.65,
+     "[E]"
+    ],
+    "infra": [
+     0.6,
+     "[E]"
+    ],
+    "security": [
+     0.55,
+     "[E]"
+    ],
+    "docs": [
+     0.6,
+     "[E]"
+    ],
+    "route": [
+     0.55,
+     "small ones route fast [E]"
+    ],
+    "draft": [
+     0.5,
+     "0.8B/2B draft for qwen35 targets [B]"
+    ]
+   },
+   "draft_group": "qwen35-248k",
+   "sources": [
+    "https://huggingface.co/Qwen/Qwen3.5-9B",
+    "https://artificialanalysis.ai/articles/qwen3-5-small-models"
+   ]
+  },
+  {
+   "id": "qwen2.5-vl",
+   "line": "Qwen2.5-VL",
+   "maker": "Alibaba Qwen",
+   "lineage": "Qwen2.5 + vision encoder",
+   "match": {
+    "name": [
+     "qwen2\\.?5[-_.]?vl"
+    ],
+    "arch": [
+     "qwen25vl",
+     "qwen2vl"
+    ]
+   },
+   "known_for": "vision: screenshots, documents, UI grounding",
+   "strengths": [
+    "image understanding",
+    "OCR"
+   ],
+   "weaknesses": [
+    "not a coder",
+    "no thinking"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[E]"
+   },
+   "tool_calling": {
+    "format": "none",
+    "reliability": "low",
+    "evidence": "[E] Ollama lists no tools capability"
+   },
+   "json_schema": "moderate [E]",
+   "thinking": {
+    "mode": "none",
+    "tag": null
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML with image tokens"
+   },
+   "context": 32768,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.2,
+     "top_p": 0.9,
+     "min_p": 0.05
+    },
+    "code": {
+     "temperature": 0.2,
+     "top_p": 0.9
+    }
+   },
+   "jobs": {
+    "docs": [
+     0.4,
+     "describes screenshots [E]"
+    ],
+    "review": [
+     0.3,
+     "UI screenshots only [E]"
+    ],
+    "route": [
+     0.25,
+     ""
+    ],
+    "plan": [
+     0.15,
+     ""
+    ],
+    "code": [
+     0.15,
+     ""
+    ],
+    "fix": [
+     0.1,
+     ""
+    ],
+    "test": [
+     0.1,
+     ""
+    ],
+    "security": [
+     0.15,
+     ""
+    ],
+    "infra": [
+     0.1,
+     ""
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "qwen2-151k",
+   "sources": [
+    "https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct"
+   ]
+  },
+  {
+   "id": "qwen3",
+   "line": "Qwen3",
+   "maker": "Alibaba Qwen",
+   "lineage": "dense 0.6-32B and 30B-A3B / 235B-A22B MoE (2025)",
+   "match": {
+    "name": [
+     "qwen3(?![.\\d])",
+     "qwen-3"
+    ],
+    "arch": [
+     "qwen3",
+     "qwen3moe"
+    ]
+   },
+   "known_for": "hybrid thinking/non-thinking with /think and /no_think soft switches; solid small workers",
+   "strengths": [
+    "tools",
+    "JSON",
+    "hybrid thinking"
+   ],
+   "weaknesses": [
+    "32-40k native context",
+    "superseded by Qwen3.5"
+   ],
+   "code_strength": {
+    "level": "good",
+    "evidence": "[B] Qwen3 tech report (8B/14B competitive coders at release); [E] for agentic"
+   },
+   "tool_calling": {
+    "format": "Hermes <tool_call>{json}</tool_call> in ChatML (Qwen-Agent / vLLM hermes parser)",
+    "reliability": "moderate",
+    "evidence": "[B] Qwen3 docs recommend the hermes parser"
+   },
+   "json_schema": "good [E]",
+   "thinking": {
+    "mode": "optional",
+    "tag": "<think>; /think and /no_think in the prompt"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML; never greedy in thinking mode (repeats)"
+   },
+   "context": 40960,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "min_p": 0.0,
+     "top_k": 20
+    },
+    "code": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "top_k": 20
+    },
+    "nothink": {
+     "temperature": 0.7,
+     "top_p": 0.8,
+     "top_k": 20,
+     "presence_penalty": 1.5
+    }
+   },
+   "jobs": {
+    "code": [
+     0.6,
+     "[B]"
+    ],
+    "fix": [
+     0.58,
+     "[E]"
+    ],
+    "plan": [
+     0.6,
+     "thinking [E]"
+    ],
+    "review": [
+     0.58,
+     "[E]"
+    ],
+    "test": [
+     0.55,
+     "[E]"
+    ],
+    "infra": [
+     0.5,
+     "[E]"
+    ],
+    "security": [
+     0.45,
+     "[E]"
+    ],
+    "docs": [
+     0.55,
+     "[E]"
+    ],
+    "route": [
+     0.6,
+     "fast small sizes, good JSON [E]"
+    ],
+    "draft": [
+     0.6,
+     "0.6B/1.7B draft for qwen3 targets (151k vocab) [B]"
+    ]
+   },
+   "draft_group": "qwen3-151k",
+   "sources": [
+    "https://huggingface.co/Qwen/Qwen3-8B",
+    "https://qwen.readthedocs.io/en/latest/framework/function_call.html"
+   ]
+  },
+  {
+   "id": "qwen2.5",
+   "line": "Qwen2/2.5",
+   "maker": "Alibaba Qwen",
+   "lineage": "dense 0.5-72B (2024)",
+   "match": {
+    "name": [
+     "qwen2\\.?5",
+     "qwen2(?!\\.?5)"
+    ],
+    "arch": [
+     "qwen2",
+     "qwen2moe"
+    ]
+   },
+   "known_for": "2024 general workhorse",
+   "strengths": [
+    "JSON",
+    "multilingual"
+   ],
+   "weaknesses": [
+    "no thinking",
+    "dated"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[B] Qwen2.5 report"
+   },
+   "tool_calling": {
+    "format": "Hermes <tool_call> in ChatML",
+    "reliability": "moderate",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [B]",
+   "thinking": {
+    "mode": "none",
+    "tag": null
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "ChatML"
+   },
+   "context": 32768,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.7,
+     "top_p": 0.8,
+     "min_p": 0.05,
+     "top_k": 20
+    },
+    "code": {
+     "temperature": 0.3,
+     "top_p": 0.8
+    }
+   },
+   "jobs": {
+    "route": [
+     0.55,
+     "[E]"
+    ],
+    "docs": [
+     0.5,
+     "[E]"
+    ],
+    "code": [
+     0.45,
+     "[E]"
+    ],
+    "fix": [
+     0.4,
+     ""
+    ],
+    "test": [
+     0.4,
+     ""
+    ],
+    "review": [
+     0.45,
+     ""
+    ],
+    "plan": [
+     0.45,
+     ""
+    ],
+    "security": [
+     0.4,
+     ""
+    ],
+    "infra": [
+     0.4,
+     ""
+    ],
+    "draft": [
+     0.5,
+     "0.5B drafts for qwen2 targets"
+    ]
+   },
+   "draft_group": "qwen2-151k",
+   "sources": [
+    "https://arxiv.org/abs/2412.15115"
+   ]
+  },
+  {
+   "id": "devstral",
+   "line": "Devstral / Codestral",
+   "maker": "Mistral AI (Devstral with All Hands AI)",
+   "lineage": "Mistral Small 24B (Devstral), Codestral 22B",
+   "match": {
+    "name": [
+     "devstral",
+     "codestral"
+    ],
+    "arch": []
+   },
+   "known_for": "agentic coding (Devstral) and FIM (Codestral)",
+   "strengths": [
+    "SWE-agent work (Devstral Small 2: SWE-V ~68)",
+    "FIM"
+   ],
+   "weaknesses": [
+    "24B dense: 2-4 tok/s here"
+   ],
+   "code_strength": {
+    "level": "strong",
+    "evidence": "[B] Devstral Small 2 SWE-V 68.0; Codestral HumanEval 81 (card)"
+   },
+   "tool_calling": {
+    "format": "Mistral [TOOL_CALLS] native JSON",
+    "reliability": "high",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [B]",
+   "thinking": {
+    "mode": "none",
+    "tag": null
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "Mistral [INST] / tekken template; system prompt supported in v7 template"
+   },
+   "context": 131072,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.15,
+     "top_p": 0.95,
+     "min_p": 0.01
+    },
+    "code": {
+     "temperature": 0.15,
+     "top_p": 0.95,
+     "min_p": 0.01
+    }
+   },
+   "jobs": {
+    "code": [
+     0.85,
+     "[B]"
+    ],
+    "fix": [
+     0.82,
+     "[B]"
+    ],
+    "test": [
+     0.75,
+     "[E]"
+    ],
+    "review": [
+     0.65,
+     "[E]"
+    ],
+    "infra": [
+     0.65,
+     "[E]"
+    ],
+    "plan": [
+     0.55,
+     "[E]"
+    ],
+    "security": [
+     0.5,
+     ""
+    ],
+    "docs": [
+     0.45,
+     ""
+    ],
+    "route": [
+     0.3,
+     "too slow to route"
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "mistral-tekken",
+   "sources": [
+    "https://huggingface.co/mistralai/Devstral-Small-2507",
+    "https://dev.to/jovan_chan_9500711396d4e6/devstral-small-2-review-2026-68-swe-bench-on-rtx-4090-5abh"
+   ]
+  },
+  {
+   "id": "mistral",
+   "line": "Mistral / Mixtral / Ministral",
+   "maker": "Mistral AI",
+   "lineage": "Mistral 7B, Nemo 12B, Small 22-24B, Mixtral 8x7B/8x22B MoE, Ministral 3/8B",
+   "match": {
+    "name": [
+     "mistral",
+     "mixtral",
+     "ministral",
+     "magistral"
+    ],
+    "arch": [
+     "llama.*mistral",
+     "mistral3"
+    ]
+   },
+   "known_for": "efficient general models with native tool calls; Mixtral MoE; Magistral reasoning",
+   "strengths": [
+    "function calling",
+    "multilingual",
+    "Nemo 128k"
+   ],
+   "weaknesses": [
+    "coding middling at 7-12B"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[B] Mistral cards (7B HumanEval ~30, Small 3 ~85)"
+   },
+   "tool_calling": {
+    "format": "Mistral [TOOL_CALLS] native JSON",
+    "reliability": "moderate",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [B]",
+   "thinking": {
+    "mode": "none",
+    "tag": "[THINK] on Magistral"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "older [INST] templates fold the system prompt into the first user turn"
+   },
+   "context": 32768,
+   "censorship": "lightly aligned",
+   "sampling": {
+    "default": {
+     "temperature": 0.3,
+     "top_p": 0.95,
+     "min_p": 0.05
+    },
+    "code": {
+     "temperature": 0.15,
+     "top_p": 0.95
+    }
+   },
+   "jobs": {
+    "route": [
+     0.55,
+     "[E]"
+    ],
+    "docs": [
+     0.55,
+     "[E]"
+    ],
+    "review": [
+     0.5,
+     ""
+    ],
+    "plan": [
+     0.45,
+     ""
+    ],
+    "code": [
+     0.45,
+     ""
+    ],
+    "fix": [
+     0.4,
+     ""
+    ],
+    "test": [
+     0.4,
+     ""
+    ],
+    "security": [
+     0.45,
+     ""
+    ],
+    "infra": [
+     0.45,
+     ""
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "mistral-32k",
+   "sources": [
+    "https://docs.mistral.ai/capabilities/function_calling/"
+   ]
+  },
+  {
+   "id": "nemotron",
+   "line": "Nemotron",
+   "maker": "NVIDIA",
+   "lineage": "Llama-3.1-Nemotron (Nano 8B, Super 49B), Nemotron-H / Nano 2 9B hybrid Mamba, Nemotron 3 Nano 30B-A3B",
+   "match": {
+    "name": [
+     "nemotron"
+    ],
+    "arch": [
+     "nemotron",
+     "nemotron_h",
+     "nemotron_h_moe"
+    ]
+   },
+   "known_for": "reasoning on/off via system prompt ('detailed thinking on'), tool calling, strong math",
+   "strengths": [
+    "toggleable reasoning",
+    "tools",
+    "long context (Nano 2: 128k)"
+   ],
+   "weaknesses": [
+    "Mamba hybrids need recent llama.cpp"
+   ],
+   "code_strength": {
+    "level": "good",
+    "evidence": "[B] NVIDIA cards (Nano 2 9B LCB ~ 70 reasoning on)"
+   },
+   "tool_calling": {
+    "format": "native JSON tools (<TOOLCALL> on Llama-Nemotron)",
+    "reliability": "moderate",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [E]",
+   "thinking": {
+    "mode": "optional",
+    "tag": "<think>; 'detailed thinking on/off' or /think in system prompt"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "reasoning switch lives in the system prompt"
+   },
+   "context": 131072,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "min_p": 0.0
+    },
+    "code": {
+     "temperature": 0.6,
+     "top_p": 0.95
+    },
+    "nothink": {
+     "temperature": 0.0,
+     "top_p": 1.0
+    }
+   },
+   "jobs": {
+    "plan": [
+     0.65,
+     "[B] reasoning"
+    ],
+    "code": [
+     0.6,
+     "[B]"
+    ],
+    "fix": [
+     0.58,
+     ""
+    ],
+    "review": [
+     0.6,
+     ""
+    ],
+    "test": [
+     0.55,
+     ""
+    ],
+    "infra": [
+     0.5,
+     ""
+    ],
+    "route": [
+     0.5,
+     ""
+    ],
+    "docs": [
+     0.5,
+     ""
+    ],
+    "security": [
+     0.45,
+     ""
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "by-base",
+   "sources": [
+    "https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-9B-v2",
+    "https://huggingface.co/nvidia/Llama-3.1-Nemotron-Nano-8B-v1"
+   ]
+  },
+  {
+   "id": "llama3",
+   "line": "Llama 3.x",
+   "maker": "Meta",
+   "lineage": "Llama 3 / 3.1 / 3.2 (1B, 3B, 11B vision) / 3.3 70B",
+   "match": {
+    "name": [
+     "llama[-_ ]?3",
+     "llama3"
+    ],
+    "arch": [
+     "llama"
+    ]
+   },
+   "known_for": "general chat baseline; 3.2 1B/3B small and fast",
+   "strengths": [
+    "fluent writing",
+    "native tool calls (JSON, ipython role)",
+    "128k context"
+   ],
+   "weaknesses": [
+    "coding basic at 3-8B",
+    "tool use unreliable at 1-3B"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[B] Meta cards: 3.1 8B HumanEval 72.6, 3.2 3B 51.2"
+   },
+   "tool_calling": {
+    "format": "native JSON tools (Llama 3.1+ template, ipython role)",
+    "reliability": "moderate",
+    "evidence": "[B] card; [A] small sizes unreliable"
+   },
+   "json_schema": "moderate [E]",
+   "thinking": {
+    "mode": "none",
+    "tag": null
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "<|start_header_id|> template"
+   },
+   "context": 131072,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.6,
+     "top_p": 0.9,
+     "min_p": 0.05
+    },
+    "code": {
+     "temperature": 0.2,
+     "top_p": 0.9
+    }
+   },
+   "jobs": {
+    "route": [
+     0.5,
+     "fast [E]"
+    ],
+    "docs": [
+     0.55,
+     "fluent [E]"
+    ],
+    "review": [
+     0.35,
+     ""
+    ],
+    "plan": [
+     0.35,
+     ""
+    ],
+    "code": [
+     0.3,
+     "[B] basic"
+    ],
+    "fix": [
+     0.28,
+     ""
+    ],
+    "test": [
+     0.3,
+     ""
+    ],
+    "security": [
+     0.35,
+     ""
+    ],
+    "infra": [
+     0.35,
+     ""
+    ],
+    "draft": [
+     0.55,
+     "1B/3B draft for llama3 targets (128k vocab) [B]"
+    ]
+   },
+   "draft_group": "llama3-128k",
+   "sources": [
+    "https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct",
+    "https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct"
+   ]
+  },
+  {
+   "id": "gemma",
+   "line": "Gemma 2/3/4",
+   "maker": "Google",
+   "lineage": "Gemma 2 (2-27B), Gemma 3 (1-27B, vision), Gemma 3n / Gemma 4 E2B/E4B (per-layer embeddings, MTP), Gemma 4 26B-A4B MoE / 31B",
+   "match": {
+    "name": [
+     "gemma",
+     "codegemma"
+    ],
+    "arch": [
+     "gemma",
+     "gemma2",
+     "gemma3",
+     "gemma3n",
+     "gemma4"
+    ]
+   },
+   "known_for": "strong writing and multilingual quality for size; vision/audio on E-models",
+   "strengths": [
+    "docs and summaries",
+    "multimodal (3+, E-models audio)"
+   ],
+   "weaknesses": [
+    "E-models weak at tools/agents (E4B passed 2/6 agent scenarios [A])",
+    "Gemma 2/3 have no system role (folded into user turn)"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[B-3p] LCB6 E4B 52, 26B-A4B 77.1; SWE-V 26B-A4B 17.4"
+   },
+   "tool_calling": {
+    "format": "native JSON tools (Gemma 4); prompted JSON (Gemma 2/3)",
+    "reliability": "low",
+    "evidence": "[A] https://dev.to/vystartasv/google-said-it-had-native-function-calling-i-tested-it-54i7"
+   },
+   "json_schema": "moderate [E]",
+   "thinking": {
+    "mode": "optional",
+    "tag": "Gemma 4 thinking channel; none on 2/3"
+   },
+   "template": {
+    "system_role": false,
+    "quirks": "Gemma 2/3: no system role, the system prompt is prepended to the first user turn; Gemma 4 adds a system role"
+   },
+   "context": 131072,
+   "censorship": "stock (strict)",
+   "sampling": {
+    "default": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "min_p": 0.0,
+     "top_k": 64
+    },
+    "code": {
+     "temperature": 0.7,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   },
+   "jobs": {
+    "docs": [
+     0.7,
+     "fluent writer [E]"
+    ],
+    "review": [
+     0.45,
+     ""
+    ],
+    "route": [
+     0.45,
+     ""
+    ],
+    "plan": [
+     0.4,
+     ""
+    ],
+    "code": [
+     0.3,
+     "[A] weak at code/tools on E-models"
+    ],
+    "fix": [
+     0.28,
+     ""
+    ],
+    "test": [
+     0.3,
+     ""
+    ],
+    "security": [
+     0.35,
+     ""
+    ],
+    "infra": [
+     0.3,
+     ""
+    ],
+    "draft": [
+     0.4,
+     "small Gemma drafts Gemma (262k vocab) [E]"
+    ]
+   },
+   "draft_group": "gemma-262k",
+   "sources": [
+    "https://ai.google.dev/gemma/docs/core",
+    "https://huggingface.co/google/gemma-3-4b-it"
+   ]
+  },
+  {
+   "id": "phi",
+   "line": "Phi-3/4",
+   "maker": "Microsoft",
+   "lineage": "Phi-3 mini/medium, Phi-3.5 MoE, Phi-4 14B, Phi-4-mini 3.8B, Phi-4-reasoning",
+   "match": {
+    "name": [
+     "\\bphi[-_ ]?[34]",
+     "phi3",
+     "phi4"
+    ],
+    "arch": [
+     "phi3",
+     "phi4",
+     "phimoe"
+    ]
+   },
+   "known_for": "reasoning and math from synthetic textbook data",
+   "strengths": [
+    "math/logic",
+    "Phi-4 14B decent code"
+   ],
+   "weaknesses": [
+    "narrow world knowledge",
+    "tool calling only on Phi-4-mini"
+   ],
+   "code_strength": {
+    "level": "good",
+    "evidence": "[B] Phi-4 card HumanEval 82.6; mini lower"
+   },
+   "tool_calling": {
+    "format": "native JSON tools (<|tool|> on Phi-4-mini); none on Phi-3/4 14B",
+    "reliability": "low",
+    "evidence": "[B]"
+   },
+   "json_schema": "moderate [E]",
+   "thinking": {
+    "mode": "none",
+    "tag": "<think> on Phi-4-reasoning"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "<|im_start|> (Phi-4) / <|system|> (Phi-3)"
+   },
+   "context": 16384,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.5,
+     "top_p": 0.95,
+     "min_p": 0.05
+    },
+    "code": {
+     "temperature": 0.2,
+     "top_p": 0.95
+    }
+   },
+   "jobs": {
+    "plan": [
+     0.5,
+     "[E]"
+    ],
+    "code": [
+     0.5,
+     "[B]"
+    ],
+    "fix": [
+     0.45,
+     ""
+    ],
+    "test": [
+     0.45,
+     ""
+    ],
+    "review": [
+     0.5,
+     ""
+    ],
+    "route": [
+     0.4,
+     ""
+    ],
+    "docs": [
+     0.45,
+     ""
+    ],
+    "security": [
+     0.35,
+     ""
+    ],
+    "infra": [
+     0.4,
+     ""
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "phi",
+   "sources": [
+    "https://huggingface.co/microsoft/phi-4",
+    "https://huggingface.co/microsoft/Phi-4-mini-instruct"
+   ]
+  },
+  {
+   "id": "granite",
+   "line": "Granite 3/4",
+   "maker": "IBM",
+   "lineage": "Granite 3.x dense 2/8B; Granite 4.0 H hybrid Mamba-2 MoE (Micro/Tiny/Small); 4.1+ thinking",
+   "match": {
+    "name": [
+     "granite"
+    ],
+    "arch": [
+     "granite",
+     "granitehybrid",
+     "granitemoe"
+    ]
+   },
+   "known_for": "enterprise: tool calling, RAG, low hallucination, Apache 2.0",
+   "strengths": [
+    "function calling (BFCL v3 57.7-64.7 on 4.0)",
+    "cheap routing",
+    "docs"
+   ],
+   "weaknesses": [
+    "not an agentic coder"
+   ],
+   "code_strength": {
+    "level": "basic",
+    "evidence": "[B] Granite 4.0 H-Tiny HumanEval 83, BigCodeBench 41.1"
+   },
+   "tool_calling": {
+    "format": "native JSON tools (<tool_call> in Granite template)",
+    "reliability": "moderate",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [B]",
+   "thinking": {
+    "mode": "optional",
+    "tag": "<think> (3.3 'thinking' flag, 4.x)"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "<|start_of_role|> template"
+   },
+   "context": 131072,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.0,
+     "top_p": 1.0,
+     "min_p": 0.0
+    },
+    "code": {
+     "temperature": 0.0,
+     "top_p": 1.0
+    }
+   },
+   "jobs": {
+    "route": [
+     0.65,
+     "tool/JSON reliable and cheap [B]"
+    ],
+    "docs": [
+     0.6,
+     "[E]"
+    ],
+    "review": [
+     0.4,
+     ""
+    ],
+    "plan": [
+     0.4,
+     ""
+    ],
+    "infra": [
+     0.4,
+     ""
+    ],
+    "code": [
+     0.35,
+     "[B] basic"
+    ],
+    "fix": [
+     0.3,
+     ""
+    ],
+    "test": [
+     0.35,
+     ""
+    ],
+    "security": [
+     0.35,
+     ""
+    ],
+    "draft": [
+     0.3,
+     "2B drafts 8B (same tokenizer) [E]"
+    ]
+   },
+   "draft_group": "granite",
+   "sources": [
+    "https://huggingface.co/ibm-granite/granite-4.0-h-small",
+    "https://huggingface.co/ibm-granite/granite-3.3-8b-instruct"
+   ]
+  },
+  {
+   "id": "glm",
+   "line": "GLM-4.x",
+   "maker": "Zhipu AI / Z.ai",
+   "lineage": "GLM-4 9B, GLM-4.5/4.6 MoE, GLM-4.7-Flash 30B-A3B",
+   "match": {
+    "name": [
+     "\\bglm"
+    ],
+    "arch": [
+     "glm4",
+     "glm4moe",
+     "chatglm"
+    ]
+   },
+   "known_for": "agentic tool use; GLM-4.7-Flash SWE-V 59.2",
+   "strengths": [
+    "tool calling",
+    "thinking"
+   ],
+   "weaknesses": [
+    "llama.cpp looping bug on early GGUFs (re-download fixed)",
+    "needs min_p 0.01"
+   ],
+   "code_strength": {
+    "level": "good",
+    "evidence": "[B] GLM-4.7-Flash SWE-V 59.2"
+   },
+   "tool_calling": {
+    "format": "GLM XML-ish <tool_call>name<arg_key>..</arg_key> (glm45 parser)",
+    "reliability": "high",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [E]",
+   "thinking": {
+    "mode": "optional",
+    "tag": "<think>"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "[gMASK]<sop> prefix"
+   },
+   "context": 131072,
+   "censorship": "stock",
+   "sampling": {
+    "default": {
+     "temperature": 0.7,
+     "top_p": 0.95,
+     "min_p": 0.01
+    },
+    "code": {
+     "temperature": 0.6,
+     "top_p": 0.95,
+     "min_p": 0.01
+    }
+   },
+   "jobs": {
+    "review": [
+     0.7,
+     "good second opinion [E]"
+    ],
+    "code": [
+     0.72,
+     "[B]"
+    ],
+    "fix": [
+     0.7,
+     ""
+    ],
+    "plan": [
+     0.7,
+     ""
+    ],
+    "test": [
+     0.65,
+     ""
+    ],
+    "infra": [
+     0.6,
+     ""
+    ],
+    "security": [
+     0.5,
+     ""
+    ],
+    "docs": [
+     0.55,
+     ""
+    ],
+    "route": [
+     0.35,
+     ""
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "glm",
+   "sources": [
+    "https://huggingface.co/AaryanK/GLM-4.7-Flash-GGUF",
+    "https://huggingface.co/zai-org/GLM-4.5"
+   ]
+  },
+  {
+   "id": "gpt-oss",
+   "line": "gpt-oss",
+   "maker": "OpenAI",
+   "lineage": "gpt-oss-20b (21B/3.6B MoE) and 120b, native MXFP4",
+   "match": {
+    "name": [
+     "gpt[-_]?oss"
+    ],
+    "arch": [
+     "gpt-oss",
+     "gptoss"
+    ]
+   },
+   "known_for": "reasoning with low/medium/high effort; harmony chat format",
+   "strengths": [
+    "planning/review thinking",
+    "tools in harmony format",
+    "LCB6 74.6"
+   ],
+   "weaknesses": [
+    "heavily safety-tuned",
+    "needs the harmony template",
+    "SWE-V 34"
+   ],
+   "code_strength": {
+    "level": "good",
+    "evidence": "[B] LCB6 74.6, SWE-V 34.0"
+   },
+   "tool_calling": {
+    "format": "harmony channels (commentary to=functions.x) native",
+    "reliability": "moderate",
+    "evidence": "[B]"
+   },
+   "json_schema": "good [B]",
+   "thinking": {
+    "mode": "always",
+    "tag": "harmony analysis channel; effort low/medium/high in system prompt"
+   },
+   "template": {
+    "system_role": true,
+    "quirks": "harmony: system + developer roles; reasoning effort set in system"
+   },
+   "context": 131072,
+   "censorship": "stock (strict)",
+   "sampling": {
+    "default": {
+     "temperature": 1.0,
+     "top_p": 1.0,
+     "min_p": 0.0
+    },
+    "code": {
+     "temperature": 1.0,
+     "top_p": 1.0
+    }
+   },
+   "jobs": {
+    "plan": [
+     0.72,
+     "[B] reasoning"
+    ],
+    "review": [
+     0.68,
+     ""
+    ],
+    "code": [
+     0.6,
+     "[B]"
+    ],
+    "fix": [
+     0.58,
+     ""
+    ],
+    "test": [
+     0.58,
+     ""
+    ],
+    "infra": [
+     0.55,
+     ""
+    ],
+    "route": [
+     0.3,
+     "always reasons"
+    ],
+    "docs": [
+     0.5,
+     ""
+    ],
+    "security": [
+     0.3,
+     "strict refusals [A]"
+    ],
+    "draft": [
+     0.0,
+     ""
+    ]
+   },
+   "draft_group": "o200k-harmony",
+   "sources": [
+    "https://huggingface.co/openai/gpt-oss-20b",
+    "https://huggingface.co/unsloth/gpt-oss-20b-GGUF"
+   ]
+  },
+  {
+   "id": "embed",
+   "line": "Embedding models",
+   "maker": "various (BAAI bge, nomic, mxbai)",
+   "lineage": "BERT-style encoders",
+   "match": {
+    "name": [
+     "bge",
+     "nomic-embed",
+     "mxbai",
+     "embed",
+     "e5-"
+    ],
+    "arch": [
+     "bert",
+     "nomic-bert",
+     "xlm-roberta"
+    ]
+   },
+   "known_for": "embeddings for search; not a chat model",
+   "strengths": [
+    "retrieval"
+   ],
+   "weaknesses": [
+    "cannot chat"
+   ],
+   "code_strength": {
+    "level": "none",
+    "evidence": "n/a"
+   },
+   "tool_calling": {
+    "format": "none",
+    "reliability": "none",
+    "evidence": "n/a"
+   },
+   "json_schema": "n/a",
+   "thinking": {
+    "mode": "none",
+    "tag": null
+   },
+   "template": {
+    "system_role": false,
+    "quirks": "no chat template"
+   },
+   "context": 8192,
+   "censorship": "n/a",
+   "sampling": {},
+   "jobs": {},
+   "draft_group": null,
+   "sources": [
+    "https://huggingface.co/BAAI/bge-m3"
+   ]
+  }
+ ]
+}

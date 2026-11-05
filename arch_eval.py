@@ -421,7 +421,7 @@ def _load_json_tasks():
     out = []
     for p in sorted(glob.glob(os.path.join(EVALS_DIR, "*", "*.json"))):
         flow = os.path.basename(os.path.dirname(p))
-        if flow == "families":
+        if flow in ("families", "retrieval"):        # retrieval/ = tools/retrieval_bench.py's ground truth, not flow tasks
             continue
         try:
             with open(p, encoding="utf-8") as f:

@@ -292,6 +292,13 @@ def build(name, show=None, gguf=None, stats=None, profile=None, results=None):
     p["abilities"] = {"schema_json": modes.get("json"), "edit_style": modes.get("recommend_edit_style"), "acts": modes.get("acts"),
                       "tool_calls": _score(results, name, "toolcall"), "format": _score(results, name, "format")}
     p["notes"] = _notes(p)
+    try:                                                   # family knowledge: added beside the existing fields, never replacing one
+        import arch_modelknow
+        p["identity"] = arch_modelknow.identify(p)
+        p["family_line"] = arch_modelknow.plain_line(p)
+        p["explain"] = arch_modelknow.explain(p)
+    except Exception:
+        pass
     return p
 
 
