@@ -1271,6 +1271,8 @@ p,li,dd,td{font-size:inherit}
 @keyframes rs-pulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--acc) 18%,transparent)}}
 /* the cost map's points: a pointer, and a ring the keyboard can see */
 .cm-pt{cursor:pointer;outline:none}.cm-pt:focus-visible>:last-child{stroke:var(--ink);stroke-width:3}
+/* measured cost where work is picked (Gallery workflow cards, the route preview): one chip per task family, each opens the Cost map */
+.gal-costs{display:flex;flex-wrap:wrap;gap:6px}.gal-cost{font-family:inherit;white-space:normal;text-align:left;cursor:pointer}.gal-cost:hover{border-color:var(--acc)}.cost-line{margin-top:4px}
 /* ===== reduced motion: one rule for the whole app (the older per-layer copies above say the same thing) ===== */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
@@ -3475,6 +3477,7 @@ const CM_KIND={e2e:"whole projects",distributed:"distributed systems (training)"
 const cmKind=k=>CM_KIND[k]||k;
 const cmSecs=x=>x==null?"never passed":x<120?Math.round(x)+" s":(x%60===0||x>=600?Math.round(x/60):(x/60).toFixed(1))+" min";
 function costmapPage(){
+  if(CM.peek) CM.peek=false; else CM.orth=store.get("cmOrth","0")==="1";   // a chip may set the saved filter aside for one visit only
   return [h("div",{class:"card"},
     h("div",{id:"cmOut",style:"display:flex;flex-direction:column;gap:14px"},h("p",{class:"sub"},"Reading your benchmark runs…")))];
 }
@@ -3593,6 +3596,89 @@ function cmDraw(){
         h("td",{class:"n"},cmSecs(c.C)),h("td",{class:"n"},c.feedback_gain_s==null?"–":cmSecs(c.feedback_gain_s)))))))
     :h("p",{class:"small mute"},"Appears after your next live benchmark: each task's run record is now kept, so the cost of every try, the share of the prompt served from cache and what the failure feedback saves can be measured.")));
 }
+/* The same measurement where work is picked: chips on each Gallery workflow card, a line under the route preview. Read once per
+   page session and kept in memory (the Cost map's own newer load is used when there is one); nothing is shown when it cannot be
+   read. A workflow's own family is the rows whose kind is its id (failing that, the family it ran most: rows whose flow is its id).
+   Every other family the workflow also ran (build also runs whole projects and the distributed tasks) gets its own chip and line,
+   so an easy family never hides a hard one. One unit each: "X of Y runs passed" per model, "N different tasks" per family.
+   Information only: it never changes which model does what; when the cheapest model is not orthogonalized it also names the
+   cheapest one that is, and a click sets the saved "Only orthogonalized models" filter aside for that one visit when it would
+   hide the figure clicked. */
+const CX={p:null,rows:null,at:0};
+function cxLoad(){
+  if(CM.data&&!CM.data.error&&Array.isArray(CM.data.evals)) return Promise.resolve(CM.data.evals);
+  if(CX.rows) return Promise.resolve(CX.rows);
+  if(CX.p&&Date.now()-CX.at<60000) return CX.p;
+  CX.at=Date.now();
+  CX.p=api("/api/arch/cost").then(d=>{if(d&&!d.error&&Array.isArray(d.evals))CX.rows=d.evals;return CX.rows||[];}).catch(()=>[]);
+  return CX.p;
+}
+function cxSum(rs,kind){
+  const ok=rs.filter(r=>r.C!=null).sort((a,b)=>a.C-b.C), ids=new Set();
+  for(const r of rs) for(const t of (r.runs||[])) if(t&&t.id) ids.add(t.id);
+  return {kind,best:ok[0]||null,orth:ok.find(r=>r.orthogonalized)||null,orthTried:rs.some(r=>r.orthogonalized),
+          models:new Set(rs.map(r=>r.model)).size,tasks:ids.size||Math.max(0,...rs.map(r=>r.tasks||0)),
+          runs:rs.reduce((s,r)=>s+(r.tasks||0),0),passed:rs.reduce((s,r)=>s+(r.passed||0),0)};
+}
+function cxFamily(rows,fid){
+  const n={}; for(const r of rows) if(r.flow===fid) n[r.kind]=(n[r.kind]||0)+(r.tasks||0);
+  const ran=Object.keys(n).sort((a,b)=>n[b]-n[a]||(a<b?-1:1));
+  const kind=rows.some(r=>r.kind===fid)?fid:ran[0];
+  if(kind==null) return null;
+  const m=cxSum(rows.filter(r=>r.kind===kind),kind);
+  m.also=ran.filter(k=>k!==kind).map(k=>cxSum(rows.filter(r=>r.kind===k),k));
+  return m;
+}
+const cxN=(n,w)=>n+" "+w+(n===1?"":"s");
+const cxOf=(p,t)=>p+" of "+cxN(t,"run")+" passed";
+const cxCap=s=>String(s).charAt(0).toUpperCase()+String(s).slice(1);
+const cxHide=s=>s.best?!s.best.orthogonalized:!s.orthTried;
+function cxSays(s){
+  const b=s.best,o=s.orth,out=[];
+  if(b){
+    out.push(`the cheapest is ${cmName(b.model)}${b.orthogonalized?" (orthogonalized)":""}, ${cmSecs(b.C)} per passed task, ${cxOf(b.passed,b.tasks)}.`);
+    if(!b.orthogonalized&&o) out.push(`Cheapest orthogonalized: ${cmName(o.model)}, ${cmSecs(o.C)} per passed task, ${cxOf(o.passed,o.tasks)}.`);
+    else if(!b.orthogonalized&&s.orthTried) out.push("The orthogonalized models measured here have not passed yet.");
+  } else out.push("no model has passed yet.");
+  out.push(`${cxN(s.models,"model")} measured on ${s.tasks===1?"1 task":s.tasks+" different tasks"}, ${cxN(s.runs,"run")} in all.`);
+  return out.join(" ");
+}
+const cxAlso=a=>cmKind(a.kind)+", "+(a.best?"best "+cmSecs(a.best.C)+" per passed task ("+cmName(a.best.model)+", "+cxOf(a.best.passed,a.best.tasks)+")"
+                                         :"not passed yet ("+cxOf(a.passed,a.runs)+")");
+function cxTip(m,fid,s,opens){
+  const head=s!==m?cxCap(cmKind(s.kind))+", also run by this workflow, measured on your models":
+    s.kind===fid?"Measured on your models":cxCap(cmKind(s.kind))+", the family this workflow ran most, measured on your models";
+  return `${head}: ${cxSays(s)}`+(s===m&&m.also.length?` Also run by this workflow: ${m.also.map(cxAlso).join("; ")}.`:"")+
+    " Information only: which model does what stays as you set it."+(opens?" Opens the Cost map.":"");
+}
+function cxOpen(kind,hide){
+  const saved=store.get("cmOrth","0")==="1";
+  CM.orth=saved&&!hide; CM.peek=true; CM.flow=kind; CM.sel=null;
+  go("costmap");
+  if(saved&&hide) toast("The Cost map shows every model for this visit, so the figure you clicked is on it. Your saved filter is unchanged.",6000);
+}
+function cxChips(rows,fid){
+  const m=cxFamily(rows,fid); if(!m) return null;
+  const chip=s=>{
+    const b=s.best, lead=s===m&&s.kind===fid;
+    const txt=lead?(b?"Best on your models: "+cmSecs(b.C)+" per passed task":"Not passed yet on your models")
+                  :cxCap(cmKind(s.kind))+": "+(b?"best "+cmSecs(b.C)+" per passed task":"not passed yet on your models");
+    const says=b?cmName(b.model)+", "+cxOf(b.passed,b.tasks):cxOf(s.passed,s.runs);
+    return h("button",{type:"button",class:"chip gal-cost"+(b?"":" warn"),title:cxTip(m,fid,s,true),"aria-label":txt+" ("+says+"). Opens the Cost map.",
+      onclick:()=>cxOpen(s.kind,cxHide(s))},txt);
+  };
+  return h("div",{class:"gal-costs"},chip(m),...m.also.map(chip));
+}
+function cxLine(rows,fid){
+  const m=cxFamily(rows,fid); if(!m) return null;
+  const b=m.best, o=m.orth, fam=m.kind===fid?"":", "+cmKind(m.kind);
+  const tail=!b?` (${cxOf(m.passed,m.runs)}, ${cxN(m.models,"model")})`
+    :` (${cmName(b.model)}${b.orthogonalized?", orthogonalized":""}, ${cxOf(b.passed,b.tasks)})`+
+     (b.orthogonalized?"":o?`; cheapest orthogonalized: ${cmName(o.model)}, ${cmSecs(o.C)} (${cxOf(o.passed,o.tasks)})`:m.orthTried?"; the orthogonalized models measured have not passed yet":"");
+  return h("div",{class:"small cost-line",title:cxTip(m,fid,m,false)},
+    h("div",null,`Measured on your models${fam}: `,h("b",null,b?"best "+cmSecs(b.C)+" per passed task":"not passed yet"),tail),
+    m.also.length?h("div",null,"Also run by this workflow: "+m.also.map(cxAlso).join("; ")):null);
+}
 function benchPage(){
   return [h("div",{class:"card"},h("h2",null,"Benchmarks"),
     h("p",{class:"sub"},"How often your models finish real tasks on this machine, judged by tests.",h("span",{class:"mute",title:"Live runs use your models on this hardware; scripted runs replace the model with a fixed script, so they test the harness itself. To measure your models: architect.py eval --set representative (17 tasks, about two hours on a 6 GB laptop, best overnight)."}," ⓘ")),
@@ -3704,7 +3790,8 @@ async function sharpenGoal(){
 async function previewRoute(quiet){
   const g=run.goal.trim();if(!g){if(quiet!==true)toast("Type a goal first");return;}
   try{const r=await api("/api/arch/route",{goal:g,root:run.root||undefined});const fl=S.flows.find(f=>f.id===r.flow);
-    const o=$("#routeOut");o.innerHTML="";o.append(h("div",{class:"note info"},h("b",null,fl?fl.title:r.flow)," flow · domains: "+r.domains.join(", ")+" · "+r.why));
+    const o=$("#routeOut");o.innerHTML="";const note=h("div",{class:"note info"},h("b",null,fl?fl.title:r.flow)," flow · domains: "+r.domains.join(", ")+" · "+r.why);o.append(note);
+    cxLoad().then(rows=>{try{const l=rows.length?cxLine(rows,r.flow):null;if(l&&note.isConnected)note.append(l);}catch(_){}});
     try{const m=await api("/api/arch/flowmap?flow="+encodeURIComponent(r.flow));if(m&&m.steps&&m.steps.length)o.append(flowMap(m));}catch(_){}
   }catch(e){if(quiet!==true)toast.err(e.message,6000);}
 }
@@ -4362,14 +4449,16 @@ function galDraw(){
   const agents=(G.agents||[]).filter(x=>hit((x.title||"")+" "+(x.purpose||"")+" "+x.name));
   const sect=(t,sub,items)=>items.length?h("section",{class:"card"},h("h2",{style:"margin:0"},t+" ",h("span",{class:"mute small"},String(items.length))),h("p",{class:"sub"},sub),h("div",{class:"gal-grid"},...items)):null;
   box.append(...[
-    sect("Workflows","Step-by-step recipes the team follows. Every step is checked by code.",flows.map(f=>card(f.title||f.id,f.blurb,"workflow",
+    sect("Workflows","Step-by-step recipes the team follows. Every step is checked by code.",flows.map(f=>{const c=card(f.title||f.id,f.blurb,"workflow",
       h("button",{class:"btn sm",type:"button",onclick:()=>showFlowDetail(f.id)},"What's inside"),
-      h("button",{class:"btn sm p",type:"button",onclick:()=>{run.flow=f.id;built={};go("run");}},"Use")))),
+      h("button",{class:"btn sm p",type:"button",onclick:()=>{run.flow=f.id;built={};go("run");}},"Use"));c.dataset.flow=f.id;return c;})),
     sect("Harness packs","A whole setup in one: which helpers, which checks, which budget, for one kind of job.",packs.map(x=>card(x.title||x.name,(x.goal_kind?"For: "+x.goal_kind+". ":"")+(x.claude_mode?"Claude: "+x.claude_mode:""),"pack",
       h("button",{class:"btn sm",type:"button",onclick:async()=>{try{const r=await api("/api/arch/gallery_readme?pack="+encodeURIComponent(x.name));showText(x.title||x.name,r.text||"");}catch(e){toast.err(e.message);}}},"What's inside")))),
     sect("Agents","Briefs for agents that worked when this app was built. Use one in a Fleet.",agents.map(x=>card(x.title||x.name,x.purpose,x.mode==="plan"?"agent · reads only":"agent",
       h("button",{class:"btn sm p",type:"button",onclick:()=>{store.set("libUse",x.name);go("library");}},"Use in a fleet"))))].filter(Boolean));
   if(!box.children.length)box.append(h("div",{class:"card"},h("p",{class:"mute"},"Nothing matches. Try a shorter word.")));
+  cxLoad().then(rows=>{if(!rows.length||!box.isConnected)return;
+    try{for(const c of box.querySelectorAll(".gal-card[data-flow]")) if(!c.querySelector(".gal-costs")){const x=cxChips(rows,c.dataset.flow);if(x)c.insertBefore(x,c.querySelector(".gal-btns"));}}catch(_){}});
 }
 /* ---- Computers: spread the work over the machines you own ---- */
 function computersPage(){

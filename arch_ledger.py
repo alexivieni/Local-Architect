@@ -50,6 +50,25 @@ def read_trace(run_dir):
     return calls, marks
 
 
+def _assisted_ids(run_dir):
+    """Ids of calls whose try passed only after code fixed the interface wiring (arch_flows.wire_contract traces them as `assist`)."""
+    out = set()
+    try:
+        with open(os.path.join(run_dir, "trace.jsonl"), encoding="utf-8") as f:
+            for line in f:
+                if '"assist"' not in line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if r.get("type") == "assist" and r.get("id") is not None:
+                    out.add(r["id"])
+    except OSError:
+        pass
+    return out
+
+
 def record_run(run_dir, run_id):
     """Add this run's marked calls to the ledger, once. -> number of calls counted.
 
@@ -61,6 +80,7 @@ def record_run(run_dir, run_id):
     if os.environ.get("ARCHITECT_EVAL") == "1":
         return 0                      # a benchmark run is a measurement, not experience: nothing it does is learned
     calls, marks = read_trace(run_dir)
+    assisted = _assisted_ids(run_dir)
     led = load()
     seen = led.setdefault("_runs", [])
     if run_id in seen:
@@ -79,8 +99,8 @@ def record_run(run_dir, run_id):
         slot.setdefault("lat", []).append(round(float(c.get("secs") or 0), 1))
         slot["lat"] = slot["lat"][-200:]
         n += 1
-        if ok and c.get("reply") and c.get("messages"):
-            _remember(led, c)
+        if ok and c.get("reply") and c.get("messages") and cid not in assisted:
+            _remember(led, c)              # a pass that code's interface wiring helped is not "a past reply of yours that passed"
     seen.append(run_id)
     led["_runs"] = seen[-KEEP_RUNS:]
     if n:

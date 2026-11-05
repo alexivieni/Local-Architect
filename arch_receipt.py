@@ -9,6 +9,8 @@ What goes in it:
   * a timeline: every step, how long it took, the tools it used and what each one found, the checks it ran and what they said;
   * what changed on disk, and what was reused rather than rewritten;
   * what it cost -- model calls, tokens, seconds, which tier answered, what came out of the cache instead of the card;
+  * which weights answered -- each model's quantization, weight edit, base model and license, as its file states them, with a plain
+    note when that license is clearly non-commercial (never a reason to stop a run);
   * what it learned: the notes it wrote, the skills it leaned on, the point where a bigger model had to take over.
 
 Everything in it comes from the trace the run already wrote. Nothing is reconstructed afterwards or inferred.
@@ -26,9 +28,9 @@ MAX_TOOL_RESULT = 600
 # ---------------------------------------------------------------- reading one run
 
 def read(run_dir):
-    """-> {"meta", "calls", "marks", "steps", "checks", "tools", "escalations", "hooks", "verdict", "report"}."""
+    """-> {"meta", "calls", "marks", "steps", "checks", "tools", "escalations", "hooks", "provenance", "verdict", "report"}."""
     out = {"meta": core.load_json(os.path.join(run_dir, "run.json")) or {}, "calls": [], "marks": {}, "steps": [],
-           "checks": [], "tools": [], "escalations": [], "hooks": [], "verdict": None, "report": ""}
+           "checks": [], "tools": [], "escalations": [], "hooks": [], "provenance": [], "verdict": None, "report": ""}
     try:
         with open(os.path.join(run_dir, "report.md"), encoding="utf-8") as f:
             out["report"] = f.read()
@@ -56,6 +58,8 @@ def read(run_dir):
                     out["escalations"].append(j)
                 elif t == "hook":
                     out["hooks"].append(j)
+                elif t == "provenance":
+                    out["provenance"].append(j)
                 elif t == "verdict":
                     out["verdict"] = j
                 elif t == "postmortem":
@@ -144,6 +148,14 @@ def build(run_dir, root=None):
         cost.append(f"<div class='k good'><b>{tot['cached']}</b><span>answers reused, saving {tot['tokens_saved']:,} tokens</span></div>")
     rows.append("<section><h2>What it cost</h2><div class='keys'>" + "".join(cost) + "</div>" + _models_table(tot) + "</section>")
 
+    # ---- which weights answered
+    try:
+        prov = _provenance(d)
+    except Exception:                                    # an odd record must never cost the person the whole receipt
+        prov = ""
+    if prov:
+        rows.append("<section><h2>Models and provenance</h2>" + prov + "</section>")
+
     # ---- the timeline
     rows.append("<section><h2>What it did</h2>" + _timeline(d) + "</section>")
 
@@ -178,6 +190,63 @@ def _models_table(tot):
                  "call and did not have to be read again.</p>")
     return f"<table class='mini'><thead><tr><th>model</th><th class='n'>calls</th></tr></thead><tbody>{rows}</tbody></table>" \
            f"<p class='note'>By tier: {tiers}.</p>{extra}"
+
+
+def _num(x):
+    if x is None or isinstance(x, bool):
+        return None
+    try:
+        return float(x) or None
+    except (TypeError, ValueError):
+        return None
+
+
+_EDIT_WORDS = {"orthogonalized": "orthogonalized (refusals edited out of the weights)",
+               "uncensored": "uncensored (method not stated)",
+               "none": "none stated (a base model is named, with no edit marker)",
+               "unknown": "unknown (the file names no base model)"}
+_SOURCE_WORDS = {"passport": "from its passport", "gguf": "from its file's header", "name": "from its name only",
+                 "claude": "a cloud model"}
+
+
+def _provenance(d):
+    """Each model that answered: quantization, weight edit, base model, license, from the run's own "provenance" records (run.json as a
+    fallback). A license with clear non-commercial terms is said in plain words; it never stopped the run."""
+    recs = {}
+    for r in d.get("provenance") or []:
+        if isinstance(r, dict) and r.get("model"):
+            recs.setdefault(r["model"], r)
+    meta_prov = (d.get("meta") or {}).get("provenance")
+    for k, r in (meta_prov.items() if isinstance(meta_prov, dict) else []):
+        if isinstance(r, dict):
+            recs.setdefault(k, dict(r, model=r.get("model") or k))
+    if not recs:
+        return ""
+    rows, flags = [], []
+    for name, r in recs.items():
+        cloud = r.get("source") == "claude"
+        size = []
+        if _num(r.get("params_b")):
+            size.append(f"{_num(r['params_b']):g}B")
+        if r.get("moe"):
+            size.append("mixture of experts" + (f", about {_num(r['active_b']):g}B active" if _num(r.get("active_b")) else ""))
+        size.append(_SOURCE_WORDS.get(r.get("source"), str(r.get("source") or "")))
+        if r.get("host"):
+            size.append(f"answered on {r['host']}")
+        lic = r.get("license")
+        rows.append("<tr><td>" + _e(name) + "<br><span class='dim'>" + " &middot; ".join(_e(x) for x in size if x) + "</span></td>"
+                    f"<td>{_e('not applicable' if cloud else (r.get('quant') or 'not recorded'))}</td>"
+                    f"<td>{_e('not applicable' if cloud else _EDIT_WORDS.get(r.get('weight_edit'), r.get('weight_edit') or 'unknown'))}</td>"
+                    f"<td>{_e('-' if cloud else (r.get('base_model') or 'not recorded in the model file'))}</td>"
+                    f"<td>{_e('a cloud service: no model file' if cloud else (lic or 'not recorded in the model file'))}</td></tr>")
+        if core.license_terms(lic) == "non_commercial":
+            flags.append(f"<p class='lic'><b>{_e(name)}</b>: its file names the license <b>{_e(lic)}</b>, which allows non-commercial "
+                         "(or research) use only. Read its terms before using this model, or what it wrote, in paid work. "
+                         "This is a note: the run was not stopped for it.</p>")
+    return ("<div class='scroll'><table class='mini prov'><thead><tr><th>model</th><th>quantization</th><th>weight edit</th>"
+            "<th>base model</th><th>license</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>" + "".join(flags)
+            + "<p class='note'>Read on this computer from each model's passport or its file's own header; nothing was looked up "
+              "online. A license or base model is shown only when the model file states one.</p>")
 
 
 def _timeline(d):
@@ -327,6 +396,10 @@ table.mini{border-collapse:collapse;width:100%;font-size:13px;margin:6px 0}
 table.mini th{text-align:left;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);font-weight:650;padding:5px 0;border-bottom:1px solid var(--line)}
 table.mini td{padding:6px 0;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto}
+table.prov th,table.prov td{padding-right:12px;vertical-align:top}
+table.prov td .dim{font-family:var(--font)}
+.lic{background:var(--warnbg);color:var(--warn);border-radius:9px;padding:10px 13px;margin:10px 0 0;font-size:13px}
 .note{color:var(--mute);font-size:12.5px;margin:8px 0 0}
 ol.tl{list-style:none;margin:6px 0 0;padding:0;counter-reset:s}
 ol.tl>li{position:relative;padding:12px 0 12px 30px;border-bottom:1px solid var(--line)}

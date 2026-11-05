@@ -60,7 +60,8 @@ def copy_run(archive, run_dir, project, run_id):
 
 
 def archive_run(cfg, run_dir, project, run_id, wait=False):
-    """After a run is done: copy it (and anything left pending) to the archive drive in the background. Never raises."""
+    """After a run is done: copy it (and anything left pending) to the archive drive in the background, on the efficiency cores at
+    below-normal priority (arch_placement.run_chore; behavior.chores_on_ecores = off: a plain thread, as before). Never raises."""
     archive = ((cfg or {}).get("storage") or {}).get("archive") or ""
     if not archive:
         return None
@@ -71,8 +72,16 @@ def archive_run(cfg, run_dir, project, run_id, wait=False):
                 and os.path.isdir(p.get("run_dir") or "")]
         _save_pending(left)
 
-    th = threading.Thread(target=work, daemon=False)      # not a daemon: the process waits the second it takes before exiting
-    th.start()
+    try:
+        import arch_placement
+        chore = arch_placement.run_chore
+    except Exception:                                      # placement missing or broken: the copy still happens, as before
+        chore = None
+    if chore is not None:                                  # not a daemon: the process waits the second it takes before exiting
+        th = chore(work, cfg=cfg, wait=False, daemon=False)
+    else:
+        th = threading.Thread(target=work, daemon=False)
+        th.start()
     if wait:
         th.join(60)
     return th

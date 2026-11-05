@@ -72,5 +72,15 @@ def main():
     return 0
 
 
+def cli():
+    """The sync is a background chore (copies to a slow card; no reply waits on it): it runs through arch_placement.run_chore, on the
+    efficiency cores at below-normal priority (behavior.chores_on_ecores = off: right here, as before). Same copies either way."""
+    try:
+        import arch_placement
+    except Exception:
+        return main()
+    return arch_placement.run_chore(main)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli())

@@ -75,7 +75,7 @@ DEFAULTS = {
                  "min_gain_pct": 10, "bench_runs": 5,          # optimize flow: required speed-up, benchmark repetitions
                  "hunt_max_files": 4, "hunt_findings": 5,      # hunt flow
                  "network": "offline", "net_allow": [], "net_block_tools": True,   # policy for code run by the Architect: offline | practice | open (default: offline -- nothing the harness runs leaves this machine unless you say so; the binary block below is independent of this)
-                 "thinking": "roles", "sampling": "roles", "chat_model": "worker", "stall_samples": 3, "ground_edits": "on", "tests_first": "off", "tests_on_ecores": "auto", "sandbox_mem_mb": 4096,     # roles = as each role defines; plan_debug_only / model_card: measured A/B options
+                 "thinking": "roles", "sampling": "roles", "chat_model": "worker", "stall_samples": 3, "ground_edits": "on", "tests_first": "off", "tests_on_ecores": "auto", "chores_on_ecores": "auto", "sandbox_mem_mb": 4096,     # roles = as each role defines; plan_debug_only / model_card: measured A/B options
                  "edit_style": "patch",                        # patch = EDIT blocks (search/replace); whole = write complete files under ~200 lines (small models); auto = whole under ~80 lines
                  "max_shrink_pct": 60,                         # refuse a reply that would cut an existing file (25+ lines) by more than this percent; 0 = off
                  "swap_aware": "on", "fast_tests": "on",      # fast_tests: in fix loops run the tests related to the changed files first, then the whole suite
@@ -999,6 +999,148 @@ def selfdev_brief(root):
 # Roles that keep reasoning on under behavior.thinking = plan_debug_only (the others answer straight away)
 THINK_ROLES = ("planner", "architect", "bug_hunter", "debugger")
 
+# --- provenance: which weights answered a run, as this computer knows them (the model's passport or its file's own header; never the
+# network). One "provenance" trace record per model per run, and the same facts under "provenance" in run.json (Engine._provenance).
+ORTHO_MARKERS = ("abliterat", "orthogon", "heretic")   # refusal direction removed from the weights (Heretic is an abliteration tool)
+UNCENSOR_MARKERS = ("uncensor",)                       # often a fine-tune on filtered data (llama2-uncensored), so the method is not stated
+# (arch_costmodel keeps its own, broader flag for the cost map; this is the receipt's statement of method.)
+# Only CLEAR non-commercial / research-only terms: Creative Commons NC, "non-commercial", "research only", the Mistral Non-Production
+# and Mistral Research (MRL) licences, the Qwen / Tongyi Qianwen Research licences. Llama/Gemma community licences, the plain Tongyi
+# Qianwen licence, Apache, MIT, OpenRAIL and "other" are not flagged. Never blocks a run.
+NONCOMMERCIAL_RX = re.compile(r"cc[-_ ]?by[-_ ]?nc|non[-_ ]?commercial|research[-_ ]only|research purposes only|not for commercial"
+                              r"|non[-_ ]?production|\bmnpl\b|(?:qwen|qianwen)[-_ ]research|mistral[-_ ]?(?:ai[-_ ]?)?research|\bmrl\b", re.I)
+_QUANT_RX = re.compile(r"(?:^|[^a-z0-9])((?:iq|q)\d(?:_[a-z0-9]{1,2}){0,2}|bf16|fp?16|fp?32|mxfp4)(?=$|[^a-z0-9])", re.I)
+
+
+def weight_edit_of(*names, base_model=None):
+    """What was done to the weights, from the names alone (the tag, the file's general.name / finetune / tags, and the base model's
+    name, since a fine-tune of an abliterated model inherits the edit): "orthogonalized" for abliterat / orthogon / heretic;
+    "uncensored" when only "uncensor" is said (method not stated); "none" when the file names a base model and no marker; else
+    "unknown"."""
+    low = " ".join(str(n or "") for n in (*names, base_model)).lower()
+    if any(w in low for w in ORTHO_MARKERS):
+        return "orthogonalized"
+    if any(w in low for w in UNCENSOR_MARKERS):
+        return "uncensored"
+    return "none" if base_model else "unknown"
+
+
+def license_terms(lic):
+    """"non_commercial" when a model file's license clearly limits use to non-commercial or research work, else None. A note, never a gate."""
+    return "non_commercial" if lic and NONCOMMERCIAL_RX.search(str(lic)) else None
+
+
+def model_provenance(model):
+    """-> {"model", "quant", "family", "params_b", "moe", "active_b", "weight_edit", "base_model", "license", "source", "digest"} for one
+    model, from what is on this computer: its passport (hub_data/passports), else its GGUF header (a .gguf path, or the blob Ollama
+    already has), else only its name. source says which: passport | gguf | name | claude (a cloud model: no local weights). digest:
+    "sha256:..." from Ollama's manifest or blob name; for a plain file "stat:<bytes>:<mtime>" (hashing gigabytes per run would cost
+    minutes); None when no file was found. Best effort: an unreadable passport or file just leaves fields None."""
+    m = str(model or "")
+    rec = {"model": m, "quant": None, "family": None, "params_b": None, "moe": None, "active_b": None, "weight_edit": "unknown",
+           "base_model": None, "license": None, "source": "name", "digest": None}
+    if m.startswith("claude:"):
+        rec.update(family="claude", weight_edit="none", source="claude")
+        return rec
+    import arch_passport
+    gguf = m.lower().endswith(".gguf")
+    tail = re.split(r"[\\/]", m)[-1]          # the file name of a path (either slash) or the last part of a tag: never a folder's name
+    p = None
+    for nm in ([m, tail] if gguf else [m]):
+        try:
+            p = arch_passport.load(nm)
+        except Exception:
+            p = None
+        if isinstance(p, dict) and p:
+            break
+        p = None
+    lin, path, digest = {}, None, None
+    names = [tail if gguf else m]             # a file's folder names are not the model's name
+    if p:
+        a = p.get("arch") if isinstance(p.get("arch"), dict) else {}
+        rec.update(source="passport", quant=p.get("quant"), family=p.get("family"), params_b=a.get("params_b"),
+                   moe=p.get("moe"), active_b=p.get("active_b"))
+        lin = p.get("lineage") if isinstance(p.get("lineage"), dict) else {}
+        path = p.get("path") if isinstance(p.get("path"), str) else None
+        names.append(p.get("name"))
+    if not path:
+        try:
+            if gguf:
+                path = m if os.path.isfile(m) else None
+            else:
+                import arch_server
+                ab = arch_server.adopt_ollama(m)              # a manifest read on disk: the blob path and its sha256
+                if ab:
+                    path, digest = ab.get("gguf"), ab.get("digest")
+        except Exception:
+            path = None
+    if path and not (p and isinstance(p.get("lineage"), dict)):    # no passport, or one written before passports kept lineage
+        # the whole header is read only when the quantization is still wanted (it often sits after the vocabulary)
+        hf = arch_passport.header_facts(path, need_quant=not rec["quant"])
+        if hf:
+            lin = hf.get("lineage") or {}
+            if not p:
+                import arch_profiles
+                total = hf.get("params_b")
+                act = arch_profiles.active_from_arch(total, hf) if total else None
+                rec.update(source="gguf", quant=hf.get("quant"), family=hf.get("family"), params_b=total, active_b=act,
+                           moe=bool(act) if total else None)
+            else:
+                rec["quant"] = rec["quant"] or hf.get("quant")
+                rec["family"] = rec["family"] or hf.get("family")
+    if rec["source"] == "name":               # only with nothing read from a file: a guess from the tag is never shown as the file's word
+        q = _QUANT_RX.search(tail)
+        rec["quant"] = q.group(1).upper() if q else None
+        try:
+            import arch_profiles
+            rec["params_b"] = arch_profiles.params_b(tail)
+        except Exception:
+            pass
+    if path and not digest:
+        b = os.path.basename(path)
+        if re.fullmatch(r"sha256[-:][0-9a-fA-F]{64}", b):
+            digest = "sha256:" + b[7:].lower()
+        else:
+            try:
+                st = os.stat(path)
+                digest = f"stat:{st.st_size}:{int(st.st_mtime)}"
+            except OSError:
+                digest = None
+    rec["digest"] = digest
+    rec["base_model"] = lin.get("base_model")
+    rec["license"] = lin.get("license")
+    tags = lin.get("tags") if isinstance(lin.get("tags"), list) else []
+    rec["weight_edit"] = weight_edit_of(*names, lin.get("model_name"), lin.get("finetune"), " ".join(str(t) for t in tags),
+                                        base_model=rec["base_model"])
+    return rec
+
+
+def keeps_prompt_memory(root):
+    """Whether the worker's prompt memory (llama-server's saved slot, 180-380 MB a file here) is worth saving for this project at the end
+    of a run. Not for a throwaway folder no run will ever reopen: an eval run (ARCHITECT_EVAL=1), a folder under the system temp
+    directory (eval tasks, tests), or a live test's live_* folder in the data folder. Seen 2026-11-05: 19 eval_build_*.bin, 4.9 GB."""
+    if os.environ.get("ARCHITECT_EVAL") == "1":
+        return False
+    import tempfile
+    try:
+        r = os.path.normcase(os.path.realpath(root))
+    except (OSError, ValueError):
+        return True
+    try:
+        tmp = os.path.normcase(os.path.realpath(tempfile.gettempdir()))
+        if os.path.commonpath([r, tmp]) == tmp:
+            return False
+    except (OSError, ValueError):            # a project on another drive than the temp folder: not under it
+        pass
+    try:
+        dd = os.path.normcase(os.path.realpath(data_dir()))
+        if os.path.dirname(r) == dd and os.path.basename(r).startswith("live_"):
+            return False
+    except (OSError, ValueError):
+        pass
+    return True
+
+
 class Engine:
     def __init__(self, root, flow, goal, cfg=None, review=None, ask=None, say=None, persist=True):
         self.root = os.path.abspath(root)
@@ -1124,7 +1266,7 @@ class Engine:
 
     def finish(self, ok, error=None):
         self._bring_back()
-        if self.calls:
+        if self.calls and keeps_prompt_memory(self.root):      # never for a throwaway folder (eval, temp, live test): nothing reopens it
             try:
                 import arch_server
                 arch_server.slot_io("save", self.cfg, os.path.basename(os.path.abspath(self.root)))
@@ -1407,6 +1549,7 @@ class Engine:
                                  "tier": self.tier_of(model, role),
                                  "prompt_ref": getattr(self, "prompt_ref", ""),
                                  "system_sha": hashlib.sha256(sys_text.encode("utf-8", "replace")).hexdigest()[:12]})
+                    self._provenance(model)          # a remembered reply still came from these weights (the key includes their stamp)
                     return {"text": hit["reply"], "thinking": "", "id": tid, "model": model, "truncated": False,
                             "ctx_overflow": None, "prompt_tokens": int(hit["tokens_in"]), "num_ctx": options["num_ctx"],
                             "cached": True, "cached_verdict": hit.get("verdict", "")}
@@ -1567,6 +1710,7 @@ class Engine:
         if cur["host"]:
             rec["host"] = cur["name"]
         self._trace(rec)
+        self._provenance(model, host=cur["name"] if cur["host"] else None)   # the model that actually answered (a fallback can differ)
         # the host-unreachable fallback can swap the model underneath (that reply answers a different question); a reply cut off at its
         # limit depends on a server window (llama-server's -c) that is not part of the key, so it is never replayed
         if ck and model == ck_model and r.get("done_reason") != "length":
@@ -1885,6 +2029,27 @@ class Engine:
         except OSError:
             pass
         emit_event(rec, getattr(self, "run_id", ""))
+
+    def _provenance(self, model, host=None):
+        """The first answer from a model in this run writes one "provenance" record (quantization, weight edit, base model, license: see
+        model_provenance) and the same facts under run.json "provenance". Worked out once per model per run and cached here; best
+        effort -- a missing or unreadable passport never touches the call, and nothing here can raise. host: the other machine that
+        answered; its file cannot be checked from here, so no digest is claimed for it."""
+        try:
+            seen = self.__dict__.setdefault("_prov", {})
+            if not model or model in seen:
+                return
+            seen[model] = None                              # taken first: a failure below is not retried on every later call
+            rec = model_provenance(model)
+            if host:
+                rec = dict(rec, digest=None, host=host)
+            seen[model] = rec
+            self._trace(dict({"type": "provenance", "t": time.time()}, **rec))
+            if isinstance(getattr(self, "state", None), dict):
+                self.state.setdefault("provenance", {})[model] = rec
+                self._write_state()
+        except Exception:
+            pass
 
     def mark(self, call_id, accepted, reason=""):
         """Label a past call with the outcome of the code checks. This is what makes training data trustworthy.

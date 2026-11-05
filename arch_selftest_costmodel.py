@@ -106,8 +106,142 @@ def run():
     check("hub: it reads /api/arch/cost and only shows; it never assigns a model",
           'api("/api/arch/cost")' in block and "not a recommendation to switch" in block
           and not re.search(r"/api/(arch/)?(config|roles|tiers|settings)|setRole|saveConfig", block))
+
+    # the same measurement where work is picked: chips on the Gallery's workflow cards, a line under the route preview
+    def body(start, stop):
+        i = html.find(start)
+        j = html.find(stop, i + 1) if i >= 0 else -1
+        return html[i:j] if 0 <= i < j else ""
+    gal, route = body("function galDraw(){", "\n}\n"), body("async function previewRoute(quiet){", "\n}\n")
+    opener = body("function cxOpen(kind,hide){", "\n}\n")
+    write_api = r"/api/(arch/)?(config|roles|tiers|settings|team|assign)|setRole|saveConfig"
+    check("hub: the Gallery adds one group of measured chips per workflow card, and the route preview one line, from the cached read",
+          "cxLoad().then(" in gal and 'c.dataset.flow=f.id' in gal and '!c.querySelector(".gal-costs")' in gal and "cxChips(rows,c.dataset.flow)" in gal
+          and "cxLoad().then(" in route and "cxLine(rows,r.flow)" in route and "note.isConnected" in route)
+    check("hub: the chips and the line only read (no settings, team or role write; a click never stores a preference)",
+          bool(gal and route and opener) and not re.search(write_api, gal + route + opener) and "store.set(" not in opener,
+          re.findall(write_api, gal + route + opener)[:3])
+    check("hub: each chip is a keyboard button whose spoken name starts with its visible words, in the theme's chip style",
+          'h("button",{type:"button",class:"chip gal-cost"' in block and '"aria-label":txt+" ("+says+"). Opens the Cost map."' in block)
+    css_rule = body(".gal-costs{", "\n")
+    check("hub: the chips' own CSS uses theme tokens only", bool(css_rule) and not re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css_rule), css_rule[:160])
+    check("hub: the endpoint is read once and kept for the page session (a failed read is retried after a minute, never shown)",
+          'CX.p=api("/api/arch/cost")' in block and ".catch(()=>[])" in block and "Date.now()-CX.at<60000" in block)
+
+    # ... and what they say, run in node on fixture rows (could not run without node: not counted as a pass)
+    import shutil as _sh
+    import subprocess
+    node = _sh.which("node")
+    if not node:
+        print("  ----  hub: the chips say the right thing on fixture rows   (could not run: node is not installed)")
+    else:
+        def row(model, kind, flow, tasks, passed, t, ids):
+            return {"model": model, "kind": kind, "flow": flow, "tasks": tasks, "passed": passed, "not_sure": 0, "t": t,
+                    "p": round(passed / tasks, 2), "C": round(t * tasks / passed, 1) if passed else None,
+                    "orthogonalized": "abliterat" in model, "runs": [{"id": i} for i in ids]}
+        ab4, ab8 = "huihui_ai/qwen3-abliterated:4b", "huihui_ai/qwen3-abliterated:8b"
+        rows = [
+            row("q:8b", "bugfix", "bugfix", 3, 3, 38.4, ["b1", "b2", "b3"]),
+            row(ab4, "bugfix", "bugfix", 6, 6, 40.4, ["b1", "b2", "b3", "b1", "b2", "b3"]),        # one task set, run twice
+            row("g:8b", "bugfix", "bugfix", 3, 1, 42.5, ["b1", "b2", "b3"]),
+            row("q:8b", "build", "build", 3, 3, 58.8, ["u1", "u2", "u3"]),
+            row(ab4, "build", "build", 3, 1, 36.0, ["u1", "u2", "u3"]),
+            row("q:8b", "e2e", "build", 4, 0, 154.7, ["e1", "e2", "e3", "e4"]),                    # the hard family the build flow also runs
+            row(ab8, "e2e", "build", 4, 0, 95.9, ["e1", "e2", "e3", "e4"]),
+            row(ab4, "distributed", "build", 1, 0, 177.1, ["d1"]),
+            row(ab8, "feature", "feature", 3, 3, 38.3, ["f1", "f2", "f3"]),
+            row("q:8b", "refactor", "refactor", 2, 1, 137.5, ["r1", "r2"]),
+            row(ab4, "refactor", "refactor", 2, 0, 43.0, ["r1", "r2"]),
+            row(ab4, "infra", "deploy", 4, 1, 60.0, ["i1", "i2", "i3", "i4"]),                     # no family named "deploy": the fallback
+            row("q:8b", "dbmig", "deploy", 1, 1, 30.0, ["m1"]),
+            row("q:8b", "zeta", "tie", 2, 1, 10.0, ["z1", "z2"]),
+            row("q:8b", "alpha", "tie", 2, 1, 10.0, ["a1", "a2"]),
+            row("q:8b", "cicd", "cicd", 2, 0, 50.0, ["c1", "c2"]),                                   # measured only on a non-orthogonalized model
+            dict(row(ab4, "docs", "docs", 2, 0, 20.0, ["o1", "o2"]), not_sure=2),                    # checks could not run: not a fail
+        ]
+        a1, b1 = html.find("const cmName="), html.find("async function loadCostmap(){")
+        a2, b2 = html.find("const CX={"), html.find("function benchPage(){")
+        script = r'''"use strict";
+const h=(tag,attrs,...kids)=>({tag,attrs:attrs||{},kids:kids.flat(2).filter(k=>k!=null&&k!==false)});
+const T=e=>e.kids.map(k=>k&&k.tag?T(k):String(k)).join("");
+let page=null,toasts=[],apiCalls=0;const go=p=>{page=p;},toast=m=>toasts.push(m);
+const ST={};const store={get:(k,d)=>k in ST?ST[k]:d,set:(k,v)=>{ST[k]=v;}};
+const CM={flow:"all",sel:"x",orth:false,data:null};
+const ROWS=''' + json.dumps(rows) + r''';
+const api=async p=>{apiCalls++;return {evals:ROWS};};
+''' + html[a1:b1] + "\n" + html[a2:b2] + r'''
+(async()=>{
+  const out={};
+  await cxLoad();await cxLoad();out.calls=apiCalls;
+  const b=cxFamily(ROWS,"build");out.buildKind=b.kind;out.buildAlso=b.also.map(a=>a.kind);
+  const bc=cxChips(ROWS,"build").kids;out.buildChips=bc.map(c=>[T(c),c.attrs.class,c.attrs["aria-label"]]);out.buildTip=bc[0].attrs.title;
+  out.buildLine=T(cxLine(ROWS,"build"));
+  out.bugTip=cxChips(ROWS,"bugfix").kids[0].attrs.title;out.bugLine=T(cxLine(ROWS,"bugfix"));
+  const d=cxFamily(ROWS,"deploy");out.deployKind=d.kind;out.deployAlso=d.also.map(a=>a.kind);out.deployChip=T(cxChips(ROWS,"deploy").kids[0]);
+  out.tieKind=cxFamily(ROWS,"tie").kind;
+  out.none=[cxChips(ROWS,"review"),cxLine(ROWS,"review"),cxChips([],"build")];
+  const ns=cxChips(ROWS,"docs").kids[0];out.docs=[T(ns),ns.attrs.class,ns.attrs.title];
+  out.featTip=cxChips(ROWS,"feature").kids[0].attrs.title;
+  ST.cmOrth="1";CM.orth=true;
+  cxChips(ROWS,"refactor").kids[0].attrs.onclick();
+  out.refClick=[CM.flow,CM.sel,CM.orth,page,ST.cmOrth,toasts.length];
+  costmapPage();out.thisVisit=CM.orth;costmapPage();out.laterVisit=CM.orth;
+  toasts=[];cxChips(ROWS,"feature").kids[0].attrs.onclick();out.featClick=[CM.flow,CM.orth,toasts.length];
+  cxChips(ROWS,"cicd").kids[0].attrs.onclick();out.cicdClick=[CM.flow,CM.orth,toasts.length];
+  costmapPage();costmapPage();
+  console.log(JSON.stringify(out));
+})().catch(e=>{console.log(JSON.stringify({error:String(e&&e.stack||e)}));});
+'''
+        d = tempfile.mkdtemp(prefix="archcx_")
+        try:
+            p = os.path.join(d, "cx.js")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(script)
+            r = subprocess.run([node, p], capture_output=True, text=True, encoding="utf-8", timeout=60)
+            try:
+                o = json.loads(r.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                o = {"error": (r.stdout + r.stderr)[-300:]}
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+        check("chips: the helpers run (node)", "error" not in o and all(k in o for k in ("buildChips", "refClick")), o.get("error"))
+        if "error" not in o:
+            check("chips: /api/arch/cost is asked once, however often the Gallery redraws", o["calls"] == 1, o["calls"])
+            check("chips: a workflow's own family comes first; the other families it also ran follow, most runs first",
+                  o["buildKind"] == "build" and o["buildAlso"] == ["e2e", "distributed"], (o["buildKind"], o["buildAlso"]))
+            bc = o["buildChips"]
+            check("chips: the lead chip says it is the best measured; whole projects and the training tasks get their own warning chips",
+                  [c[0] for c in bc] == ["Best on your models: 59 s per passed task", "Whole projects: not passed yet on your models",
+                                         "Distributed systems (training): not passed yet on your models"]
+                  and "warn" not in bc[0][1] and "warn" in bc[1][1] and "warn" in bc[2][1], bc)
+            check("chips: each spoken name starts with the visible words and names the model and its runs",
+                  all(c[2].startswith(c[0]) and c[2].endswith("Opens the Cost map.") for c in bc) and "(q:8b, 3 of 3 runs passed)" in bc[0][2]
+                  and "(0 of 8 runs passed)" in bc[1][2] and "(0 of 1 run passed)" in bc[2][2], [c[2] for c in bc])
+            check("chips: the lead tooltip names the cheapest orthogonalized model and the families the workflow also ran",
+                  "Cheapest orthogonalized: qwen3-abliterated:4b, 108 s per passed task, 1 of 3 runs passed." in o["buildTip"]
+                  and "Also run by this workflow: whole projects, not passed yet (0 of 8 runs passed); distributed systems (training)" in o["buildTip"],
+                  o["buildTip"])
+            check("chips: the route line says the same, the other families on a second line",
+                  o["buildLine"].startswith("Measured on your models: best 59 s per passed task (q:8b, 3 of 3 runs passed); cheapest orthogonalized")
+                  and "Also run by this workflow: whole projects, not passed yet" in o["buildLine"], o["buildLine"])
+            check("chips: one unit each: runs per model, different tasks per family (6 of 6 runs over 3 tasks is not '6 of 3')",
+                  "qwen3-abliterated:4b, 40 s per passed task, 6 of 6 runs passed." in o["bugTip"] and "3 models measured on 3 different tasks, 12 runs in all." in o["bugTip"]
+                  and "(q:8b, 3 of 3 runs passed)" in o["bugLine"], o["bugTip"])
+            check("chips: with no family named after the workflow, the family it ran most leads and is named; a tie goes alphabetical",
+                  o["deployKind"] == "infra" and o["deployAlso"] == ["dbmig"] and o["deployChip"] == "Infra: best 4 min per passed task"
+                  and o["tieKind"] == "alpha", (o["deployKind"], o["deployAlso"], o["deployChip"], o["tieKind"]))
+            check("chips: nothing is shown for a workflow with no measured rows, or when the read came back empty", o["none"] == [None, None, None], o["none"])
+            check("chips: checks that could not run read 'not passed yet', never 'failed'",
+                  o["docs"][0] == "Not passed yet on your models" and "warn" in o["docs"][1] and "fail" not in o["docs"][2].lower(), o["docs"])
+            check("chips: information only, in plain words (no 'switch', 'use' or 'try')",
+                  all("Information only" in t and not re.search(r"\b(switch|use|try)\b", t, re.I) for t in (o["buildTip"], o["bugTip"], o["featTip"])))
+            check("chips: a click opens that family; when the saved 'Only orthogonalized' filter would hide the figure it is set aside "
+                  "for that visit only, said in a toast, and the saved choice is untouched",
+                  o["refClick"] == ["refactor", None, False, "costmap", "1", 1] and o["thisVisit"] is False and o["laterVisit"] is True, o)
+            check("chips: an orthogonalized best keeps the filter on; a family never measured on one sets it aside (it would vanish)",
+                  o["featClick"] == ["feature", True, 0] and o["cicdClick"] == ["cicd", False, 1], (o["featClick"], o["cicdClick"]))
     n = sum(results)
-    print(f"\n  {'ALL ' + str(n) + ' COSTMODEL CHECKS PASSED' if n == len(results) else str(len(results) - n) + ' of ' + str(len(results)) + ' COSTMODEL CHECKS FAILED'}")
+    print(f"\n  {'ALL ' + str(n) + ' COSTMODEL CHECKS PASSED' + ('' if node else ' (1 could not run: node is not installed)') if n == len(results) else str(len(results) - n) + ' of ' + str(len(results)) + ' COSTMODEL CHECKS FAILED'}")
     return n == len(results)
 
 

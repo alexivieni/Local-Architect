@@ -894,6 +894,17 @@ def status_line(a):
             f"refused {a.get('refusals') or 0:<3}{quiet}")
 
 
+def _chore(fn):
+    """`watch` scans are a background chore: nobody waits on any one of them, so each goes through arch_placement.run_chore (the
+    efficiency cores at below-normal priority; behavior.chores_on_ecores = off: right here, as before). The hub's Monitor page and the
+    one-shot `summary` / `lessons` are waited for by a person and call scan() directly."""
+    try:
+        import arch_placement
+    except Exception:                                    # usable on its own, without the rest of the app
+        return fn()
+    return arch_placement.run_chore(fn)
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     cmd = argv[0] if argv else "summary"
@@ -907,7 +918,7 @@ def main(argv=None):
                 pass
         try:
             while True:
-                s = o.scan()
+                s = _chore(o.scan)
                 tot = s["totals"]
                 print(f"\n{time.strftime('%H:%M:%S')}  {tot['live']} live of {tot['agents']} · ${tot['cost']:.2f} · "
                       f"{tot['tools']} tools · {tot['edits']} edits · {tot['refusals']} refused")

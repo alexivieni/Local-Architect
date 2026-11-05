@@ -633,12 +633,23 @@ def playbooks(include_claude=True, min_tasks=1):
 
 
 # ---------------------------------------------------------------- CLI
+def _chore(fn, *args, **kwargs):
+    """The command-line ingest and playbooks rebuild are background chores: arch_placement.run_chore puts them on the efficiency cores
+    at below-normal priority (behavior.chores_on_ecores = off: right here, as before). Same result either way. The hub's Logbook
+    button calls ingest() directly: a person is waiting for that page."""
+    try:
+        import arch_placement
+    except Exception:
+        return fn(*args, **kwargs)
+    return arch_placement.run_chore(fn, *args, **kwargs)
+
+
 def main(argv=None):
     a = list(sys.argv[1:] if argv is None else argv)
     cmd = a[0] if a else "stats"
     if cmd == "ingest":
         extra = [x for x in a[1:] if os.path.isdir(x)]
-        print(json.dumps(ingest(extra_dirs=extra)))
+        print(json.dumps(_chore(ingest, extra_dirs=extra)))
     elif cmd == "stats":
         print(json.dumps(stats(), indent=2))
     elif cmd == "similar":
@@ -646,7 +657,7 @@ def main(argv=None):
             print("%-7s %-9s $%.4f %s  [%s]" % (r["status"], r["source"], r["cost"] or 0.0, r["title"][:70],
                                                  " > ".join(r["tools"])))
     elif cmd == "playbooks":
-        print(playbooks())
+        print(_chore(playbooks))
     else:
         print(__doc__)
         return 2

@@ -1,8 +1,9 @@
 """Placement: one place that decides where every workload and every kind of data goes on THIS machine, from measured facts.
 
 Compute: the graphics card writes code (the worker; the fast lane), the performance cores answer routing questions and run the tests
-when there are no efficiency cores, the efficiency cores take the background chores (indexing, logbook ingest, overseer scans, dataset
-export, compression), and RAM holds the experts of a mixture-of-experts heavy tier and the caches.
+when there are no efficiency cores, the efficiency cores take the background chores nobody waits for (run archive copies, the overseer's
+watch scans, a command-line Logbook ingest, the learning sync: run_chore -> run_low), and RAM holds the experts of a mixture-of-experts
+heavy tier and the caches.
 
 Storage: hot data (models, KV slot caches, the n-gram lookup cache, the reply cache, live databases) stays on the fastest fixed internal
 drive, the one holding the models. Cold data (run archives, logbook backups, overseer timeline rollovers, dataset exports, batch results,
@@ -48,7 +49,11 @@ COLD_DATA = (
     ("batch_results", "Batch and eval results", "copy"),
     ("self_builds", "Old self-build copies (.arch_self/candidates)", "move"),
 )
-BACKGROUND = ("indexing", "logbook ingest", "overseer scans", "dataset export", "compression")
+BACKGROUND = ("run archive copies", "overseer watch scans", "logbook ingest from the command line", "learning sync")   # run_chore callers
+STAYS = (                                     # work that sounds like a chore but keeps its caller's thread, and why
+    ("index refresh", "on the run's own thread at normal priority: the next prompt waits for it (only changed functions are re-read)"),
+    ("dataset export", "`dataset` is waited for; the overnight job runs below normal priority as a whole (arch_heavy), on any core"),
+)
 
 
 # ----------------------------------------------------------------------------------------------------------------------------- facts
@@ -56,10 +61,11 @@ def _bits(mask):
     return [i for i in range(int(mask or 0).bit_length()) if mask >> i & 1]
 
 
-def facts(hw=None, drs=None, speeds=None, bw=None, ecores=None, models=None, data_dir=None, app_dir=None, heavy_ram_gb=None, measure=False):
+def facts(hw=None, drs=None, speeds=None, bw=None, ecores=None, models=None, data_dir=None, app_dir=None, heavy_ram_gb=None, measure=False,
+          chores=None):
     """What placement is decided from. Every argument may be given (tests do); what is missing is read from this machine. `measure`
     runs arch_hw.measure_drive on each mounted drive (writes and deletes one 64 MB file per drive); otherwise only speeds already given
-    are used."""
+    are used. `chores` = whether background chores go through run_low (None: chores_low() reads behavior.chores_on_ecores)."""
     import arch_hw
     hw = hw if hw is not None else arch_hw.detect()
     drs = drs if drs is not None else arch_hw.drives()
@@ -84,7 +90,8 @@ def facts(hw=None, drs=None, speeds=None, bw=None, ecores=None, models=None, dat
     models = models or hw.get("models_dir") or arch_hw.models_dir()
     arch_hw.drive_roles(drs, models=models, speeds=speeds)
     return {"hw": hw, "drives": drs, "speeds": speeds, "bw": bw or {}, "ecores": int(ecores or 0), "models": models,
-            "data_dir": data_dir, "app_dir": app_dir or HERE, "heavy_ram_gb": heavy_ram_gb}
+            "data_dir": data_dir, "app_dir": app_dir or HERE, "heavy_ram_gb": heavy_ram_gb,
+            "chores_low": chores_low() if chores is None else bool(chores)}
 
 
 # --------------------------------------------------------------------------------------------------------------------------- compute
@@ -115,17 +122,24 @@ def compute(f):
     row("router (picks the flow)", "cpu-p", f"small enough for the CPU, so it never takes graphics memory from the worker; "
         f"{router_threads} of {p_cores or '?'} performance cores (half), leaving the rest for the worker's own thread and the tests",
         "rule", router_threads)
+    low = f.get("chores_low", True)
     if e_cpus:
         row("test runs", "cpu-e", f"efficiency cores {_span(e_cpus)} (behavior.tests_on_ecores): the test runner competes with no "
             "model server there", "measured" if hw.get("cpu_perf_cores") else "rule", len(e_cpus))
         for job in BACKGROUND:
-            row(job, "cpu-e", f"background chore: efficiency cores {_span(e_cpus)} at below-normal priority (run_low), so it never "
-                "slows a reply", "rule", 1)
+            if low:
+                row(job, "cpu-e", f"background chore: efficiency cores {_span(e_cpus)} at below-normal priority (run_low), so it "
+                    "never slows a reply", "rule", 1)
+            else:
+                row(job, "cpu", "background chore at normal priority on any core (behavior.chores_on_ecores = off)", "rule", 1)
     else:
         row("test runs", "cpu-p", "no efficiency cores on this CPU: tests share the performance cores; the worker on the card "
             "is unaffected", "rule", p_logical or logical or None)
         for job in BACKGROUND:
-            row(job, "cpu", "background chore: below-normal priority (run_low); no efficiency cores to keep it apart", "rule", 1)
+            row(job, "cpu", "background chore: below-normal priority (run_low); no efficiency cores to keep it apart" if low
+                else "background chore at normal priority on any core (behavior.chores_on_ecores = off)", "rule", 1)
+    for job, why in STAYS:
+        row(job, "cpu", why, "rule", None)
     heavy = f.get("heavy_ram_gb")
     free = hw.get("ram_free_gb")
     why = (f"experts of the mixture-of-experts heavy tier: only a few are read per token, so RAM's {rbw:g} GB/s is enough "
@@ -459,11 +473,11 @@ def _pin_this_thread(mask, api=None):
     return done
 
 
-def run_low(fn, *args, wait=True, mask=None, api=None, **kwargs):
+def run_low(fn, *args, wait=True, mask=None, api=None, daemon=True, **kwargs):
     """Run fn(*args, **kwargs) on its own thread pinned to the efficiency cores (arch_hw.ecore_mask; no pinning when the CPU has none)
-    at below-normal priority, so indexing, logbook ingest, overseer scans, dataset export and compression never slow a reply. The
-    calling thread keeps its own cores and priority. wait=True -> fn's result (its exception is raised here); wait=False -> the thread,
-    with `.result` / `.error` / `.pinned` set when it ends."""
+    at below-normal priority, so a background chore never slows a reply. The calling thread keeps its own cores and priority.
+    wait=True -> fn's result (its exception is raised here; Ctrl+C still reaches the caller while it waits); wait=False -> the thread,
+    with `.result` / `.error` / `.pinned` set when it ends. daemon=False keeps the process alive until fn is done (a write-behind copy)."""
     if mask is None:
         try:
             import arch_hw
@@ -479,16 +493,61 @@ def run_low(fn, *args, wait=True, mask=None, api=None, **kwargs):
             th.result = fn(*args, **kwargs)
         except BaseException as e:            # handed to the caller, never lost on a background thread
             th.error = e
-    th = box["th"] = threading.Thread(target=body, daemon=True, name="architect-low")
+    th = box["th"] = threading.Thread(target=body, daemon=daemon, name="architect-low")
     th.result = th.error = None
     th.pinned = {}
     th.start()
     if not wait:
         return th
-    th.join()
+    while th.is_alive():                      # a join with a timeout: an untimed one does not see Ctrl+C on Windows
+        th.join(0.25)
     if th.error is not None:
         raise th.error
     return th.result
+
+
+# The chores that really go through run_low (arch_selftest_placement_wired proves each one): the run archive's write-behind copy
+# (arch_archive.archive_run), the overseer's `watch` scans (arch_overseer.main), the Logbook's command-line ingest and playbooks
+# (arch_learn.main) and the learning sync (tools/sync_learning.py). Left on their caller's thread, on purpose: the index refresh (the
+# prompt waits for it), the hub's Logbook button and Monitor scan (a person waits for the page), `scan` (a person waits; its test
+# baseline is a test run), the crash recorder (it must keep sampling when the machine is overloaded).
+CHORES_SETTING = "behavior.chores_on_ecores"     # auto (default) | off; read with its default here until it is in arch_core.DEFAULTS
+
+
+def chores_low(cfg=None):
+    """True when background chores go through run_low: behavior.chores_on_ecores = auto (the default). off = they run exactly as they
+    did before (normal priority, any core). cfg None reads the settings file; settings that cannot be read count as auto."""
+    if cfg is None:
+        try:
+            import arch_core as core
+            cfg = core.load_config()
+        except Exception:
+            cfg = {}
+    v = ((cfg or {}).get("behavior") or {}).get("chores_on_ecores", "auto")
+    return str(v).strip().lower() not in ("off", "false", "0", "no", "none")
+
+
+def run_chore(fn, *args, cfg=None, wait=True, daemon=True, **kwargs):
+    """A background chore: through run_low (efficiency cores when the CPU has them, below-normal priority) unless chores_low(cfg) says
+    off; then as before: called right here when waited for, else on a plain thread at normal priority. The result is the same either
+    way; only the cores and the priority differ. Same return shape as run_low."""
+    if chores_low(cfg):
+        return run_low(fn, *args, wait=wait, daemon=daemon, **kwargs)
+    if wait:
+        return fn(*args, **kwargs)
+    box = {}
+
+    def body():
+        th = box["th"]
+        try:
+            th.result = fn(*args, **kwargs)
+        except BaseException as e:
+            th.error = e
+    th = box["th"] = threading.Thread(target=body, daemon=daemon, name="architect-chore")
+    th.result = th.error = None
+    th.pinned = {}
+    th.start()
+    return th
 
 
 if __name__ == "__main__":

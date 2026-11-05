@@ -1,28 +1,36 @@
 # Local Architect
 
-**A local-first agentic coding harness built on orthogonalized small language models.** The model proposes; code decides.
+**A local agentic coding harness for orthogonalized small language models, built around one measured quantity: the expected time per accepted change.** The model proposes; code decides.
 
-Python 3.10+ · standard library only · offline by default · runs on a 6 GB laptop GPU ·
+Python 3.10+ · standard-library core · offline by default · runs on a 6 GB laptop GPU ·
 [technical report](docs/research/README.md) · [architecture](docs/ARCHITECTURE.md) · [report vs code](docs/research/IMPLEMENTATION_STATUS.md)
 
-An agentic coding system puts a language model in a loop: retrieve context, propose an edit, run the checks, try again.
-Architect runs that loop entirely on your own hardware. It rests on three parts, each set out in the
-[technical report](docs/research/README.md):
+## Abstract
 
-1. **Orthogonalized small models.** The tiers run 4B–35B models whose refusal direction has been projected out of the weights
-   ($P = I - \hat r \hat r^\top$). Unattended pipelines then do not stop on false-positive refusals, and the caution taken out of
-   the weights moves into the control plane.
-2. **A deterministic harness.** Memory, retrieval and verification live outside the weights. Tests, parsers and scanners decide
-   what is kept. A check that cannot run gives the verdict *not sure*, never a pass.
-3. **A quantitative design model.** GPU memory, RAM, storage and the network are treated as one memory hierarchy. Every placement
-   decision is judged by one number: the expected time per accepted change, $C = t/\bar p$.
+Local Architect is the reference implementation of the technical report *Engineering Local Agentic Coding Harnesses with Orthogonalized Small Language Models* (Vieni, 2026). It runs an agentic coding loop (retrieve context, propose an edit, verify, retry) offline on consumer hardware. The reference machine is a laptop with a 6 GB GPU. The design has three parts. First, small models whose refusal direction has been projected out of the weights, $P = I - \hat r \hat r^\top$. The aim is to stop false-positive refusals from halting an unattended loop. The harness runs such weights; the projection itself is done elsewhere and is not in this repository. Second, a deterministic harness. Tests, parsers and scanners decide what is kept, every edit can be undone, and a check that cannot run returns *not sure*, never a pass. Third, a design model that treats GPU memory, RAM, storage and the network as one memory hierarchy. It judges each decision by the expected time per accepted change, $C = t/\bar p$. Twenty of the report's 24 numbered equations are in the code. Early measured readings (3 to 6 tasks per cell) give $C$ from 38.3 to 145.6 s per passed task. On one task family, the model that is fastest per task costs more per accepted change than a slower model that passed all 3 of its tasks (107.9 s against 58.8 s). No model has yet passed a whole-project build. The report's evaluation of 14B and 32B models is specified and has not been run.
+
+## Contributions
+
+1. **Verification decided by code, with three outcomes.** Code accepts or rejects every change. It uses the gates registered in `arch_gates.GATES`, plus `arch_checks` and `arch_fakecode`. A gate answers True, False or None. None means the check could not run. The run's verdict is then `not_sure`, which never counts as a pass and is never used as a training label. When a judge model gives a verdict, its verdict field is ignored and recomputed in code. Some contract wiring has exactly one correct repair: a missing `__init__.py`, a missing re-export or a missing `__main__.py`. Code makes that repair (`arch_flows.wire_contract`) and traces the try as `assist`, so the harness's share of a pass stays separate from the model's.
+2. **A bounded retry loop that detects stalls (Algorithm 1).** Each step has an attempt cap. A run stops at `limits.max_calls` or a STOP file, checked in `Engine.call` before a request is sent; YAML-defined steps can also carry a `{calls, tokens, seconds}` budget. Prompts are prefix-stable: failure text goes last, so a retry reuses the cached prefix (Eq. 15). `arch_selftest_chain` fails a retry template in the Python flow modules that breaks this (the YAML prompt files are not scanned yet). Retrieval fuses SQLite FTS5 and TF-IDF rankings by reciprocal rank (Eq. 23, `arch_index.rrf`). `arch_progress.Coach` fingerprints replies and failures and sorts each attempt into one of four stall states, a superset of Eq. 22. A stalled step moves to a larger local model only when `arch_progress.ready_now` predicts an answer within `limits.escalate_max_s` (default 240 s). Otherwise the next try starts fresh at a higher temperature.
+3. **A hardware model with measured parameters.** Memory fit (Eq. 4–5) is computed in `arch_modelmath.fit` and `arch_server.plan`. `arch_modelmath.fit` also computes the decoding bound over GPU and RAM (Eq. 6–7). It uses bandwidths that `arch_hw.bandwidth_from` derives from timed runs on the machine. On the reference laptop these are GPU 158 GB/s and RAM 19.5 GB/s (measured). Without a measurement it falls back to estimates and labels them as estimates. Mixture-of-experts tiers keep expert tensors in RAM and attention and shared weights on the GPU (`arch_server._moe_split`). The `arch_chain` ledger records each model swap (Eq. 9–10).
+4. **The loop model as a measurement.** `arch_costmodel` computes $\bar p$ and $C = t/\bar p$ (Eq. 16–17) per model and task family. It reads run traces and saved eval reports (`p_bar`, `cost`, `measure`, `from_evals`). The results are reported by `python architect.py cost` and by the hub page **Models > Cost map**. Eq. 15, 18 and 19 are tested calculators (`call_time`, `run_time`, `planner_pays`). The self-test of `planner_pays` reproduces the report's worked example: 150 s > 110.8 s, so moving the planner pays. The person still chooses role placement; it is not solved from Eq. 18.
+5. **An evaluation protocol with an oracle, a regression gate and separated data.** `evals/` holds a fixed benchmark of 105 tasks plus 4 whole-project builds, and 105 training tasks. Each task is judged by code the model never sees. Most tasks carry a reference solution and a deliberately wrong one. The scripted oracle (`eval --fake`) shows that the reference passes, and a wrong-answer run shows that the checks catch the mistake. `eval --compare` (`arch_eval.compare`) exits 1 on a regression in any flow. By default a regression is a pass-rate drop of more than 5 points, a rise in median tokens of more than 25 percent, or a rise in 95th-percentile time of more than 40 percent. `arch_eval.keep_trace` files each live run under `train` (training tasks that are not held out) or `bench` (everything else). `arch_dataset` reads only `train`, so benchmark tasks never become training data. The same protocol can compare a base model with its orthogonalized version. That is the pass-rate half of the report's deployment gate (§2.4); no such pair has been measured yet. The over-refusal half is specified, not built.
+6. **Gated learning and gated self-modification.** `arch_dataset` exports SFT samples, verifier-labelled preference pairs and tool trajectories from local traces. It drops Claude-written replies, passes that needed `wire_contract`, and tries whose checks could not run. A QLoRA script, `train_lora.py`, can train an adapter on that export. It needs third-party packages, and its training step has not been run on the reference machine. `promote-model` switches a tier to a new model only when `eval --compare` shows no regression. The harness can also edit its own code in a throwaway copy. `arch_selfimprove.gate` passes such an edit only if all of these hold:
+   - it compiles;
+   - it adds no fake code;
+   - it passes the full self-test suite;
+   - it runs at least as many checks as before (Eq. 24);
+   - it shows no eval regression.
+
+   The person then confirms the promotion, and a zip backup allows a one-step `self-rollback`.
 
 ## Architecture
 
 ```mermaid
 flowchart TB
   U["Request"] --> R["Router · qwen3 1.7B · CPU"]
-  R --> F["Flow · YAML steps + budgets"]
+  R --> F["Flow · Python class by default<br/>YAML steps carry budgets"]
   F --> X["Retrieve · AST skeleton · FTS5 + TF-IDF"]
   X --> W["Worker · abliterated 8B · GPU"]
   W --> A["Apply edit · read first · undo"]
@@ -37,9 +45,11 @@ flowchart TB
   T --> DS["Verified local work only<br/>dataset · LoRA · eval gate"]
 ```
 
-Each step is data (`flows/*.yaml`): a tier, a prompt file, its gates, retries and a `{calls, tokens, seconds}` budget, enforced
-before a request leaves. A gate answers **True**, **False** or **None**. None means "could not run" and is never counted as a pass
-or used as training data. Failure feedback always goes at the end of the prompt, so the stable prefix stays in the KV cache across
+In a YAML flow (`flows/*.yaml`) each step is data: a tier, a prompt file, its gates, retries and a `{calls, tokens, seconds}`
+budget, enforced in `Engine.call` before a request leaves. Those step budgets apply under `flows.engine = data`, to flows that
+exist only as YAML, and to local agents. Under the default engine (`legacy`) the main flows run as Python classes and stop at
+`limits.max_calls` (60 calls) or on a STOP file. A gate answers **True**, **False** or **None**. None means "could not run" and
+is never counted as a pass or used as training data. Failure feedback always goes at the end of the prompt, so the stable prefix stays in the KV cache across
 retries.
 
 ### Where the bytes live
@@ -47,19 +57,19 @@ retries.
 ```mermaid
 flowchart TB
   subgraph GPU["GPU · RTX 4050 6 GB · 158 GB/s measured"]
-    WK["Worker: all 36 layers + 8K KV cache, about 5.3 GB"]
+    WK["Worker: all 36 layers + 8K KV cache when the desktop leaves room<br/>about 5.3 GB, plan estimate: 4.7 GB weights + 0.6 GB KV"]
     HA["Heavy, when loaded: attention + shared weights"]
   end
   subgraph RAM["RAM · 32 GB · 19.5 GB/s measured"]
     HE["Heavy: MoE experts, --n-cpu-moe"]
-    RT["Router 1.7B on performance cores"]
+    RT["Router 1.7B on the CPU"]
     PC["Page cache: warm model swaps"]
   end
   subgraph NVME["NVMe"]
     MD["Model weights · KV slot per project"]
   end
   subgraph SD["SD card · 32 GB"]
-    AR["Run archive · learning data · backups"]
+    AR["Run archive · learning data"]
   end
   subgraph LAN["Other PCs, optional"]
     HO["Whole roles; only text crosses the network"]
@@ -107,7 +117,7 @@ $$\text{promote } H' \iff \mathrm{Gates}(H') \land \lvert \mathrm{checks}(H') \r
 
 | Equation | Where it runs | Measured on the reference laptop |
 |---|---|---|
-| Fit (4–5) | `arch_server.plan`, `arch_modelmath.fit` | abliterated 8B: all 36 layers + 8K window on a 6 GB card |
+| Fit (4–5) | `arch_server.plan`, `arch_modelmath.fit` | abliterated 8B: all 36 layers + 8K window planned on the 6 GB card (plan estimate, about 5.3 GB) |
 | Decode (6–7) | `model_hub.fit_model`, `arch_hw.bandwidth_from` | GPU 158 GB/s, RAM 19.5 GB/s |
 | Prefix reuse (15) | prefix-stable prompts, llama-server `cache_n`, KV slots on disk | ρ recorded per call; edits 56 → 306–343 tok/s with n-gram speculation |
 | Cost (16–17) | `arch_costmodel`, `python architect.py cost`, hub **Models → Cost map** | see the table below |
@@ -132,6 +142,84 @@ Whole-project builds are where every model stops (0 of 4 each), so that is where
 **Status against the report:** of 40 items, 21 are built, 17 are partial and 2 are not yet built. The largest gaps are the
 orthogonalization procedure itself, layer splits across machines (Eq. 13) and the §9 evaluation. Section by section, with the
 code for each: [docs/research/IMPLEMENTATION_STATUS.md](docs/research/IMPLEMENTATION_STATUS.md).
+
+## Iterative flow
+
+Architect changes through two nested loops. The inner loop is one step of a run, the report's Algorithm 1. The outer loop is how the harness and its models are revised between runs. Both loops act on one quantity, the expected time per accepted change $C = t/\bar p$.
+
+### Inner loop: one step of a run
+
+The listing gives Algorithm 1 with the names it has in the code. By default the Python flow classes in `arch_flows*.py` run it (`flows.engine = legacy`). `arch_dataflow.py` runs the same loop for `flows/*.yaml`. Lines 7 and 11 exist only in the build flow.
+
+```text
+Algorithm 1  One step of the harness loop, as implemented
+Input: goal G, repository R, the step's model m, attempt cap k,
+       step budget B = {calls, tokens, seconds}
+
+ 1: X <- Retrieve(R, G)                    # AST skeleton (arch_core.focus); FTS5 and TF-IDF fused by arch_index.rrf, Eq. 23
+ 2: F <- empty; coach <- Coach(role)       # feedback tail; reply and failure fingerprints
+ 3: for i = 1, ..., k do
+ 4:     stop if B is spent or a STOP file exists      # checked in Engine.call before the request is sent. Default engine:
+                                                      # no step budget B, only the run's limits.max_calls (B binds in YAML flows)
+ 5:     y_i <- m(Prompt(X, G ; F))                    # stable prefix first, per-try tail F last, Eq. 15
+ 6:     Apply(y_i)                                    # FILE / EDIT / DEF blocks, each with a backup and an undo
+ 7:     W <- wire_contract(G)                         # unambiguous wiring only; undone if the import still fails
+ 8:     v_i <- Gates(step)                            # each gate: True, False, or None = could not run
+ 9:     Record(y_i, v_i)                              # trace.jsonl; an "assist" record when W is not empty
+10:     if v_i passes then return Accept(y_i)
+11:     undo y_i if it left the project clearly worse # BestState
+12:     F <- failure text of v_i + FAILURE TYPE       # one-line triage by pattern, no model call
+13:     s <- coach.observe(H(y_i), H(failure))        # progress, repeat_reply, same_failure, cycling or no_change; Eq. 22
+14:     if s != progress then
+15:         if ready_now(larger local model) then m <- that model   # HANDOVER note; limits.escalate_max_s
+16:         else the next try starts fresh at temperature 0.8       # FRESH ATTEMPT note
+17:         F <- F + a hint that names the stall
+18:     end if
+19: end for
+20: return Fail    # at most k model calls; a gate that could not run makes the verdict not_sure; every change stays undoable
+```
+
+Past the heavy tier, an opt-in Claude tier with a spending cap can take the step. It is off by default, and its replies are never training data.
+
+### Outer loop: how the harness changes
+
+Each cycle starts from live measurements and ends at a regression gate. For harness changes, the first steps (diagnose, change, oracle, replay) are the project's working method. Code enforces the gate itself in `promote-model` and `self-improve`.
+
+```mermaid
+flowchart TB
+  M["Measure<br/>live eval runs judged by hidden checks<br/>python architect.py eval"]
+  K["Price<br/>C = t / p-bar per model and task family<br/>python architect.py cost"]
+  D["Diagnose<br/>the family with the highest C<br/>read from the traces"]
+  X["Change<br/>harness code, flow, prompt or gate<br/>example: arch_flows.wire_contract"]
+  O{{"Oracle and replay<br/>references pass, wrong answers fail?"}}
+  G{{"Regression gate<br/>eval --compare, exit 1 on a regression<br/>self-edits also need Eq. 24"}}
+  R["Roll back<br/>undo or self-rollback"]
+  P["Promote<br/>new baseline, or promote-model for a tier"]
+  T["Training data<br/>verified local traces only<br/>no Claude replies, assisted passes<br/>or benchmark runs"]
+  L["Fine-tune<br/>arch_dataset, then train_lora.py"]
+  M --> K --> D --> X --> O
+  O -- "no" --> X
+  O -- "yes" --> G
+  G -- "regression" --> R
+  G -- "no regression" --> P
+  R --> D
+  P -- "next cycle" --> M
+  M -. "training tasks" .-> T
+  T --> L
+  L -- "candidate model" --> G
+```
+
+### How the loops relate to C
+
+Both loops act on the two factors of $C = t/\bar p$ (Eq. 17).
+
+Inside a step, prefix-stable prompts keep the cached share $\rho$ near one on retries, which keeps the call time $t$ low (Eq. 15). Feedback, stall detection and escalation aim to raise the pass rate of later attempts, and with it $\bar p$. With a constant pass rate, the cap $k$ bounds the worst case but not the mean (Eq. 16). So a stalled step changes its input or its model instead of repeating the call. If feedback never makes a model worse, $C \le t/p_1$. The gap between $t/p_1$ and the measured $C$ is what feedback is worth.
+
+The outer loop measures $C$ per model and task family. It starts with the family where $C$ is largest or undefined. Whole-project builds are the current case. In the measured runs no model passed one ($\bar p = 0$; five models, 4 tasks each). Many of these failures were in the contract's shape rather than in its logic: an unexported name, or a missing `__init__.py` or `__main__.py`.
+
+`arch_flows.wire_contract` is the change that followed: code fixes the wiring, and the model writes the logic. It targets $\bar p$ without adding model calls. Its self-test rebuilds the miswired outputs seen live and shows the contract check failing before the repair and passing after it. Its effect on live $C$ has not been measured yet. Passes it helped are kept out of training, so no model is credited with work done by code.
+
+A new model must pass `eval --compare` before `promote-model` switches a tier. A self-edit must also satisfy Eq. 24, so measured cost cannot be lowered by deleting the checks that define an accepted change.
 
 ## What you get
 
@@ -245,6 +333,24 @@ Everything runs locally. Measurements, run traces and your settings stay in `hub
 this repository ignores. Nothing is sent anywhere unless you turn on online features.
 
 ---
+
+## Citation
+
+Please cite the technical report. This repository is its reference implementation. The PDF is at [docs/research/Engineering_Local_Agentic_Coding_Harnesses_Vieni_2026.pdf](docs/research/Engineering_Local_Agentic_Coding_Harnesses_Vieni_2026.pdf). The report is a draft for review, and its §9 evaluation has not been run. If you cite measured numbers, take them from [docs/research/IMPLEMENTATION_STATUS.md](docs/research/IMPLEMENTATION_STATUS.md) and give the date they were taken.
+
+```bibtex
+@techreport{vieni2026engineering,
+  author      = {Vieni, Alexi},
+  title       = {Engineering Local Agentic Coding Harnesses with Orthogonalized Small Language Models: Systems Architecture, Representation Geometry, and Airgapped Security Analysis},
+  institution = {Independent Researcher},
+  address     = {Canada},
+  type        = {Technical Report},
+  year        = {2026},
+  month       = nov,
+  note        = {Draft for review. Reference implementation: Local Architect},
+  url         = {https://github.com/alexivieni/Local-Architect}
+}
+```
 
 # Details and release notes
 

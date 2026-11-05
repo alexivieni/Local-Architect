@@ -4,7 +4,8 @@ This page checks the technical report, *Engineering Local Agentic Coding Harness
 ([PDF](Engineering_Local_Agentic_Coding_Harnesses_Vieni_2026.pdf)), against this repository. It goes section by section and
 equation by equation. Each row names the code that does the work.
 
-Last checked: 2026-11-04, against the code in this commit.
+Last checked: 2026-11-04, against the code in this commit. Updated 2026-11-05: provenance per run (§7.4), task families (§4, §9),
+the scope of the prefix-stability check (§5).
 
 | Status | Meaning |
 |---|---|
@@ -51,13 +52,13 @@ layers across machines. Of the 40 rows below, 21 are **Built**, 17 are **Partial
 | Batching: t_step(N), N ≤ N* (Eq. 11) | **Partial** | The cost of each extra slot is computed (`arch_server`, slot GB, `--parallel N` with `-c ctx·N`). `sample_n` draws N candidates, but **one after another** in scratch copies. The default is `server.parallel = 1`. |
 | Roles on different machines; overlap Σ max ≤ Σ sum (Eq. 12) | **Partial** | Roles run on other machines (`arch_hosts`, `role_hosts`, ranked by a measured benchmark, fallback to local). `arch_chain.defer_judge` overlaps the judge with the next step **on one machine**. Concurrent builder and judge on two machines is not built. |
 | Layers on different machines (Eq. 13) | **Not yet** | No llama.cpp RPC backend. |
-| Choose size, precision and window: max p̄/t (Eq. 14) | **Partial** | `arch_port` ranks models by capability minus the known accuracy cost of each quantization. `arch_modelmath.compare_quants` and `explain` show the trade-offs. p̄/t per model and flow is now measured (`arch_costmodel.from_evals`, below). The automatic search over (\|θ\|, q, n) is not built. |
+| Choose size, precision and window: max p̄/t (Eq. 14) | **Partial** | `arch_port` ranks models by capability minus the known accuracy cost of each quantization. `arch_modelmath.compare_quants` and `explain` show the trade-offs. p̄/t per model and task family is now measured (`arch_costmodel.from_evals`, below). The automatic search over (\|θ\|, q, n) is not built. |
 
 ## §5 Loop model
 
 | Report | Status | In the code |
 |---|---|---|
-| Call time t = (1−ρ)·n_in/r_p + n_out·t_tok (Eq. 15) | **Built** | `arch_costmodel.call_time`. Prompts are prefix-stable (stable part first, per-try tail last; `arch_selftest_chain` enforces it). ρ is **measured**: llama-server's exact `cache_n`, recorded per call as `prefix_reused_est`. KV slots persist on disk per project. |
+| Call time t = (1−ρ)·n_in/r_p + n_out·t_tok (Eq. 15) | **Built** | `arch_costmodel.call_time`. Prompts are prefix-stable (stable part first, per-try tail last). `arch_selftest_chain` enforces it for the retry templates in the Python flow modules; it does not scan the YAML prompt files (`prompts/<flow>/*.md`) yet, which a one-off check on 2026-11-05 found in order. ρ is **measured**: llama-server's exact `cache_n`, recorded per call as `prefix_reused_est`. KV slots persist on disk per project. |
 | C = t/p (Eq. 16); C = t/p̄, p̄ = Σ Q_{i−1}p_i / Σ Q_{i−1} (Eq. 17) | **Built** (2026-11-04) | `arch_costmodel.cost`, `p_bar`, `measure` (per role and model from `trace.jsonl` call + mark records, including kept live-eval runs), `from_evals` (per task from saved eval reports). `python architect.py cost`, hub **Models → Cost map** (`GET /api/arch/cost`): each model on each family of tasks as (p, t) with rays of equal C, click-through to the tasks, history across runs. Energy E = P·C with `--watts`. |
 | Role placement J = Σ c_r·t_r/p_r + λS (Eq. 18) | **Built** as a calculator | `arch_costmodel.run_time`. The live router uses measured success per flow (`arch_routelearn`) rather than J. |
 | Planner placement inequality (Eq. 19) | **Built** as a calculator | `arch_costmodel.planner_pays`, `architect.py cost --planner …`. Self-tests reproduce the report's worked example: 150 s > 110.8 s pays; 83.3 s < 110.8 s does not. Not yet applied automatically. |
@@ -72,7 +73,7 @@ layers across machines. Of the 40 rows below, 21 are **Built**, 17 are **Partial
 | 1. Sandbox | **Built** | See §3. `online.enabled = false` by default. Self-tests can never reach a paid model (`arch_cloud.allowed`). |
 | 2. Review and undo | **Built** | Every edit has an undo (`.arch/` backups). Settings writes are checked and undoable. Each run keeps a full trace and a one-page receipt (`arch_receipt`). |
 | 3. Verification | **Built** | Gates decide. The judge's own verdict field is ignored and recomputed in code. |
-| 4. Provenance: model, quantization and weight edit per run; base beside edited; licenses checked | **Partial** | Every call records model, tier, transport, prompt reference and system-prompt hash. Model passports (`arch_passport`) hold the quantization and architecture from the GGUF header. Run records do not yet copy the quantization, the weight edit or the license, and nothing checks licenses. |
+| 4. Provenance: model, quantization and weight edit per run; base beside edited; licenses checked | **Partial** | Built per run (2026-11-05): the first answer from each model in a run writes one `provenance` trace record (`arch_core.model_provenance`, `Engine._provenance`) with quantization, family, size, weight edit, base model, license, source and digest, read from the model's passport or its GGUF header on this computer, never the network. The same facts go under `provenance` in `run.json`, and the receipt has a "Models and provenance" section. The license check (`arch_core.license_terms`, shown in the receipt) flags only clear non-commercial or research-only terms; it is a note, never a gate. Every call also records model, tier, transport, prompt reference and system-prompt hash. Not built: keeping the base weights beside the edited ones, which is a storage policy. |
 | 5. Unattended operation | **Built** | `arch_supervisor` (SQLite queue, per-job and daily budgets, `STOP` file, alternate flows), spend reserve/settle for any paid step, host fallback to local. |
 | 6. Self-improvement gate Gates(H′) ∧ \|checks(H′)\| ≥ \|checks(H)\| (Eq. 24) | **Built** | `arch_selfimprove.gate`: compile, no new fake code, full self-tests in a throwaway copy, a check-count floor, eval regression; zip backup, atomic promote, one-step rollback. |
 
@@ -83,7 +84,7 @@ layers across machines. Of the 40 rows below, 21 are **Built**, 17 are **Partial
 | H1 Orthogonalization: over-refusal falls, pass rate holds (14B, 32B) | **Not yet** | The pass-rate side runs today (`eval`). There is no refusal suite, and no 14B/32B base-vs-edited pair is installed. |
 | H2 Decoding follows Eq. 6 | **Partial** | Predicted tok/s (`fit_model`) and measured tok/s (`model_stats.json`, `bench_variants`) both exist. No report sets them side by side. |
 | H3 Swaps warm when Eq. 10 holds | **Partial** | The swap ledger measures each swap's seconds. No study yet. |
-| H4 Feedback beats unbatched sampling | **Partial** | `from_evals` gives p and C per flow and model. No matched-calls comparison yet. |
+| H4 Feedback beats unbatched sampling | **Partial** | `from_evals` gives p and C per model and task family. No matched-calls comparison yet. |
 | H5 Prompt processing falls by ≈ 1−ρ | **Partial** | ρ and prefill are recorded per call. No report compares them. |
 | H6 Placement sign matches Eq. 19 | **Partial** | The calculator is built and tested. The measured run with a 32B planner has not been done. |
 
@@ -126,10 +127,9 @@ and repeated seeds. Whole-project builds stop every model so far, so they are th
 
 1. **Run H1 on the installed 8B pair** (base qwen3:8b vs abliterated 8B): the full build and feature families, three seeds, plus a
    small safe-prompt refusal suite. This makes §2.4's deployment gate complete.
-2. **Record provenance per run** (§7.4): quantization, weight edit and license from the passport.
-3. **Concurrent sample_n on `--parallel N` slots** (Eq. 11, 21), measured with `cost`.
-4. **Apply Eq. 19 automatically** in the broker once enough C data exists for the planner on both tiers.
-5. Eq. 13 (llama.cpp RPC) and tree-sitter chunking: Phase 3, larger work.
+2. **Concurrent sample_n on `--parallel N` slots** (Eq. 11, 21), measured with `cost`.
+3. **Apply Eq. 19 automatically** in the broker once enough C data exists for the planner on both tiers.
+4. Eq. 13 (llama.cpp RPC) and tree-sitter chunking: Phase 3, larger work.
 
 **Done 2026-11-05: live eval tasks keep their traces.** Each task's folder is temporary, so its trace used to be deleted with it.
 That left the per-call cost model with nothing to read. It also meant the training-task runs (`tools/train_traces.py`) never

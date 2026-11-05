@@ -6,6 +6,7 @@ model instead of assuming a family.
       "active_b", "eff_b" (dense-equivalent), "moe", "chat_template" (name hint), "think_style": "tags" | "field" | None,
       "measured": {gen_tok_s, prefill_tok_s, load_s, cpt, gpu_pct, canary_ok, ctx},          # from tune / real calls (arch_tune stats + profile)
       "abilities": {schema_json: bool|None, edit_style: patch|whole|None, acts: bool|None, tool_calls: int|None},   # from the ready probe
+      "lineage": {license, base_model, model_name, finetune, tags, quantized_by},   # as the model file states it (provenance)
       "notes": [plain-words lines], "updated"}
 
 Known facts come from Ollama's /api/show when the model is an Ollama tag, or from the GGUF header itself (read with the standard library:
@@ -43,9 +44,32 @@ def path_for(name):
 
 
 # ------------------------------------------------------------------------------------------------------------ GGUF header (stdlib)
-def gguf_meta(path, max_kv=400):
+def _skip_strings(f, n, block=1 << 20):
+    """Move the file past n GGUF strings (u64 length + bytes) without decoding them: one read per megabyte instead of two per string.
+    A 150k-word vocabulary plus its merges took 100-280 ms string by string here."""
+    buf, pos, unpack = b"", 0, struct.unpack_from
+    while n > 0:
+        if len(buf) - pos < 8:
+            buf, pos = buf[pos:] + f.read(block), 0
+            if len(buf) < 8:
+                raise ValueError("the header ends inside a string array")
+        ln = unpack("<Q", buf, pos)[0]
+        if ln > (1 << 32):
+            raise ValueError("a string in the header claims to be over 4 GB")
+        pos += 8 + ln
+        n -= 1
+        if pos > len(buf):                          # this string runs past what is buffered: skip the rest of it in the file
+            f.seek(pos - len(buf), 1)
+            buf, pos = b"", 0
+    if pos < len(buf):
+        f.seek(pos - len(buf), 1)                   # give back what was read ahead
+
+
+def gguf_meta(path, max_kv=400, stop=None):
     """Read the key/value header of a GGUF file (v2/v3) without loading tensors. -> {key: value} for scalar/string keys (arrays summarised),
-    or {"error"}. Only the metadata is read; the file is never mapped whole."""
+    or {"error"}. Only the metadata is read; the file is never mapped whole. `stop`: a key prefix (e.g. "tokenizer.") at which reading
+    ends. Careful: llama-quantize writes general.file_type and general.quantization_version AFTER the tokenizer (most quantized files
+    here), so a stopped read can miss them; header_facts falls back to a full read for that."""
     out = {}
     try:
         with open(path, "rb") as f:
@@ -67,8 +91,7 @@ def gguf_meta(path, max_kv=400):
                     et, n = struct.unpack("<IQ", f.read(12))
                     if et == 8:
                         vals = [rd_str() for _ in range(min(n, 8))]
-                        for _ in range(max(0, n - 8)):
-                            rd_str()
+                        _skip_strings(f, max(0, n - 8))      # the rest of a vocabulary: walked, never decoded
                         return {"array": "string", "n": n, "head": vals}
                     fmt = _TYPES.get(et)
                     if not fmt:
@@ -83,6 +106,8 @@ def gguf_meta(path, max_kv=400):
                 return struct.unpack("<" + fmt, f.read(struct.calcsize("<" + fmt)))[0]
             for _ in range(min(n_kv, max_kv)):
                 key = rd_str()
+                if stop and key.startswith(stop):
+                    break
                 t = struct.unpack("<I", f.read(4))[0]
                 out[key] = rd_val(t)
             out["_tensors"] = n_tensors
@@ -111,6 +136,70 @@ def arch_from_gguf(meta):
     return {"arch": a, "layers": g("block_count"), "kv_heads": kvh, "head_dim": hd, "ctx_max": g("context_length"), "experts": g("expert_count"),
             "experts_used": g("expert_used_count"), "params": pc, "params_b": round(pc / 1e9, 2) if pc else None,
             "quant": _FILE_TYPE.get(meta.get("general.file_type"), None), "name": meta.get("general.name"), "template": meta.get("tokenizer.chat_template")}
+
+
+def lineage(kv):
+    """Where the weights came from and on what terms, exactly as the model file states it: the GGUF general.* keys (the same keys appear
+    in Ollama's /api/show "model_info"). -> {"license", "base_model", "model_name", "finetune", "tags", "quantized_by"}; None where the
+    file says nothing. Nothing is looked up anywhere else (no network, no model card)."""
+    kv = kv if isinstance(kv, dict) else {}
+
+    def s(k):
+        v = kv.get(k)
+        return v.strip()[:200] if isinstance(v, str) and v.strip() else None
+    lic, lic_name = s("general.license"), s("general.license.name")
+    if lic_name and (not lic or lic.lower() == "other"):           # Hugging Face's "other" licences carry the real name beside it
+        lic = lic_name
+    bases = []
+    try:
+        n = int(kv.get("general.base_model.count") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    for i in range(min(n, 4)):
+        nm, org = s(f"general.base_model.{i}.name"), s(f"general.base_model.{i}.organization")
+        if nm:
+            bases.append(f"{org}/{nm}" if org and "/" not in nm else nm)
+    tags = kv.get("general.tags")
+    if isinstance(tags, dict):                                     # gguf_meta summarises arrays: {"array", "n", "head"}
+        tags = tags.get("head")
+    tags = [str(t)[:60] for t in tags[:12]] if isinstance(tags, list) else []
+    return {"license": lic, "base_model": " + ".join(bases) or None, "model_name": s("general.name"),
+            "finetune": s("general.finetune"), "tags": tags, "quantized_by": s("general.quantized_by")}
+
+
+_HEADER_MEMO = {}          # (path, size, mtime, need_quant) -> header_facts result: one read per model per process (an eval runs many tasks)
+
+
+def header_facts(path, need_quant=True):
+    """The facts a run needs about a model that has no passport (or an older one), straight from its GGUF file. -> {} when unreadable.
+
+    First only the keys before the tokenizer are read (about 0.1 ms): the general.* lineage and the architecture. But llama-quantize
+    writes general.file_type AFTER the tokenizer (14 of the 18 Ollama blobs on this machine), so when the quantization is wanted and was
+    not there, the whole header is read once (2-180 ms measured here, avg ~95) and remembered for this process."""
+    try:
+        st = os.stat(path)
+        mk = (os.path.abspath(path), st.st_size, int(st.st_mtime), bool(need_quant))
+    except OSError:
+        return {}
+    if mk in _HEADER_MEMO:
+        return _HEADER_MEMO[mk]
+    try:
+        meta = gguf_meta(path, stop="tokenizer.")
+        if need_quant and meta and "error" not in meta and "general.file_type" not in meta:
+            full = gguf_meta(path)
+            if full and "error" not in full:
+                meta = full
+    except Exception:
+        return {}
+    if not meta or "error" in meta:
+        return {}
+    a = arch_from_gguf(meta)
+    out = {"quant": a.get("quant"), "family": (a.get("arch") or "").lower() or None, "params_b": a.get("params_b"),
+           "experts": a.get("experts"), "experts_used": a.get("experts_used"), "lineage": lineage(meta)}
+    if len(_HEADER_MEMO) > 64:
+        _HEADER_MEMO.clear()
+    _HEADER_MEMO[mk] = out
+    return out
 
 
 # ------------------------------------------------------------------------------------------------------------ building one passport
@@ -167,6 +256,7 @@ def build(name, show=None, gguf=None, stats=None, profile=None, results=None):
             p["family"] = (arch.get("arch") or "").lower() or None
             p["chat_template"] = "embedded" if arch.get("template") else None
             p["think_style"] = _think_style(arch.get("template"), name)
+            p["lineage"] = lineage(meta)                       # license, base model, fine-tune name: what the file itself states
     elif show:
         import model_hub as mh
         arch = mh.model_arch(show)
@@ -179,6 +269,11 @@ def build(name, show=None, gguf=None, stats=None, profile=None, results=None):
         p["think_style"] = _think_style(tpl, name)
         caps = show.get("capabilities") or []
         p["capabilities"] = caps
+        lin = lineage(show.get("model_info") or {})
+        if not lin["license"] and isinstance(show.get("license"), str):    # Ollama's own copy of the licence text: its first line names it
+            first = next((ln.strip() for ln in show["license"].splitlines() if ln.strip()), "")
+            lin["license"] = first[:120] or None
+        p["lineage"] = lin
         if arch.get("params"):
             arch["params_b"] = round(arch["params"] / 1e9, 2)
     p["arch"] = {k: arch.get(k) for k in ("arch", "layers", "kv_heads", "head_dim", "ctx_max", "experts", "experts_used", "params_b")}
