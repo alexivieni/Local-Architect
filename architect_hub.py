@@ -1505,6 +1505,25 @@ class AHandler(mh.Handler):
             st = mh.build_state()
             a_out = assess.assess(st.get("models", []), st.get("hw"), core.deep_merge(core.DEFAULTS, mh.read_config()))
             return self._send(200, advisor.advise(root, d_out, a_out))
+        if u.path == "/api/arch/gallery_readme":
+            name = (parse_qs(u.query).get("pack") or [""])[0]
+            if not re.fullmatch(r"[a-z][a-z0-9_]{1,40}", name):
+                return self._send(400, {"error": "bad pack name"})
+            pth = os.path.join(HERE, "harnesses", name, "README.md")
+            return self._send(200, {"text": _read_text(pth) if os.path.isfile(pth) else "No README for this pack."})
+        if u.path == "/api/arch/gallery":
+            out = {"packs": [], "agents": []}
+            try:
+                import arch_harness
+                out["packs"] = arch_harness.list_packs()
+            except Exception as ex:
+                out["packs_error"] = str(ex)[:200]
+            try:
+                import arch_agentlib
+                out["agents"] = arch_agentlib.list_templates()
+            except Exception as ex:
+                out["agents_error"] = str(ex)[:200]
+            return self._send(200, out)
         if u.path == "/api/arch/flow_detail":
             import arch_dataflow
             return self._send(200, arch_dataflow.flow_detail((parse_qs(u.query).get("flow") or [""])[0]))
@@ -1897,6 +1916,14 @@ class AHandler(mh.Handler):
                 H.route(cfg, str(rt["role"]), str(rt.get("host")), (str(rt["model"]) if rt.get("model") else None))
             if b.get("unroute"):
                 H.unroute(cfg, str(b["unroute"]))
+            if b.get("bench"):                               # measure one machine you added: speed of a tiny prompt + health
+                name = str(b["bench"])
+                if name not in (cfg.get("hosts") or {}):
+                    raise ValueError("Add the machine first.")
+                try:
+                    H.bench_host(name, cfg, say=lambda m: None)
+                except Exception as ex:
+                    return {"ok": False, "error": f"{name} did not answer: {str(ex)[:160]}", "machines": machines_info(cfg)}
             if b.get("apply_plan"):
                 for s_ in machines_info(cfg)["plan"]:
                     H.route(cfg, s_["role"], s_["host"], s_["model"])

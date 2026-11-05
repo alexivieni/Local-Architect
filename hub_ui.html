@@ -1128,6 +1128,13 @@ button,select,input,textarea,summary{min-height:36px}
 
 .fi-custom{border-top:1px solid var(--line);padding-top:10px}.fi-custom>summary{cursor:pointer;font-weight:600;min-height:36px;display:flex;align-items:center}
 .fi-edit{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}.fi-edit .f{min-width:120px}
+
+/* Gallery + Computers */
+.gal-q{width:100%;margin-top:6px;min-height:42px;font:inherit;font-size:1rem;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.gal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.gal-card{border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px;background:var(--panel)}
+.gal-card h3{margin:0;font-size:1rem}.gal-card p{margin:0;flex:1}.gal-tag{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--acc)}
+.gal-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 /* ===== art direction (docs/art_direction.md): section hues, page glyphs, illustrations, signs of life, the theme picker. Tokens only ===== */
 /* section hue: one colour per place, used for an icon tint and the active marker, nothing else */
 body[data-sec=home],.nav[data-sec=home]{--hue:var(--hue-projects)}
@@ -1356,6 +1363,8 @@ const sel={models:new Set(),cats:null,think:false};
    check the machine, build the team, build and run the project, then measure and manage it over time. */
 const NAV_GROUPS=[
   ["0. Console",[["console","console","Console","Ask for something and watch it happen"],["simple","spark","Simple","One box, plain progress, a clear result","console"],["studio","chat","Studio","Talk it through with your model, then hand it to the team"],["agents","spark","Crew","Agents in the cloud and Claude Code on this PC: hand them work, schedule it, watch every step"],
+    ["gallery","layers","Gallery","Ready-made workflows, harness packs and agents: look inside, use, or make your own"],
+    ["computers","chip","Computers","Spread the work over the computers you own"],
     ["fleet","layers","Fleet","Several agents at once, each on its own files; the fleet runs the tests itself when they finish"],
     ["monitor","console","Monitor","Every agent on this machine, live: cost, tools, files, stalls and two agents on one file"],
     ["map","layers","Map","How the pieces of one run, fleet or workflow connect: drag them about, click one for its details"],
@@ -1371,8 +1380,8 @@ const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
    which models do the work and how well they measure. Settings: everything that tunes the machine. Every old page id still works. */
 const TABS=[
   ["home","folder","Projects",["overview","start","portfolio"]],
-  ["console","console","Workspace",["console","run","studio","agents","fleet","monitor","map","library","blueprints","queue","launch"]],
-  ["team","chip","Models",["tiers","bench","logbook","score","models","roles"]],
+  ["console","console","Workspace",["console","run","studio","gallery","agents","fleet","monitor","map","library","blueprints","queue","launch"]],
+  ["team","chip","Models",["tiers","computers","bench","logbook","score","models","roles"]],
   ["settings","sliders","Settings",["settings","tune","doctor","assess","advisor","flows","train"]],
 ];
 /* art direction (docs/art_direction.md): every page has its own icon (sub-tabs, the page glyph, the command list) and its own
@@ -1385,7 +1394,7 @@ const PAGE_ART={console:"console",run:"task",launch:"task",studio:"studio",agent
   logbook:"logbook",library:"library",blueprints:"blueprints",queue:"queue",overview:"journey",start:"projects",portfolio:"projects",
   tiers:"models",models:"models",roles:"models",score:"models",bench:"models"};
 const SEC_ART={home:"projects",console:"console",team:"models",settings:"settings"};
-const SUBNAME={fleet:"Fleet",monitor:"Monitor",map:"Map",library:"Library",logbook:"Logbook",agents:"Crew",blueprints:"Blueprints",console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",settings:"Settings",train:"Training data"};
+const SUBNAME={gallery:"Gallery",computers:"Computers",fleet:"Fleet",monitor:"Monitor",map:"Map",library:"Library",logbook:"Logbook",agents:"Crew",blueprints:"Blueprints",console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",settings:"Settings",train:"Training data"};
 /* pages that are in no tab (the Components page) name the tab they belong to as a fifth field */
 const tabOf=id=>TABS.find(t=>t[3].includes(id))||TABS.find(t=>t[0]===(PAGES.find(p=>p[0]===id)||[])[4])||TABS[0];
 
@@ -1522,6 +1531,8 @@ setInterval(()=>{if(page==="simple")simpleDraw();},1500);
 
 function render(){
   if(!S)return; const v=$("#view");
+  if(page==="gallery"){ v.innerHTML="";put(v,...galleryPage()); return; }
+  if(page==="computers"){ v.innerHTML="";put(v,...computersPage()); return; }
   if(page==="simple"){ if(!built.simple){v.innerHTML="";put(v,...simplePage());built.simple=1;} simpleDraw(); return; }
   if(page==="console"){ if(!built.console){v.innerHTML="";put(v,...consolePage());built.console=1;} pollConsole(); return; }
   if(page==="studio"){ if(!built.studio){v.innerHTML="";put(v,...studioPage());built.studio=1;loadBacklog();} pollStudio(); return; }
@@ -4144,6 +4155,52 @@ async function fiSave(d,ed,id,dry,out){
       "Not saved: "+((r.problems||[]).join("; ")||r.error||"the validator refused it")));
     if(r.ok&&!dry){try{await refresh(true);}catch(_){}}
   }catch(e){out.append(h("div",{class:"note warn"},e.message));}
+}
+function showText(title,text){
+  const close=()=>{ov.remove();document.removeEventListener("keydown",esc);}, esc=e=>{if(e.key==="Escape")close();};
+  const ov=h("div",{class:"fi-overlay",role:"dialog","aria-modal":"true","aria-label":title,onclick:e=>{if(e.target===ov)close();}},
+    h("div",{class:"fi-panel"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},title),h("button",{class:"btn",type:"button",onclick:close},"Close")),renderText(text)));
+  document.body.append(ov);document.addEventListener("keydown",esc);ov.querySelector("button").focus();
+}
+/* ---- Gallery: everything ready-made, one look ---- */
+function galleryPage(){
+  const box=h("div",{id:"galBox"},h("div",{class:"skeleton",style:"height:140px"}));
+  const q=h("input",{type:"search",class:"gal-q","aria-label":"Search the gallery",placeholder:"Search: bug, review, tests, overnight…",oninput:()=>galDraw()});
+  setTimeout(async()=>{try{window.GAL=await api("/api/arch/gallery");}catch(e){window.GAL={packs:[],agents:[],error:e.message};}galDraw();},0);
+  return [h("div",{class:"card"},h("h2",{style:"margin:0"},"Gallery"),
+    h("p",{class:"sub"},"Everything ready-made in one place. Look inside anything before using it; make your own copy when you want to change it."),q),box];
+}
+function galDraw(){
+  const box=$("#galBox"); if(!box)return; box.innerHTML="";
+  const term=(($(".gal-q")||{}).value||"").toLowerCase(), hit=t=>!term||t.toLowerCase().includes(term), G=window.GAL||{packs:[],agents:[]};
+  const card=(title,desc,tag,...btns)=>h("div",{class:"gal-card"},h("div",{class:"gal-tag"},tag),h("h3",null,title),h("p",{class:"small mute"},desc||""),h("div",{class:"gal-btns"},...btns));
+  const flows=(S.flows||[]).filter(f=>hit((f.title||"")+" "+(f.blurb||"")+" "+f.id));
+  const packs=(G.packs||[]).filter(x=>hit((x.title||"")+" "+x.name+" "+(x.goal_kind||"")));
+  const agents=(G.agents||[]).filter(x=>hit((x.title||"")+" "+(x.purpose||"")+" "+x.name));
+  const sect=(t,sub,items)=>items.length?h("section",{class:"card"},h("h2",{style:"margin:0"},t+" ",h("span",{class:"mute small"},String(items.length))),h("p",{class:"sub"},sub),h("div",{class:"gal-grid"},...items)):null;
+  box.append(...[
+    sect("Workflows","Step-by-step recipes the team follows. Every step is checked by code.",flows.map(f=>card(f.title||f.id,f.blurb,"workflow",
+      h("button",{class:"btn sm",type:"button",onclick:()=>showFlowDetail(f.id)},"What's inside"),
+      h("button",{class:"btn sm p",type:"button",onclick:()=>{run.flow=f.id;built={};go("run");}},"Use")))),
+    sect("Harness packs","A whole setup in one: which helpers, which checks, which budget, for one kind of job.",packs.map(x=>card(x.title||x.name,(x.goal_kind?"For: "+x.goal_kind+". ":"")+(x.claude_mode?"Claude: "+x.claude_mode:""),"pack",
+      h("button",{class:"btn sm",type:"button",onclick:async()=>{try{const r=await api("/api/arch/gallery_readme?pack="+encodeURIComponent(x.name));showText(x.title||x.name,r.text||"");}catch(e){toast.err(e.message);}}},"What's inside")))),
+    sect("Agents","Briefs for agents that worked when this app was built. Use one in a Fleet.",agents.map(x=>card(x.title||x.name,x.purpose,x.mode==="plan"?"agent · reads only":"agent",
+      h("button",{class:"btn sm p",type:"button",onclick:()=>{store.set("libUse",x.name);go("library");}},"Use in a fleet"))))].filter(Boolean));
+  if(!box.children.length)box.append(h("div",{class:"card"},h("p",{class:"mute"},"Nothing matches. Try a shorter word.")));
+}
+/* ---- Computers: spread the work over the machines you own ---- */
+function computersPage(){
+  setTimeout(async()=>{try{const r=await api("/api/arch/hosts",{});renderMachines(r.machines);compBench(r.machines);}catch(e){const b=$("#hostBox");if(b)b.textContent=e.message;}},0);
+  return [h("div",{class:"card"},h("h2",{style:"margin:0"},"Computers"),
+      h("p",{class:"sub"},"Got another PC or a gaming rig with a graphics card? Install Ollama on it, add it here by its address, and the app measures it and sends work to whichever computer is fastest and free. If one goes offline, its work comes back to this PC by itself."),
+      h("div",{id:"compBench"})),
+    h("div",{class:"card"},h("div",{id:"hostBox"},h("div",{class:"skeleton",style:"height:120px"})))];
+}
+function compBench(m){
+  const b=$("#compBench"); if(!b||!m)return; b.innerHTML="";
+  const hs=(m.hosts||[]); if(!hs.length)return;
+  b.append(h("div",{class:"gal-btns"},...hs.map(x=>h("button",{class:"btn sm",type:"button",onclick:async()=>{toast("Measuring "+x.name+"…");
+    try{const r=await api("/api/arch/hosts",{bench:x.name});if(r.ok===false)toast.err(r.error);else toast("Measured "+x.name);renderMachines(r.machines);compBench(r.machines);}catch(e){toast.err(e.message);}}},"Measure "+x.name))));
 }
 async function showFlowDetail(id){
   if(!id){toast("Pick a workflow first");return;}
