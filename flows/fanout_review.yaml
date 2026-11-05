@@ -1,0 +1,101 @@
+id: fanout_review
+title: Review from several angles
+kind: direct
+blurb: "Three reviewer passes read the same code, each through one lens (correctness, failure paths, security and data). A second reader keeps only the findings it can point at in the code; behaviour bugs among them must then fail a test or stay unproven. Written to docs/review_angles.md."
+domains: [api, data, web]
+produces: ["docs/review_angles.md", "tests/hunt/test_*.py (proven findings only)"]
+uses_roles: [reviewer, evaluator, bug_hunter]
+budget: {calls: 10, tokens: 150000, seconds: 1800}
+context: {chars: 9000}
+overrides:
+  cpu8: {budget: {calls: 7, tokens: 70000, seconds: 3600}, skip: [prove]}
+  cpu16: {budget: {seconds: 3000}}
+steps:
+  - id: scan
+    kind: code
+    title: "Choose files + static facts"
+    gate: static_facts
+    n: 5
+    on_fail: stop
+
+  # One pass per lens. The lens text goes at the END of the prompt, so the three passes share one cached prefix
+  # (instructions, facts, code) and only the last lines differ.
+  - id: lenses
+    kind: foreach
+    title: Lens
+    stop_on_fail: false
+    max: 3
+    over:
+      - name: correctness
+        focus: "Wrong results: logic errors, off-by-one, wrong conditions, wrong return values, state that leaks between calls."
+      - name: failure paths
+        focus: "What happens when things go wrong: empty, None or huge input, exceptions swallowed or raised from the wrong place, resources left open, partial writes."
+      - name: security and data
+        focus: "Untrusted input reaching a query, a path, a shell or a template; secrets in code; data validated too late or not at all."
+    steps:
+      - id: lens
+        kind: generate
+        title: "One reviewer pass"
+        role: reviewer
+        tier: worker
+        prompt: lens
+        vars: {facts: "{facts}", lens_name: "{item.name}", lens: "{item.focus}"}
+        context: {always: ["ctx:scope"], max_always: 5, query: "{goal}"}
+        store_text: lens_notes
+        strip_fence: true
+        on_fail: continue
+        budget: {tokens: 30000, seconds: 420}
+
+  # The second check: a different role re-reads the code and keeps a finding only when it can quote the line that shows it.
+  - id: crosscheck
+    kind: generate
+    title: "Keep only findings that survive a second reading"
+    role: evaluator
+    prompt: crosscheck
+    vars: {facts: "{facts}"}
+    context: {always: ["ctx:scope"], max_always: 5, query: "{goal}"}
+    store_text: kept_findings
+    strip_fence: true
+    when: "lenses.n > 0"
+    on_fail: stop
+    budget: {tokens: 40000, seconds: 600}
+
+  # Code has the last word on behaviour bugs: each kept bug gets one test that must fail on today's code, or it is discarded.
+  - id: prove
+    kind: generate
+    title: "Prove the kept behaviour bugs with failing tests"
+    role: bug_hunter
+    tier: worker
+    prompt: prove
+    vars: {n: "{cfg.behavior.hunt_findings}"}
+    context: {always: ["ctx:scope"], max_always: 4}
+    apply: {expect_new_under: "tests/hunt/", deny_ctx: existing_tests}
+    verify: {gate: hunt_confirm}
+    when: "crosscheck.ok"
+    on_fail: continue
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: write
+    kind: report
+    title: "Write docs/review_angles.md"
+    path: docs/review_angles.md
+    label: review
+    template: |
+      # Review from several angles
+
+      Files: {scope}
+
+      ## Facts from tools
+
+      {facts}
+
+      ## Findings that survived a second reading
+
+      {kept_findings}
+
+      ## Proven by a failing test
+
+      {confirmed_text}
+
+verdict:
+  pass_if: "crosscheck.ok and write.ok"

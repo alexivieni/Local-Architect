@@ -34,6 +34,13 @@ model, no OpenAI-style endpoint. Code decides what passes (tests, AST checks, th
 - `arch_fts.py` + `arch_index.py` — retrieval: SQLite FTS5 over functions and memory notes (`.arch/index.db`), fused with TF-IDF; no vectors, no embedding model. `arch_modelmath.py` — the advisor behind `explain` (plain words, numbers, formula; every figure labelled measured or estimate).
 - `arch_eval.py` + `evals/` — the fixed task set per flow (`eval`, `eval --fake` oracle, `eval --compare` regression gate). `arch_selftest_eval.py`, `arch_selftest_offline.py` — the eval harness and the offline seal.
 - `arch_selftest*.py`, `arch_hub_check.py` — the suites; `python architect.py selftest --suite full` runs them all in an isolated home.
+- `arch_cloud.py` — Claude as an optional tier (`claude:` models): the one gate `allowed()`, per-run/per-day spend caps checked before each request, a 30-day reply cache, web search only on a person's chat message, fast mode (Opus only, falls back to normal speed). Replies are transport `claude`, never training data.
+- `arch_claudecode.py` — the real Claude Code agent via the Agent SDK in the project folder, billed to the API key (own `CLAUDE_CONFIG_DIR` = `<data>/claude_code`, so a subscription login can never be used); modes plan/acceptEdits/default, no bypass; every run kept in `<data>/cc_runs/`.
+- `arch_agents.py` — the person's Claude Managed Agents (list, session, live events; tool approvals default to deny) + the night shift (`schedule_add/list/remove`, `crew_schedule.json`, `crew_log.jsonl`).
+- `arch_fleet.py` — several Claude Code agents at once, one file owner each; `plan_check` refuses before spending; the FLEET runs the tests (only `ALLOWED_PREFIXES`, no shell punctuation); `ok None` = `not_sure`. `arch_agentlib.py` — briefs that worked as `agent_templates/*.md`, filled in and handed to the fleet.
+- `arch_overseer.py` — one incremental reader over agent logs, transcripts, hub runs, fleets and the ledger; views of one session are folded into one agent, nothing is counted twice. `arch_learn.py` — the Logbook (`logbook.db`, FTS5): tasks/steps/files, `by_claude` flag, `exclude_from_training()`.
+- `arch_costs.py` — what runs cost, read from traces (Claude dollars, tokens per model, `local_share`). `arch_tokens.py` — price before sending (`count()` is the free counter, refused when `arch_cloud.allowed()` says no; `estimate_local()` labelled estimate). `arch_batch.py` — overnight batches at half price, same gate.
+- `arch_server.py` fast lane (`server.fast_lane`, `fast_think_budget`) — worker only: all layers + cache on the card (window shrinks to fit, not below `FAST_MIN_CTX`), n-gram speculation, above-normal priority on performance cores; with it off the plan is unchanged (`arch_selftest_fastlane`).
 - `hub_data/` — measured data (profile, ledger, results, machine card). `.arch/` in a project — runs, backups, undo, handoff.
 - `catalog.json` — models worth considering (never pulled without an explicit yes). `MANIFEST.sha256` — install integrity (`self-verify`).
 
@@ -221,6 +228,15 @@ run). The suites drive real `Engine` calls with the scripted stand-in `fake:7b` 
 checks" and fed it into real prompts, and the suites stopped being repeatable. A suite that scripts a model must also set
 `ARCHITECT_NO_CACHE=1`: a scripted fake answers the same prompt differently on successive calls, which a real temperature-0 model never
 does, so `arch_cache` correctly collapses the two and the script falls out of step.
+
+## Rules learned building the Claude tools (2026-11-04; method: hub_data/learning/METHOD.md)
+- **Self-tests never call Claude**, whatever the settings say: every network path asks `arch_cloud.allowed()` (false under eval and the self-tests, `_testing()`); tests pass a fake `client=`. A count of tokens is still a request off the machine, so it is gated too.
+- **Claude prompts get the full window.** Local prompts are fitted to a small served window; a Claude call is not, so do not cut its context to a local size. Keep the shared prefix first so prompt caching pays (a 6-call Council answer fell from $0.27 to $0.18).
+- **Checks ignore pre-existing findings.** A gate compares against what the file had before the run; otherwise a correct one-line change fails on problems it did not make.
+- **Agents own files.** Every brief names its files; no two running agents share one (or a folder and a file in it). A shared file (hub_ui.html) is queued, not parallel. Every brief has a hard `max_budget_usd`; jobs came in at 10-25% of their caps.
+- **The orchestrator verifies.** Agents in acceptEdits mode cannot run commands, so the lead (or `arch_fleet`) runs the suites and reports three outcomes; only what passes is committed.
+- Claude Code's own `claude -p` prefers a subscription login over the key: keep the empty `claude_code` settings folder. Claude-written text may feed retrieval, playbooks and statistics, never fine-tuning (`arch_dataset` skips it via `exclude_from_training()`).
+- A new setting goes in `arch_params.SETTINGS` and `arch_core.DEFAULTS` (a check compares them).
 
 ## Gates are the product
 Unlike a generic harness, Architect's gates (tests, verifier, fake-code gate, shrink guard, question detector, missing-import check) are the point: a small

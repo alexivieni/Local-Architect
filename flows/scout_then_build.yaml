@@ -1,0 +1,84 @@
+id: scout_then_build
+title: Scout, then build
+kind: plan_execute_verify
+blurb: "The smallest model looks around first (list, search, read; it changes nothing) and writes a short brief: which files matter, which functions to use, how the project tests. The planner and every sprint then work from that brief instead of a large slice of raw code. Code checks and tests decide each sprint."
+domains: [api, data, web]
+produces: ["source files", "tests/", ".arch/handoff.json"]
+uses_roles: [architect, planner, generator, generator_ui, generator_sql, evaluator]
+budget: {calls: 56, tokens: 280000, seconds: 3600, heavy_calls: 3}
+context: {chars: 5000}
+overrides:
+  gpu6: {budget: {tokens: 200000}}
+  cpu8: {budget: {calls: 30, tokens: 90000, seconds: 5400}, skip: [judge]}
+  cpu16: {budget: {seconds: 5400}}
+steps:
+  # Cheap and read-only: the router tier explores with tools and answers with the brief.
+  - id: scout
+    kind: tool_loop
+    title: "Scout the code and write a brief"
+    role: architect
+    tier: router
+    prompt: scout
+    tools: [ls, grep, search, read, outline]
+    allow_writes: false
+    max_steps: 6
+    store_text: brief
+    on_fail: continue
+    budget: {tokens: 40000, seconds: 480}
+
+  - id: plan
+    kind: ask_json
+    title: "Plan sprints + contracts from the brief"
+    role: planner
+    tier: worker
+    prompt: plan
+    schema: PLAN
+    store: plan_doc
+    vars: {max_sprints: "{cfg.limits.max_sprints}"}
+    context: {chars: 4000}
+    budget: {tokens: 30000, seconds: 600}
+
+  - id: sprints
+    kind: foreach
+    title: Sprint
+    over: plan_doc
+    key: sprints
+    max: 6
+    stop_on_fail: true
+    fallback:
+      - name: implementation
+        kind: mixed
+        goal: "{goal}"
+        acceptance: [{id: A1, text: "the goal works and the tests pass"}]
+    steps:
+      - id: code
+        kind: generate
+        title: "Implement the sprint"
+        role: "generator*"
+        tier: worker
+        prompt: sprint
+        vars: {n: "{item_n}", total: "{item_total}", name: "{item.name}", sgoal: "{item_goal}", criteria: "{item_criteria}"}
+        context: {chars: 5000, query: "{item_goal} {item_files}", always: ["docs/spec.md", "api/openapi.json", "db/schema.sql"], max_always: 2}
+        verify: {gate: verify_files, run_tests: true}
+        loop: {max: 3, coach: true, escalate: [heavy]}
+        budget: {tokens: 110000, seconds: 1800}
+
+  - id: judge
+    kind: judge
+    title: "Judge against the contract"
+    tier: heavy
+    what: "whole build"
+    criteria: "every acceptance criterion in this plan, one score each:\n{plan_doc.sprints}\nno_stubs (no placeholder or fake behaviour)"
+    requires: "sprints.ok and cfg.behavior.evaluator != 'off'"
+    evidence: {tests: true}
+    on_fail: continue
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: save
+    kind: handoff
+    title: "Save progress for the next session"
+    fields: {next: "continue with the next piece of work"}
+
+verdict:
+  pass_if: "sprints.ok"
+  not_sure_if: "judge.unsure"

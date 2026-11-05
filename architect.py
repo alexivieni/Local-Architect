@@ -1279,6 +1279,12 @@ def _run_suites(suite):
             rc |= arch_selftest_sec.run()
         except ImportError:
             print("[i] arch_selftest_sec not present yet -- skipped")
+        import importlib
+        for _name in ("agentlib", "cloud", "costs", "crew", "data2", "fastlane", "fleet", "hubcalm", "hubui",
+                      "localfleet", "logbook", "overseer", "scout", "tokens", "tune2"):
+            _mod = importlib.import_module("arch_selftest_" + _name)
+            _fn = getattr(_mod, "run", None) or getattr(_mod, "main")     # logbook and overseer expose main()
+            rc |= (_fn() or 0)
         try:
             import arch_hub_check
             rc |= arch_hub_check.run()

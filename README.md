@@ -60,6 +60,33 @@ Off by default. To use it:
 3. In the hub, **Settings > Online**: turn on *Allow online features* and set *Claude as the last step* to `escalation`.
    Choose the model and the spend cap per run there.
 
+### New: Council, Crew, Claude Code, Fleet, Logbook (all optional, all behind *Allow online features*)
+
+Everything below is off until you turn on **Settings > Online**, uses your own API key, and shows a price before you commit.
+
+- **Council** (chat). Type the word `council` in a message, or switch it on in the model menu: several Claude agents debate, skeptics
+  challenge the answer, and one lead rules. Only the lead may search the web. Typing `deep think` asks for maximum effort for that message.
+- **Crew** (your Claude Managed Agents). List the agents you made in the Claude Console, start a session, and watch every event live. Nothing
+  that pauses for a decision is approved unless you approve it on the page. **Schedules** (the night shift) put a crew run on a clock
+  (`02:00`, daily or once); what happened is kept in `crew_log.jsonl`.
+- **Claude Code on your API key.** The real Claude Code agent runs in your project folder from the hub, billed to the API key, never to a
+  subscription (it uses its own settings folder, `hub_data/claude_code`). Every message, tool call and result is kept; a follow-up continues
+  the same session. Modes: plan (reads only) and accept-edits. There is no "bypass" mode.
+- **Fleet.** Several Claude Code agents on one project at once, each on its own files. The plan is refused before any money is spent if two
+  agents share a file or a budget is missing. When they finish, the app itself runs the tests (the agents cannot) and reports pass, fail or
+  "not sure", plus any changed file no agent owned. **Agent library**: briefs that worked, kept as fill-in templates.
+- **Logbook.** Everything your agents and Claude did on this PC in one searchable file (`python arch_learn.py ingest | stats | similar "text" | playbooks`).
+  The **overseer** watches every agent running on the machine. Claude-written work is used for playbooks and retrieval, never to train your models.
+- **Costs.** One page counts what your runs cost from their traces: dollars (Claude calls only), tokens per model, how much stayed local.
+  Before a Claude message is sent, the hub says "this will cost about $x" (Anthropic's free token counter, or a local estimate, labelled).
+- **Batch.** Work that can wait goes to Claude as one overnight batch at half the price.
+- **Claude fast mode** (Settings > Online): Opus answers up to about 2.5x faster at twice the price; if it is busy the call runs at normal speed.
+- **Fast lane** (Settings > Server > Fast lane, local, free): the same worker model answers sooner because it gets more of this machine: every
+  layer on the graphics card, n-gram lookup, above-normal priority on the performance cores, a lower thinking budget. It never touches
+  Windows settings and the window may shrink to fit the card.
+
+The method used to build these with a fleet of agents (briefs, caps, lessons measured) is in `hub_data/learning/METHOD.md`.
+
 ## Privacy
 
 Everything runs locally. Measurements, run traces and your settings stay in `hub_data/` and each project's `.arch/` folder, which

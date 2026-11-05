@@ -1,0 +1,95 @@
+id: plan_local_build
+title: Think big, write local
+kind: plan_execute_verify
+blurb: "The thinking roles plan and judge; the local worker writes every line. With Use Claude = plan the planner and the judge are Claude; otherwise they run on the heavy tier. The plan fixes the public interface and an acceptance contract per sprint; the worker builds sprint by sprint against it, code checks and tests decide each sprint, and the judge scores the result against the same contract."
+domains: [api, data, web]
+produces: ["source files", "tests/", ".arch/handoff.json"]
+uses_roles: [planner, generator, generator_ui, generator_sql, evaluator]
+budget: {calls: 56, tokens: 320000, seconds: 3600, heavy_calls: 4}
+context: {chars: 9000}
+overrides:
+  gpu6: {budget: {tokens: 220000}}
+  cpu8: {budget: {calls: 30, tokens: 100000, seconds: 5400}, skip: [judge_local]}
+  cpu16: {budget: {seconds: 5400}}
+steps:
+  # Two ways to plan, exactly one runs. With Claude doing the thinking roles the step names no tier (a tier would pin the
+  # local model over Claude); without it the plan is an explicit escalation to the heavy tier.
+  - id: plan_cloud
+    kind: ask_json
+    title: "Plan + contracts (Claude)"
+    role: planner
+    prompt: plan
+    schema: PLAN
+    store: plan_doc
+    when: "cfg.online.enabled and cfg.online.cloud_tier in ['plan', 'all']"
+    vars: {max_sprints: "{cfg.limits.max_sprints}"}
+    context: {chars: 12000}
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: plan_heavy
+    kind: ask_json
+    title: "Plan + contracts (heavy tier)"
+    role: planner
+    tier: heavy
+    prompt: plan
+    schema: PLAN
+    store: plan_doc
+    when: "not (cfg.online.enabled and cfg.online.cloud_tier in ['plan', 'all'])"
+    vars: {max_sprints: "{cfg.limits.max_sprints}"}
+    context: {chars: 9000}
+    budget: {tokens: 40000, seconds: 900}
+
+  - id: sprints
+    kind: foreach
+    title: Sprint
+    over: plan_doc
+    key: sprints
+    max: 6
+    stop_on_fail: true
+    fallback:
+      - name: implementation
+        kind: mixed
+        goal: "{goal}"
+        acceptance: [{id: A1, text: "the goal works and the tests pass"}]
+    steps:
+      - id: write
+        kind: generate
+        title: "Write the sprint (local worker)"
+        role: "generator*"
+        tier: worker
+        prompt: sprint
+        vars: {n: "{item_n}", total: "{item_total}", name: "{item.name}", sgoal: "{item_goal}", criteria: "{item_criteria}"}
+        context: {query: "{item_goal} {item_files}", always: ["docs/spec.md", "docs/architecture.md", "api/openapi.json", "db/schema.sql"], max_always: 3}
+        verify: {gate: verify_files, run_tests: true}
+        loop: {max: 3, coach: true, escalate: [heavy]}
+        budget: {tokens: 120000, seconds: 1800}
+
+  - id: judge_cloud
+    kind: judge
+    title: "Judge against the contract (Claude)"
+    what: "whole build"
+    criteria: "the public interface, exactly as planned:\n{plan_doc.interface}\nevery acceptance criterion in this plan, one score each:\n{plan_doc.sprints}\nno_stubs (no placeholder or fake behaviour)"
+    requires: "sprints.ok and cfg.behavior.evaluator != 'off' and cfg.online.enabled and cfg.online.cloud_tier in ['plan', 'all']"
+    evidence: {tests: true}
+    on_fail: continue
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: judge_local
+    kind: judge
+    title: "Judge against the contract (heavy tier)"
+    tier: heavy
+    what: "whole build"
+    criteria: "the public interface, exactly as planned:\n{plan_doc.interface}\nevery acceptance criterion in this plan, one score each:\n{plan_doc.sprints}\nno_stubs (no placeholder or fake behaviour)"
+    requires: "sprints.ok and cfg.behavior.evaluator != 'off' and not (cfg.online.enabled and cfg.online.cloud_tier in ['plan', 'all'])"
+    evidence: {tests: true}
+    on_fail: continue
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: save
+    kind: handoff
+    title: "Save progress for the next session"
+    fields: {next: "continue with the next sprint of the plan"}
+
+verdict:
+  pass_if: "sprints.ok"
+  not_sure_if: "judge_cloud.unsure or judge_local.unsure"

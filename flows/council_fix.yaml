@@ -1,0 +1,81 @@
+id: council_fix
+title: Bug fix with a council
+kind: plan_execute_verify
+blurb: "Bug report -> failing reproduction test -> up to three local fix tries (each failed try undone) -> when the worker is stuck, a council of several answers from the heavy tier, every one applied and tested on its own; the smallest change that passes wins. Tests decide, never a vote."
+domains: [api, data, web]
+produces: ["tests/test_repro_*.py", "fixed source files"]
+uses_roles: [generator, reviewer]
+budget: {calls: 20, tokens: 180000, seconds: 2700, heavy_calls: 3}
+context: {chars: 12000}
+overrides:
+  cpu8: {budget: {seconds: 5400, tokens: 100000}, skip: [review]}
+  cpu16: {budget: {seconds: 4200}}
+steps:
+  - id: locate
+    kind: code
+    title: "Locate (traceback + ranking)"
+    gate: suspect_files
+
+  - id: repro
+    kind: generate
+    title: "Write a failing reproduction test"
+    role: generator
+    tier: worker
+    prompt: repro
+    when: "env.can_test and params.repro is None"
+    context: {chars: 12000, query: "{goal}"}
+    apply: {expect_new_under: "tests/"}
+    verify: {gate: repro_fails_right_reason}
+    retries: 1
+    on_fail: continue
+    budget: {tokens: 30000, seconds: 420}
+
+  # Local tries only: no escalation here, the council below is the escalation. A failed try is undone, so the council
+  # starts from the original code and not from the worker's last broken attempt. Existing tests and the files that
+  # decide which tests run are read-only.
+  - id: fix
+    kind: generate
+    title: "Local fix, up to three tries"
+    role: generator
+    tier: worker
+    prompt: fix
+    context: {always: ["ctx:scope"], max_always: 3, query: "{goal}"}
+    apply: {deny: ["{repro_path}", "tests/", "conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml"]}
+    verify: {gate: verify_files, run_tests: true}
+    loop: {max: 2, coach: true}
+    rollback_on_fail: true
+    on_fail: continue
+    budget: {tokens: 80000, seconds: 900}
+
+  # The council: three answers to the same prompt from the heavy tier (the worker when no heavy tier is set), each applied
+  # in turn and run against the full test suite. Only answers that pass count; among them the smallest change is kept.
+  - id: council
+    kind: sample_n
+    title: "Council of the heavy tier (tests decide)"
+    role: generator
+    tier: heavy
+    n: 3
+    temperature: 0.3
+    prompt: council
+    vars: {tries: "{fix.tries}", last_failure: "{fix.feedback}"}
+    when: "not fix.ok and not fix.unsure and not fix.stopped"
+    context: {always: ["ctx:scope"], max_always: 3, query: "{goal}"}
+    apply: {deny: ["{repro_path}", "tests/", "conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml"]}
+    verify: {gate: verify_files, run_tests: true}
+    on_fail: continue
+    budget: {tokens: 70000, seconds: 1500}
+
+  - id: review
+    kind: generate
+    title: "Risk review (advice only)"
+    role: reviewer
+    tier: worker
+    prompt: review
+    when: "(fix.ok or (council.ok and not council.skipped)) and cfg.behavior.evaluator != 'off'"
+    context: {chars: 7000, always: ["ctx:scope"], max_always: 3}
+    store_text: review_notes
+    budget: {tokens: 20000, seconds: 300}
+
+verdict:
+  pass_if: "fix.ok or (council.ok and not council.skipped)"
+  not_sure_if: "fix.unsure or council.unsure"
