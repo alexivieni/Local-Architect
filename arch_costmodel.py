@@ -217,6 +217,56 @@ def from_evals(paths, include_fake=False):
     return sorted(out, key=lambda r: (r["C"] is None, r["C"] or 0))
 
 
+_STOP_MEMO = {"t": 0.0, "stats": None}
+STOP_MIN_SAMPLES = 10
+
+
+def _try_counts(roots=None, ttl=600.0):
+    """{(role, model): {try i: [passed, attempts]}} from the kept traces, memoised for ttl seconds."""
+    import time as _t
+    if _STOP_MEMO["stats"] is not None and _t.time() - _STOP_MEMO["t"] < ttl:
+        return _STOP_MEMO["stats"]
+    stats = collections.defaultdict(lambda: collections.defaultdict(lambda: [0, 0]))
+    for run, calls, marks in _records(roots or default_roots()):
+        steps = collections.defaultdict(list)
+        for cid, c in calls.items():
+            m = marks.get(cid)
+            ok = m.get("accepted", m.get("ok")) if m else None
+            if ok is None or c.get("done_reason") == "cached":
+                continue
+            steps[(run, c.get("role") or "?", _TRY.sub("", str(c.get("label") or c.get("role") or "")))].append((c.get("t") or 0, c, bool(ok)))
+        for (_run, role, _label), seq in steps.items():
+            seq.sort(key=lambda x: x[0])
+            for i, (_t2, c, ok) in enumerate(seq, 1):
+                s2 = stats[(role, c.get("model") or "?")][i]
+                s2[0] += int(ok)
+                s2[1] += 1
+                if ok:
+                    break
+    _STOP_MEMO.update(t=_t.time(), stats=stats)
+    return stats
+
+
+def retry_worth(role, model, try_no, cfg=None, roots=None):
+    """Optimal stopping, guarded (Eq. 16-17): is try `try_no` of a step worth its seconds? False only when this role+model has at
+    least STOP_MIN_SAMPLES measured attempts at that position, none passed, and no later position ever passed either -- then the
+    expected cost t / p is unbounded and the time is better spent moving on. True whenever the data is thin. Off in benchmarks and
+    self-tests (they measure a fixed policy) and with behavior.retry_stop = off."""
+    import os as _os
+    if _os.environ.get("ARCHITECT_EVAL") == "1" or _os.environ.get("ARCHITECT_SELFTEST") == "1":
+        return True
+    if str(((cfg or {}).get("behavior") or {}).get("retry_stop", "auto")) == "off":
+        return True
+    try:
+        st = _try_counts(roots).get((role, model)) or {}
+    except Exception:
+        return True
+    here = st.get(try_no)
+    if not here or here[1] < STOP_MIN_SAMPLES or here[0] > 0:
+        return True
+    return any(v[0] > 0 for k, v in st.items() if k > try_no)     # worth it only if some LATER try has ever passed
+
+
 def p_cheapest(rows, draws=2000, seed=7):
     """How sure is "cheapest"? For each kind of task: draw every model's pass rate from Beta(passed + 1, failed + 1) and its
     C = t / p, count how often each model is cheapest. -> {kind: {model: probability}}. With 3 tasks a point, 'cheapest' is often

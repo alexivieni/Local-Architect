@@ -95,6 +95,23 @@ def run():
     check("p_cheapest: a clear winner is near certain; two identical records split about evenly (Thompson draws)",
           pc["k"]["a"] > 0.97 and 0.35 < pc["j"].get("x", 0) < 0.65, pc)
 
+    saved_memo, saved_eval = dict(cm._STOP_MEMO), os.environ.pop("ARCHITECT_EVAL", None)
+    saved_st = os.environ.pop("ARCHITECT_SELFTEST", None)
+    try:
+        cm._STOP_MEMO.update(t=1e18, stats={("g", "m"): {1: [3, 20], 2: [2, 15], 3: [0, 12], 4: [0, 11]},
+                                            ("g", "n"): {3: [0, 12], 4: [1, 5]}, ("g", "thin"): {3: [0, 4]}})
+        check("retry_worth: stops only when 10+ measured attempts at that try all failed and no later try ever passed",
+              cm.retry_worth("g", "m", 3) is False and cm.retry_worth("g", "n", 3) and cm.retry_worth("g", "thin", 3) and cm.retry_worth("g", "m", 2))
+        os.environ["ARCHITECT_EVAL"] = "1"
+        check("retry_worth: never stops in a benchmark, nor with behavior.retry_stop = off",
+              cm.retry_worth("g", "m", 3) and (os.environ.pop("ARCHITECT_EVAL") and cm.retry_worth("g", "m", 3, {"behavior": {"retry_stop": "off"}})))
+    finally:
+        cm._STOP_MEMO.clear()
+        cm._STOP_MEMO.update(saved_memo)
+        for k, v in (("ARCHITECT_EVAL", saved_eval), ("ARCHITECT_SELFTEST", saved_st)):
+            if v is not None:
+                os.environ[k] = v
+
     # the hub's Cost map page (static: the page source, no browser)
     import re
     html = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "hub_ui.html"), encoding="utf-8").read()

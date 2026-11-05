@@ -1392,6 +1392,16 @@ class BuildFlow(Flow):
                 rescue = attempt == e.cfg["limits"]["max_revisions"] + 1
                 if rescue and not (k_res > 1 and not e.pins.get(role) and e.review in ("auto", "dry")):
                     break                                               # the extra round is only a best-of-N rescue for a stuck step
+                if attempt >= 2:                                        # optimal stopping (arch_costmodel.retry_worth): measured hopeless
+                    try:
+                        import arch_costmodel
+                        if not arch_costmodel.retry_worth(role, e.model_for(role), attempt + 1, e.cfg):
+                            e.say(f"[i] try {attempt + 1} of this step has never passed for {e.model_for(role)} in "
+                                  f"{arch_costmodel.STOP_MIN_SAMPLES}+ measured attempts, nor any later try: moving on instead")
+                            e.report(f"- Stopped after {attempt} tries: later tries never passed for this model (measured)")
+                            break
+                    except Exception:
+                        pass
                 cx = ho + e.context(sgoal + " " + " ".join(want), None, always=[x for x in ("docs/spec.md", "docs/architecture.md", "api/openapi.json", "db/schema.sql") if os.path.isfile(os.path.join(e.root, x))][:3])
                 prompt = BUILD_SPRINT.format(n=n, total=len(sprints), name=name, sgoal=sgoal, criteria=criteria, feedback=feedback, context=cx,
                                              files=", ".join(want) or "(your choice)", interface=iface_text)
