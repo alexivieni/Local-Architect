@@ -1519,6 +1519,9 @@ class AHandler(mh.Handler):
             st = mh.build_state()
             a_out = assess.assess(st.get("models", []), st.get("hw"), core.deep_merge(core.DEFAULTS, mh.read_config()))
             return self._send(200, advisor.advise(root, d_out, a_out))
+        if u.path == "/api/arch/flow_detail":
+            import arch_dataflow
+            return self._send(200, arch_dataflow.flow_detail((parse_qs(u.query).get("flow") or [""])[0]))
         if u.path == "/api/arch/why":
             # a finished run in plain sentences (arch_why: built from the trace records, no model call)
             import arch_why

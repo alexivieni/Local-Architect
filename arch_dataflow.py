@@ -1084,3 +1084,67 @@ def register(flows_dict, mode, say=None):
             flows_dict[fid] = fl
             done.append(fid)
     return done
+
+
+# ---- "What's inside": everything a workflow and each step consists of, for the hub's inspector -------------------------------
+KIND_PLAIN = {"generate": "A model writes or changes code.", "code": "Code runs one check. No model, no tokens.",
+              "ask_json": "A model answers in a fixed shape (a decision or a plan).", "judge": "A strict reviewer model grades the work; "
+              "an unusable verdict counts as 'not sure', never a pass.", "doc": "A model writes a document.",
+              "sample_n": "Several attempts at once; the first that passes the check wins.", "cascade": "The same job goes up the "
+              "helpers (main, then expert) until it passes.", "tool_loop": "A model explores: lists, searches, reads and runs tests, "
+              "one tool at a time.", "foreach": "Repeats its steps for every item of a list.", "sub_flow": "Runs another workflow.",
+              "report": "Writes the run's report.", "handoff": "Saves progress for the next session.", "chunked": "Works through a big "
+              "input in parts."}
+
+
+def flow_detail(flow_id):
+    """-> {id, title, blurb, kind, produces, inputs, budget, context, overrides, roles, tiers, steps:[{id, title, kind, kind_plain,
+    tier, role, prompt_name, prompt_text, check, check_plain, when, retries, budget, context, apply, params, on_fail}]}"""
+    path = os.path.join(FLOWS_DIR, f"{flow_id}.yaml")
+    if not re.fullmatch(r"[a-z][a-z0-9_]{1,40}", flow_id or "") or not os.path.isfile(path):
+        return {"error": f"no workflow called {flow_id!r}"}
+    doc = load_yaml_file(path)
+    try:
+        import arch_gates
+        gates = getattr(arch_gates, "GATES", {})
+    except Exception:
+        gates = {}
+
+    def gate_plain(name):
+        fn = gates.get(name)
+        d = (getattr(fn, "__doc__", "") or "").strip().split("\n\n")[0] if fn else ""
+        return " ".join(d.split())[:400] or f"the check '{name}'"
+
+    steps, tiers, roles = [], set(), set()
+
+    def walk(lst, depth=0):
+        for st in lst or []:
+            if not isinstance(st, dict):
+                continue
+            g = (st.get("verify") or {}).get("gate") or st.get("gate") or ""
+            pname = st.get("prompt") or ""
+            ptext = ""
+            if pname:
+                for cand in (pname, pname + ".md"):
+                    p = prompt_path(doc.get("id"), cand)
+                    if os.path.isfile(p):
+                        ptext = open(p, encoding="utf-8", errors="replace").read()[:6000]
+                        break
+            if st.get("tier"):
+                tiers.add(st["tier"])
+            if st.get("role"):
+                roles.add(st["role"])
+            steps.append({"id": st.get("id"), "title": st.get("title") or st.get("id"), "kind": st.get("kind"), "depth": depth,
+                          "kind_plain": KIND_PLAIN.get(st.get("kind"), ""), "tier": st.get("tier") or "", "role": st.get("role") or "",
+                          "prompt_name": pname, "prompt_text": ptext, "check": g, "check_plain": gate_plain(g) if g else "",
+                          "when": st.get("when") or "", "retries": st.get("retries") or 0, "budget": st.get("budget") or {},
+                          "context": st.get("context") or {}, "apply": st.get("apply") or {}, "params": st.get("vars") or st.get("params") or {},
+                          "on_fail": st.get("on_fail") or "", "loop": st.get("loop") or {}})
+            walk(st.get("steps"), depth + 1)
+
+    walk(doc.get("steps"))
+    return {"id": doc.get("id"), "title": doc.get("title"), "blurb": doc.get("blurb") or "", "kind": doc.get("kind") or "",
+            "produces": doc.get("produces") or [], "inputs": doc.get("inputs") or {}, "budget": doc.get("budget") or {},
+            "context": doc.get("context") or {}, "overrides": doc.get("overrides") or {}, "verdict": doc.get("verdict") or {},
+            "roles": sorted(roles | set(doc.get("uses_roles") or [])), "tiers": sorted(tiers), "steps": steps,
+            "file": os.path.relpath(path, HERE)}

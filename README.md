@@ -15,6 +15,11 @@ never leaves your machine unless you turn on the optional Claude step.
 
 **Architecture:** see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — harness, agents, components, workload placement, tokens and caching.
 
+**Engineering docs:** [architecture review (22 ranked changes)](docs/architecture_review_20261104.md) ·
+[Claude-to-local synthesis](docs/claude_to_local_synthesis.md) · [agent method](docs/agent_method.md) ·
+[PC plan](docs/pc_plan_20261104.md) · [Claude API review](docs/claude_api_review.md) · [design system](docs/design_system.md) ·
+[art direction](docs/art_direction.md) · [training plan](docs/training_plan.md) · [hybrid benchmark](docs/hybrid_benchmark.md)
+
 ## What's new today (2026-11-04)
 
 - **Local agents** (`arch_localagent.py`): the fleet can give a brief to your own worker model, which owns only its files and runs its tests itself.

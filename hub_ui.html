@@ -1116,6 +1116,15 @@ button,select,input,textarea,summary{min-height:36px}
 
 /* Blueprints, plain language */
 .bp-recipes{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 14px}.bp-desc{font-size:.82rem;color:var(--mute);line-height:1.3}
+
+/* "What's inside" inspector */
+.fi-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);display:grid;place-items:start center;overflow:auto;padding:4vh 12px}
+.fi-panel{width:min(860px,100%);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;display:grid;gap:12px}
+.fi-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}.fi-facts>div{border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;gap:4px}
+.fi-step{border:1px solid var(--line);border-radius:10px;padding:10px 14px}.fi-step>summary{cursor:pointer;display:flex;align-items:center;gap:10px}
+.fi-n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--acc2);color:var(--acc);font-size:12px;font-weight:700;flex:none}
+.fi-dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:10px 0 4px}.fi-dl dt{color:var(--mute)}.fi-dl dd{margin:0}
+.fi-prompt pre{white-space:pre-wrap;max-height:260px;overflow:auto;background:var(--bg);padding:10px;border-radius:8px;font-size:12.5px}
 /* ===== art direction (docs/art_direction.md): section hues, page glyphs, illustrations, signs of life, the theme picker. Tokens only ===== */
 /* section hue: one colour per place, used for an icon tint and the active marker, nothing else */
 body[data-sec=home],.nav[data-sec=home]{--hue:var(--hue-projects)}
@@ -3131,6 +3140,7 @@ function flows(){
   const out=[h("div",{class:"legend"},h("span",null,h("i",{style:"background:var(--llm)"}),"model step"),h("span",null,h("i",{style:"background:var(--code)"}),"code check (tests, validators)"),h("span",null,h("i",{style:"background:var(--judge)"}),"strict judge"))];
   for(const f of S.flows){
     out.push(h("div",{class:"card"},h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,f.title),h("p",{class:"sub",style:"margin:0"},f.blurb)),
+        h("button",{class:"btn",type:"button",onclick:()=>showFlowDetail(f.id)},"What's inside"),
         h("button",{class:"btn p",onclick:()=>{run.flow=f.id;built={};go("run");}},"Run this flow")),
       h("div",{class:"flow"},...f.steps.map(s=>h("div",{class:"step "+s.kind},h("b",null,s.title),h("span",null,s.role==="-"?"code":roleName(s.role.replace("*",""))+(s.role.endsWith("*")?" (by file type)":""))))),
       h("div",{class:"row"},h("span",{class:"mute small"},"Roles:"),...f.roles.map(r=>{const a=(S.roles.find(x=>x.id===r)||{}).assigned;return h("span",{class:"chip "+(a?"":"warn"),title:a||"no model assigned: uses the fallback"},roleName(r)+": "+(a||"auto"));})),
@@ -4103,6 +4113,43 @@ const BP_RECIPES=[["Fix a bug","bugfix","Finds the cause, proves it with a faili
 let BP={kit:null,from:"",id:"",title:"",steps:[],sel:-1,drag:null,dropAt:null,overwrite:false,result:null,seq:0};
 const bpTone=k=>k==="code"?"code":k==="judge"?"judge":"llm";
 const bpNeedsPrompt=k=>((BP.kit&&BP.kit.needs_prompt)||["generate","ask_json","doc","sample_n","cascade","tool_loop"]).includes(k);
+/* ---- "What's inside": a workflow and every step it consists of (instructions, check, inputs, budget, who runs it) ---- */
+const TIER_PLAIN={router:"Fast helper (processor)",worker:"Main helper (graphics card)",heavy:"Expert (graphics card + memory)","":"Whoever usually does this"};
+async function showFlowDetail(id){
+  if(!id){toast("Pick a workflow first");return;}
+  let d; try{d=await api("/api/arch/flow_detail?flow="+encodeURIComponent(id));}catch(e){toast.err(e.message);return;}
+  if(d.error){toast.err(d.error);return;}
+  const kv=(o)=>Object.entries(o||{}).map(([k,v])=>k+": "+(typeof v==="object"?JSON.stringify(v):v)).join(" · ");
+  const close=()=>{ov.remove();document.removeEventListener("keydown",esc);};
+  const esc=e=>{if(e.key==="Escape")close();};
+  const steps=d.steps.map((s,i)=>h("details",{class:"fi-step",open:i===0},
+    h("summary",null,h("span",{class:"fi-n"},String(i+1)),h("b",null,s.title),h("span",{class:"mute small"}," — "+(s.kind_plain||s.kind))),
+    h("dl",{class:"fi-dl"},
+      h("dt",null,"Who does it"),h("dd",null,s.kind==="code"?"Code only (no model)":(TIER_PLAIN[s.tier]||s.tier)+(s.role?" · role: "+s.role:"")),
+      s.check?h("dt",null,"How it is checked"):null,s.check?h("dd",null,h("b",null,s.check.replace(/_/g," ")),": "+s.check_plain):null,
+      s.when?h("dt",null,"Runs only when"):null,s.when?h("dd",null,h("code",null,s.when)):null,
+      s.retries?h("dt",null,"Tries"):null,s.retries?h("dd",null,"up to "+(s.retries+1)):null,
+      Object.keys(s.budget||{}).length?h("dt",null,"Budget"):null,Object.keys(s.budget||{}).length?h("dd",null,kv(s.budget)):null,
+      Object.keys(s.context||{}).length?h("dt",null,"What it reads"):null,Object.keys(s.context||{}).length?h("dd",null,kv(s.context)):null,
+      Object.keys(s.params||{}).length?h("dt",null,"Parameters"):null,Object.keys(s.params||{}).length?h("dd",null,kv(s.params)):null,
+      Object.keys(s.apply||{}).length?h("dt",null,"Where it may write"):null,Object.keys(s.apply||{}).length?h("dd",null,kv(s.apply)):null,
+      s.on_fail?h("dt",null,"If it fails"):null,s.on_fail?h("dd",null,s.on_fail==="continue"?"the workflow goes on":s.on_fail==="stop"?"the workflow stops":s.on_fail):null),
+    s.prompt_text?h("details",{class:"fi-prompt"},h("summary",null,"The instructions the model gets ("+s.prompt_name+")"),h("pre",null,s.prompt_text)):null));
+  const ov=h("div",{class:"fi-overlay",role:"dialog","aria-modal":"true","aria-labelledby":"fiTitle",onclick:e=>{if(e.target===ov)close();}},
+    h("div",{class:"fi-panel"},
+      h("div",{class:"row"},h("h2",{id:"fiTitle",class:"grow",style:"margin:0"},"What's inside: "+(d.title||d.id)),h("button",{class:"btn",type:"button",onclick:close,"aria-label":"Close"},"Close")),
+      d.blurb?h("p",{class:"sub"},d.blurb):null,
+      h("div",{class:"fi-facts"},
+        h("div",null,h("span",{class:"lbl"},"Steps"),h("b",null,String(d.steps.length))),
+        h("div",null,h("span",{class:"lbl"},"Helpers used"),h("b",null,(d.tiers.map(t=>TIER_PLAIN[t]||t).join(", "))||"code only")),
+        h("div",null,h("span",{class:"lbl"},"Budget"),h("b",null,kv(d.budget)||"default")),
+        h("div",null,h("span",{class:"lbl"},"Produces"),h("b",null,(d.produces||[]).join(", ")||"changes to your project"))),
+      Object.keys(d.inputs||{}).length?h("p",{class:"small"},h("b",null,"Inputs: "),kv(d.inputs)):null,
+      ...steps,
+      h("p",{class:"small mute"},"Source: "+d.file+". Open it in Blueprints to change any of this and save your own version."),
+      h("div",{class:"row"},h("span",{class:"grow"}),h("button",{class:"btn p",type:"button",onclick:()=>{close();setMode&&store.get("uiMode")==="simple"&&setMode("advanced");go("blueprints");setTimeout(()=>bpLoad(d.id),300);}},"Open in Blueprints"))));
+  document.body.append(ov); document.addEventListener("keydown",esc); ov.querySelector("button").focus();
+}
 function blueprintsPage(){
   setTimeout(bpInit,0);
   const from=h("select",{id:"bpFrom"},h("option",{value:""},"An empty canvas"),
@@ -4115,6 +4162,7 @@ function blueprintsPage(){
     h("div",{class:"bp-top"},
       h("label",{class:"f"},"Or start from",from),
       h("button",{class:"btn",onclick:()=>bpLoad(from.value)},"Load"),
+      h("button",{class:"btn",type:"button",title:"Every step, its instructions, its check, inputs and budget",onclick:()=>showFlowDetail(from.value)},"What's inside"),
       h("label",{class:"f"},"Blueprint id",h("input",{id:"bpId",type:"text",value:BP.id,placeholder:"e.g. my_review",pattern:"[a-z][a-z0-9_]{2,30}",maxlength:"31",autocomplete:"off",
         oninput:e=>{BP.id=e.target.value.trim();bpIdHint();}}),h("span",{class:"hint",id:"bpIdHint"},"")),
       h("label",{class:"f grow"},"Title",h("input",{id:"bpTitle",type:"text",value:BP.title,maxlength:"120",placeholder:"What this workflow is for",oninput:e=>{BP.title=e.target.value;}}))),
