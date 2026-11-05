@@ -1229,6 +1229,46 @@ body.is-busy #pageGlyph{animation:artBeat 2.4s var(--ease) infinite}
 .dot.off{background:transparent;box-shadow:inset 0 0 0 1.5px var(--bad)}
 @media (forced-colors:active){.dot,.mm-dot,.ccdot,.lane-b,.meter i,.bar>i{forced-color-adjust:none}.chip,.btn,.subtabs button,.tfilter button{border:1px solid CanvasText}}
 
+
+/* ===== design reset (2026-11-04): one type scale, space instead of boxes, a calm canvas, sentence-case labels ===== */
+.sheet::before,.sheet::after{display:none}
+main{background:none!important}
+html{font-size:16px}
+body{font-size:15.5px;line-height:1.55;letter-spacing:normal;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  background-image:radial-gradient(900px 520px at 88% -12%,color-mix(in srgb,var(--acc) 9%,transparent),transparent 70%)!important}
+*{letter-spacing:normal}
+h1,.ttl{font-family:var(--font-head);font-size:1.85rem;line-height:1.2;font-weight:650;letter-spacing:-.015em}
+h2{font-family:var(--font-head);font-size:1.22rem;line-height:1.3;font-weight:620;letter-spacing:-.01em}
+h3{font-family:var(--font-head);font-size:1.04rem;line-height:1.35;font-weight:600}
+#pageTitle{font-size:1.75rem;font-weight:650;letter-spacing:-.02em}
+p,li,dd,td{font-size:inherit}
+.sub,.hint{font-size:.94rem;line-height:1.55}
+.small,.mute.small,small{font-size:.875rem}
+.chip,.btn.sm,.subtabs button,td,th,label.f,.meta{font-size:.875rem}
+.btn{font-size:.94rem;font-weight:550}
+.num,td.n,.btile b,.k b{font-variant-numeric:tabular-nums}
+.lbl,.mmhead,.gal-tag,.tlabel{text-transform:none!important;letter-spacing:normal!important;font-size:.8rem;font-weight:600;color:var(--mute)}
+/* space, not borders: a card is a soft surface; a card inside a card is just a section */
+.card{border-color:transparent!important;box-shadow:0 1px 2px color-mix(in srgb,var(--bg) 60%,transparent);border-radius:16px;padding:22px 24px}
+.card .card{background:transparent;box-shadow:none;padding:16px 0 0;border-top:1px solid var(--line)!important;border-radius:0}
+.note{border-radius:12px}
+#view{max-width:1180px}
+/* the side bar: navigation first, one status line that opens on click */
+.sidefoot .sf-more{display:none}.sidefoot.sf-open .sf-more{display:block}
+#sOllama{cursor:pointer}
+/* sub-tabs: five in view, the rest under More */
+.st-wrap{position:relative;display:inline-flex}.st-more{flex:none}
+.st-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:60;min-width:200px;padding:6px;border-radius:12px;background:var(--panel);
+  border:1px solid var(--line);box-shadow:0 12px 32px color-mix(in srgb,var(--bg) 70%,transparent);display:grid;gap:2px}
+.st-menu[hidden]{display:none}.st-menu button{text-align:left;padding:8px 12px;border-radius:8px;border:0;background:none;color:var(--ink);font:inherit;cursor:pointer}
+.st-menu button:hover,.st-menu button:focus-visible{background:var(--acc2);color:var(--acc)}
+@media (min-width:701px){.subtabs{overflow:visible}}
+@media (max-width:700px){.st-menu{position:fixed;left:12px;right:12px;bottom:12px;top:auto}}
+/* life: content settles in; a run's newest step glows once */
+#view>*{animation:rs-in .22s ease-out both}
+@keyframes rs-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.sp-step.now .sp-ico{animation:rs-pulse 1.4s ease-in-out infinite}
+@keyframes rs-pulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--acc) 18%,transparent)}}
 /* ===== reduced motion: one rule for the whole app (the older per-layer copies above say the same thing) ===== */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
@@ -1306,7 +1346,7 @@ body.is-busy #pageGlyph{animation:artBeat 2.4s var(--ease) infinite}
   <aside>
     <div class="brand"><span class="brandmark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L20.5 20h-17z"/><path d="M8.3 14h7.4"/></svg></span><span>Architect<span class="sub">local · offline</span></span></div>
     <nav id="nav" style="display:contents"></nav>
-    <div class="sidefoot"><span id="sJob" class="chip" hidden style="cursor:pointer"></span><span id="sOllama" class="chip">checking…</span><span id="sHw" class="small"></span><span id="sLoaded" class="small"></span>
+    <div class="sidefoot"><span id="sJob" class="chip" hidden style="cursor:pointer"></span><span id="sOllama" class="chip">checking…</span><span id="sHw" class="small sf-more"></span><span id="sLoaded" class="small sf-more"></span>
       <button class="btn sm" id="themeBtn" aria-label="Appearance">Theme</button>
       <button class="btn sm" id="paletteBtn" aria-label="Commands" title="Commands (Ctrl+K)">Commands</button>
       <button class="btn sm" id="keysBtn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">Shortcuts <kbd>?</kbd></button>
@@ -1389,7 +1429,7 @@ const TABS=[
 const PAGE_ICON={console:"console",run:"plus",studio:"chat",agents:"crew",fleet:"fleet",monitor:"monitor",map:"map",library:"library",
   blueprints:"blueprint",queue:"queue",launch:"rocket",overview:"home",start:"sprout",portfolio:"grid",tiers:"chip",bench:"chart",
   logbook:"logbook",score:"trophy",models:"box",roles:"badge",settings:"sliders",tune:"bolt",doctor:"steth",assess:"gauge",
-  advisor:"compass",flows:"flow",train:"train",components:"palette"};
+  advisor:"compass",flows:"flow",train:"train",components:"palette",gallery:"layers",computers:"server"};
 const PAGE_ART={console:"console",run:"task",launch:"task",studio:"studio",agents:"crew",fleet:"fleet",map:"map",monitor:"monitor",
   logbook:"logbook",library:"library",blueprints:"blueprints",queue:"queue",overview:"journey",start:"projects",portfolio:"projects",
   tiers:"models",models:"models",roles:"models",score:"models",bench:"models"};
@@ -1417,6 +1457,7 @@ function a11yPass(root){
 new MutationObserver(()=>{clearTimeout(a11yPass.t);a11yPass.t=setTimeout(()=>a11yPass(document.getElementById("view")||document),120);}).observe(document.documentElement,{childList:true,subtree:true});
 document.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.getAttribute&&e.target.getAttribute("role")==="button"&&e.target.tagName!=="BUTTON"){e.preventDefault();e.target.click();}});
 document.addEventListener("dragstart",e=>{const el=e.target.closest&&e.target.closest(".sidea,.msg.you .body,.tcard,.chip.acc");if(el&&!e.dataTransfer.getData("text/plain"))e.dataTransfer.setData("text/plain",el.innerText);},true);
+document.addEventListener("click",e=>{const c=e.target.closest&&e.target.closest("#sOllama");if(c){const f=c.closest(".sidefoot");if(f){f.classList.toggle("sf-open");c.setAttribute("aria-expanded",String(f.classList.contains("sf-open")));}}});
 function buildNav(){
   const n=$("#nav");n.innerHTML="";const cur=tabOf(page);
   document.body.classList.toggle("simple-mode",simpleMode());
@@ -1428,7 +1469,18 @@ function buildNav(){
   n.append(h("button",{class:"nav",onclick:()=>setMode("simple"),title:"One box, plain progress, a clear result"},icon("spark"),"Simple mode"));
   for(const t of TABS)n.append(h("button",{class:"nav","aria-current":t===cur?"page":false,onclick:()=>go(t[3][0])},icon(t[1]),t[2]));
   const sb=$("#subtabs");sb.innerHTML="";
-  if(cur[3].length>1)for(const id of cur[3]){const b=h("button",{"aria-current":id===page?"page":false,onclick:()=>go(id)},SUBNAME[id]||id);if(id==="queue"){b.title="Drop a task here to queue it";queueDropTarget(b);}sb.append(b);}
+  if(cur[3].length>1){
+    const ids=cur[3], MAXV=5, vis=ids.slice(0,MAXV); if(!vis.includes(page)&&ids.includes(page))vis[MAXV-1]=page;
+    const rest=ids.filter(i=>!vis.includes(i));
+    for(const id of vis){const b=h("button",{"aria-current":id===page?"page":false,onclick:()=>go(id)},SUBNAME[id]||id);if(id==="queue"){b.title="Drop a task here to queue it";queueDropTarget(b);}sb.append(b);}
+    if(rest.length){
+      const menu=h("div",{class:"st-menu",role:"menu",hidden:true},...rest.map(id=>h("button",{role:"menuitem",type:"button",onclick:()=>{menu.hidden=true;go(id);}},SUBNAME[id]||id)));
+      const more=h("button",{class:"st-more","aria-haspopup":"menu","aria-expanded":"false",type:"button",onclick:e=>{e.stopPropagation();menu.hidden=!menu.hidden;more.setAttribute("aria-expanded",String(!menu.hidden));if(!menu.hidden)menu.querySelector("button").focus();}},"More ▾");
+      document.addEventListener("click",()=>{menu.hidden=true;more.setAttribute("aria-expanded","false");},{once:true});
+      menu.addEventListener("keydown",e=>{if(e.key==="Escape"){menu.hidden=true;more.focus();}});
+      sb.append(h("span",{class:"st-wrap"},more,menu));
+    }
+  }
   /* the pills scroll sideways on a narrow screen instead of wrapping; keep the current one in view */
   const on=sb.querySelector("[aria-current=page]");
   if(on&&sb.scrollWidth>sb.clientWidth)sb.scrollLeft=Math.max(0,on.offsetLeft-(sb.clientWidth-on.offsetWidth)/2);
@@ -3997,7 +4049,7 @@ const rvEsc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;
 const RV_WIDE={w:1010,h:184,nw:124,nh:48,pos:{you:[70,56],router:[220,56],worker:[370,56],heavy:[520,56],claude:[670,56],checks:[790,136],kept:[940,136]}};
 const RV_TALL={w:340,h:470,nw:170,nh:44,pos:{you:[125,30],router:[125,96],worker:[125,162],heavy:[125,228],claude:[125,294],checks:[125,372],kept:[125,440]}};
 function routeViz(){
-  const open=store.get("rvOpen","1")==="1";
+  const open=store.get("rvOpen","0")==="1";
   const body=h("div",{class:"rv-body",id:"rvBody",hidden:!open});
   const btn=h("button",{class:"rv-tog","aria-expanded":String(open),"aria-controls":"rvBody",
     onclick:()=>{const o=body.hidden;body.hidden=!o;btn.setAttribute("aria-expanded",String(o));store.set("rvOpen",o?"1":"0");if(o)renderRoute();}},
