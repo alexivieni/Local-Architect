@@ -293,7 +293,7 @@ def run():
         meta = cc.load_run(ag.get("run")) if ag.get("run") else {}
         check("a real local agent runs inside the fleet: done, its run log tagged with the fleet id, the fix on disk",
               ag.get("status") == "done" and meta.get("tag") == fid2 and meta.get("by_claude") is False
-              and "return a + b" in read("app.py") and ag.get("checks", {}).get("ok") is True, (ag, meta.get("tag")))
+              and "return a + b" in read("app.py") and (ag.get("checks") or {}).get("ok") is True, (ag, meta.get("tag")))
     finally:
         srv.shutdown()
         core.set_home(old_home)
