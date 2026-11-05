@@ -54,19 +54,26 @@ def _window_chunks(rel, text, n):
 
 def chunks_for(root, cfg, files, read_text):
     """-> [chunk] over the given project files. Each chunk gets an id = sha1(path + text): the same text in the same place is the same chunk."""
-    n = int(((cfg.get("retrieval") or {}).get("chunk_lines")) or DEFAULTS["chunk_lines"])
     out = []
     for rel in files:
-        try:
-            text, _ = read_text(os.path.join(root, rel), 200000)
-        except OSError:
-            continue
-        cs = (_py_chunks(rel, text) if rel.endswith(".py") else None) or _window_chunks(rel, text, n)
-        for c in cs:
-            c["text"] = c["text"][:6000]
-            c["id"] = hashlib.sha1((rel + "\n" + c["text"]).encode("utf-8", "replace")).hexdigest()
-            out.append(c)
+        got = file_chunks(root, cfg, rel, read_text)
+        if got is not None:
+            out.extend(got[1])
     return out
+
+
+def file_chunks(root, cfg, rel, read_text):
+    """-> (sha1 of the file text, [chunk]) for one project file, or None when it cannot be read."""
+    n = int(((cfg.get("retrieval") or {}).get("chunk_lines")) or DEFAULTS["chunk_lines"])
+    try:
+        text, _ = read_text(os.path.join(root, rel), 200000)
+    except OSError:
+        return None
+    cs = (_py_chunks(rel, text) if rel.endswith(".py") else None) or _window_chunks(rel, text, n)
+    for c in cs:
+        c["text"] = c["text"][:6000]
+        c["id"] = hashlib.sha1((rel + "\n" + c["text"]).encode("utf-8", "replace")).hexdigest()
+    return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest(), cs
 
 
 def memory_chunks(root, read_text):
@@ -151,16 +158,28 @@ class Retriever:
     def ensure(self, files):
         if not self.index or not self.dirty:
             return
-        cs = chunks_for(self.root, self.cfg, files, self.read_text)
         cap = int(((self.cfg.get("retrieval") or {}).get("max_chunks")) or DEFAULTS["max_chunks"])
+        if self.embedder is None:                       # incremental: only changed/new files are read and re-chunked
+            st = self.index.refresh_files(self.root, files, lambda rel: file_chunks(self.root, self.cfg, rel, self.read_text), kind="code")
+            if not st.get("error") and st["chunks"] > cap:
+                return self._too_big(st["chunks"], cap)
+            self.chunks, self._files = None, list(files)      # built only if a dense ranker asks for them
+            return self._after(st)
+        cs = chunks_for(self.root, self.cfg, files, self.read_text)
         if len(cs) > cap:
-            self.off_reason = f"{len(cs)} chunks is more than retrieval.max_chunks ({cap}); the index stays off for this project"
+            return self._too_big(len(cs), cap)
+        self.chunks = cs
+        return self._after(self.index.refresh(cs, kind="code"))
+
+    def _too_big(self, n, cap):
+        if True:
+            self.off_reason = f"{n} chunks is more than retrieval.max_chunks ({cap}); the index stays off for this project"
             self.last = {"new": 0, "kept": 0, "dropped": 0, "secs": 0.0, "error": self.off_reason}
             self.dirty = False
             self.say(f"    [index] {self.off_reason}; using the keyword ranking")
             return
-        self.chunks = cs
-        st = self.index.refresh(cs, kind="code")
+
+    def _after(self, st):
         mem = memory_chunks(self.root, self.read_text)
         if mem or st.get("new") or st.get("dropped"):
             self.index.refresh(mem, kind="memory")
@@ -182,6 +201,8 @@ class Retriever:
         hits = self.index.search(query[:4000], top=24)
         dense = None
         if self.embedder is not None:
+            if not self.chunks:
+                self.chunks = chunks_for(self.root, self.cfg, getattr(self, "_files", None) or files, self.read_text)
             dense = self.embedder.search(query, self.chunks, top=24)       # None on any failure -> keyword-only
             if dense is None and self.embedder.error:
                 self.say(f"    [index] {self.embedder.error}")

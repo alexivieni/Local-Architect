@@ -103,6 +103,72 @@ def run():
     check("rank telemetry", len(T.read(kinds="cache.rank_terms")) >= 3)
     check("settings in both", "telemetry" in core.DEFAULTS["behavior"] and "rank_cache" in core.DEFAULTS["behavior"]
           and "telemetry_mb" in core.DEFAULTS["behavior"])
+    # ---- server.* and model.* events, all with fakes (no process, no network)
+    T.flush()
+    T.set_run("srv")
+    import arch_server as S
+    import arch_ollama as O
+    moe = {"tier": "heavy", "name": "qwen3-moe", "port": 8093, "pid": 4242, "ngl": 48, "size_gb": 17.3,
+           "args": ["llama-server", "-ngl", "49", "--n-cpu-moe", "30", "-c", "8192"]}
+    S._tel("server.ready", moe, load_s=6.5)
+    T.flush()
+    e = T.read(run="srv", kinds="server.ready")
+    check("server.ready carries tier/model/port/pid/load_s and the MoE placement",
+          e and e[-1].get("tier") == "heavy" and e[-1].get("model") == "qwen3-moe" and e[-1].get("pid") == 4242 and e[-1].get("load_s") == 6.5
+          and e[-1].get("layers_on_card") == 49 and e[-1].get("experts_in_ram") == 30 and e[-1].get("where") == "card")
+    saved = {k: getattr(S, k) for k in ("load_state", "save_state", "_alive", "_pid_on_port", "ensure", "status")}
+    state = {"processes": {"worker": dict(moe, tier="worker", name="qwen3:8b", ngl=36, args=["-ngl", "37"])}}
+    try:
+        S.load_state = lambda: state
+        S.save_state = lambda st: None
+        S._alive = lambda pid: False
+        S._pid_on_port = lambda port: None
+        S.step_aside(["worker"], "big:14b", {"worker": ["qwen3:8b"]}, owner=1, run="r9", say=lambda m: None)
+        T.flush()
+        a = T.read(run="srv", kinds="server.aside")
+        st_ = T.read(run="srv", kinds="server.stop")
+        check("step_aside emits server.aside (for which model) then server.stop with reason aside",
+              a and a[-1].get("for_model") == "big:14b" and a[-1].get("tier") == "worker" and st_ and st_[-1].get("tier") == "worker")
+        state["processes"] = {}
+        S.ensure = lambda cfg, say=None, wanted=None: None
+        S.status = lambda cfg=None: {"processes": [{"tier": "worker", "up": True}]}
+        oj = O._json
+        O._json = lambda url, body=None, timeout=5: {"models": []}
+        try:
+            S.come_back({}, say=lambda m: None, owner=1, run="r9", wait_s=0)
+        finally:
+            O._json = oj
+        T.flush()
+        b = T.read(run="srv", kinds="server.back")
+        check("come_back emits server.back with up=True", b and b[-1].get("tier") == "worker" and b[-1].get("up") is True)
+    finally:
+        for k, v in saved.items():
+            setattr(S, k, v)
+    calls = []
+
+    def fake_json(url, body=None, timeout=5):
+        calls.append((url, body))
+        if url.endswith("/api/ps"):
+            return {"models": [{"name": "qwen3:14b", "size": 9 * 1024 ** 3, "size_vram": 4 * 1024 ** 3}]}
+        return {}
+    oj = O._json
+    O._json = fake_json
+    try:
+        O.warm("qwen3:14b", host="127.0.0.1:1", keep_alive="10m")
+        O.unload("qwen3:14b", host="127.0.0.1:1", trigger="make_room")
+    finally:
+        O._json = oj
+    T.flush()
+    ld = T.read(run="srv", kinds="model.load")
+    ul = T.read(run="srv", kinds="model.unload")
+    check("model.load carries load_s and where it landed (split: card GB + RAM GB)",
+          ld and ld[-1].get("model") == "qwen3:14b" and ld[-1].get("where") == "split" and ld[-1].get("card_gb") == 4.0 and ld[-1].get("ram_gb") == 5.0
+          and "load_s" in ld[-1] and ld[-1].get("trigger") == "warm")
+    check("model.unload carries the trigger and what it held", ul and ul[-1].get("trigger") == "make_room" and ul[-1].get("size_gb") == 9.0)
+    S._tel("server.crash", None)
+    O.tel_unload(None, loaded={"size": "bad"})
+    check("telemetry helpers never raise on junk", True)
+
     bad = [n for n, c in ok if not c]
     print(f"telemetry: {len(ok) - len(bad)}/{len(ok)} passed")
     return not bad

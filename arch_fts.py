@@ -69,6 +69,7 @@ class Index:
         con = sqlite3.connect(self.path)
         con.execute("create virtual table if not exists chunks using fts5(text, terms, id unindexed, path unindexed, name unindexed, start unindexed, end unindexed, kind unindexed, tokenize='unicode61')")
         con.execute("create table if not exists meta(key text primary key, value text)")
+        con.execute("create table if not exists files(path text primary key, mtime real, size integer, hash text, kind text)")
         return con
 
     def close(self):
@@ -109,12 +110,79 @@ class Index:
             with con:
                 if gone:
                     con.executemany("delete from chunks where id=?", [(g,) for g in gone])
+                con.execute("delete from files where kind=?", (kind,))       # a whole-list refresh: per-file stat rows are re-earned
                 con.executemany("insert into chunks(text, terms, id, path, name, start, end, kind) values (?,?,?,?,?,?,?,?)",
                                 [(c["text"], " ".join(terms(c["path"] + " " + c["name"] + " " + c["text"])), c["id"], c["path"], c["name"], c.get("start", 1), c.get("end", 1), kind) for c in new])
                 con.execute("insert or replace into meta(key, value) values ('updated', ?)", (str(time.time()),))
             return {"new": len(new), "kept": len(have) - len(gone), "dropped": len(gone), "secs": round(time.time() - t0, 2), "error": None}
         except sqlite3.Error as e:
             return {"new": 0, "kept": 0, "dropped": 0, "secs": round(time.time() - t0, 2), "error": f"index database problem: {e}"}
+        finally:
+            if con is not None:
+                con.close()
+
+    def refresh_files(self, root, files, chunk_file, kind="code"):
+        """Incremental refresh over a per-file (mtime, size, content hash) table: an unchanged stat is not read; a changed stat with the same
+        hash only moves the stat row; a changed or new file has its chunks replaced; a file no longer listed loses its chunks.
+        chunk_file(rel) -> (sha1 of the text, [chunk]) or None. -> refresh()'s dict plus "read" and "chunks". Never raises."""
+        t0 = time.time()
+        con = None
+        try:
+            con = self._open(create=True)
+            known = {r[0]: (r[1], r[2], r[3]) for r in con.execute("select path, mtime, size, hash from files where kind=?", (kind,))}
+            by_path = {}
+            rowid = {}
+            for rid, cid, pth in con.execute("select rowid, id, path from chunks where kind=?", (kind,)):
+                by_path.setdefault(pth, set()).add(cid)
+                rowid[cid] = rid
+            indexed = set(by_path)
+            want = list(dict.fromkeys(files))
+            new = dropped = nread = 0
+            with con:
+                for rel in sorted((set(known) | indexed) - set(want)):
+                    gone = by_path.get(rel, set())
+                    if gone:
+                        con.executemany("delete from chunks where rowid=?", [(rowid[g],) for g in gone])
+                    dropped += len(gone)
+                    con.execute("delete from files where path=?", (rel,))
+                for rel in want:
+                    try:
+                        st = os.stat(os.path.join(root, rel))
+                    except OSError:
+                        st = None
+                    k = known.get(rel)
+                    if st is not None and k and k[0] == st.st_mtime and k[1] == st.st_size:
+                        continue
+                    got = chunk_file(rel)
+                    nread += 1
+                    if got is None:
+                        gone = by_path.pop(rel, set())
+                        if gone:
+                            con.executemany("delete from chunks where rowid=?", [(rowid[g],) for g in gone])
+                        dropped += len(gone)
+                        con.execute("delete from files where path=?", (rel,))
+                        continue
+                    h, cs = got
+                    if st is not None and k and k[2] == h:
+                        con.execute("update files set mtime=?, size=? where path=?", (st.st_mtime, st.st_size, rel))
+                        continue
+                    have = by_path.get(rel, set())
+                    by_id = {c["id"]: c for c in cs}
+                    gone = [g for g in have if g not in by_id]
+                    add = [c for cid, c in by_id.items() if cid not in have]
+                    if gone:
+                        con.executemany("delete from chunks where rowid=?", [(rowid[g],) for g in gone])
+                    con.executemany("insert into chunks(text, terms, id, path, name, start, end, kind) values (?,?,?,?,?,?,?,?)",
+                                    [(c["text"], " ".join(terms(c["path"] + " " + c["name"] + " " + c["text"])), c["id"], c["path"], c["name"], c.get("start", 1), c.get("end", 1), kind) for c in add])
+                    new, dropped = new + len(add), dropped + len(gone)
+                    con.execute("insert or replace into files(path, mtime, size, hash, kind) values (?,?,?,?,?)",
+                                (rel, st.st_mtime if st else 0.0, st.st_size if st else 0, h, kind))
+                if new or dropped:
+                    con.execute("insert or replace into meta(key, value) values ('updated', ?)", (str(time.time()),))
+            total = con.execute("select count(*) from chunks where kind=?", (kind,)).fetchone()[0]
+            return {"new": new, "kept": total - new, "dropped": dropped, "read": nread, "chunks": total, "secs": round(time.time() - t0, 3), "error": None}
+        except sqlite3.Error as e:
+            return {"new": 0, "kept": 0, "dropped": 0, "read": 0, "chunks": 0, "secs": round(time.time() - t0, 3), "error": f"index database problem: {e}"}
         finally:
             if con is not None:
                 con.close()
@@ -126,7 +194,7 @@ class Index:
         if con is None or not q:
             return []
         try:
-            sql = "select id, path, name, start, end, kind, -bm25(chunks, 1.0, 1.5) as s from chunks where chunks match ?" + (" and kind=?" if kind else "") + " order by s desc limit ?"
+            sql = "select id, path, name, start, end, kind, -bm25(chunks, 1.0, 1.5) as s from chunks where chunks match ?" + (" and kind=?" if kind else "") + " order by s desc, id limit ?"
             rows = con.execute(sql, (q, kind, top) if kind else (q, top)).fetchall()
         except sqlite3.Error:
             return []

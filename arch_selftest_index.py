@@ -103,6 +103,45 @@ def run():
         check("memory hits never enter the file ranking for the prompt (they are for the memory tools)", ".arch/memory/lessons.md" not in fused3 and not found3)
         index.close()
 
+        # ---- incremental refresh (per-file mtime/size/hash table) == a full rebuild, byte for byte
+        inc_root = os.path.join(tmp, "inc")
+        shutil.copytree(root, inc_root, ignore=shutil.ignore_patterns(".arch"))
+        reads = []
+
+        def chunker(rel):
+            reads.append(rel)
+            return ix.file_chunks(inc_root, cfg, rel, core.read_text)
+        inc = arch_fts.Index(inc_root)
+        fl = core.list_files(inc_root, cfg)
+        a = inc.refresh_files(inc_root, fl, chunker)
+        check("incremental: the first refresh reads every file", a["read"] == len(fl) and a["new"] == a["chunks"] > 0 and not a["error"], a)
+        reads.clear()
+        b = inc.refresh_files(inc_root, fl, chunker)
+        check("incremental: a no-change refresh reads no file at all", b["read"] == 0 and b["new"] == 0 and b["dropped"] == 0 and not reads, (b, reads))
+        with open(os.path.join(inc_root, "app/limits.py"), "a", encoding="utf-8") as f:
+            f.write("\n\ndef throttle_stats():\n    \"\"\"How many clients are throttling now.\"\"\"\n    return len(_BUCKET)\n")
+        os.remove(os.path.join(inc_root, "app/text.py"))
+        with open(os.path.join(inc_root, "app/new_mod.py"), "w", encoding="utf-8") as f:
+            f.write("def paginate(rows, page):\n    return rows[page * 10:(page + 1) * 10]\n")
+        p_auth = os.path.join(inc_root, "app/auth.py")
+        os.utime(p_auth, (os.stat(p_auth).st_atime, os.stat(p_auth).st_mtime + 5))       # touched, same bytes
+        reads.clear()
+        fl = core.list_files(inc_root, cfg)
+        c = inc.refresh_files(inc_root, fl, chunker)
+        check("incremental: only the changed, new and touched files are read; a removed file's chunks go",
+              sorted(reads) == ["app/auth.py", "app/limits.py", "app/new_mod.py"] and c["dropped"] >= 1 and not any(p == "app/text.py" for p, _ in inc.ids().values()), (sorted(reads), c))
+        full_root = os.path.join(tmp, "full")
+        shutil.copytree(inc_root, full_root, ignore=shutil.ignore_patterns(".arch"))
+        full = arch_fts.Index(full_root)
+        full.refresh(ix.chunks_for(full_root, cfg, core.list_files(full_root, cfg), core.read_text))
+        qs = ["add throttling to the API", "per minute", "paginate rows", "login password", "invoice", "throttle stats clients", "token bucket demo"]
+        same = all(json.dumps(inc.search(q)) == json.dumps(full.search(q)) for q in qs) and inc.ids() == full.ids()
+        check("incremental index ranks byte-identically to a full rebuild of the same tree", same, [(q, inc.search(q)[:2], full.search(q)[:2]) for q in qs[:3]])
+        r_inc = ix.Retriever(inc_root, cfg, read_text=core.read_text, say=quiet)
+        if r_inc.embedder is None:
+            r_inc.ensure(fl)
+            check("Retriever.ensure uses the incremental path (no file re-read when nothing changed)", r_inc.last and r_inc.last.get("read") == 0, r_inc.last)
+
         # ---- the engine
         e = core.Engine(root, "build", "add throttling to the API", cfg, review="auto", say=quiet, persist=False)
         ctx = e.context("add throttling to the API", 2500)

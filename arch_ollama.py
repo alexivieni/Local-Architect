@@ -8,6 +8,7 @@ import json
 import os
 import re
 import socket
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -179,10 +180,51 @@ def status(host=None, timeout=3):
     return out
 
 
-def unload(model, host=None, timeout=20):
+def _placement(m):
+    """Where a loaded Ollama model sits, from /api/ps sizes: card, ram, or split (with the GB on each side)."""
+    size, vram = (m or {}).get("size") or 0, (m or {}).get("size_vram") or 0
+    where = "ram" if not vram else ("card" if vram >= size else "split")
+    return {"where": where, "size_gb": round(size / 1024 ** 3, 2) if size else None,
+            "card_gb": round(vram / 1024 ** 3, 2), "ram_gb": round(max(size - vram, 0) / 1024 ** 3, 2)}
+
+
+def _tel(kind, model, **fields):
+    try:
+        import arch_telemetry
+        arch_telemetry.emit(kind, model=model, runtime="ollama", **fields)
+    except Exception:
+        pass
+
+
+def tel_unload(model, trigger="unload", loaded=None):
+    """Telemetry for a model leaving Ollama's memory (`loaded` = its /api/ps entry when known). Never raises."""
+    try:
+        _tel("model.unload", model, trigger=trigger, **(_placement(loaded) if loaded else {"where": None}))
+    except Exception:
+        pass
+
+
+def _loaded_entry(model, host=None):
+    try:
+        for m in (_json(_url(host) + "/api/ps", timeout=2) or {}).get("models") or []:
+            if (m.get("name") or m.get("model")) == model:
+                return m
+    except (urllib.error.URLError, OSError, ValueError):
+        pass
+    return None
+
+
+def unload(model, host=None, timeout=20, trigger=None):
     """Ask Ollama to drop one model from memory now. -> True when the server accepted it."""
+    if trigger is None:                                 # who asked (free_gpu, come_back, _make_room, ...) when the caller did not say
+        try:
+            trigger = sys._getframe(1).f_code.co_name
+        except Exception:
+            trigger = "unload"
+    was = _loaded_entry(model, host)
     try:
         _json(_url(host) + "/api/generate", {"model": model, "keep_alive": 0}, timeout=timeout)
+        tel_unload(model, trigger=trigger, loaded=was)
         return True
     except (urllib.error.URLError, OSError, ValueError):
         return False
@@ -208,7 +250,12 @@ def warm(model, host=None, keep_alive=None, timeout=600):
     t0 = time.time()
     try:
         _json(_url(host) + "/api/generate", {"model": model, "keep_alive": keep_alive}, timeout=timeout)
-        return round(time.time() - t0, 1)
+        secs = round(time.time() - t0, 1)
+        if keep_alive in (0, "0"):
+            tel_unload(model, trigger="keep_alive 0")
+        else:
+            _tel("model.load", model, load_s=secs, keep_alive=keep_alive, trigger="warm", **_placement(_loaded_entry(model, host)))
+        return secs
     except (urllib.error.URLError, OSError, ValueError):
         return None
 

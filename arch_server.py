@@ -916,6 +916,7 @@ def _start_procs(cfg, want, st, say, wait):
             rec.update(priority=p.get("priority"), affinity=p.get("affinity"))
         st["processes"][p["tier"]] = rec
         save_state(st)
+        _tel("server.start", rec, reason="start")
         if wait:
             ok = wait_health(url, seconds=240, proc=proc)
             if ok and p.get("ngl") and _gpu_lost(log_path, off):
@@ -934,9 +935,45 @@ def _start_procs(cfg, want, st, say, wait):
                         "brings the NVIDIA card back; Architect checks again at the next start")
             rec["healthy"] = ok
             exited = proc.poll() is not None
+            if ok:
+                _tel("server.ready", rec, load_s=round(time.time() - rec["started"], 2), on_cpu=bool(rec.get("on_cpu")))
+            else:
+                _tel("server.crash", rec, reason="exited while loading" if exited else "no /health in time")
             say(f"[server] {p['tier']}: " + ("ready" if ok else ("stopped while loading" if exited else "did not answer /health in time")
                                               + "; see " + log_path))
             save_state(st)
+
+
+def _placement(rec):
+    """Where a server's model sits, read from its own launch args: layers on the card (-ngl) and, for a MoE split, the layers whose
+    experts stay in RAM (--n-cpu-moe)."""
+    args = [str(a) for a in (rec.get("args") or [])]
+    out = {"ngl": rec.get("ngl"), "layers_on_card": None, "experts_in_ram": 0}
+    for i, a in enumerate(args[:-1]):
+        try:
+            if a in ("-ngl", "--n-gpu-layers"):
+                out["layers_on_card"] = int(args[i + 1])
+            elif a in ("--n-cpu-moe", "-ncmoe"):
+                out["experts_in_ram"] = int(args[i + 1])
+        except ValueError:
+            pass
+    if out["layers_on_card"] is None:
+        out["layers_on_card"] = rec.get("ngl")
+    out["where"] = "card" if (rec.get("ngl") or 0) > 0 else "ram"
+    return out
+
+
+def _tel(kind, rec, **extra):
+    """One server.* telemetry event (tier, model, ngl, port, pid, placement). Never raises."""
+    try:
+        import arch_telemetry
+        rec = rec or {}
+        f = {"tier": rec.get("tier"), "model": rec.get("name"), "port": rec.get("port"), "pid": rec.get("pid"), "size_gb": rec.get("size_gb")}
+        f.update(_placement(rec))
+        f.update(extra)
+        arch_telemetry.emit(kind, **f)
+    except Exception:
+        pass
 
 
 def _kill(pid):
@@ -989,7 +1026,7 @@ def _graceful(pid, grace=GRACE_S):
     return "killed"
 
 
-def stop(tiers=None, say=print):
+def stop(tiers=None, say=print, reason="stop"):
     st = load_state()
     gone = {t: rec for t, rec in (st.get("processes") or {}).items() if not tiers or t in tiers}
     for t in gone:
@@ -1000,6 +1037,7 @@ def stop(tiers=None, say=print):
         _WATCH["stop"] = True       # the watchdog is shared, so it is only silenced once nothing is left for it to watch
     save_state(st)                  # first: a watchdog reading the state between the kill and the save would start the tier again
     for t, rec in gone.items():
+        _tel("server.stop", rec, reason=reason)
         if rec.get("pid") and _alive(rec["pid"]):
             how = _graceful(rec["pid"])
             say(f"[server] {t}: stopped (pid {rec['pid']}" + (", cleanly" if how == "clean" else ", forced") + ")")
@@ -1162,7 +1200,9 @@ def step_aside(tiers, model, names, owner=None, run=None, say=print):
     for t in tiers:
         aside[t] = {"for": model, "owner": owner or os.getpid(), "run": run or "", "names": list((names or {}).get(t) or []), "t": time.time()}
     save_state(st)
-    return stop(tiers, say=say)
+    for t in tiers:
+        _tel("server.aside", (st.get("processes") or {}).get(t) or {"tier": t}, reason=f"room for {model}", for_model=model, aside_run=run or "")
+    return stop(tiers, say=say)          # server.aside above carries the reason
 
 
 def _orphaned(a):
@@ -1196,7 +1236,11 @@ def come_back(cfg, say=print, owner=None, run=None, wait_s=15.0):
     save_state(st)
     wanted = set().union(*(set(a.get("names") or []) for a in mine.values()))
     ensure(cfg, say=say, wanted=wanted or None)
-    return [p["tier"] for p in status(cfg)["processes"] if p["up"] and p["tier"] in mine]
+    back = [p["tier"] for p in status(cfg)["processes"] if p["up"] and p["tier"] in mine]
+    procs = load_state().get("processes") or {}
+    for t in mine:
+        _tel("server.back", procs.get(t) or {"tier": t}, reason="orphaned" if not owner else "owner", up=t in back, for_model=mine[t].get("for"))
+    return back
 
 
 def models():
@@ -1260,6 +1304,7 @@ def _watchdog(cfg, period=15.0, max_restarts=3, window=600.0):
                     continue                     # stopped on purpose (or started again elsewhere) since this loop read the state
                 now = time.time()
                 hist[t] = [x for x in hist.get(t, []) if now - x < window]
+                _tel("server.crash", rec, reason="process gone", restarts=rec.get("restarts", 0))
 
                 def keep(rec=rec, t=t):          # into the state as it is NOW: the copy read above may hold tiers stopped since
                     fresh = load_state()
@@ -1276,6 +1321,7 @@ def _watchdog(cfg, period=15.0, max_restarts=3, window=600.0):
                     proc = _spawn(rec, lp)
                     rec.update(pid=proc.pid, started=now, restarts=rec.get("restarts", 0) + 1)
                     keep()
+                    _tel("server.restart", rec, reason="watchdog", restarts=rec["restarts"])
                     if rec.get("ngl") and wait_health(rec.get("url") or "", seconds=120, proc=proc) and _gpu_lost(lp, off):
                         _kill(proc.pid)                  # restarted after a CUDA crash but the card was not back yet: try once more
                         time.sleep(5.0)
@@ -1463,7 +1509,7 @@ def idle_sweep(cfg, now=None, say=lambda m: None, http=None):
         if b or key not in _IDLE["seen"]:
             _IDLE["seen"][key] = now
         elif now - _IDLE["seen"][key] >= mins * 60:
-            stop(tiers=[tier], say=say)
+            stop(tiers=[tier], say=say, reason="idle")
             _IDLE["seen"].pop(key, None)
             freed.append(f"{tier} model server ({rec.get('name')})")
     try:                                                     # Ollama's own loaded models (e.g. an escalation to the heavy model)
@@ -1479,6 +1525,11 @@ def idle_sweep(cfg, now=None, say=lambda m: None, http=None):
                     _rq.urlopen(_rq.Request(host + "/api/generate", data=body, headers={"Content-Type": "application/json"}), timeout=10).read()
                 else:
                     http(host + "/api/generate", body)
+                try:
+                    import arch_ollama
+                    arch_ollama.tel_unload(m.get("name"), trigger="idle", loaded=m)
+                except Exception:
+                    pass
                 _IDLE["seen"].pop(key, None)
                 freed.append(f"Ollama copy of {m.get('name')} ({int((m.get('size') or 0) / 1e9)} GB)")
         loaded = {"ollama:" + str(m.get("name")) for m in ps.get("models") or []}
