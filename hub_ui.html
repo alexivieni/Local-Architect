@@ -32,8 +32,8 @@ var _a=localStorage.getItem('accent');if(_a&&_a!=='blueprint')document.documentE
   --grid:rgba(21,73,201,.045);--grid2:rgba(21,73,201,.075);--tick:rgba(21,73,201,.38);--knob:#fff;--veil:rgba(14,26,51,.45);
   --shadow:0 1px 0 rgba(14,26,51,.04),0 10px 28px -14px rgba(14,26,51,.18);--lift:0 1px 0 rgba(14,26,51,.04),0 14px 34px -18px rgba(14,26,51,.28);
   --pop:0 18px 50px -16px rgba(2,6,16,.45);--modal:0 24px 70px -18px rgba(2,6,16,.5);
-  --font:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,-apple-system,"Inter",Roboto,sans-serif;
-  --font-head:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",system-ui,-apple-system,sans-serif;
+  --font:"Inter Architect","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+  --font-head:"Inter Architect","Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,sans-serif;
   --mono:"Cascadia Code","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --t-label:11px;--t-xs:12px;--t-sm:12.5px;--t-s:13px;--t-ms:13.5px;--t-m:14px;--t-body:15px;--t-l:16px;--t-card:17px;--t-xl:20px;--t-2xl:26px;
   --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;--r:12px;--rs:8px;--r-xs:6px;--r-pill:999px;
@@ -1230,6 +1230,9 @@ body.is-busy #pageGlyph{animation:artBeat 2.4s var(--ease) infinite}
 @media (forced-colors:active){.dot,.mm-dot,.ccdot,.lane-b,.meter i,.bar>i{forced-color-adjust:none}.chip,.btn,.subtabs button,.tfilter button{border:1px solid CanvasText}}
 
 
+/* the bundled interface font: Inter (variable weight, Latin), served by the hub itself (SIL OFL 1.1, static/fonts/LICENSE-Inter.txt) */
+@font-face{font-family:"Inter Architect";src:url("/fonts/inter.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap}
+body{font-feature-settings:"cv11","ss01","tnum" 0;font-optical-sizing:auto}
 /* ===== design reset (2026-11-04): one type scale, space instead of boxes, a calm canvas, sentence-case labels ===== */
 .sheet::before,.sheet::after{display:none}
 main{background:none!important}

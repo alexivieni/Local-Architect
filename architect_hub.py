@@ -1568,6 +1568,12 @@ class AHandler(mh.Handler):
                     pass
                 c = AHandler._live_cache = (now, sorted(set(map(str, names)))[:20])
             return self._send(200, {"running": len(c[1]), "names": c[1]})
+        if u.path == "/fonts/inter.woff2":              # the bundled interface font (Inter, SIL OFL 1.1: static/fonts/LICENSE-Inter.txt)
+            try:
+                with open(os.path.join(HERE, "static", "fonts", "inter.woff2"), "rb") as f:
+                    return self._send(200, f.read(), "font/woff2")
+            except OSError:
+                return self._send(404, {"error": "font missing"})
         if u.path == "/api/arch/morning":               # the newest overnight report (tools/morning_report.py), read-only
             import glob as _glob
             fs = sorted(_glob.glob(os.path.join(core.data_dir(), "morning_*.md")), key=os.path.getmtime)
