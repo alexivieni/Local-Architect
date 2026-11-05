@@ -365,6 +365,102 @@ def resolve_model(spec, cfg=None):
     return None
 
 
+# ------------------------------------------------------------------------------------------------------------ the fast lane
+# Settings > Server > Fast lane = on: the same worker model, answering sooner, paid for with more of THIS machine instead of anything
+# else. For the worker tier only: the heavy tier does not sit beside it, every layer and the whole cache go on the card (the window
+# shrinks to the largest that fits, never grows past the setting), speculative decoding by n-gram lookup is on, the process runs at
+# above-normal priority on the performance cores, and its thinking budget is lowered. Windows' power plan and other system settings
+# are never touched; every flag still passes the binary's own --help caps.
+FAST_MIN_CTX = 6144        # below this a sprint prompt (measured ~7k tokens of an 8192 window) would be cut too hard: keep the split instead
+
+
+def _fast_fit(rm, arch, hw, ctx, kv, slots, desk, cur, did):
+    """The fast lane's window: the configured one when the whole worker already fits on the card with it, else the largest multiple of
+    1024 tokens (not below FAST_MIN_CTX) at which every layer and the whole key/value cache fit. -> (ctx, ngl, est_gb, full)."""
+    ngl, est, full = cur
+    if full:
+        did.append(f"every layer of the worker and its whole {ctx}-token memory stay on the graphics card (about {est} GB)")
+        return ctx, ngl, est, full
+    c = (int(ctx) // 1024) * 1024
+    while c - 1024 >= FAST_MIN_CTX:
+        c -= 1024
+        n2, e2, f2 = _ngl(rm["size"], arch, hw, c, kv, slots=slots, desktop_gb=desk)
+        if f2:
+            did.append(f"the worker's memory is {c} tokens instead of {ctx}: the largest that keeps every layer and the whole cache on the "
+                       f"graphics card (about {e2} GB); prompts are fitted to it when each call is made")
+            return c, n2, e2, f2
+    did.append(f"the worker does not fit on the graphics card whole even with a {FAST_MIN_CTX}-token memory, so its layers stay split "
+               "as before (a smaller worker model would fit)")
+    return ctx, ngl, est, full
+
+
+def _think_budget(srv, fast_worker=False):
+    """Reasoning tokens a thinking tier may spend (0 = no limit). The fast lane's worker gets server.fast_think_budget, and never MORE
+    than the normal budget."""
+    b = int(srv.get("think_budget", 800) or 0)
+    if not fast_worker:
+        return b
+    f = int(srv.get("fast_think_budget", 256) or 0)
+    both = [x for x in (b, f) if x > 0]
+    return min(both) if both else 0
+
+
+def perf_mask(hw=None):
+    """Affinity bit mask of the performance cores' logical processors, or 0 when the CPU is not hybrid (every core is a performance
+    core, nothing to pin) or it cannot be read. hw may carry "ecore_mask" and "cpu_threads" (tests pass fake hardware this way)."""
+    hw = hw or {}
+    try:
+        em = int(hw["ecore_mask"]) if "ecore_mask" in hw else int(arch_hw.ecore_mask() or 0)
+        n = int(hw.get("cpu_threads") or os.cpu_count() or 0)
+    except (TypeError, ValueError):
+        return 0
+    if not em or n <= 0:
+        return 0
+    return ((1 << min(n, 64)) - 1) & ~em
+
+
+def _mask_list(mask):
+    """0b11110000 -> "4-7": the processors a mask names, in the form Task Manager shows."""
+    ids = [i for i in range(int(mask or 0).bit_length()) if mask >> i & 1]
+    runs, start = [], None
+    for k, i in enumerate(ids):
+        if start is None:
+            start = i
+        if k + 1 == len(ids) or ids[k + 1] != i + 1:
+            runs.append(str(start) if start == i else f"{start}-{i}")
+            start = None
+    return ",".join(runs)
+
+
+ABOVE_NORMAL = 0x00008000          # Windows ABOVE_NORMAL_PRIORITY_CLASS (subprocess has the name only on Windows builds of Python)
+
+
+def launch_opts(p, windows=None):
+    """-> (creationflags, affinity mask or 0) for a planned process: the fast lane's above-normal priority and performance cores, and
+    nothing else. Kept apart from _spawn so a test can read what WOULD be launched without starting anything."""
+    windows = sys.platform.startswith("win") if windows is None else windows
+    cf = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if windows else 0
+    if windows and p.get("priority") == "above_normal":
+        cf |= getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", ABOVE_NORMAL)
+    return cf, int(p.get("affinity") or 0)
+
+
+def _pin(proc, mask):
+    """Keep a started server on the processors in `mask`. -> True when done. Never raises (a refusal leaves it where Windows put it)."""
+    if not mask:
+        return False
+    try:
+        if sys.platform.startswith("win"):
+            import ctypes
+            k = ctypes.windll.kernel32
+            k.SetProcessAffinityMask.argtypes = (ctypes.c_void_p, ctypes.c_size_t)
+            return bool(k.SetProcessAffinityMask(ctypes.c_void_p(int(proc._handle)), ctypes.c_size_t(mask)))
+        os.sched_setaffinity(proc.pid, {i for i in range(mask.bit_length()) if mask >> i & 1})
+        return True
+    except (OSError, AttributeError, ValueError, TypeError):
+        return False
+
+
 def plan(cfg=None, hw=None, caps_=None):
     """-> {"profile", "binary", "mode": "llama" | "ollama", "processes": [{tier, name, gguf, port, ctx, ngl, kv, draft, args, why}], "notes": [plain lines]}.
     A tier whose model cannot be resolved to a GGUF stays on Ollama (the transport falls back per model)."""
@@ -411,6 +507,8 @@ def plan(cfg=None, hw=None, caps_=None):
     ram_gb = float(hw.get("ram_gb") or 0)
     cache_auto = 1024 if ram_gb <= 16.5 else 2048 if ram_gb <= 32.5 else 4096
     resident_ram = 0.0
+    fast = srv.get("fast_lane", "off") == "on"           # Settings > Server > Fast lane: the worker gets more of the machine (see FAST_LANE)
+    fast_did = []
     for i, tier in enumerate(("router", "worker", "heavy")):
         spec = (tiers.get(tier) or {}).get("model")
         if not spec or spec.startswith("alias:"):
@@ -435,7 +533,9 @@ def plan(cfg=None, hw=None, caps_=None):
                 notes.append(warn)
         else:
             ngl, est, full = _ngl(rm["size"], arch, hw, ctx, kv, slots=slots, desktop_gb=desk)
-            if ngl_pref is not None:                                                  # a hand-set layer count: re-do the arithmetic for THAT count, so the
+            if fast and tier == "worker" and ngl_pref is None:
+                ctx, ngl, est, full = _fast_fit(rm, arch, hw, ctx, kv, slots, desk, (ngl, est, full), fast_did)
+            if ngl_pref is not None:                                                 # a hand-set layer count: re-do the arithmetic for THAT count, so the
                 ngl = max(0, int(ngl_pref))                                           # explanation and the reported GB describe what is actually launched
                 layers = max(1, int(arch.get("layers") or 1))
                 _, est_full, _ = _ngl(rm["size"], arch, dict(hw, vram_gb=10 ** 6), ctx, kv, slots=slots)
@@ -462,8 +562,11 @@ def plan(cfg=None, hw=None, caps_=None):
             # stay in RAM. Measured on a 6 GB laptop: 14-16 tok/s with the worker loaded too (15.4 alone), and switching between them
             # takes ~1 s instead of a 15-20 s swap. Off with Settings > Server > Heavy beside worker = off.
             wp = next((p for p in procs if p["tier"] == "worker" and p.get("ngl")), None) if tier == "heavy" else None
-            if (wp and moe is not None and arch.get("experts") and arch.get("experts_used") and ngl_pref is None
-                    and ("--n-cpu-moe" in flags or "-ncmoe" in flags) and srv.get("heavy_beside", "auto") != "off"):
+            can_beside = (wp and moe is not None and arch.get("experts") and arch.get("experts_used") and ngl_pref is None
+                          and ("--n-cpu-moe" in flags or "-ncmoe" in flags) and srv.get("heavy_beside", "auto") != "off")
+            if can_beside and fast:                       # fast lane: the card and the memory bus belong to the worker alone
+                fast_did.append("the heavy model no longer stays loaded beside the worker; it starts only when a step escalates to it")
+            elif can_beside:
                 b = _moe_split(rm["size"], arch, dict(hw, vram_gb=vt - float(wp["est_gpu_gb"] or 0)), ctx, kv, desktop_gb=desk)
                 if b and b[2] + resident_ram <= ram_gb - RAM_RESERVE_GB:
                     beside = split = b
@@ -497,10 +600,13 @@ def plan(cfg=None, hw=None, caps_=None):
         think = (tiers.get(tier) or {}).get("think", tier == "heavy")              # router/worker answer directly; heavy may reason (profiles can override per tier)
         if not think and "--reasoning-budget" in flags:
             args += ["--reasoning-budget", "0"]                                   # thinking models answer straight away; a per-request switch is not honoured by every template
-        elif think and "--reasoning-budget" in flags and int(srv.get("think_budget", 800) or 0) > 0:
+        elif think and "--reasoning-budget" in flags and _think_budget(srv, fast and tier == "worker") > 0:
             # Measured 2026-11-04: the MoE planner thought ~3000 tokens (2-5 minutes at its speed) before a ~200-token plan. A budget
             # keeps the reasoning that helps and stops the rest; when it runs out, the model is told to answer.
-            args += ["--reasoning-budget", str(int(srv.get("think_budget", 800)))]
+            args += ["--reasoning-budget", str(_think_budget(srv, fast and tier == "worker"))]
+            if fast and tier == "worker":
+                fast_did.append(f"the worker may think for at most {_think_budget(srv, True)} tokens per reply "
+                                f"(instead of {int(srv.get('think_budget', 800) or 0)})")
             if "--reasoning-budget-message" in flags:
                 args += ["--reasoning-budget-message", "Enough thinking: write the answer now."]
         if not think and "--chat-template-file" in flags:
@@ -528,12 +634,18 @@ def plan(cfg=None, hw=None, caps_=None):
                 args += ["--slot-save-path", sd]
             except OSError:
                 pass
+        if fast and tier == "worker" and draft:
+            # Measured here: n-gram lookup 306-343 tok/s on edits vs 125 with qwen3:0.6b as a draft, and the draft's weights and f16
+            # cache take room the worker's own window needs. The fast lane uses the n-gram cache instead.
+            fast_did.append(f"the n-gram cache does the speculative decoding instead of the draft model {draft['name']} "
+                            "(measured faster on edits here, and it needs no graphics memory)")
+            draft = None
         if tier == "worker" and draft and "--model-draft" in flags:
             wt, dt = _tokenizer(rm["gguf"]), _tokenizer(draft["gguf"])
             if wt[2] and dt[2] and wt != dt:                    # a draft must propose exactly the worker's tokens, or it slows it down or fails
                 notes.append(f"worker: the draft model {draft['name']} has a different tokenizer from {rm['name']}, so it is not used.")
                 draft = None
-        if tier == "worker" and not draft and "--model-draft" in flags and srv.get("draft", "auto") in ("auto", "try"):
+        if tier == "worker" and not draft and "--model-draft" in flags and srv.get("draft", "auto") in ("auto", "try") and not fast:
             cand = pick_draft(rm, arch, est, hw, cfg, ctx=ctx, slots=par, desktop_gb=desk)
             if cand and srv.get("draft") == "try":
                 draft = cand                                    # chosen by the person ("try"); never assumed faster
@@ -541,7 +653,7 @@ def plan(cfg=None, hw=None, caps_=None):
                 notes.append(f"worker: {cand['name']}, already installed, has exactly the worker's tokenizer and fits beside it as a draft "
                              "model (speculative decoding: often faster on code edits, not always). Settings > Server > Speculative "
                              "decoding = try uses it; compare the tokens/s in the console's status strip with and without.")
-        if srv.get("ngram", "auto") != "off" and tier == "worker" and not draft:
+        if (srv.get("ngram", "auto") != "off" or fast) and tier == "worker" and not draft:
             # Guessing the next few tokens from the prompt itself. A code edit repeats most of its input, so this is free speed with no
             # second model and no extra graphics memory -- but only where the build offers it, and never beside a real draft model.
             if "--lookup-cache-dynamic" in flags:
@@ -557,6 +669,11 @@ def plan(cfg=None, hw=None, caps_=None):
                     pick = next((k for k in ("ngram-mod", "ngram-simple") if k in kinds), None)
                 if pick:
                     args += ["--spec-type", pick]
+            if fast:
+                sp = args[args.index("--spec-type") + 1] if "--spec-type" in args else ("n-gram lookup" if "--lookup-cache-dynamic" in args else None)
+                fast_did.append(f"speculative decoding is on ({sp}: guesses the next words from the prompt itself; measured 56 -> 306-343 "
+                                "tokens/s on edits here)" if sp else "speculative decoding was asked for, but this llama-server build offers "
+                                "no n-gram kind, so it stays off")
         d_used = None
         if tier == "worker" and draft and "--model-draft" in flags:
             args += ["--model-draft", draft["gguf"], "-ngld", "99"]
@@ -575,6 +692,20 @@ def plan(cfg=None, hw=None, caps_=None):
         procs.append({"tier": tier, "name": rm["name"], "gguf": rm["gguf"], "size_gb": round(rm["size"] / GB, 2), "port": port0 + i, "ctx": ctx, "ngl": ngl, "kv": kv,
                       "draft": d_used, "args": args, "why": why, "resident": tier != "heavy" or bool(beside), "arch": arch, "est_gpu_gb": est, "full_gpu": full,
                       "moe_cpu_layers": split[0] if split else 0, "ram_gb": round(ram_part, 2)})
+        if fast and tier == "worker":
+            # Only keys the fast lane adds: with it off the plan stays exactly what it was (arch_selftest_fastlane compares them).
+            mask = perf_mask(hw)
+            procs[-1].update(priority="above_normal", affinity=mask or None, fast_lane=True, why="fast lane: " + why)
+            fast_did.append("the worker's process runs at above-normal priority" + (" (Windows)" if sys.platform.startswith("win") else
+                            " where the system allows it (raising priority needs admin rights outside Windows, so it may stay normal)"))
+            fast_did.append(f"its threads are kept on the performance cores (processors {_mask_list(mask)})" if mask else
+                            "every core of this processor is a performance core, so no core pinning is needed")
+    if fast and fast_did:
+        notes.insert(0, "Fast lane is on: the worker gets more of this machine so its answers come sooner. What changed: "
+                     + "; ".join(fast_did) + ". Nothing in Windows' own settings (power plan, other programs) is touched; "
+                     "Settings > Server > Fast lane = off puts everything back.")
+    elif fast:
+        notes.insert(0, "Fast lane is on, but no worker model is served by llama-server here, so it changes nothing.")
     free = hw.get("ram_free_gb")
     budget = (float(free) - 1.5) if (free and not ours_up) else (ram_gb - RAM_RESERVE_GB)
     vm, grow = hw.get("vm") or {}, 0.0
@@ -596,8 +727,11 @@ def plan(cfg=None, hw=None, caps_=None):
                         if vm.get("running") else ""))
     if not procs:
         notes.append("No tier is assigned to a local model yet: run `architect.py ready` or pick models in the hub's Team view.")
-    return {"desk_gb": round(desk, 2), "desk_measured": desk_measured, "profile": prof_name, "binary": binary, "mode": "llama" if procs else "ollama", "processes": procs, "notes": notes, "caps": {"version": cp.get("version")},
-            "tiers": tiers}
+    out = {"desk_gb": round(desk, 2), "desk_measured": desk_measured, "profile": prof_name, "binary": binary, "mode": "llama" if procs else "ollama", "processes": procs, "notes": notes, "caps": {"version": cp.get("version")},
+           "tiers": tiers}
+    if fast:
+        out["fast_lane"] = list(fast_did)
+    return out
 
 
 # ------------------------------------------------------------------------------------------------------------ processes
@@ -645,11 +779,15 @@ def _spawn(p, log_path):
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     log = open(log_path, "ab")
     kw = {"stdout": log, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL, "cwd": os.path.dirname(p["args"][0]) or None}
+    cf, mask = launch_opts(p)
     if sys.platform.startswith("win"):
-        kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        kw["creationflags"] = cf                           # CREATE_NO_WINDOW, plus ABOVE_NORMAL_PRIORITY_CLASS in the fast lane
     else:
         kw["start_new_session"] = True                     # its own session: Ctrl+C or closing the terminal does not stop a resident tier
-    return subprocess.Popen(p["args"], **kw)
+    proc = subprocess.Popen(p["args"], **kw)
+    if mask:
+        _pin(proc, mask)                                   # fast lane: the performance cores only
+    return proc
 
 
 def wait_health(url, seconds=180, say=None, proc=None):
@@ -753,7 +891,8 @@ def _start_procs(cfg, want, st, say, wait):
     for p in want:
         url = f"http://127.0.0.1:{p['port']}"
         cur = st["processes"].get(p["tier"]) or {}
-        if cur.get("pid") and _alive(cur["pid"]) and health(url) and cur.get("gguf") == p["gguf"] and cur.get("args") == p["args"]:
+        if (cur.get("pid") and _alive(cur["pid"]) and health(url) and cur.get("gguf") == p["gguf"] and cur.get("args") == p["args"]
+                and cur.get("priority") == p.get("priority") and cur.get("affinity") == p.get("affinity")):   # fast lane on/off restarts it
             say(f"[server] {p['tier']}: already up on port {p['port']} ({p['name']})")
             continue
         if cur.get("pid") and _alive(cur["pid"]):
@@ -773,6 +912,8 @@ def _start_procs(cfg, want, st, say, wait):
         say(f"[server] {p['tier']}: starting {p['name']} on port {p['port']}; {p['why']}")
         rec = {k: p[k] for k in ("tier", "name", "gguf", "port", "ctx", "ngl", "kv", "draft", "args", "size_gb", "resident")}
         rec.update(pid=proc.pid, started=time.time(), url=url, log=log_path, restarts=cur.get("restarts", 0))
+        if p.get("priority") or p.get("affinity"):
+            rec.update(priority=p.get("priority"), affinity=p.get("affinity"))
         st["processes"][p["tier"]] = rec
         save_state(st)
         if wait:

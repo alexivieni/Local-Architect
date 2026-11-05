@@ -49,6 +49,7 @@ PORTABLE = [
 MACHINE_ONLY = [
     "profile.json", "model_stats.json", "modelopt.json", "ready.json", "results.json",
     "server", "passports", "cache", "memory/machine.md", "memory/tuning.md", "jobs.db", "STOP", "trusted_hooks.json",
+    "tune_variants.json", "lora_out/train_stats.json",     # measured server variants and training speed: true of this card only
 ]
 # Settings that describe hardware rather than preference.
 MACHINE_KEYS = ["tiers", "roles", "role_hosts", "hosts", "model_overrides", "ollama_host",

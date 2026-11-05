@@ -1,0 +1,111 @@
+﻿=== server plan
+machine class: gpu6; server: llama (C:\Users\alexi\Downloads\architect_v12\architect\bin\llama\llama-server.exe)
+  router  qwen3:1.7b  port 8081  ctx 4096  KV q8_0  runs on the CPU: a small router never competes with the worker for graphics memory
+  worker  huihui_ai/qwen3-abliterated:4b  port 8082  ctx 8192  KV q8_0  all 36 layers on the GPU (about 2.92 GB with a 8192-token memory)
+  heavy   eriktonon/qwen3.6-moe-uncensored:iq3  port 8083  ctx 8192  KV q8_0  stays loaded beside the worker: experts of 39 of 40 layers in RAM (about 2.25 GB on the card, 11.57 GB in RAM), so planning never waits for a model swap
+  note: worker: qwen3:0.6b, already installed, has exactly the worker's tokenizer and fits beside it as a draft model (speculative decoding: often faster on code edits, not always). Settings > Server > Speculative decoding = try uses it; compare the tokens/s in the console's status strip with and without.
+=== machine
+{
+ "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+ "vram_gb": 5.9970703125,
+ "vram_free_gb": 0.6298828125,
+ "ram_gb": 31.637882232666016,
+ "ram_free_gb": 4.348461151123047,
+ "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+ "os": "win32",
+ "notes": [],
+ "gpus": [
+  {
+   "name": "NVIDIA GeForce RTX 4050 Laptop GPU",
+   "vram_gb": 5.9970703125,
+   "free_gb": 0.6298828125,
+   "vendor": "nvidia"
+  }
+ ],
+ "vendor": "nvidia",
+ "unified": false,
+ "cpu_cores": 12,
+ "cpu_perf_cores": 4,
+ "vm": {
+  "running": false,
+  "vm_gb": null,
+  "limit_gb": 6.0
+ },
+ "models_dir": "C:\\Users\\alexi\\.ollama\\models",
+ "disk_free_gb": 223.25217056274414,
+ "power": {
+  "present": true,
+  "on_battery": false,
+  "pct": 100,
+  "source": "powershell"
+ },
+ "fingerprint": "69d71ca0f3db"
+}
+[
+ {
+  "mount": "D:\\",
+  "label": "",
+  "fs": "FAT32",
+  "total_gb": 32.0,
+  "free_gb": 31.9,
+  "bus": "usb",
+  "removable": true,
+  "name": "Generic STORAGE DEVICE",
+  "suspect": ""
+ },
+ {
+  "mount": "E:\\",
+  "label": "",
+  "fs": "exFAT",
+  "total_gb": 1048.5,
+  "free_gb": 1048.5,
+  "bus": "usb",
+  "removable": true,
+  "name": "YGS ProductCode",
+  "suspect": "it reports exactly 1,000,000 MiB, a round number set by its firmware; fake-capacity drives look like this. Keep nothing important on it until its real size is checked"
+ },
+ {
+  "mount": "C:\\",
+  "label": "Windows",
+  "fs": "NTFS",
+  "total_gb": 999.1,
+  "free_gb": 239.7,
+  "bus": "nvme",
+  "removable": false,
+  "name": "CT1000P3PSSD8",
+  "suspect": ""
+ }
+]
+{
+ "gpu_pct": 0,
+ "vram_used_gb": 5.15,
+ "vram_gb": 6.0,
+ "gpu_temp_c": 36,
+ "gpu_power_w": 2.5,
+ "ram_gb": 31.6,
+ "ram_free_gb": 4.3,
+ "vm_gb": null,
+ "vm_limit_gb": 6.0
+}
+=== top memory users
+
+Name                         MB
+----                         --
+llama-server              12511
+llama-server               2329
+llama-server               1352
+Memory Compression          861
+claude                      792
+claude                      426
+MsMpEng                     411
+Discord                     389
+msedge                      365
+msedge                      353
+msedge                      338
+HP.Omen.OmenCommandCenter   315
+msedge                      305
+explorer                    288
+claude                      279
+
+
+

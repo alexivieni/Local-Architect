@@ -438,3 +438,301 @@ def tune(models=None, probe=True, apply=True, deep=False, kv="f16", say=print, h
         if e.get("kv_tip"):
             say(f"  tip      {e['kv_tip']}")
     return prof
+
+
+# ================================================================== the "improve my worker" plan
+# One ordered list a person can follow (or the hub can show): measure today's worker, export what this machine verified, look at it,
+# train, convert, measure the candidate the same way, switch over only on no regression. Every step names its command and what it needs;
+# every time and size says whether it was measured here or is an estimate. Nothing here runs a step.
+
+PLAN_MIN_QUALITY = 0.6         # first-try or second-try, not cut off: arch_dataset.quality_score puts those at 0.7-1.0
+TRAIN_TOK_S_GUESS = 400.0      # community estimate for a 4B QLoRA on a 6 GB card; replaced by train_stats.json after one real run
+CONVERT_MIN_GUESS = 10
+MIN_TRAIN_SAMPLES = 50         # the same floor train_lora.py refuses below
+# A base checkpoint must be the SAME model the worker runs, or the adapter does not fit it. Only well-known pairs; anything else asks.
+BASES = [("qwen2.5-coder:7b", "unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit"), ("qwen2.5-coder:3b", "unsloth/Qwen2.5-Coder-3B-Instruct-bnb-4bit"),
+         ("qwen2.5-coder:1.5b", "unsloth/Qwen2.5-Coder-1.5B-Instruct-bnb-4bit"), ("qwen3:4b", "unsloth/Qwen3-4B-Instruct-2507"),
+         ("qwen3:8b", "unsloth/Qwen3-8B-bnb-4bit"), ("llama3.2:3b", "unsloth/Llama-3.2-3B-Instruct-bnb-4bit"),
+         ("llama3.1:8b", "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit")]
+DEFAULT_BASE = "unsloth/Qwen3-4B-Instruct-2507"
+
+
+def base_for(worker):
+    """-> (base checkpoint, known: bool) for the worker model name."""
+    w = (worker or "").lower()
+    for tag, base in BASES:
+        if w.startswith(tag):
+            return base, True
+    return DEFAULT_BASE, False
+
+
+def _base_b(base):
+    m = re.search(r"(\d+(?:\.\d+)?)B", base or "", re.I)
+    return float(m.group(1)) if m else 4.0
+
+
+def _cli_has(flag):
+    """Does architect.py accept this flag yet? (The dataset export may gain options before its command line does.)"""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "architect.py"), encoding="utf-8") as f:
+            return f'"{flag}"' in f.read()
+    except OSError:
+        return False
+
+
+def _dataset_size(path, min_quality):
+    """-> (usable samples, tokens) after train_lora's own curation, or (0, 0) when there is no file."""
+    try:
+        import train_lora
+        rows, _broken = train_lora.read_jsonl(path)
+        cur = train_lora.curate(rows, min_quality, curriculum=True)
+        return cur["unique"], cur["tokens"]
+    except (OSError, ImportError):
+        return 0, 0
+
+
+def _gpu_free_gb(live=None):
+    if live is None:
+        try:
+            live = arch_hw.live()
+        except Exception:
+            live = {}
+    if live and live.get("vram_gb") is not None and live.get("vram_used_gb") is not None:
+        return round(float(live["vram_gb"]) - float(live["vram_used_gb"]), 1)
+    return None
+
+
+def _disk_free_gb(path):
+    import shutil
+    p = path
+    while p and not os.path.isdir(p):
+        p = os.path.dirname(p)
+    try:
+        return round(shutil.disk_usage(p or ".").free / 1024 ** 3, 1)
+    except OSError:
+        return None
+
+
+def tune_plan(cfg=None, data_dir=None, worker=None, live=None, disk_free_gb=None, last_eval=None, baseline=None,
+              train_stats=None, servers_up=None, min_quality=PLAN_MIN_QUALITY, candidate="my-worker"):
+    """The "improve my worker" plan. -> {"worker", "base", "samples", "steps": [...], "next", "lines"}.
+
+    Each step: {"id", "title", "words", "commands": [...], "needs": {"gpu", "gpu_free_gb", "disk_gb", "minutes", "evidence"},
+    "state": "done" | "ready" | "blocked" | "after", "why"}. Order: baseline, export, check, train, convert, eval, promote.
+    Every argument can be passed in (the self-test does); left out, it is read from this machine. Runs nothing."""
+    cfg = cfg if cfg is not None else core.load_config()
+    dd = data_dir or core.data_dir()
+    worker = worker or (cfg.get("tiers") or {}).get("worker") or (cfg.get("roles") or {}).get("generator") or cfg.get("default_model") or ""
+    base, known = base_for(worker)
+    b = _base_b(base)
+    ds_path = os.path.join(dd, "datasets", "tier-worker.sft.jsonl")
+    out_dir = os.path.join(dd, "lora_out")
+    if train_stats is None:
+        try:
+            import train_lora
+            train_stats = train_lora.load_stats(out_dir)
+        except ImportError:
+            train_stats = {}
+    if baseline is None or last_eval is None:
+        try:
+            import arch_eval
+            baseline = arch_eval.latest(label="baseline") if baseline is None else baseline
+            last_eval = arch_eval.latest(fake=False) if last_eval is None else last_eval
+        except Exception:
+            baseline, last_eval = baseline or {}, last_eval or {}
+    gpu_free = _gpu_free_gb(live)
+    disk = disk_free_gb if disk_free_gb is not None else _disk_free_gb(dd)
+    if servers_up is None:
+        try:
+            import arch_server
+            servers_up = [p["tier"] for p in arch_server.status(cfg).get("processes", []) if p.get("up")]
+        except Exception:
+            servers_up = []
+    n, tokens = _dataset_size(ds_path, min_quality)
+
+    eval_min = max(1, round(float(last_eval["secs"]) / 60)) if (last_eval or {}).get("secs") else None
+    eval_ev = "measured (your last live eval)" if eval_min is not None else "unknown until the first live eval"
+    tps = (train_stats or {}).get("tok_per_s")
+    epochs = 2.0
+    train_min = max(1, round(tokens * epochs / (tps or TRAIN_TOK_S_GUESS) / 60)) if tokens else None
+    train_ev = "measured (your last training run)" if tps else f"estimate ({int(TRAIN_TOK_S_GUESS)} tokens/s, community QLoRA reports)"
+    train_vram = round(b * 0.6 + 3.0, 1)          # 4-bit weights + LoRA state + activations at batch 1 (community: ~6 GB for 4B)
+    train_disk = round(b * 0.6 + b * 2.0 + b * 0.6 + 1.0, 1)     # the 4-bit base, the f16 merge for GGUF, the q4 GGUF, the adapter
+    lora_cmd = f"python train_lora.py --base {base} --min-quality {min_quality:g} --curriculum --weight repeat"
+    steps = []
+
+    def step(id_, title, words, commands, needs, state, why=""):
+        steps.append({"id": id_, "title": title, "words": words, "commands": commands, "needs": needs, "state": state, "why": why})
+
+    step("baseline", "Measure today's worker",
+         f"Run the fixed task set with {worker or 'your current worker'} so there is something to beat. Skipped when a 'baseline' exists.",
+         ["python architect.py eval --quick --label baseline"],
+         {"gpu": "the worker's server", "gpu_free_gb": None, "disk_gb": 0.1, "minutes": eval_min, "evidence": eval_ev},
+         "done" if baseline else ("ready" if worker else "blocked"),
+         "" if (baseline or worker) else "no worker model is set: run `python architect.py port --apply` first")
+    step("export", "Export what this machine verified",
+         "Every reply the code checks accepted, one sample per task (near-duplicates keep the best), scored for quality and tagged by "
+         "difficulty. Cloud replies and replies whose checks could not run are never exported.",
+         ["python architect.py dataset" + (f" --min-quality {min_quality:g}" if _cli_has("--min-quality") else "")],
+         {"gpu": "none", "gpu_free_gb": None, "disk_gb": 0.1, "minutes": 1, "evidence": "estimate (reads traces, writes JSONL)"},
+         "ready")
+    step("check", "Look at what would be trained on",
+         "A dry run: counts, the quality floor, the easy-to-hard order, and what was left out and why. No GPU, nothing written.",
+         [lora_cmd + " --dry-run"],
+         {"gpu": "none", "gpu_free_gb": None, "disk_gb": 0.0, "minutes": 1, "evidence": "estimate"},
+         "ready" if n else "after", "" if n else "after the export")
+    blocked = []
+    if n < MIN_TRAIN_SAMPLES:
+        blocked.append(f"{n} usable samples; at least {MIN_TRAIN_SAMPLES} are needed (keep using the app on real work)")
+    if gpu_free is not None and gpu_free < train_vram and not servers_up:
+        blocked.append(f"{gpu_free} GB of graphics memory is free, about {train_vram} GB is needed")
+    if disk is not None and disk < train_disk:
+        blocked.append(f"{disk} GB of disk is free, about {train_disk} GB is needed")
+    if not known:
+        blocked.append(f"no known training checkpoint for '{worker or '?'}': pass --base with the exact model your worker runs")
+    step("train", "Train a LoRA adapter",
+         "Teaches your worker this project's conventions and the reply format, from your verified work only. The model servers must be "
+         "stopped so the card is free" + (f" (running now: {', '.join(servers_up)})" if servers_up else "") + ".",
+         (["python architect.py server stop"] if servers_up else []) + [lora_cmd],
+         {"gpu": "free: training needs the whole card", "gpu_free_gb": train_vram, "disk_gb": train_disk, "minutes": train_min,
+          "evidence": train_ev + "; memory and disk are estimates"},
+         "blocked" if blocked else "ready", "; ".join(blocked))
+    step("convert", "Make it a model this app can run",
+         f"Write a q4_k_m GGUF of the trained model and register it as '{candidate}'. Your current worker is kept.",
+         [f"python train_lora.py --export-only --name {candidate}", f"cd {out_dir} && ollama create {candidate} -f Modelfile"],
+         {"gpu": "free", "gpu_free_gb": train_vram, "disk_gb": round(b * 2.6, 1), "minutes": CONVERT_MIN_GUESS, "evidence": "estimate"},
+         "after", "after the training")
+    step("eval", "Measure the candidate the same way",
+         f"Set the worker tier to '{candidate}' for this run only (Models page), run the same task set, then set it back. "
+         "The --compare part prints flow by flow and exits 1 on any regression.",
+         ["python architect.py server start", "python architect.py eval --quick --label candidate --compare baseline"],
+         {"gpu": "the worker's server", "gpu_free_gb": None, "disk_gb": 0.1, "minutes": eval_min, "evidence": eval_ev},
+         "after", "after the conversion")
+    step("promote", "Switch over only if nothing got worse",
+         "Refuses unless the candidate is no worse than the baseline: pass rate, tokens and time per flow. Nothing is deleted; the old "
+         "worker stays installed.",
+         [f"python architect.py promote-model --tier worker --model {candidate} --compare baseline"],
+         {"gpu": "none", "gpu_free_gb": None, "disk_gb": 0.0, "minutes": 1, "evidence": "estimate"},
+         "after", "only when the eval shows no regression")
+    nxt = next((s for s in steps if s["state"] in ("ready", "blocked")), None)
+    lines = [f"Improve the worker ({worker or 'not set'}) from {n} verified sample(s), training from {base}" +
+             ("" if known else " (a guess: pick the checkpoint your worker really is)") + "."]
+    for i, s in enumerate(steps, 1):
+        nd = s["needs"]
+        bits = [f"{nd['minutes']} min" if nd.get("minutes") is not None else "time unknown"]
+        if nd.get("gpu_free_gb"):
+            bits.append(f"{nd['gpu_free_gb']} GB graphics memory free")
+        if nd.get("disk_gb"):
+            bits.append(f"{nd['disk_gb']} GB disk")
+        lines.append(f"{i}. {s['title']} [{s['state']}] - {s['words']}")
+        lines.append(f"   needs: {', '.join(bits)} ({nd['evidence']})" + (f"; {s['why']}" if s["why"] else ""))
+        lines.extend(f"   $ {c}" for c in s["commands"])
+    return {"worker": worker, "base": base, "base_known": known, "samples": n, "tokens": tokens, "gpu_free_gb": gpu_free,
+            "disk_free_gb": disk, "steps": steps, "next": nxt["id"] if nxt else None, "lines": lines}
+
+
+# ================================================================== best settings for this PC
+# What the measurements already on disk say, in one place the hub can show. Reads only; measures nothing unless measure_variants is
+# called. Each item carries its evidence: "measured" (this machine), "plan" (the fit math / the server planner), "rule" or "none".
+
+def variants_path():
+    return os.path.join(core.data_dir(), "tune_variants.json")
+
+
+def measure_variants(cfg=None, hw=None, say=print):
+    """Restart the worker with each server variant (n-gram vs draft, KV type) and keep the measured rows for best_settings.
+    Stops the worker's server while it runs, so call it from `tune`, never mid-run."""
+    import arch_server
+    cfg = cfg or core.load_config()
+    hw = hw or arch_hw.detect()
+    rows = arch_server.bench_variants(cfg, hw, "worker", say=say)
+    try:
+        core._atomic_write(variants_path(), json.dumps({"ts": time.time(), "fingerprint": hw.get("fingerprint"), "rows": rows}, indent=1))
+    except (OSError, AttributeError):
+        pass
+    return rows
+
+
+def best_settings(profile=None, plan=None, variants=None, hw=None):
+    """-> {"worker", "speedup", "kv", "threads", "lines", "missing"}; each item has "value", "why" and "evidence".
+    Arguments are read from this machine when left out (the self-test passes them in)."""
+    hw = hw if hw is not None else arch_hw.detect()
+    if profile is None:
+        profile = load_profile() or {}
+    if plan is None:
+        try:
+            import arch_server
+            plan = arch_server.plan(None, hw)
+        except Exception:
+            plan = {}
+    if variants is None:
+        v = core.load_json(variants_path()) or {}
+        variants = v.get("rows") if v.get("fingerprint") in (None, hw.get("fingerprint")) else []
+    variants = [r for r in (variants or []) if r.get("gen_tok_s")]
+    models = profile.get("models") or {}
+    wp = next((p for p in (plan.get("processes") or []) if p.get("tier") == "worker"), {})
+    missing, out = [], {}
+
+    # ---- worker: the fastest measured model that ran fully on the card, at the largest window that kept it there
+    on_card = [(n, e) for n, e in models.items() if (e.get("measured") or {}).get("gen_tok_s")
+               and (e.get("measured") or {}).get("gpu_pct") == 100]
+    if on_card:
+        n, e = max(on_card, key=lambda ne: ne[1]["measured"]["gen_tok_s"])
+        ctx = max(e.get("ctx") or 0, e.get("ctx_max_fast") or 0)
+        out["worker"] = {"value": n, "ctx": ctx, "full_gpu": True, "gen_tok_s": e["measured"]["gen_tok_s"], "evidence": "measured",
+                         "why": f"the fastest model measured entirely on the card here ({e['measured']['gen_tok_s']} tok/s); "
+                                f"{ctx} tokens is the largest window the fit math keeps on it"}
+    elif wp:
+        out["worker"] = {"value": wp.get("name"), "ctx": wp.get("ctx"), "full_gpu": bool(wp.get("full_gpu")), "gen_tok_s": None,
+                         "evidence": "plan", "why": "the server planner's pick; " + ("all layers on the card" if wp.get("full_gpu")
+                                                                                     else f"{wp.get('ngl')} layers on the card, the rest in RAM")}
+        missing.append("a measured speed: run `python architect.py tune`")
+    else:
+        out["worker"] = {"value": None, "ctx": None, "full_gpu": False, "gen_tok_s": None, "evidence": "none",
+                         "why": "no worker is set up yet"}
+        missing.append("a worker: run `python architect.py port --apply`, then `tune`")
+    out["worker"]["quant_file"] = (os.path.basename(wp.get("gguf") or "") or None) if wp and out["worker"]["value"] == wp.get("name") else None
+
+    # ---- speculative decoding: what was measured beats what the planner chose
+    def kind(row):
+        return "draft" if (row.get("variant") or {}).get("draft") else "ngram"
+    if variants:
+        best = max(variants, key=lambda r: r["gen_tok_s"])
+        other = [r["gen_tok_s"] for r in variants if kind(r) != kind(best)]
+        out["speedup"] = {"value": kind(best), "gen_tok_s": best["gen_tok_s"], "evidence": "measured",
+                          "why": f"{best['gen_tok_s']} tok/s with {'a draft model' if kind(best) == 'draft' else 'n-gram lookup'}" +
+                                 (f" vs {max(other)} tok/s with the other" if other else "")}
+        out["kv"] = {"value": (best.get("variant") or {}).get("kv") or "q8_0", "evidence": "measured", "why": "the cache type of the fastest variant"}
+    else:
+        args = " ".join(str(a) for a in (wp.get("args") or []))
+        val = "draft" if wp.get("draft") else ("ngram" if ("ngram" in args or "lookup-cache" in args) else "none")
+        out["speedup"] = {"value": val, "gen_tok_s": None, "evidence": "plan" if wp else "none",
+                          "why": {"draft": f"the planner pairs the worker with {wp.get('draft')} (same tokenizer)",
+                                  "ngram": "n-gram lookup: costs no memory, and repeated code in edits is where it pays",
+                                  "none": "this server build offers no speculative decoding, or the worker runs through Ollama"}[val]}
+        out["kv"] = {"value": wp.get("kv") or "f16", "evidence": "plan" if wp else "none", "why": "the server planner's cache type"}
+        missing.append("n-gram vs draft, measured: arch_autotune.measure_variants (restarts the worker)")
+
+    # ---- CPU threads: a measured sweep, else one per performance core
+    swept = next((e["sweep"]["num_thread"] for e in models.values() if (e.get("sweep") or {}).get("num_thread")), None)
+    if swept:
+        out["threads"] = {"value": swept, "router": max(1, swept // 2), "evidence": "measured",
+                          "why": f"{swept} threads generated at least 10% faster in the tune sweep"}
+    else:
+        try:
+            pc = arch_hw.perf_cores()
+        except Exception:
+            pc = None
+        pc = pc or hw.get("cpu_cores")
+        out["threads"] = {"value": pc, "router": max(1, (pc or 2) // 2), "evidence": "rule",
+                          "why": "one thread per performance core is fastest when the CPU does part of the work; the router gets half"}
+    out["missing"] = missing
+    w, s, t = out["worker"], out["speedup"], out["threads"]
+    out["lines"] = [
+        f"Worker: {w['value'] or 'not set'}" + (f" at {w['ctx']} tokens" if w.get("ctx") else "") +
+        (", fully on the card" if w.get("full_gpu") else "") + f" - {w['why']} ({w['evidence']}).",
+        f"Speed-up: {s['value']} - {s['why']} ({s['evidence']}).",
+        f"KV cache: {out['kv']['value']} ({out['kv']['evidence']}).",
+        f"CPU threads: {t['value']} - {t['why']} ({t['evidence']}).",
+    ] + [f"Not measured yet: {m}" for m in missing]
+    return out

@@ -13,7 +13,9 @@ What stays true with it on:
     30 days; never during eval or the self-tests). Efficiency only: cached replies are still transport "claude", never training data;
   * the key is never stored by the app: the SDK reads ANTHROPIC_API_KEY (or an `ant auth login` profile) itself;
   * replies are tagged transport "claude", and arch_dataset leaves them out of training data (Anthropic's terms restrict
-    using outputs to train competing models).
+    using outputs to train competing models);
+  * web lookups (`online.web_search`, or the per-message `web` flag) are Anthropic's server-side search tool, offered only on a chat
+    reply the person sent, only to Opus/Sonnet 5.x, never replayed from the cache; each one is counted in the call record.
 """
 import time
 
@@ -33,14 +35,64 @@ _HERE = _th.local()          # set while ONE chat reply the person explicitly se
 class asked_for:
     """`with arch_cloud.asked_for():` -- the person chose Claude for this message, so the Use Claude mode is not needed (online
     features must still be on). Thread-local: it never leaks into a run or another chat."""
-    def __init__(self, sink=None, effort=None):
+    def __init__(self, sink=None, effort=None, web=False):
         self.sink = sink                     # gets each piece of text as it streams (the chat shows Claude typing)
         self.effort = effort if effort in EFFORTS else None
+        self.web = bool(web)                 # this message may look things up on the web (see web_wanted)
     def __enter__(self):
-        _HERE.on, _HERE.sink, _HERE.effort = True, self.sink, self.effort
+        _HERE.on, _HERE.sink, _HERE.effort, _HERE.web = True, self.sink, self.effort, self.web
     def __exit__(self, *a):
-        _HERE.on, _HERE.sink, _HERE.effort = False, None, None
+        _HERE.on, _HERE.sink, _HERE.effort, _HERE.web = False, None, None, False
         return False
+
+
+# ---- web lookups for chat answers: Anthropic's own server-side search tool, run on their side, never from this machine
+WEB_TOOL = {"type": "web_search_20260209", "name": "web_search", "max_uses": 3}
+WEB_SEARCH_USD = 0.01                # vendor price card: $10 per 1,000 searches, on top of tokens
+
+
+def web_supported(model):
+    """The search tool is offered to Opus and Sonnet 5.x only; any other model answers without it."""
+    import re as _re
+    return bool(_re.match(r"claude-(?:opus|sonnet)-5(?:[-.]|$)", api_model(model)))
+
+
+def web_setting(cfg):
+    v = ((cfg or {}).get("online") or {}).get("web_search", "off")
+    return v is True or str(v).strip().lower() in ("on", "true", "1", "yes")
+
+
+def web_wanted(model, cfg, asked=False):
+    """True when this chat answer may search: the person asked for it on this message, or Settings > Online > Web lookups is on;
+    and the model supports the tool. Only ever inside a chat reply the person sent (asked_for), never inside a run."""
+    return bool(getattr(_HERE, "on", False)) and (bool(asked) or web_setting(cfg)) and web_supported(model)
+
+
+def _field(obj, name, default=None):
+    return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
+
+
+def web_report(final):
+    """-> (searches, queries, errors) from a finished message. Errors from the search tool arrive as result blocks inside the reply
+    (web_search_tool_result_error), never as exceptions, so they are read here and shown under Show work."""
+    queries, errors = [], []
+    for b in (_field(final, "content") or []):
+        kind = _field(b, "type")
+        if kind == "server_tool_use" and _field(b, "name") == "web_search":
+            q = _field(_field(b, "input") or {}, "query")
+            if q:
+                queries.append(str(q)[:200])
+        elif kind == "web_search_tool_result":
+            c = _field(b, "content")
+            if c is not None and not isinstance(c, list) and _field(c, "type") == "web_search_tool_result_error":
+                errors.append(str(_field(c, "error_code") or "error"))
+    stu = _field(_field(final, "usage"), "server_tool_use")
+    n = _field(stu, "web_search_requests") if stu is not None else None
+    try:
+        n = int(n) if n is not None else len(queries)
+    except (TypeError, ValueError):
+        n = len(queries)
+    return n, queries, errors
 
 
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -163,11 +215,12 @@ def _as_cloud(m, default):
     return m if is_cloud(m) else PREFIX + m
 
 
-def ultra(model, messages, cfg, effort="high", sink=None, worker=None, client=None, skeptic=None):
+def ultra(model, messages, cfg, effort="high", sink=None, worker=None, client=None, skeptic=None, web=False):
     """Ultracode for the app: three Claude subagents work on the same request at once, each from its own angle (solver, critic,
     alternative), then two skeptics try to refute the solver, then the chosen model, as lead, reads their notes and writes the one
     answer. Workers run at medium effort on `online.ultra_worker` (Sonnet), skeptics on `online.ultra_skeptic` (Haiku); only the
-    lead's answer streams to the chat. -> the lead's reply dict, with usd = the whole team's cost."""
+    lead's answer streams to the chat. `web` lets the lead (only) use the web lookup tool. -> the lead's reply dict, with usd = the
+    whole team's cost."""
     import concurrent.futures as cf
     on = (cfg or {}).get("online") or {}
     worker = _as_cloud(worker or on.get("ultra_worker"), ULTRA_WORKER)
@@ -229,7 +282,7 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker=None, client=No
                                    "wrong, and mention a real risk if it matters. Do not mention the team."}]
     if sink:
         sink("\n\n")
-    with asked_for(sink, effort):
+    with asked_for(sink, effort, web):                               # only the lead may search (one lookup budget, not five)
         _HERE.label = "lead"
         try:
             r = chat(model, lead_msgs, {"num_predict": 4000}, cfg=cfg, client=client)
@@ -239,6 +292,9 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker=None, client=No
     r["usd"] = round((r.get("usd") or 0) + usd, 5)
     r["agents"] = len(notes) + len(objections)
     return r
+
+
+FAST_MODELS = ("claude-opus-5-5", "claude-opus-5")            # fast mode exists only for these, and only on the Claude API
 
 
 def cost(model, prompt_tokens, gen_tokens, cache_read=0, cache_write=0, ttl="5m"):
@@ -407,7 +463,8 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
     eff = getattr(_HERE, "effort", None) or role_effort(role) or "high"   # an explicit choice wins, then the role's, then high
     system = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
     plain = [{"role": m["role"], "content": str(m.get("content") or "")} for m in messages if m.get("role") in ("user", "assistant")]
-    use_cache = _cache_on(cfg)
+    web = web_wanted(model, cfg, getattr(_HERE, "web", False))
+    use_cache = _cache_on(cfg) and not web                           # a looked-up answer is about today: never replayed from the cache
     ckey = cache_key(model, eff, system, plain, fmt) if use_cache else None
     hit = _cache_get(ckey) if ckey else None
     if hit:                                                          # asked before: the same answer, no request, no cost
@@ -459,56 +516,85 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
         kw["output_config"] = {"effort": eff, "format": {"type": "json_schema", "schema": fmt}}
     elif fmt == "json":
         kw["system"] = (system + "\n\n" if system else "") + "Answer with JSON only."
+    if web:
+        kw["tools"] = [dict(WEB_TOOL)]
     t0 = time.time()
     text, first = [], None
+    thinking = []
+    fast = (bool(((cfg or {}).get("online") or {}).get("cloud_fast")) and api_model(model) in FAST_MODELS
+            and not getattr(_HERE, "nofast", False) and hasattr(getattr(client, "beta", None), "messages"))
+    pt = gt = cr = cw = 0
+    searches, queries, web_errors = 0, [], []
     try:
-        try:
-            stream_cm = client.messages.stream(**kw)
-        except Exception as e:                                       # a schema the API will not take: ask again without it
-            bad = "400" in str(e) or "invalid_request" in str(e)
-            if bad and "format" in kw.get("output_config", {}):
-                kw["output_config"] = {"effort": eff}
-                stream_cm = client.messages.stream(**kw)
-            elif bad and ("effort" in str(e) or "thinking" in str(e)):   # a model that does not take effort/adaptive thinking
-                kw.pop("output_config", None)
-                kw.pop("thinking", None)
-                stream_cm = client.messages.stream(**kw)
-            else:
-                raise
-        thinking = []
-        with stream_cm as stream:
-            src = iter(stream) if hasattr(type(stream), "__iter__") else stream.text_stream   # real SDK: events (text + thinking); fakes: text
-            for ev in src:
-                kind = getattr(ev, "type", None)
-                if isinstance(ev, str):
-                    kind, piece = "text", ev
-                elif kind == "text":
-                    piece = getattr(ev, "text", "") or ""
-                elif kind == "thinking":
-                    thinking.append(getattr(ev, "thinking", "") or "")
-                    continue
+        for _turn in range(3):                                       # a searching reply may pause (pause_turn) and is resumed, at most twice
+            try:
+                if fast:                                             # fast mode: up to ~2.5x quicker output at 2x the price (Opus only)
+                    stream_cm = client.beta.messages.stream(**kw, speed="fast", betas=["fast-mode-2026-02-01"])
                 else:
-                    continue
-                if first is None:
-                    first = time.time()
-                text.append(piece)
-                if on_token:
-                    on_token(piece)
-                sink = getattr(_HERE, "sink", None)
-                if sink:
-                    sink(piece)
-            final = stream.get_final_message()
+                    stream_cm = client.messages.stream(**kw)
+            except Exception as e:                                   # a schema the API will not take: ask again without it
+                bad = "400" in str(e) or "invalid_request" in str(e)
+                if bad and "format" in kw.get("output_config", {}):
+                    kw["output_config"] = {"effort": eff}
+                    stream_cm = client.messages.stream(**kw)
+                elif bad and "tools" in kw and ("web_search" in str(e) or "tool" in str(e)):   # search not offered here: answer without it
+                    kw.pop("tools", None)
+                    web_errors.append("tool_not_accepted")
+                    stream_cm = client.messages.stream(**kw)
+                elif bad and ("effort" in str(e) or "thinking" in str(e)):   # a model that does not take effort/adaptive thinking
+                    kw.pop("output_config", None)
+                    kw.pop("thinking", None)
+                    stream_cm = client.messages.stream(**kw)
+                else:
+                    raise
+            with stream_cm as stream:
+                src = iter(stream) if hasattr(type(stream), "__iter__") else stream.text_stream   # real SDK: events (text + thinking); fakes: text
+                for ev in src:
+                    kind = getattr(ev, "type", None)
+                    if isinstance(ev, str):
+                        kind, piece = "text", ev
+                    elif kind == "text":
+                        piece = getattr(ev, "text", "") or ""
+                    elif kind == "thinking":
+                        thinking.append(getattr(ev, "thinking", "") or "")
+                        continue
+                    else:
+                        continue
+                    if first is None:
+                        first = time.time()
+                    text.append(piece)
+                    if on_token:
+                        on_token(piece)
+                    sink = getattr(_HERE, "sink", None)
+                    if sink:
+                        sink(piece)
+                final = stream.get_final_message()
+            u = getattr(final, "usage", None)
+            pt += getattr(u, "input_tokens", 0) or 0
+            gt += getattr(u, "output_tokens", 0) or 0
+            cr += getattr(u, "cache_read_input_tokens", 0) or 0
+            cw += getattr(u, "cache_creation_input_tokens", 0) or 0
+            if "tools" in kw:
+                n, qs, errs = web_report(final)
+                searches, queries, web_errors = searches + n, queries + qs, web_errors + errs
+            if getattr(final, "stop_reason", None) != "pause_turn" or "tools" not in kw:
+                break
+            # the server paused its own search loop: send the turn back as it stands and let it continue
+            kw["messages"] = list(kw["messages"]) + [{"role": "assistant", "content": getattr(final, "content", None) or []}]
     except LLMError:
         raise
     except Exception as e:
+        if fast:                                                     # fast mode refused (its own rate limit): same call at normal speed
+            _HERE.nofast = True
+            try:
+                return chat(model, messages, options, think, keep_alive, timeout, fmt, on_token, cfg=cfg, client=client)
+            finally:
+                _HERE.nofast = False
         raise LLMError(f"Claude did not answer: {type(e).__name__}: {str(e)[:300]}")
     stop = getattr(final, "stop_reason", None)
     if stop == "refusal":
         raise LLMError("Claude declined this request (refusal); treated as could-not-run, not as an answer")
-    u = getattr(final, "usage", None)
-    pt, gt = getattr(u, "input_tokens", 0) or 0, getattr(u, "output_tokens", 0) or 0
-    cr, cw = getattr(u, "cache_read_input_tokens", 0) or 0, getattr(u, "cache_creation_input_tokens", 0) or 0
-    usd = cost(model, pt, gt, cr, cw, ttl)
+    usd = cost(model, pt, gt, cr, cw, ttl) * (2.0 if fast else 1.0) + searches * WEB_SEARCH_USD
     _SPENT["usd"] += usd
     _SPENT["calls"] += 1
     _add_spend(usd)
@@ -519,6 +605,8 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
     rec = {"label": getattr(_HERE, "label", None) or "answer", "model": api_model(model), "effort": eff, "in": pt + cr + cw, "out": gt,
            "cached": cr, "cache_write": cw,
            "usd": round(usd, 5), "secs": round(time.time() - t0, 1), "thinking": "".join(thinking)[:4000], "text": "".join(text)[:4000]}
+    if web:                                                          # Show work lists the lookups (and any the tool could not do)
+        rec.update(web_searches=searches, web_queries=queries[:10], web_errors=web_errors[:10])
     return {"calls": [rec], "text": "".join(text), "thinking": "".join(thinking), "gen_tokens": gt, "prompt_tokens": pt, "cached_tokens": None,
             "done_reason": "length" if stop == "max_tokens" else "stop", "tok_s": round(gt / secs, 1) if gt else None,
-            "prefill_tok_s": None, "load_s": None, "transport": "claude", "usd": round(usd, 5)}
+            "prefill_tok_s": None, "load_s": None, "transport": "claude", "usd": round(usd, 5), "web_searches": searches}
