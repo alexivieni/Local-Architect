@@ -15,6 +15,8 @@ never leaves your machine unless you turn on the optional Claude step.
 
 **Architecture:** see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — harness, agents, components, workload placement, tokens and caching.
 
+**Research:** [Engineering Local Agentic Coding Harnesses with Orthogonalized Small Language Models](docs/research/README.md) (technical report, PDF, with a map from each section to the code).
+
 **Engineering docs:** [architecture review (22 ranked changes)](docs/architecture_review_20261104.md) ·
 [Claude-to-local synthesis](docs/claude_to_local_synthesis.md) · [agent method](docs/agent_method.md) ·
 [PC plan](docs/pc_plan_20261104.md) · [Claude API review](docs/claude_api_review.md) · [design system](docs/design_system.md) ·

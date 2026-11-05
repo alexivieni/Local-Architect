@@ -152,5 +152,6 @@ every call/step/check ──► trace.jsonl ──► logbook.db (FTS) ──►
 ---
 
 ## 9. Where to look next
+The design is written up as a technical report: [docs/research](research/README.md) (cost model `C = t / p̄`, memory hierarchy, orthogonalized models).
 `CLAUDE.md` (developer rules and measured lessons), `docs/architecture_review_20261104.md` (22 ranked improvements),
 `docs/claude_to_local_synthesis.md` (what Claude's agents did and how it applies locally), `docs/pc_plan_20261104.md` (this machine).
