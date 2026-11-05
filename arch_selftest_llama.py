@@ -871,6 +871,42 @@ def run():
               "and Fable 5.1 is priced at its own rate",
               fe.sent[0]["output_config"]["effort"] == "max" and fe.sent[0]["max_tokens"] == 64000 and fe.sent[0]["model"] == "claude-fable-5-1"
               and abs(r3["usd"] - (1000 * 10 + 500 * 50) / 1e6) < 1e-9 and arch_cloud.effort_for("hi", "medium") == "medium")
+        # ---- Claude Code subagents (/agents): starters, validation, the file, and the hand-off to the SDK
+        import dataclasses
+        import types as _types
+        import arch_claudecode as ccm
+        starters = ccm.load_subagents()
+        refused = []
+        for bad in ({"name": "Bad Name", "description": "d", "prompt": "p"}, {"name": "ok-name", "description": "", "prompt": "p"},
+                    {"name": "ok-name", "description": "d", "prompt": "p", "model": "gpt-4"},
+                    {"name": "ok-name", "description": "d", "prompt": "p", "tools": "Read; rm -rf /"}):
+            try:
+                ccm.validate_subagent(bad)
+                refused.append(False)
+            except ValueError:
+                refused.append(True)
+        try:
+            ccm.save_subagents([starters[0], dict(starters[0])])
+            dup_refused = False
+        except ValueError:
+            dup_refused = True
+        saved = ccm.save_subagents([dict(starters[0], enabled=False), {"name": "doc-writer", "description": "Writes docs.", "prompt": "Write docs.",
+                                                                        "tools": "Read, Write", "model": "haiku"}])
+
+        @dataclasses.dataclass
+        class _AD:
+            description: str
+            prompt: str
+            tools: list = None
+            model: str = None
+        defs = ccm.agent_definitions(_types.SimpleNamespace(AgentDefinition=_AD))
+        check("subagents: two starters (a read-only code-reviewer, a test-writer); bad names, empty descriptions, unknown models, odd tools and "
+              "duplicate names are refused; saved to <data_dir>/subagents.json; only enabled ones reach ClaudeAgentOptions(agents=...)",
+              [a["name"] for a in starters] == ["code-reviewer", "test-writer"] and "Edit" not in starters[0]["tools"] and all(refused) and dup_refused
+              and os.path.isfile(os.path.join(core.data_dir(), "subagents.json")) and [a["name"] for a in ccm.load_subagents()] == ["code-reviewer", "doc-writer"]
+              and list(defs) == ["doc-writer"] and defs["doc-writer"].tools == ["Read", "Write"] and defs["doc-writer"].model == "haiku"
+              and saved[1]["tools"] == ["Read", "Write"] and ccm._main_arg("Bash", {"command": "ls -la", "description": "x"}) == "ls -la",
+              (refused, dup_refused, list(defs)))
     finally:
         srv.shutdown()
         core.set_home(old_home)

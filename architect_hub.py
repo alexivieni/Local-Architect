@@ -576,6 +576,9 @@ class AHandler(mh.Handler):
             if q.get("run"):
                 return self._send(200, cc.snapshot(q["run"][0], int((q.get("since") or ["0"])[0])))
             return self._send(200, cc.status())
+        if u.path == "/api/arch/subagents":
+            import arch_claudecode as cc
+            return self._send(200, {"subagents": cc.load_subagents(), "models": list(cc.SUB_MODELS[1:]), "starters": cc.STARTERS})
         if u.path == "/api/arch/agents":
             import arch_agents
             q = parse_qs(u.query)
@@ -887,6 +890,9 @@ class AHandler(mh.Handler):
             if sess and not re.fullmatch(r"[0-9a-f-]{20,60}", sess):
                 raise ValueError("bad session id")
             return {"ok": True, "run": cc.start(root, msg, str(b.get("mode") or "plan"), model, sess)}
+        if path == "/api/arch/subagents":
+            import arch_claudecode as cc
+            return {"ok": True, "subagents": cc.save_subagents(b.get("subagents"))}
         if path == "/api/arch/agents":
             import arch_agents
             msg = str(b.get("message") or "").strip()[:20000]

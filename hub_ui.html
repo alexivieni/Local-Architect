@@ -637,6 +637,21 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 
 .agev{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.agico{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;background:var(--acc2);color:var(--acc)}
 .agev.agent-message .agico{background:rgba(217,119,87,.18);color:#d97757;font-weight:700}.agtxt{font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;word-break:break-word}
+/* Claude Code transcript: tool calls as folded cards, thinking folded, the final answer highlighted */
+.cclog{display:flex;flex-direction:column;gap:6px;margin-top:10px}.cclog .ccsub{margin-left:22px;border-left:2px solid var(--line);padding-left:10px}
+.ccyou{align-self:flex-end;max-width:85%;background:var(--soft);border-radius:12px;padding:8px 12px;white-space:pre-wrap}
+.ccmsg{display:flex;gap:8px;align-items:flex-start}.ccmsg .ccbul{flex:none;color:#d97757;font-weight:700;line-height:1.6}
+.cctool,.ccthink{border:1px solid var(--line);border-radius:8px;background:var(--panel)}.ccthink{border-style:dashed}
+.cctool>summary,.ccthink>summary{cursor:pointer;list-style:none;padding:6px 10px;display:flex;gap:8px;align-items:baseline;font-size:13px;min-width:0}
+.cctool>summary::-webkit-details-marker,.ccthink>summary::-webkit-details-marker{display:none}
+.cctool>summary::before,.ccthink>summary::before{content:"▸";color:var(--faint);flex:none;transition:transform .12s}.cctool[open]>summary::before,.ccthink[open]>summary::before{transform:rotate(90deg)}
+.ccname{font-weight:600;flex:none}.ccarg{font-family:var(--mono);font-size:12px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ccdot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--warn);align-self:center}.ccdot.ok{background:var(--good)}.ccdot.err{background:var(--bad)}
+.ccprev{font-family:var(--mono);font-size:11.5px;color:var(--faint);padding:0 10px 6px 26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ccbody{padding:0 10px 8px 26px;display:flex;flex-direction:column;gap:6px}.ccbody .agtxt{max-height:320px;overflow:auto;background:var(--soft);border-radius:6px;padding:6px 8px}
+.ccfinal{border:1px solid var(--good);background:var(--goodbg);border-radius:10px;padding:10px 14px}.ccfinal.err{border-color:var(--bad);background:var(--badbg)}
+.ccmeta{font-size:12.5px;color:var(--mute);display:flex;gap:12px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--line);margin-top:8px}
+.saitem{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px}.saitem .ccarg{white-space:normal}
 </style>
 </head>
 <body>
@@ -1363,7 +1378,8 @@ document.addEventListener("keydown",e=>{
 /* ---- Claude agents: your Managed Agents (made in the Claude Console), run from here, every event visible ---- */
 let AG={list:null,sid:store.get("agSession",""),since:0,events:[],status:"",timer:0};
 function agentsPage(){
-  setTimeout(agentsLoad,0); setTimeout(ccLoad,0);
+  setTimeout(agentsLoad,0); setTimeout(ccLoad,0); setTimeout(()=>saLoad().catch(e=>{const b=$("#saBox");if(b)b.textContent=e.message;}),0);
+  if(CC.run&&CC.events.length)setTimeout(()=>ccPoll(),0);   /* coming back to the page shows the run so far instead of a blank panel */
   const out=h("div",{id:"agOut"}),pick=h("div",{id:"agPick"},h("div",{class:"skeleton",style:"height:90px"}));
   return [h("div",{class:"card"},h("div",{class:"row"},h("span",{class:"cbadge",style:"font-size:13px;padding:2px 10px"},"Claude"),h("h2",{class:"grow",style:"margin:0"},"Claude agents"),
       h("a",{class:"btn sm",href:"https://platform.claude.com/agents",target:"_blank",rel:"noopener"},"Open the Console")),
@@ -1371,7 +1387,10 @@ function agentsPage(){
     h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"What the agent is doing"),h("span",{class:"chip",id:"agStatus"},AG.status||"no session")),out),
     h("div",{class:"card",id:"ccCard"},h("div",{class:"row"},h("span",{class:"cbadge",style:"font-size:13px;padding:2px 10px"},"Claude Code"),h("h2",{class:"grow",style:"margin:0"},"Claude Code, on your API key"),h("span",{class:"chip",id:"ccStatus"},"…")),
       h("p",{class:"sub"},"The real Claude Code agent, working in your project folder here on this PC, billed to your API key (never your subscription). Every message, thinking step, tool call and result appears below as it happens; Send again to continue the same session."),
-      h("div",{id:"ccForm"}),h("div",{id:"ccOut"}))];
+      h("div",{id:"ccForm"}),h("div",{id:"ccOut"})),
+    h("div",{class:"card",id:"saCard"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"Subagents"),h("span",{class:"chip"},"/agents")),
+      h("p",{class:"sub"},"Specialists Claude Code can hand work to, exactly like Claude Code's /agents: each has its own system prompt, tools and model, and works in its own context. Every enabled one is given to each Claude Code run; ask for it by name (\"use the code-reviewer\") or let Claude pick from the description."),
+      h("div",{id:"saBox"},h("div",{class:"skeleton",style:"height:60px"})))];
 }
 let CC={run:"",since:0,events:[],session:store.get("ccSession",""),timer:0};
 async function ccLoad(){
@@ -1381,7 +1400,8 @@ async function ccLoad(){
   const mode=h("select",{id:"ccMode"},...[["plan","Plan: reads and plans, changes nothing"],["acceptEdits","Accept edits: edits files, asks for nothing else"],["default","Manual: risky tools are refused"]].map(([v,l])=>h("option",{value:v,selected:store.get("ccMode","plan")===v},l)));
   const model=h("select",{id:"ccModel"},...[["","Default model"],["opus","Opus"],["sonnet","Sonnet"],["haiku","Haiku"],["fable","Fable"]].map(([v,l])=>h("option",{value:v,selected:store.get("ccModel","")===v},l)));
   mode.onchange=()=>store.set("ccMode",mode.value); model.onchange=()=>store.set("ccModel",model.value);
-  const ta=h("textarea",{id:"ccMsg",rows:3,style:"width:100%;font:inherit",placeholder:"Talk to it exactly like Claude Code: e.g. Find the slowest part of the Console page and fix it, with a test."});
+  const ta=h("textarea",{id:"ccMsg",rows:3,style:"width:100%;font:inherit",placeholder:"Talk to it exactly like Claude Code: e.g. Find the slowest part of the Console page and fix it, with a test.  (Ctrl+Enter sends)",
+    onkeydown:ev=>{if(ev.key==="Enter"&&(ev.ctrlKey||ev.metaKey)){ev.preventDefault();ccSend();}}});
   f.append(h("div",{class:"fgrid"},h("label",{class:"f"},"Mode",mode),h("label",{class:"f"},"Model",model)),ta,
     h("div",{class:"row",style:"margin-top:8px"},h("span",{class:"grow small mute",id:"ccSess"},CC.session?"Session: "+CC.session:"New session"),
       CC.session?h("button",{class:"btn sm",onclick:()=>{CC.session="";store.set("ccSession","");$("#ccSess").textContent="New session";}},"New session"):null,
@@ -1401,15 +1421,64 @@ async function ccPoll(){
     ccDraw(r); if(r.status==="running")CC.timer=setTimeout(ccPoll,1200);
   }catch(e){CC.timer=setTimeout(ccPoll,3000);}
 }
+CC.open=new Set();
+function ccFold(cls,key,summary,body){  /* a <details> that stays open across the 1.2 s redraws */
+  const d=h("details",{class:cls},...summary,body); if(CC.open.has(key))d.open=true;
+  d.addEventListener("toggle",()=>{d.open?CC.open.add(key):CC.open.delete(key);}); return d;
+}
 function ccDraw(r){
   const out=$("#ccOut"); if(!out)return; out.innerHTML="";
-  if(r.error)out.append(h("div",{class:"note bad"},String(r.error)));
-  for(const e of CC.events){
-    const ico=e.type==="you"?"you":e.type==="assistant"?"C":e.type==="user"?"↳":e.type.startsWith("result")?"✓":"·";
-    out.append(h("div",{class:"agev "+(e.type==="assistant"?"agent-message":"")},h("span",{class:"agico"},ico),
-      h("div",{class:"grow"},h("div",{class:"small mute"},(e.type==="assistant"?"Claude Code":e.type==="user"?"tool result":e.type)+(e.model?" · "+e.model:"")+(e.usage?` · ${e.usage.input_tokens||0}+${e.usage.cache_read_input_tokens||0} cached in / ${e.usage.output_tokens||0} out`:"")),
-        e.type==="assistant"||e.type==="you"||e.type.startsWith("result")?renderText(e.text||""):h("div",{class:"agtxt"},e.text||""))));
-  }
+  if(r.error&&r.status!=="stopped")out.append(h("div",{class:"note bad"},String(r.error)));
+  const results={}; for(const e of CC.events)if(e.type==="tool_result"&&e.id)results[e.id]=e;
+  const log=h("div",{class:"cclog"}); let tin=0,tout=0,tcache=0,tools=0;
+  CC.events.forEach((e,i)=>{
+    let node=null; const key=(e.id||"")+":"+i;
+    if(e.type==="you")node=h("div",{class:"ccyou"},e.text||"");
+    else if(e.type==="assistant"){node=h("div",{class:"ccmsg"},h("span",{class:"ccbul"},"●"),h("div",{class:"grow"},renderText(e.text||"")));
+      if(e.usage){tin+=e.usage.input_tokens||0;tout+=e.usage.output_tokens||0;tcache+=e.usage.cache_read_input_tokens||0;}}
+    else if(e.type==="thinking")node=ccFold("ccthink",key,[h("summary",{},h("span",{class:"mute"},"✻ Thinking"),h("span",{class:"ccarg"},(e.text||"").split("\n")[0].slice(0,120)))],h("div",{class:"ccbody"},h("div",{class:"agtxt"},e.text||"")));
+    else if(e.type==="tool"){tools++; const res=results[e.id]; const st=!res?"":res.error?"err":"ok";
+      const prev=res?(res.error?"✗ ":"⎿ ")+((res.text||"").split("\n").find(x=>x.trim())||"(no output)").slice(0,160):(r.status==="running"?"running…":"no result");
+      node=ccFold("cctool",key,[h("summary",{},h("span",{class:"ccdot "+st}),h("span",{class:"ccname"},e.name==="Task"?"Agent":e.name),h("span",{class:"ccarg",title:e.arg||""},e.arg?"("+e.arg+")":"")),h("div",{class:"ccprev"},prev||"")],
+        h("div",{class:"ccbody"},h("div",{class:"small mute"},"Input"),h("div",{class:"agtxt"},e.text||""),res?h("div",{class:"small mute"},res.error?"Error":"Result"):null,res?h("div",{class:"agtxt"},res.text||""):null));}
+    else if(e.type==="tool_result"){if(!e.id||!CC.events.some(x=>x.type==="tool"&&x.id===e.id))node=h("div",{class:"agtxt mute"},e.text||"");}
+    else if(e.type==="user")node=h("div",{class:"agtxt mute"},e.text||"");   /* runs recorded before tool cards existed */
+    else if(e.type==="result")node=h("div",{class:"ccfinal"+(r.status==="error"&&i===CC.events.length-1?" err":"")},h("div",{class:"small mute",style:"margin-bottom:4px"},"✓ Result"),renderText(e.text||""));
+    else if(e.type==="system.init")node=h("div",{class:"small mute"},e.text||"");
+    if(node){if(e.parent)node.classList.add("ccsub");log.append(node);}
+  });
+  out.append(log);
+  if(CC.events.length)out.append(h("div",{class:"ccmeta"},h("span",{},{running:"● working…",done:"✓ done",error:"✗ error",stopped:"■ stopped"}[r.status]||r.status||""),
+    r.turns!=null?h("span",{},r.turns+" turns"):null,h("span",{},tools+" tool calls"),h("span",{},`${tin.toLocaleString()} in · ${tcache.toLocaleString()} cached · ${tout.toLocaleString()} out`),
+    h("span",{},"$"+Number(r.cost||0).toFixed(4))));
+}
+/* ---- subagents (like Claude Code's /agents): saved in <data_dir>/subagents.json, handed to every Claude Code run ---- */
+let SA={list:[],models:[],edit:-1};
+async function saLoad(){const r=await api("/api/arch/subagents");SA.list=r.subagents||[];SA.models=r.models||[];SA.edit=-1;saDraw();}
+async function saSave(list){try{const r=await api("/api/arch/subagents",{subagents:list});SA.list=r.subagents;SA.edit=-1;saDraw();toast("Subagents saved: the next Claude Code run can use them");return true;}catch(e){toast.err(e.message,8000);return false;}}
+function saDraw(){
+  const box=$("#saBox"); if(!box)return; box.innerHTML="";
+  SA.list.forEach((a,i)=>{
+    if(SA.edit===i){box.append(saForm(a,i));return;}
+    const en=h("input",{type:"checkbox",checked:a.enabled!==false,title:"Hand this subagent to Claude Code runs",onchange:()=>saSave(SA.list.map((x,j)=>j===i?{...x,enabled:en.checked}:x))});
+    box.append(h("div",{class:"saitem"},h("div",{class:"row"},en,h("b",{class:"grow"},a.name),h("span",{class:"chip"},a.model||"inherit"),
+      h("button",{class:"btn sm",onclick:()=>{SA.edit=i;saDraw();}},"Edit"),
+      h("button",{class:"btn sm danger",onclick:()=>{if(confirm("Remove the subagent "+a.name+"?"))saSave(SA.list.filter((_,j)=>j!==i));}},"Remove")),
+      h("div",{class:"small",style:"margin-top:4px"},a.description),h("div",{class:"ccarg small"},"Tools: "+((a.tools||[]).join(", ")||"all of the main agent's tools"))));
+  });
+  if(SA.edit===SA.list.length)box.append(saForm({name:"",description:"",prompt:"",tools:[],model:"inherit",enabled:true},SA.list.length));
+  else box.append(h("div",{class:"row",style:"margin-top:8px"},h("span",{class:"grow"}),h("button",{class:"btn",onclick:()=>{SA.edit=SA.list.length;saDraw();}},"+ New subagent")));
+}
+function saForm(a,i){
+  const nm=h("input",{type:"text",value:a.name,placeholder:"e.g. code-reviewer",pattern:"[a-z][a-z0-9-]{1,39}"}),ds=h("input",{type:"text",value:a.description,placeholder:"When should Claude hand work to it?"});
+  const pr=h("textarea",{rows:6,style:"width:100%;font:inherit"},a.prompt||""),tl=h("input",{type:"text",value:(a.tools||[]).join(", "),placeholder:"Read, Grep, Glob (empty = every tool)"});
+  const md=h("select",{},...SA.models.map(m=>h("option",{value:m,selected:(a.model||"inherit")===m},m==="inherit"?"Same as the main agent":m[0].toUpperCase()+m.slice(1))));
+  const save=()=>{const rec={name:nm.value.trim(),description:ds.value.trim(),prompt:pr.value.trim(),tools:tl.value,model:md.value,enabled:a.enabled!==false};
+    saSave(i<SA.list.length?SA.list.map((x,j)=>j===i?rec:x):[...SA.list,rec]);};
+  return h("div",{class:"saitem"},h("div",{class:"fgrid"},h("label",{class:"f"},"Name",nm),h("label",{class:"f"},"Model",md),
+      h("label",{class:"f",style:"grid-column:1/-1"},"Description",ds),h("label",{class:"f",style:"grid-column:1/-1"},"Tools (comma separated)",tl)),
+    h("label",{class:"f"},"System prompt",pr),
+    h("div",{class:"row",style:"margin-top:8px"},h("span",{class:"grow"}),h("button",{class:"btn sm",onclick:()=>{SA.edit=-1;saDraw();}},"Cancel"),h("button",{class:"btn p sm",onclick:save},"Save")));
 }
 async function agentsLoad(){
   const box=$("#agPick"); if(!box)return;

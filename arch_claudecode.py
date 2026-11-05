@@ -12,6 +12,7 @@ mode). There is no "bypass" here on purpose.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -51,6 +52,114 @@ def _env():
     return env
 
 
+# ---- subagents (like Claude Code's /agents): <data_dir>/subagents.json, passed to every run as ClaudeAgentOptions(agents=...)
+NAME_RE = re.compile(r"[a-z][a-z0-9-]{1,39}")
+TOOL_RE = re.compile(r"[A-Za-z][A-Za-z0-9_*.:()/ -]{0,79}")
+SUB_MODELS = ("", "inherit", "opus", "sonnet", "haiku", "fable")
+MAX_SUBAGENTS = 20
+STARTERS = [
+    {"name": "code-reviewer", "model": "inherit", "tools": ["Read", "Grep", "Glob"],
+     "description": "Reviews a change or a file for correctness bugs, risky edge cases and unclear code. Read-only: never edits. "
+                    "Use after code was written or when asked for a review.",
+     "prompt": "You are a careful senior code reviewer. Read the code you are pointed at (and what it calls) before judging. "
+               "Report only real problems: a concrete input or state that gives a wrong result, a crash, a security hole, or a "
+               "broken contract. For each: file:line, what goes wrong, and the smallest fix. Rank by severity. If nothing is "
+               "wrong, say so plainly. You cannot and must not edit files."},
+    {"name": "test-writer", "model": "inherit", "tools": ["Read", "Grep", "Glob", "Write", "Edit", "Bash"],
+     "description": "Writes focused tests for a function or a behaviour, runs them, and keeps only tests that pass for the right "
+                    "reason. Use when a change needs tests or a bug needs a reproduction.",
+     "prompt": "You write tests. First read the code under test and the project's existing tests, and follow their framework, "
+               "layout and naming. Write small tests that each check one behaviour, including edge cases and the failure path. "
+               "Run them. A test that fails because the code is wrong is reported, not weakened; a test that fails because the "
+               "test is wrong is fixed. Never edit the code under test unless asked."},
+]
+
+
+def _subagents_file():
+    return os.path.join(core.data_dir(), "subagents.json")
+
+
+def validate_subagent(a):
+    """One subagent from the page -> a clean record, or ValueError in plain words."""
+    if not isinstance(a, dict):
+        raise ValueError("a subagent must be an object")
+    name = str(a.get("name") or "").strip()
+    if not NAME_RE.fullmatch(name):
+        raise ValueError(f"subagent name {name[:40]!r}: use 2-40 lowercase letters, digits and dashes, starting with a letter")
+    desc, prompt = str(a.get("description") or "").strip(), str(a.get("prompt") or "").strip()
+    if not desc or len(desc) > 1000:
+        raise ValueError(f"{name}: a description (when to use it, at most 1000 characters) is required")
+    if not prompt or len(prompt) > 20000:
+        raise ValueError(f"{name}: a system prompt (at most 20000 characters) is required")
+    tools = a.get("tools") or []
+    if isinstance(tools, str):
+        tools = tools.split(",")
+    tools = [str(t).strip() for t in tools if str(t).strip()]
+    bad = [t for t in tools if not TOOL_RE.fullmatch(t)]
+    if bad or len(tools) > 40:
+        raise ValueError(f"{name}: tool names look wrong: {', '.join(bad[:3]) or 'too many'}")
+    model = str(a.get("model") or "").strip()
+    if model not in SUB_MODELS:
+        raise ValueError(f"{name}: model must be one of inherit, opus, sonnet, haiku, fable")
+    return {"name": name, "description": desc, "prompt": prompt, "tools": tools, "model": model or "inherit",
+            "enabled": a.get("enabled", True) is not False}
+
+
+def load_subagents():
+    """The saved subagents; the two starters when nothing was saved yet (an unreadable file also gives the starters)."""
+    try:
+        with open(_subagents_file(), encoding="utf-8") as f:
+            data = json.load(f)
+        return [validate_subagent(a) for a in data.get("subagents", [])]
+    except (OSError, ValueError, AttributeError):
+        return [validate_subagent(a) for a in STARTERS]
+
+
+def save_subagents(items):
+    """Validate every subagent (names unique), then write the file atomically. -> the saved list."""
+    if not isinstance(items, list) or len(items) > MAX_SUBAGENTS:
+        raise ValueError(f"send a list of at most {MAX_SUBAGENTS} subagents")
+    clean = [validate_subagent(a) for a in items]
+    names = [a["name"] for a in clean]
+    dup = sorted({n for n in names if names.count(n) > 1})
+    if dup:
+        raise ValueError("two subagents share the name " + dup[0])
+    path = _subagents_file()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"subagents": clean}, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
+    return clean
+
+
+def agent_definitions(sdk, items=None):
+    """Enabled subagents -> {name: sdk.AgentDefinition}, passing only the fields this SDK version knows."""
+    import dataclasses
+    try:
+        known = {f.name for f in dataclasses.fields(sdk.AgentDefinition)}
+    except TypeError:
+        known = {"description", "prompt", "tools", "model"}
+    out = {}
+    for a in (load_subagents() if items is None else items):
+        if not a.get("enabled", True):
+            continue
+        kw = {"description": a["description"], "prompt": a["prompt"], "tools": a["tools"] or None,
+              "model": a["model"] or "inherit"}
+        out[a["name"]] = sdk.AgentDefinition(**{k: v for k, v in kw.items() if k in known})
+    return out
+
+
+def _main_arg(name, inp):
+    """The one argument that says what a tool call does (Claude Code shows `Read(path)`, `Bash(command)`)."""
+    if not isinstance(inp, dict):
+        return ""
+    for k in ("command", "file_path", "path", "pattern", "url", "query", "description", "subagent_type", "prompt"):
+        if inp.get(k):
+            return str(inp[k])[:200]
+    return json.dumps(inp, ensure_ascii=False)[:200]
+
+
 def _summary(ev):
     t = ev.get("type")
     if t == "assistant":
@@ -76,7 +185,7 @@ def _summary(ev):
     return ""
 
 
-def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40):
+def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40, budget=5.0):
     """Run one Claude Code turn in `root` in the background. -> run id (follow-ups pass the session id as `resume`)."""
     if not status()["ready"]:
         raise RuntimeError(status()["why"])
@@ -84,7 +193,7 @@ def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40):
         raise RuntimeError("set ANTHROPIC_API_KEY, then restart the hub")
     if mode not in MODES:
         mode = "plan"
-    args = {"prompt": prompt, "mode": mode, "model": model, "resume": resume, "max_turns": int(max_turns)}
+    args = {"prompt": prompt, "mode": mode, "model": model, "resume": resume, "max_turns": int(max_turns), "budget": float(budget)}
     rid = f"cc{int(time.time() * 1000)}"
     with _LOCK:
         _RUNS[rid] = {"events": [], "status": "running", "session": resume, "cost": 0.0, "started": time.time(), "error": None, "proc": None}
@@ -115,8 +224,13 @@ def _pump(rid, args, root):
     async def go():
         env = {k: v for k, v in _env().items() if k in ("CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY")}
         opts = sdk.ClaudeAgentOptions(cwd=root, permission_mode=args["mode"], max_turns=args["max_turns"], env=env,
-                                      model=args["model"] or None, resume=args["resume"] or None)
+                                      model=args["model"] or None, resume=args["resume"] or None,
+                                      max_budget_usd=args.get("budget") or 5.0,                  # a hard stop on spend per task
+                                      agents=agent_definitions(sdk) or None)                      # your subagents (/agents)
         async for m in sdk.query(prompt=args["prompt"], options=opts):
+            with _LOCK:
+                if _RUNS[rid]["status"] == "stopped":     # Stop: leaving the loop closes the query and ends the agent process
+                    break
             name, t = type(m).__name__, time.time()
             if name == "SystemMessage":
                 d = getattr(m, "data", {}) or {}
@@ -124,23 +238,23 @@ def _pump(rid, args, root):
                     add({"t": t, "type": "system.init", "text": f"session {d.get('session_id')} · model {d.get('model')} · {len(d.get('tools') or [])} tools · mode {d.get('permissionMode')}"},
                         session=d.get("session_id"))
             elif name == "AssistantMessage":
-                parts = []
+                u = getattr(m, "usage", None) or {}
+                usage = {k: u.get(k) for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
+                sub = getattr(m, "parent_tool_use_id", None)          # set when a subagent (Task tool) is the one talking
                 for b in m.content or []:
                     bn = type(b).__name__
-                    if bn == "TextBlock":
-                        parts.append(b.text)
+                    if bn == "TextBlock" and b.text:
+                        add({"t": t, "type": "assistant", "text": b.text, "model": getattr(m, "model", None), "usage": usage, "parent": sub})
                     elif bn == "ThinkingBlock" and getattr(b, "thinking", ""):
-                        parts.append("(thinking) " + b.thinking[:2000])
+                        add({"t": t, "type": "thinking", "text": b.thinking[:6000], "parent": sub})
                     elif bn == "ToolUseBlock":
-                        parts.append(f"⚙ {b.name} {json.dumps(b.input, ensure_ascii=False)[:400]}")
-                u = getattr(m, "usage", None) or {}
-                add({"t": t, "type": "assistant", "text": "\n".join(x for x in parts if x), "model": getattr(m, "model", None),
-                     "usage": {k: u.get(k) for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}})
+                        add({"t": t, "type": "tool", "name": b.name, "id": b.id, "arg": _main_arg(b.name, b.input), "parent": sub,
+                             "text": json.dumps(b.input, ensure_ascii=False, default=str)[:4000]})
             elif name == "UserMessage":
                 for b in (m.content if isinstance(m.content, list) else []):
                     if type(b).__name__ == "ToolResultBlock":
                         c = b.content if isinstance(b.content, str) else json.dumps(b.content, ensure_ascii=False, default=str)
-                        add({"t": t, "type": "user", "text": ("✗ " if b.is_error else "↳ ") + (c or "")[:800]})
+                        add({"t": t, "type": "tool_result", "id": b.tool_use_id, "error": bool(b.is_error), "text": (c or "(no output)")[:4000]})
             elif name == "ResultMessage":
                 add({"t": t, "type": "result", "text": (m.result or "")[:4000]}, session=m.session_id, cost=m.total_cost_usd or 0,
                     turns=m.num_turns, error=(m.result or m.subtype) if m.is_error else None)
@@ -148,10 +262,12 @@ def _pump(rid, args, root):
     try:
         asyncio.run(go())
         with _LOCK:
-            _RUNS[rid]["status"] = "error" if _RUNS[rid]["error"] else "done"
+            if _RUNS[rid]["status"] != "stopped":
+                _RUNS[rid]["status"] = "error" if _RUNS[rid]["error"] else "done"
     except Exception as e:
         with _LOCK:
-            _RUNS[rid]["status"], _RUNS[rid]["error"] = "error", f"{type(e).__name__}: {str(e)[:500]}"
+            if _RUNS[rid]["status"] != "stopped":          # closing the query after Stop may raise; it is still a stop
+                _RUNS[rid]["status"], _RUNS[rid]["error"] = "error", f"{type(e).__name__}: {str(e)[:500]}"
 
 
 def stop(rid):
