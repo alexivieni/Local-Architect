@@ -1422,7 +1422,7 @@ const NAV_GROUPS=[
     ["map","layers","Map","How the pieces of one run, fleet or workflow connect: drag them about, click one for its details"],
     ["library","spark","Library","Agent briefs that worked, kept as templates: what each does, why, and a button to use it"]]],
   ["1. Set up",[["tiers","layers","Tiers","Which installed model does which job on this machine, and why"],["overview","⌂","Overview","Your local engineering team at a glance"],["doctor","✚","Doctor","Checks Python, Ollama, disk space, the port, git and the network. Run this first"],["models","▤","Models","What is installed and how it fits this PC"],["roles","◎","Roles","Who does what, and which model should do it"]]],
-  ["2. Build",[["start","✦","Start","Begin a project from nothing: pick a starting point"],["run","▶","Task","Give the team a goal"],["blueprints","layers","Blueprints","Draw your own workflow from steps and checks, then save it"],["queue","play","Queue","Tasks the machine works through on its own, trying another approach when one fails"],["launch","⏻","Launch","Start/stop your project for real and see if it's actually alive"]]],
+  ["2. Build",[["morning","☀","Overnight","What ran overnight, what moved, and what needs you"],["start","✦","Start","Begin a project from nothing: pick a starting point"],["run","▶","Task","Give the team a goal"],["blueprints","layers","Blueprints","Draw your own workflow from steps and checks, then save it"],["queue","play","Queue","Tasks the machine works through on its own, trying another approach when one fails"],["launch","⏻","Launch","Start/stop your project for real and see if it's actually alive"]]],
   ["3. Measure",[["tune","◆","Tune","Fit this machine, upgrades worth adding, fake code and self-improvement"],["assess","◈","Assess","Is this machine + model lineup actually ready, per workload"],["advisor","✺","Advisor","Doctor + assess + a real code scan, combined into ranked next steps"],["score","▦","Scoreboard","Measured strengths per model"],["costmap","◎","Cost map","Seconds per change that passed its tests, for each model on each kind of task"],["caches","▤","Caches","Every cache a request meets: what each holds, how often it is reused, what it saved"],["bench","◔","Benchmarks","Pass rate over time, live and scripted, and the last live run task by task"],["logbook","▦","Logbook","Everything your models and Claude did: what it cost, what worked, and the playbooks learned from it"],["flows","⇄","Flows","The workflows and the checks inside them"]]],
   ["4. Manage",[["portfolio","❖","Portfolio","Your apps and how they connect"],["settings","⚙","Settings","Limits, behaviour and tests"],["train","↻","Training","Turn verified work into training data"]]],
 ];
@@ -1431,7 +1431,7 @@ const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
 /* Four places. Projects: where you start (and the Get started checklist). Workspace: ask for something and watch it happen. Models:
    which models do the work and how well they measure. Settings: everything that tunes the machine. Every old page id still works. */
 const TABS=[
-  ["home","folder","Projects",["overview","start","portfolio"]],
+  ["home","folder","Projects",["overview","morning","start","portfolio"]],
   ["console","console","Workspace",["console","run","studio","gallery","agents","fleet","monitor","map","library","blueprints","queue","launch"]],
   ["team","chip","Models",["tiers","computers","costmap","caches","bench","logbook","score","models","roles"]],
   ["settings","sliders","Settings",["settings","tune","doctor","assess","advisor","flows","train"]],
@@ -1441,12 +1441,12 @@ const TABS=[
 const PAGE_ICON={console:"console",run:"plus",studio:"chat",agents:"crew",fleet:"fleet",monitor:"monitor",map:"map",library:"library",
   blueprints:"blueprint",queue:"queue",launch:"rocket",overview:"home",start:"sprout",portfolio:"grid",tiers:"chip",bench:"chart",
   logbook:"logbook",score:"trophy",models:"box",roles:"badge",settings:"sliders",tune:"bolt",doctor:"steth",assess:"gauge",
-  advisor:"compass",flows:"flow",train:"train",components:"palette",gallery:"layers",computers:"server",costmap:"target",caches:"db"};
+  advisor:"compass",flows:"flow",train:"train",components:"palette",gallery:"layers",computers:"server",costmap:"target",morning:"chart",caches:"db"};
 const PAGE_ART={console:"console",run:"task",launch:"task",studio:"studio",agents:"crew",fleet:"fleet",map:"map",monitor:"monitor",
   logbook:"logbook",library:"library",blueprints:"blueprints",queue:"queue",overview:"journey",start:"projects",portfolio:"projects",
   tiers:"models",models:"models",roles:"models",score:"models",bench:"models",costmap:"models",caches:"models"};
 const SEC_ART={home:"projects",console:"console",team:"models",settings:"settings"};
-const SUBNAME={gallery:"Gallery",computers:"Computers",fleet:"Fleet",monitor:"Monitor",map:"Map",library:"Library",logbook:"Logbook",agents:"Crew",blueprints:"Blueprints",console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",costmap:"Cost map",caches:"Caches",settings:"Settings",train:"Training data"};
+const SUBNAME={gallery:"Gallery",computers:"Computers",fleet:"Fleet",monitor:"Monitor",map:"Map",library:"Library",logbook:"Logbook",agents:"Crew",blueprints:"Blueprints",console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",costmap:"Cost map",morning:"Overnight report",caches:"Caches",settings:"Settings",train:"Training data"};
 /* pages that are in no tab (the Components page) name the tab they belong to as a fifth field */
 const tabOf=id=>TABS.find(t=>t[3].includes(id))||TABS.find(t=>t[0]===(PAGES.find(p=>p[0]===id)||[])[4])||TABS[0];
 
@@ -1616,6 +1616,7 @@ function render(){
   if(page==="tune"){ if(!built.tune){v.innerHTML="";put(v,...tunePage());built.tune=1;loadTune();} return; }
   if(page==="advisor"){ if(!built.advisor){v.innerHTML="";put(v,...advisorPage());built.advisor=1;runAdvise();} return; }
   if(page==="bench"){ if(!built.bench){v.innerHTML="";put(v,...benchPage());built.bench=1;} loadBench(); return; }
+  if(page==="morning"){ v.innerHTML="";put(v,...morningPage());loadMorning(); return; }
   if(page==="costmap"){ if(!built.costmap){v.innerHTML="";put(v,...costmapPage());built.costmap=1;} loadCostmap(); return; }
   if(page==="caches"){ if(!built.caches){v.innerHTML="";put(v,...cachesPage());built.caches=1;} loadCaches(); return; }
   v.innerHTML=""; const fn={overview,start,models,roles,flows,portfolio,score:scoreboard,settings,train}[page]; put(v,...fn());
@@ -3627,6 +3628,48 @@ function caDraw(){
   out.append(caDisk(L));
 }
 /* ---- Benchmarks: every saved `eval` report, live and scripted kept apart. Nothing here starts a run. ---- */
+/* ===== Overnight report (Projects): tools/morning_report.py's page, rendered from its Markdown as text nodes only ===== */
+function morningPage(){
+  return [h("div",{class:"card"},h("div",{id:"mrOut",style:"display:flex;flex-direction:column;gap:10px"},h("p",{class:"sub"},"Reading the overnight report…")))];
+}
+function mrInline(text){
+  const out=[]; const parts=String(text).split(/(`[^`]+`|\*\*[^*]+\*\*)/);
+  for(const x of parts){ if(!x) continue;
+    if(x.startsWith("`")&&x.endsWith("`")) out.push(h("code",null,x.slice(1,-1)));
+    else if(x.startsWith("**")&&x.endsWith("**")) out.push(h("b",null,x.slice(2,-2)));
+    else out.push(x); }
+  return out;
+}
+function mrRender(md){
+  const nodes=[]; const lines=String(md||"").split(/\r?\n/); let i=0;
+  while(i<lines.length){
+    const l=lines[i];
+    if(/^#\s/.test(l)){ nodes.push(h("h2",null,...mrInline(l.replace(/^#\s+/,"")))); i++; continue; }
+    if(/^##\s/.test(l)){ nodes.push(h("h3",{style:"margin:10px 0 4px"},...mrInline(l.replace(/^##\s+/,"")))); i++; continue; }
+    if(/^\|/.test(l)){
+      const rows=[]; while(i<lines.length&&/^\|/.test(lines[i])){ rows.push(lines[i]); i++; }
+      const cells=r=>r.replace(/^\||\|$/g,"").split("|").map(c=>c.trim());
+      const body=rows.filter(r=>!/^\|\s*-/.test(r));
+      if(body.length){ const [hd,...rest]=body;
+        nodes.push(h("div",{style:"overflow-x:auto"},h("table",null,h("thead",null,h("tr",null,...cells(hd).map(c=>h("th",null,...mrInline(c))))),
+          h("tbody",null,...rest.map(r=>h("tr",null,...cells(r).map(c=>h("td",null,...mrInline(c))))))))); }
+      continue; }
+    if(/^\s*[-*]\s/.test(l)){
+      const items=[]; while(i<lines.length&&/^\s*[-*]\s/.test(lines[i])){ items.push(lines[i].replace(/^\s*[-*]\s+/,"")); i++; }
+      nodes.push(h("ul",null,...items.map(t=>h("li",null,...mrInline(t))))); continue; }
+    if(l.trim()) nodes.push(h("p",null,...mrInline(l)));
+    i++;
+  }
+  return nodes;
+}
+async function loadMorning(){
+  const out=$("#mrOut"); if(!out) return;
+  let r; try{ r=await api("/api/arch/morning"); }catch(e){ out.innerHTML=""; out.append(h("p",{class:"note bad"},"Could not read the report: "+e.message)); return; }
+  out.innerHTML="";
+  if(!r.text){ out.append(h("p",{class:"sub"},"No overnight report yet. python tools/morning_report.py writes one; the night queue runs it when it finishes.")); return; }
+  out.append(h("p",{class:"small mute",style:"margin:0"},"From "+(r.file||"the newest report")+", written "+when(r.t)+"."));
+  out.append(...mrRender(r.text));
+}
 /* ===== Cost map (Models): the report's C = t / p for every model on every kind of task, from this machine's live benchmark runs.
    Each point is (pass rate, seconds per task); every point on one dashed ray costs the same per accepted change. Read-only: it shows
    measurements and never changes which model does what. ===== */

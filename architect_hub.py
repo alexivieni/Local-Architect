@@ -1568,6 +1568,16 @@ class AHandler(mh.Handler):
                     pass
                 c = AHandler._live_cache = (now, sorted(set(map(str, names)))[:20])
             return self._send(200, {"running": len(c[1]), "names": c[1]})
+        if u.path == "/api/arch/morning":               # the newest overnight report (tools/morning_report.py), read-only
+            import glob as _glob
+            fs = sorted(_glob.glob(os.path.join(core.data_dir(), "morning_*.md")), key=os.path.getmtime)
+            if not fs:
+                return self._send(200, {"text": "", "t": None})
+            try:
+                with open(fs[-1], encoding="utf-8") as f:
+                    return self._send(200, {"text": f.read()[:200000], "t": os.path.getmtime(fs[-1]), "file": os.path.basename(fs[-1])})
+            except OSError as ex:
+                return self._send(200, {"text": "", "t": None, "error": str(ex)[:200]})
         if u.path == "/api/arch/caches":                # every cache layer, both ends of Claude, findings (read-only; cached 60 s)
             import arch_cachestats
             now = time.time()

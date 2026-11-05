@@ -53,16 +53,24 @@ def _our_llama_pids():
     if os.name != "nt":
         return []
     ps = ("Get-CimInstance Win32_Process -Filter \"Name = 'llama-server.exe'\" | "
-          "ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)\" }")
+          "ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)|$($_.CommandLine)\" }")
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=30).stdout
     except Exception:
         return []
     mine = os.path.normcase(os.path.join(HERE, "bin"))
+    try:
+        import arch_core
+        data = os.path.normcase(os.path.abspath(arch_core.data_dir()))
+    except Exception:
+        return []
     pids = []
     for line in out.splitlines():
-        pid, _, exe = line.partition("|")
-        if pid.strip().isdigit() and os.path.normcase(exe.strip()).startswith(mine):
+        pid, _, rest = line.partition("|")
+        exe, _, cmd = rest.partition("|")
+        # Ours only when it runs from this install's bin folder AND its command line points into THIS data folder: a hub started
+        # with another ARCHITECT_DATA_DIR (a test hub) must never stop the real servers it has no record of.
+        if pid.strip().isdigit() and os.path.normcase(exe.strip()).startswith(mine) and data in os.path.normcase(cmd):
             pids.append(int(pid))
     return pids
 
