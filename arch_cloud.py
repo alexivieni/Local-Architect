@@ -827,7 +827,8 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
     t0 = time.time()
     text, first = [], None
     thinking = []
-    fast = (bool(((cfg or {}).get("online") or {}).get("cloud_fast")) and api_model(model) in FAST_MODELS
+    # fast mode doubles the price: only when a person is waiting (a message they sent from the chat), never for unattended runs
+    fast = (bool(((cfg or {}).get("online") or {}).get("cloud_fast")) and api_model(model) in FAST_MODELS and getattr(_HERE, "on", False)
             and not getattr(_HERE, "nofast", False) and hasattr(getattr(client, "beta", None), "messages"))
     pt = gt = cr = cw = 0
     searches, queries, web_errors = 0, [], []

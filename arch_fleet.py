@@ -341,8 +341,9 @@ def launch(plan, root, total_cap_usd=20.0, tests=DEFAULT_TESTS, starter=None, ru
         if a["kind"] in LOCAL_KINDS or a["after"]:
             continue                                             # started by its own thread below
         try:
+            kw = {"files": a["files"]} if getattr(starter, "__name__", "") == "start" and getattr(starter, "__module__", "") == "arch_claudecode" else {}
             a["run"] = starter(root=root, prompt=a["brief"].rstrip() + footer(a, tests), mode=a["mode"], model=a["model"],
-                               budget=a["budget_usd"], max_turns=max_turns, tag=fid)
+                               budget=a["budget_usd"], max_turns=max_turns, tag=fid, **kw)
             a["status"] = "running"
         except Exception as e:
             a["status"], a["error"] = "error", f"could not start: {type(e).__name__}: {str(e)[:300]}"

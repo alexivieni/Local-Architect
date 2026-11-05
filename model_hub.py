@@ -901,7 +901,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, code, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else (body if isinstance(body, str) else json.dumps(body)).encode("utf-8")
+        gz = len(data) > 2048 and "gzip" in (self.headers.get("Accept-Encoding") or "")   # the 480 KB page goes over the wire as ~90 KB
+        if gz:
+            import gzip
+            data = gzip.compress(data, compresslevel=5)
         self.send_response(code)
+        if gz:
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text") or "json" in ctype else ""))
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")

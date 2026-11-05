@@ -296,7 +296,41 @@ def _new_run_id():
     return f"cc{ms}"
 
 
-def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40, budget=5.0, tag=None):
+WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+
+
+def owns(root, files, path):
+    """Is `path` one of the agent's own files? Globs and folders allowed ('docs/*.md', 'agent_templates/'). No list = no rule."""
+    import fnmatch
+    if not files:
+        return True
+    rel = os.path.relpath(os.path.abspath(os.path.join(root, path)), os.path.abspath(root)).replace("\\", "/")
+    for f in files:
+        f = str(f).replace("\\", "/").strip().lstrip("./").replace("NEW ", "").strip()
+        if rel == f or fnmatch.fnmatch(rel, f) or (f.endswith("/") and rel.startswith(f)):
+            return True
+    return False
+
+
+def _ownership_hooks(sdk, root, files):
+    """A PreToolUse hook: an Edit/Write to a file the agent does not own is denied before it happens, with the reason (the brief
+    names the files; this makes the rule hold even when the agent forgets it). No files given = no hook."""
+    if not files:
+        return None
+
+    async def guard(inp, tool_use_id, context):
+        ti = (inp or {}).get("tool_input") or {}
+        path = ti.get("file_path") or ti.get("notebook_path") or ti.get("path") or ""
+        if path and not owns(root, files, path):
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                           "permissionDecisionReason": f"{path} is not one of your files ({', '.join(files)}). "
+                                                                       "Propose the change in your report instead."}}
+        return {}
+
+    return {"PreToolUse": [sdk.HookMatcher(matcher="|".join(WRITE_TOOLS), hooks=[guard])]}
+
+
+def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40, budget=5.0, tag=None, files=None):
     """Run one Claude Code turn in `root` in the background. -> run id (follow-ups pass the session id as `resume`).
     `tag` is free text kept in the run's meta (a fleet puts its id there).
     Gated like every Claude call (arch_cloud.allowed: never in the self-tests or eval, only with online features on), and the
@@ -320,7 +354,8 @@ def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40, budg
     if not budget > 0:
         raise RuntimeError("the budget must be above $0 (it is the run's hard spend limit)")
     hold = arch_cloud.reserve(cfg, budget, what="This Claude Code run")   # SpendRefused (a RuntimeError) past the daily cap
-    args = {"prompt": prompt, "mode": mode, "model": model, "resume": resume, "max_turns": int(max_turns), "budget": budget}
+    args = {"prompt": prompt, "mode": mode, "model": model, "resume": resume, "max_turns": int(max_turns), "budget": budget,
+            "files": [str(f) for f in (files or []) if str(f).strip()]}
     with _LOCK:
         rid = _new_run_id()
         started = time.time()
@@ -406,7 +441,8 @@ def _drive(rid, args, root):
         opts = sdk.ClaudeAgentOptions(cwd=root, permission_mode=args["mode"], max_turns=args["max_turns"], env=env,
                                       model=args["model"] or None, resume=args["resume"] or None,
                                       max_budget_usd=args.get("budget") or 5.0,                  # a hard stop on spend per task
-                                      agents=agent_definitions(sdk) or None)                      # your subagents (/agents)
+                                      agents=agent_definitions(sdk) or None,                      # your subagents (/agents)
+                                      hooks=_ownership_hooks(sdk, root, args.get("files")))       # writes outside its own files are refused
         async for m in sdk.query(prompt=args["prompt"], options=opts):
             with _LOCK:
                 if _RUNS[rid]["status"] == "stopped":     # Stop: leaving the loop closes the query and ends the agent process
