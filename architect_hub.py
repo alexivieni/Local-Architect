@@ -570,6 +570,15 @@ class AHandler(mh.Handler):
             st = mh.build_state()
             a_out = assess.assess(st.get("models", []), st.get("hw"), core.deep_merge(core.DEFAULTS, mh.read_config()))
             return self._send(200, advisor.advise(root, d_out, a_out))
+        if u.path == "/api/arch/agents":
+            import arch_agents
+            q = parse_qs(u.query)
+            if q.get("session"):
+                return self._send(200, arch_agents.snapshot(q["session"][0], int((q.get("since") or ["0"])[0])))
+            try:
+                return self._send(200, dict(arch_agents.listing(), sessions=arch_agents.sessions()))
+            except Exception as ex:
+                return self._send(200, {"error": f"{type(ex).__name__}: {str(ex)[:300]}", "agents": [], "environments": [], "sessions": arch_agents.sessions()})
         if u.path == "/api/arch/chat":
             import arch_chat
             return self._send(200, arch_chat.snapshot(safe_root((parse_qs(u.query).get("root") or [HERE])[0])))
@@ -856,6 +865,22 @@ class AHandler(mh.Handler):
                 raise ValueError("A download needs an explicit confirmation (it can be many GB).")
             mh.JOB.start("Download " + tag, ["architect.py", "pull", tag, "--yes"])
             return {"ok": True}
+        if path == "/api/arch/agents":
+            import arch_agents
+            msg = str(b.get("message") or "").strip()[:20000]
+            if not msg:
+                raise ValueError("Type a task for the agent first.")
+            if b.get("session"):
+                arch_agents.send(str(b["session"]), msg)
+                return {"ok": True, "session": b["session"]}
+            aid = str(b.get("agent") or "")
+            if not re.fullmatch(r"agent_[A-Za-z0-9]{6,64}", aid):
+                raise ValueError("Pick one of your agents.")
+            env = str(b.get("environment") or "") or None
+            repo = str(b.get("repo") or "").strip() or None
+            if repo and not re.fullmatch(r"https://github\.com/[\w.-]+/[\w.-]+(\.git)?", repo):
+                raise ValueError("That is not a GitHub repository address.")
+            return {"ok": True, "session": arch_agents.start(aid, msg, env, repo)}
         if path == "/api/arch/chat":
             import arch_chat
             root = safe_root(b.get("root") or HERE)

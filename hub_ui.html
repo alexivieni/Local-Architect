@@ -634,6 +634,9 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 .swork>summary{cursor:pointer;color:var(--mute)}.swcall{padding:7px 0;border-top:1px solid var(--line)}.swcall:first-of-type{border-top:0}
 .swhead{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}.swthink{margin-top:4px}.swthink>summary{cursor:pointer;color:var(--mute);font-size:12px}
 .swtext{white-space:pre-wrap;font-size:12px;line-height:1.45;max-height:220px;overflow:auto;margin-top:4px;padding:6px 8px;border-radius:8px;background:var(--bg);color:var(--ink)}
+
+.agev{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.agico{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;background:var(--acc2);color:var(--acc)}
+.agev.agent-message .agico{background:rgba(217,119,87,.18);color:#d97757;font-weight:700}.agtxt{font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;word-break:break-word}
 </style>
 </head>
 <body>
@@ -725,7 +728,7 @@ const sel={models:new Set(),cats:null,think:false};
 /* Groups and the tabs inside them are ordered the way a first run through the hub actually goes:
    check the machine, build the team, build and run the project, then measure and manage it over time. */
 const NAV_GROUPS=[
-  ["0. Console",[["console","console","Console","Ask for something and watch it happen"],["studio","chat","Studio","Talk it through with your model, then hand it to the team"]]],
+  ["0. Console",[["console","console","Console","Ask for something and watch it happen"],["studio","chat","Studio","Talk it through with your model, then hand it to the team"],["agents","spark","Claude agents","Run your Claude Managed Agents and watch every step"]]],
   ["1. Set up",[["tiers","layers","Tiers","Which installed model does which job on this machine, and why"],["overview","⌂","Overview","Your local engineering team at a glance"],["doctor","✚","Doctor","Real checks: Python, Ollama, disk, port, git, NIC, network -- run this first"],["models","▤","Models","What is installed and how it fits this PC"],["roles","◎","Roles","Who does what, and which model should do it"]]],
   ["2. Build",[["start","✦","Start","Begin a project from nothing: pick a starting point"],["run","▶","Task","Give the team a goal"],["queue","play","Queue","Tasks the machine works through on its own, trying another approach when one fails"],["launch","⏻","Launch","Start/stop your project for real and see if it's actually alive"]]],
   ["3. Measure",[["tune","◆","Tune","Fit this machine, upgrades worth adding, fake code and self-improvement"],["assess","◈","Assess","Is this machine + model lineup actually ready, per workload"],["advisor","✺","Advisor","Doctor + assess + a real code scan, combined into ranked next steps"],["score","▦","Scoreboard","Measured strengths per model"],["bench","◔","Benchmarks","Pass rate over time, live and scripted, and the last live run task by task"],["flows","⇄","Flows","The workflows and the checks inside them"]]],
@@ -737,11 +740,11 @@ const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
    which models do the work and how well they measure. Settings: everything that tunes the machine. Every old page id still works. */
 const TABS=[
   ["home","home","Projects",["overview","start","portfolio"]],
-  ["console","console","Workspace",["console","run","studio","queue","launch"]],
+  ["console","console","Workspace",["console","run","studio","agents","queue","launch"]],
   ["team","layers","Models",["tiers","bench","score","models","roles"]],
   ["settings","gear","Settings",["settings","tune","doctor","assess","advisor","flows","train"]],
 ];
-const SUBNAME={console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",settings:"Settings",train:"Training data"};
+const SUBNAME={agents:"Claude agents",console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",settings:"Settings",train:"Training data"};
 const tabOf=id=>TABS.find(t=>t[3].includes(id))||TABS[0];
 
 function buildNav(){
@@ -773,6 +776,7 @@ function render(){
   if(!S)return; const v=$("#view");
   if(page==="console"){ if(!built.console){v.innerHTML="";put(v,...consolePage());built.console=1;} pollConsole(); return; }
   if(page==="studio"){ if(!built.studio){v.innerHTML="";put(v,...studioPage());built.studio=1;loadBacklog();} pollStudio(); return; }
+  if(page==="agents"){ v.innerHTML="";put(v,...agentsPage()); return; }
   if(page==="tiers"){ if(!built.tiers){v.innerHTML="";put(v,...tiersPage());built.tiers=1;loadTeam();} return; }
   if(page==="queue"){ if(!built.queue){v.innerHTML="";put(v,...queuePage());built.queue=1;} loadQueue(); return; }
   if(page==="run"){ if(!built.run){v.innerHTML="";put(v,...runPage());built.run=1;fillExtras();} else updateRunLists(); return; }
@@ -1356,6 +1360,62 @@ document.addEventListener("keydown",e=>{
     toast("Answers now from: "+(store.get("chatUse","local").startsWith("claude")?"Claude":"this machine"));
   }
 });
+/* ---- Claude agents: your Managed Agents (made in the Claude Console), run from here, every event visible ---- */
+let AG={list:null,sid:store.get("agSession",""),since:0,events:[],status:"",timer:0};
+function agentsPage(){
+  setTimeout(agentsLoad,0);
+  const out=h("div",{id:"agOut"}),pick=h("div",{id:"agPick"},h("div",{class:"skeleton",style:"height:90px"}));
+  return [h("div",{class:"card"},h("div",{class:"row"},h("span",{class:"cbadge",style:"font-size:13px;padding:2px 10px"},"Claude"),h("h2",{class:"grow",style:"margin:0"},"Claude agents"),
+      h("a",{class:"btn sm",href:"https://platform.claude.com/agents",target:"_blank",rel:"noopener"},"Open the Console")),
+    h("p",{class:"sub"},"Your Managed Agents run on Anthropic's side, in their own sandbox. Pick one, give it a task, and watch everything it does here: its messages, every tool it calls, and each status change. Billed to your API key."),pick),
+    h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"What the agent is doing"),h("span",{class:"chip",id:"agStatus"},AG.status||"no session")),out)];
+}
+async function agentsLoad(){
+  const box=$("#agPick"); if(!box)return;
+  let r; try{ r=await api("/api/arch/agents"); }catch(e){ box.textContent=e.message; return; }
+  box.innerHTML="";
+  if(r.error&&!r.agents.length){ box.append(h("div",{class:"note warn"},"Could not list your agents: "+r.error)); }
+  const ag=h("select",{id:"agSel"},...(r.agents||[]).map(a=>h("option",{value:a.id,selected:store.get("agAgent","")===a.id},a.name+" · "+a.model)));
+  const env=h("select",{id:"agEnv"},h("option",{value:""},"(default environment)"),...(r.environments||[]).map(e=>h("option",{value:e.id,selected:store.get("agEnv","")===e.id},e.name)));
+  const repo=h("input",{type:"text",id:"agRepo",placeholder:"https://github.com/you/repo (optional: lets the agent read and change your code)",value:store.get("agRepo","https://github.com/alexivieni/Local-Architect")});
+  const msg=h("textarea",{id:"agMsg",rows:3,placeholder:"e.g. Look through the hub UI code and propose three low-risk speed or clarity improvements, with the exact edits.",style:"width:100%;font:inherit"});
+  const desc=h("p",{class:"small mute",id:"agDesc"});
+  const showDesc=()=>{const a=(r.agents||[]).find(x=>x.id===ag.value);desc.textContent=a?a.description:"";};
+  ag.onchange=()=>{store.set("agAgent",ag.value);showDesc();}; env.onchange=()=>store.set("agEnv",env.value); repo.oninput=()=>store.set("agRepo",repo.value); showDesc();
+  box.append(h("div",{class:"fgrid"},h("label",{class:"f"},"Agent",ag),h("label",{class:"f"},"Environment",env),h("label",{class:"f",style:"grid-column:1/-1"},"Repository to mount",repo)),desc,msg,
+    h("div",{class:"row",style:"margin-top:8px"},h("span",{class:"grow mute small"},AG.sid?"Session: "+AG.sid:""),
+      AG.sid?h("button",{class:"btn",onclick:()=>agentSend(true)},"Send to this session"):null,
+      h("button",{class:"btn p",onclick:()=>agentSend(false)},"Start a new session")));
+  if(AG.sid)agentPoll(true);
+}
+async function agentSend(follow){
+  const m=($("#agMsg").value||"").trim(); if(!m){toast("Type a task first");return;}
+  const body=follow?{session:AG.sid,message:m}:{agent:$("#agSel").value,environment:$("#agEnv").value,repo:($("#agRepo").value||"").trim(),message:m};
+  try{ const r=await api("/api/arch/agents",body); if(!follow){AG.sid=r.session;store.set("agSession",r.session);AG.since=0;AG.events=[];}
+    $("#agMsg").value=""; toast(follow?"Sent.":"Session started."); agentPoll(true); }catch(e){ toast.err(e.message,8000); }
+}
+async function agentPoll(start){
+  clearTimeout(AG.timer); if(!AG.sid||!$("#agOut"))return;
+  try{ const r=await api("/api/arch/agents?session="+encodeURIComponent(AG.sid)+"&since="+AG.since);
+    if(r.error&&!r.events){ $("#agOut").textContent=r.error; return; }
+    AG.events.push(...r.events); AG.since=r.n; AG.status=r.status; const st=$("#agStatus"); if(st){st.textContent=r.status;st.className="chip "+({running:"warn",idle:"good",done:"good",error:"bad"}[r.status]||"");}
+    agentDraw(r);
+    if(["running","starting"].includes(r.status)) AG.timer=setTimeout(()=>agentPoll(false),1500);
+  }catch(e){ AG.timer=setTimeout(()=>agentPoll(false),4000); }
+}
+function agentDraw(r){
+  const out=$("#agOut"); if(!out)return; out.innerHTML="";
+  const ico={"user.message":"you","agent.message":"C","agent.tool_use":"⚙","agent.mcp_tool_use":"⚙","agent.custom_tool_use":"⚙","hub.decision":"✋"};
+  out.append(h("div",{class:"row small mute",style:"margin-bottom:6px"},`${AG.events.length} events`,h("span",{class:"grow"}),h("a",{href:r.trace,target:"_blank",rel:"noopener"},"Same session in the Console ↗")));
+  if(r.error)out.append(h("div",{class:"note bad"},r.error));
+  for(const e of AG.events){
+    if(!e.text&&!/status|tool|message|decision/.test(e.type))continue;
+    out.append(h("div",{class:"agev "+e.type.replace(/\./g,"-")},h("span",{class:"agico"},ico[e.type]||"·"),
+      h("div",{class:"grow"},h("div",{class:"small mute"},e.type+" · "+new Date(e.t*1000).toLocaleTimeString()),
+        e.type==="agent.message"?renderText(e.text||""):h("div",{class:"agtxt"},e.text||""),
+        e.raw?h("details",{class:"swthink"},h("summary",null,"Raw event"),h("pre",{class:"swtext"},JSON.stringify(e.raw,null,2).slice(0,6000))):null)));
+  }
+}
 function cloudCard(){
   const c=S.cloud; if(!c)return null;
   const st=c.ready||c.chat_ready?["good","Ready"]:c.on?["warn","Almost: "+c.chat_why]:["","Off"];
