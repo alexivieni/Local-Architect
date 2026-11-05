@@ -564,7 +564,11 @@ def plan(cfg=None, hw=None, caps_=None):
             wp = next((p for p in procs if p["tier"] == "worker" and p.get("ngl")), None) if tier == "heavy" else None
             can_beside = (wp and moe is not None and arch.get("experts") and arch.get("experts_used") and ngl_pref is None
                           and ("--n-cpu-moe" in flags or "-ncmoe" in flags) and srv.get("heavy_beside", "auto") != "off")
-            if can_beside and fast:                       # fast lane: the card and the memory bus belong to the worker alone
+            # Roles that run the heavy model on EVERY run (planner/architect/evaluator set to it) would otherwise go to Ollama on the
+            # processor (ollama_gpu=auto keeps it off the card): beside the worker is strictly better then, fast lane or not.
+            _hn = str(rm.get("name") or "")
+            heavy_every_run = bool(_hn) and any(str(v or "") == _hn for k, v in (cfg.get("roles") or {}).items())
+            if can_beside and fast and not heavy_every_run:   # fast lane: the card and the memory bus belong to the worker alone
                 fast_did.append("the heavy model no longer stays loaded beside the worker; it starts only when a step escalates to it")
             elif can_beside:
                 b = _moe_split(rm["size"], arch, dict(hw, vram_gb=vt - float(wp["est_gpu_gb"] or 0)), ctx, kv, desktop_gb=desk)

@@ -1498,7 +1498,7 @@ def _run_suites(suite):
                 print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
                 rc |= 1
         # suites whose run() returns True when every check passed (art returns 0 like the older ones)
-        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "orchestration", "squad", "select", "plugins", "telemetry", "retrieval", "modelknow", "verifymachine", "selfimprove"):
+        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "swap", "orchestration", "squad", "select", "plugins", "telemetry", "retrieval", "modelknow", "verifymachine", "selfimprove"):
             try:
                 _mod = importlib.import_module("arch_selftest_" + _name)
                 _res = (getattr(_mod, "run", None) or _mod.main)()       # retrieval has only main() -> 0/1
@@ -1525,6 +1525,9 @@ def main(argv=None):
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
         import retrieval_bench
         return retrieval_bench.main(_argv[1:])
+    if _argv[:1] == ["swap"]:                # model swapping (arch_swap.py has its own arguments)
+        import arch_swap
+        return arch_swap.main(_argv[1:])
     if _argv[:1] == ["crew"]:                # local agent workflows (arch_squad.py has its own arguments)
         import arch_squad
         return arch_squad.main(_argv[1:])
@@ -1775,6 +1778,8 @@ def main(argv=None):
     mp_.add_argument("--json", action="store_true")
     cl_ = sub.add_parser("cleanup", help="close what the app started: model servers, Ollama models, Launch runs, leftover eval folders")
     cl_.add_argument("--yes", action="store_true")
+    sw_ = sub.add_parser("swap", help="swap models per tier or job from placement math, measurements and the playbook: --plan/--lint/--trial/--apply/--undo")
+    sw_.add_argument("rest", nargs=argparse.REMAINDER, help="passed to arch_swap (e.g. --plan --job code, --lint, --trial worker MODEL --fake, --apply worker MODEL --yes, --undo)")
     se_ = sub.add_parser("select", help="choose a model PER JOB by measurement (C = seconds per passed task); --plan/--screen/--measure/--why/--apply/--undo")
     se_.add_argument("--plan", action="store_true", help="what a screen would run and its estimated GPU minutes (default)")
     se_.add_argument("--screen", action="store_true")
@@ -1805,7 +1810,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     fn = {"run": cmd_run, "flows": cmd_flows, "templates": cmd_templates, "route": cmd_route, "undo": cmd_undo,
           "portfolio": cmd_portfolio, "show-config": cmd_show, "serve": cmd_serve, "doctor": cmd_doctor, "assess": cmd_assess, "advise": cmd_advise,
-          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "plugins": cmd_plugins, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
+          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "swap": lambda a: __import__("arch_swap").main(list(a.rest or [])), "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "plugins": cmd_plugins, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
     if not fn:
         ap.print_help()
         return 0

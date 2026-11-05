@@ -261,6 +261,8 @@ def speculation(fact, facts, tokenizer):
     MTP when the model ships its own heads, n-gram always (llama-server; no extra memory)."""
     a = _arch(fact)
     pb = float(a.get("params_b") or fact.get("params_b") or 0)
+    if a.get("experts") and a.get("experts_used") and pb:   # a MoE reads only its active experts per token: the draft must be small
+        pb = pb * float(a["experts_used"]) / float(a["experts"]) + pb * 0.12   # against THAT (+ shared part, est.), not the total
     want = tokenizer(fact["name"])
     drafts = []
     if pb and want and want[0] and want[2]:
