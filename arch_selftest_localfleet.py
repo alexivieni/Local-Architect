@@ -72,7 +72,7 @@ def run():
 
         def wait_done(fid, secs=15):
             end = time.time() + secs
-            while time.time() < end and fl.status(fid)["phase"] != "done":
+            while time.time() < end and fl.status(fid).get("phase") != "done":
                 time.sleep(0.05)
             return fl.status(fid)
 

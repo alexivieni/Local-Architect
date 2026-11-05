@@ -222,11 +222,17 @@ def _path(fid):
 
 
 def _read(fid):
-    try:
-        with open(_path(fid), encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return None
+    # On Windows a read that meets _write's os.replace mid-swap gets PermissionError (or a half-seen file): retry briefly
+    # instead of reporting a live fleet as "no such fleet".
+    for i in range(20):
+        try:
+            with open(_path(fid), encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError):
+            time.sleep(0.02 * (i + 1))
+    return None
 
 
 def _write(state):
@@ -235,7 +241,14 @@ def _write(state):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=1, ensure_ascii=False, default=str)
-    os.replace(tmp, path)
+    for i in range(20):                     # Windows: the swap is refused while a reader holds the file open; it is free a moment later
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if i == 19:
+                raise
+            time.sleep(0.02 * (i + 1))
 
 
 def _update(fid, fn):
