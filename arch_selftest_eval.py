@@ -70,6 +70,44 @@ def run():
         check("the report counts tokens and calls from the trace and saves itself", all(r["calls"] >= 1 and r["tokens_in"] + r["tokens_out"] > 0 for r in rep["results"] if r["kind"] == "flow")
               and os.path.isfile(rep.get("path", "")) and json.load(open(rep["path"]))["n"] == rep["n"], rep.get("path"))
         check("the summary line lands in evals.jsonl and latest() finds the run by label", (E.latest(label="t") or {}).get("n") == rep["n"])
+
+        # ---- live runs keep each task's trace (its folder is thrown away); the oracle keeps none; training data only from the train bucket
+        check("an oracle (fake) run keeps no task traces", not any(r.get("kept_run") for r in rep["results"])
+              and not os.path.isdir(E.kept_runs_dir("train")) and not os.path.isdir(E.kept_runs_dir("bench")))
+        bf = [t for t in tasks if t["flow"] == "bugfix"][0]
+        check("buckets: a training task -> train; a held-out training task and a benchmark task -> bench",
+              E.bucket_for({"tags": ["distributed", "training"]}) == "train" and E.bucket_for({"tags": ["training", "holdout"]}) == "bench"
+              and E.bucket_for(bf) == "bench")
+        srv, prev = E.start_oracle(tasks)
+        try:
+            rb = E.run_task(bf, fake_roles, keep_run=True, label="k")
+            rt = E.run_task(dict(bf, id=bf["id"] + "-train", tags=list(bf.get("tags") or []) + ["training"]), fake_roles, keep_run=True, label="k")
+        finally:
+            E.stop_oracle(srv, prev)
+        kb, kt = rb.get("kept_run") or "", rt.get("kept_run") or ""
+        meta = json.load(open(os.path.join(kt, "eval_task.json"), encoding="utf-8")) if os.path.isfile(os.path.join(kt, "eval_task.json")) else {}
+        check("a kept run has its trace and a note of the task, verdict and bucket, under the right bucket",
+              os.path.isfile(os.path.join(kb, "trace.jsonl")) and kb.startswith(E.kept_runs_dir("bench"))
+              and os.path.isfile(os.path.join(kt, "trace.jsonl")) and kt.startswith(E.kept_runs_dir("train"))
+              and meta.get("bucket") == "train" and meta.get("verdict") == rt["verdict"] and meta.get("label") == "k", (kb, kt, meta))
+        import arch_dataset as DS
+        rs = DS.roots(home)
+        check("dataset reads the train bucket and never the bench bucket (the benchmark cannot learn its own answers)",
+              os.path.abspath(E.kept_runs_dir("train")) in rs and os.path.abspath(E.kept_runs_dir("bench")) not in rs
+              and len(DS.runs_of(E.kept_runs_dir("train"))) == 1, rs)
+        import arch_costmodel as CM
+        rows = CM.measure([E.kept_runs_dir("bench"), E.kept_runs_dir("train")], min_calls=1)
+        check("the cost model reads kept runs: per role and model, C = t / p-bar from the checks' marks",
+              any(r["calls"] >= 1 and r["p_bar"] is not None for r in rows) and set(CM.default_roots()) >= {E.kept_runs_dir("train"), E.kept_runs_dir("bench")}, rows)
+        old_keep = E.KEEP_RUNS
+        try:
+            E.KEEP_RUNS = 1
+            for i in range(2):
+                E.keep_trace(os.path.dirname(os.path.join(kb, "trace.jsonl")), dict(bf, id=f"{bf['id']}-p{i}"), {"verdict": "pass"})
+        finally:
+            E.KEEP_RUNS = old_keep
+        check("old kept runs are pruned (a nightly run cannot fill the disk)", len(DS.runs_of(E.kept_runs_dir("bench"))) == 1,
+              DS.runs_of(E.kept_runs_dir("bench")))
         wrong_srv, prev = E.start_oracle(tasks, wrong=True)
         try:
             one = [t for t in tasks if t["flow"] == "bugfix"][:1]

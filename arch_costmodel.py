@@ -63,7 +63,25 @@ def planner_pays(c_b, t_b, p_b, p_b_new, c_r, t_l, p_l, t_s, p_s, lam_dS=0.0):
 
 
 # ---------------------------------------------------------------------------------------------------- measured from traces
-_TRY = re.compile(r"\s*(?:try|attempt|round)\s*\d+\s*$", re.I)
+_TRY = re.compile(r"[-_\s]*(?:try|attempt|round)\s*\d+\s*$", re.I)       # "fix-try2", "sprint1-try1", "build try 3"
+
+
+def default_roots():
+    """Every place run traces live: the portfolio projects (or this folder) and the kept live-eval runs, both buckets."""
+    out = []
+    try:
+        import arch_costs
+        out = list(arch_costs._roots(None))
+    except Exception:
+        pass
+    if not out:
+        out = [os.getcwd()]
+    try:
+        import arch_eval
+        out += [arch_eval.kept_runs_dir(b) for b in ("train", "bench") if os.path.isdir(arch_eval.kept_runs_dir(b))]
+    except Exception:
+        pass
+    return out
 
 
 def _records(roots):

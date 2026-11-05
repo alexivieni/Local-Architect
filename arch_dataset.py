@@ -76,8 +76,18 @@ def runs_of(root):
         return []
 
 
-def roots(root, include_portfolio=False):
+def roots(root, include_portfolio=False, include_eval_training=True):
+    """The project folders to read. Live eval runs of TRAINING tasks are kept in their own root (`arch_eval.kept_runs_dir("train")`)
+    because each task's folder is thrown away; benchmark and held-out tasks are kept elsewhere and never read here."""
     out = [os.path.abspath(root)]
+    if include_eval_training:
+        try:
+            import arch_eval
+            t = arch_eval.kept_runs_dir("train")
+            if os.path.isdir(os.path.join(t, ".arch", "runs")) and os.path.abspath(t) not in out:
+                out.append(os.path.abspath(t))
+        except Exception:
+            pass
     if include_portfolio:
         pf = core.load_json(os.path.join(core.HOME, "portfolio.json")) or {}
         for app in (pf.get("apps") or pf.get("portfolio") or []):

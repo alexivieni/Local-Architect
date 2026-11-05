@@ -415,8 +415,53 @@ def _engine(proj, task, cfg_over=None, say=None):
     return core.Engine(proj, task["flow"] if task["kind"] == "flow" else "eval", task.get("goal") or task["id"], cfg, review="auto", say=say or (lambda m: None), persist=True)
 
 
-def run_task(task, cfg_over=None, say=None, keep=False):
-    """-> result dict. Never raises for a model failure; a judge that cannot run yields verdict 'not_sure'."""
+KEEP_RUNS = 1000            # newest kept task traces per bucket; older ones are deleted so a nightly run cannot fill the disk
+
+
+def kept_runs_dir(bucket):
+    """Where a live eval task's trace is kept once its throwaway folder is deleted. A project-shaped root (`<root>/.arch/runs/<run>/`),
+    so `arch_dataset` and `arch_costmodel` read it like any project.
+      train  tasks tagged "training" and not "holdout": the only bucket `dataset` reads (verified local work becomes training data)
+      bench  everything else (the benchmark families, the held-out training tasks): read by the cost model, NEVER trained on, so the
+             benchmark cannot learn its own answers."""
+    return os.path.join(evals_dir(), "runs", bucket)
+
+
+def bucket_for(task):
+    tags = set(task.get("tags") or [])
+    return "train" if "training" in tags and "holdout" not in tags else "bench"
+
+
+def keep_trace(run_dir, task, res, label=""):
+    """Copy one finished task's run record (trace.jsonl and the small files beside it) out of its throwaway folder. -> kept path or None."""
+    src = os.path.join(run_dir or "", "trace.jsonl")
+    if not run_dir or not os.path.isfile(src):
+        return None
+    bucket = bucket_for(task)
+    base = os.path.join(kept_runs_dir(bucket), ".arch", "runs")
+    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{time.strftime('%Y%m%d_%H%M%S')}_{task['id']}")[:120]
+    dest = os.path.join(base, name)
+    try:
+        os.makedirs(dest, exist_ok=True)
+        for fn in os.listdir(run_dir):
+            p = os.path.join(run_dir, fn)
+            if os.path.isfile(p) and os.path.getsize(p) <= 20 * 1024 * 1024:
+                shutil.copy2(p, os.path.join(dest, fn))
+        with open(os.path.join(dest, "eval_task.json"), "w", encoding="utf-8") as f:
+            json.dump({"id": task["id"], "flow": task["flow"], "family": task.get("family"), "tags": list(task.get("tags") or []),
+                       "bucket": bucket, "verdict": res.get("verdict"), "secs": res.get("secs"), "label": label,
+                       "models": res.get("models") or {}}, f, indent=1)
+        runs = sorted(d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d)))
+        for old in runs[:max(0, len(runs) - KEEP_RUNS)]:
+            shutil.rmtree(os.path.join(base, old), ignore_errors=True)
+    except OSError:
+        return None
+    return dest
+
+
+def run_task(task, cfg_over=None, say=None, keep=False, keep_run=False, label=""):
+    """-> result dict. Never raises for a model failure; a judge that cannot run yields verdict 'not_sure'.
+    keep_run=True copies the task's trace to kept_runs_dir() before its folder is deleted (live runs; never the oracle fake)."""
     import arch_flows
     task = normalize(task)
     proj = tempfile.mkdtemp(prefix=f"eval_{task['flow']}_")
@@ -479,6 +524,10 @@ def run_task(task, cfg_over=None, say=None, keep=False):
            "heavy_calls": 0, "over_budget": secs > float(task["budget"].get("seconds") or 1e9), "error": err or (flow_out.get("error") if isinstance(flow_out, dict) else ""),
            "judges": judged, "detail": "; ".join(j["reason"] for j in judged if j["reason"]) or ("passed" if verdict == "pass" else ""),
            "models": dict(getattr(e, "models_used", {}) or {}) if e is not None else {}, **totals}
+    if keep_run and e is not None:
+        kept = keep_trace(getattr(e, "run_dir", None), task, res, label)
+        if kept:
+            res["kept_run"] = kept
     if keep:
         res["proj"] = proj
     else:
@@ -654,7 +703,7 @@ def run(flows=None, quick=False, label="", fake=False, n=None, tags=None, say=pr
     over = core.deep_merge(over, {"behavior": {"learn_from_runs": "off"}})
     try:
         for i, t in enumerate(tasks, 1):
-            r = run_task(t, over)
+            r = run_task(t, over, keep_run=not fake, label=label)
             results.append(r)
             mark = {"pass": "PASS", "fail": "FAIL", "not_sure": "????"}[r["verdict"]]
             say(f"  {mark}  [{r['flow']}] {r['id']}  {r['secs']}s, {r['calls']} calls, {r['tokens_in'] + r['tokens_out']} tokens" + ("" if r["verdict"] == "pass" else f"  - {r['detail'] or r['error']}"))

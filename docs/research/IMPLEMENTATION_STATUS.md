@@ -58,7 +58,7 @@ layers across machines. Of the 40 rows below, 21 are **Built**, 17 are **Partial
 | Report | Status | In the code |
 |---|---|---|
 | Call time t = (1−ρ)·n_in/r_p + n_out·t_tok (Eq. 15) | **Built** | `arch_costmodel.call_time`. Prompts are prefix-stable (stable part first, per-try tail last; `arch_selftest_chain` enforces it). ρ is **measured**: llama-server's exact `cache_n`, recorded per call as `prefix_reused_est`. KV slots persist on disk per project. |
-| C = t/p (Eq. 16); C = t/p̄, p̄ = Σ Q_{i−1}p_i / Σ Q_{i−1} (Eq. 17) | **Built** (2026-11-04) | `arch_costmodel.cost`, `p_bar`, `measure` (per role and model from `trace.jsonl` call + mark records), `from_evals` (per task from saved eval reports). `python architect.py cost`, hub `GET /api/arch/cost`. Energy E = P·C with `--watts`. |
+| C = t/p (Eq. 16); C = t/p̄, p̄ = Σ Q_{i−1}p_i / Σ Q_{i−1} (Eq. 17) | **Built** (2026-11-04) | `arch_costmodel.cost`, `p_bar`, `measure` (per role and model from `trace.jsonl` call + mark records, including kept live-eval runs), `from_evals` (per task from saved eval reports). `python architect.py cost`, hub `GET /api/arch/cost`. Energy E = P·C with `--watts`. |
 | Role placement J = Σ c_r·t_r/p_r + λS (Eq. 18) | **Built** as a calculator | `arch_costmodel.run_time`. The live router uses measured success per flow (`arch_routelearn`) rather than J. |
 | Planner placement inequality (Eq. 19) | **Built** as a calculator | `arch_costmodel.planner_pays`, `architect.py cost --planner …`. Self-tests reproduce the report's worked example: 150 s > 110.8 s pays; 83.3 s < 110.8 s does not. Not yet applied automatically. |
 | Retries with feedback beat unbatched sampling (Eq. 20); batched candidates (Eq. 21) | **Partial** | Retries with feedback are the default loop. `sample_n` and `behavior.best_of_n` exist. The policy "a batch of N per attempt, then feedback" needs concurrent slots (see Eq. 11). |
@@ -124,9 +124,16 @@ and repeated seeds.
 
 1. **Run H1 on the installed 8B pair** (base qwen3:8b vs abliterated 8B): the full build and feature families, three seeds, plus a
    small safe-prompt refusal suite. This makes §2.4's deployment gate complete.
-2. **Keep traces from eval tasks.** Eval workspaces are temporary, so the per-call cost model (`measure`) has no data yet. Copying
-   each task's `trace.jsonl` into the eval report would give ρ, p_i and the feedback gain per role.
-3. **Record provenance per run** (§7.4): quantization, weight edit and license from the passport.
-4. **Concurrent sample_n on `--parallel N` slots** (Eq. 11, 21), measured with `cost`.
-5. **Apply Eq. 19 automatically** in the broker once enough C data exists for the planner on both tiers.
-6. Eq. 13 (llama.cpp RPC) and tree-sitter chunking: Phase 3, larger work.
+2. **Record provenance per run** (§7.4): quantization, weight edit and license from the passport.
+3. **Concurrent sample_n on `--parallel N` slots** (Eq. 11, 21), measured with `cost`.
+4. **Apply Eq. 19 automatically** in the broker once enough C data exists for the planner on both tiers.
+5. Eq. 13 (llama.cpp RPC) and tree-sitter chunking: Phase 3, larger work.
+
+**Done 2026-11-05: live eval tasks keep their traces.** Each task's folder is temporary, so its trace used to be deleted with it.
+That left the per-call cost model with nothing to read. It also meant the training-task runs (`tools/train_traces.py`) never
+reached `dataset`. Now `arch_eval.keep_trace` copies each live task's run record to `<data>/evals/runs/<bucket>/.arch/runs/`:
+- `train` holds training tasks that are not held out. It is the only bucket `dataset` reads.
+- `bench` holds benchmark and held-out tasks. The cost model reads it, but it is never used for training, so the benchmark cannot
+  learn its own answers.
+
+Oracle runs keep nothing, and each bucket keeps its newest 1000 runs.

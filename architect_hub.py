@@ -1571,10 +1571,9 @@ class AHandler(mh.Handler):
         if u.path == "/api/arch/cost":                  # the report's C = t / p-bar from this machine's evals and traces (read-only)
             import glob as _glob
             import arch_costmodel as cm
-            import arch_costs
             try:
                 ev = cm.from_evals(sorted(_glob.glob(os.path.join(core.data_dir(), "evals", "*.json"))))
-                return self._send(200, {"evals": ev, "calls": cm.measure(arch_costs._roots(None) or [os.getcwd()]),
+                return self._send(200, {"evals": ev, "calls": cm.measure(cm.default_roots()),
                                         "formula": "C = t / p_bar (seconds per accepted change, Eq. 17)"})
             except Exception as ex:
                 return self._send(200, {"evals": [], "calls": [], "error": str(ex)[:200]})

@@ -1102,7 +1102,6 @@ def cmd_start(args):
 def cmd_cost(args):
     """The report's loop cost model (Eq. 15-19) from this machine's traces: seconds per ACCEPTED change, per role and model."""
     import arch_costmodel as cm
-    import arch_costs
     if args.planner:
         v = [float(x) for x in args.planner.split(",")]
         if len(v) not in (9, 10):
@@ -1113,7 +1112,7 @@ def cmd_cost(args):
               + ("the larger planner PAYS" if pays else "keep the small planner"))
         return 0
     import glob as _glob
-    roots = [args.root] if args.root else (arch_costs._roots(None) or [os.getcwd()])
+    roots = [args.root] if args.root else cm.default_roots()
     rows = cm.measure(roots, power_w=args.watts, min_calls=args.min_calls)
     ev = cm.from_evals(sorted(_glob.glob(os.path.join(core.data_dir(), "evals", "*.json"))))
     if args.json:
