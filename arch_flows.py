@@ -529,6 +529,98 @@ def contract_check(e, goal):
                    "\nChange the code (not the request) so these work as written.")
 
 
+def _imports_ok(e, stmt):
+    """Does this one import statement work in the project (network sealed, no bytecode)? -> bool"""
+    try:
+        env = dict(core.guard_env(True), PYTHONPATH=e.root, PYTHONDONTWRITEBYTECODE="1")
+        p = subprocess.run([sys.executable, "-B", "-c", stmt], cwd=e.root, capture_output=True, text=True, timeout=30, env=env)
+        return p.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _top_defs(path):
+    """-> {name: ast node} for the top-level def/class of one Python file ({} when it does not parse)."""
+    import ast
+    try:
+        tree = ast.parse(core.read_text(path, 400000)[0])
+    except (OSError, SyntaxError, ValueError):
+        return {}
+    return {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+
+
+def wire_contract(e, goal):
+    """Mechanical repairs that make the interface the request states reachable, when the code is already written and only the wiring
+    is missing -- what an IDE's quick fix does, never new behaviour. -> [(rel, why)] for every file changed.
+
+      1. a package folder the request names that holds modules but no __init__.py gets a one-line one;
+      2. `from pkg import name` that fails while `name` is defined at the top of exactly ONE module in pkg/ gets `from .module import
+         name` appended to pkg/__init__.py;
+      3. `python -m pkg` with no pkg/__main__.py, while exactly ONE module in pkg/ has a top-level main() that needs no arguments, gets a
+         __main__.py that runs it.
+    Each is applied only when it is unambiguous, through the engine's normal write path (backup, undo), and is undone again when the
+    import still fails afterwards. A try that passes with this help is traced as `assist` and kept out of training data.
+    Seen live (2026-11-04, 30 whole-project builds): the import was the failure in a third of them -- `build_report` written in
+    salesreport/report.py and never exported, `python -m inventory` with the CLI in inventory/cli.py and no __main__.py."""
+    if getattr(e, "review", "auto") == "dry":
+        return []
+    quiet = getattr(e, "review", "auto") == "auto"                       # unattended: no question; a person reviewing edits is asked
+    c = interface_contract(goal)
+    pkgs = sorted({m.split(".")[0] for m, _ in c["imports"]} | {m.split(".")[0] for m in c["mains"]})
+    fixes = []
+    for pkg in pkgs:
+        d = os.path.join(e.root, pkg)
+        if not os.path.isdir(d) or os.path.isfile(os.path.join(e.root, pkg + ".py")):
+            continue                                                    # not built yet, or a plain module: nothing to wire
+        mods = sorted(f for f in os.listdir(d) if f.endswith(".py") and f not in ("__init__.py", "__main__.py"))
+        init = f"{pkg}/__init__.py"
+        if not os.path.isfile(os.path.join(e.root, init)) and mods:
+            p = e.put_file(init, f'"""The {pkg} package."""\n', label="interface wiring", quiet=quiet)
+            if p.get("status") in ("applied", "identical", "ok"):
+                fixes.append((init, f"the folder {pkg}/ had modules but no __init__.py, so `import {pkg}` could not work"))
+        for mod, name in c["imports"]:
+            if mod != pkg or not os.path.isfile(os.path.join(e.root, init)) or _imports_ok(e, f"from {mod} import {name}"):
+                continue
+            hits = [f for f in mods if name in _top_defs(os.path.join(d, f))]
+            if len(hits) != 1:
+                continue                                                # nowhere, or more than one candidate: the model decides
+            before = core.read_text(os.path.join(e.root, init), 400000)[0]
+            line = f"from .{hits[0][:-3]} import {name}"
+            if line in before:
+                continue                                                # already there and still failing: a real error, not wiring
+            e.put_file(init, before.rstrip("\n") + ("\n" if before.strip() else "") + line + "\n", label="interface wiring", quiet=quiet)
+            if _imports_ok(e, f"from {mod} import {name}"):
+                fixes.append((init, f"`{name}` is defined in {pkg}/{hits[0]} but {init} did not export it (added `{line}`)"))
+            else:
+                # Put back exactly what was there. Written directly: it undoes our own write of a moment ago (whose backup the engine
+                # kept), and put_file's shrink guard would refuse to go back to an empty or one-line __init__.py.
+                with open(os.path.join(e.root, init), "w", encoding="utf-8", newline="") as f:
+                    f.write(before)
+        if pkg in c["mains"] and not os.path.isfile(os.path.join(d, "__main__.py")):
+            cands = []
+            for f in mods:
+                fn = _top_defs(os.path.join(d, f)).get("main")
+                if fn is not None and hasattr(fn, "args"):                 # a function (a class named main does not count)
+                    a = fn.args
+                    if len(a.args) - len(a.defaults) <= 0 and not a.posonlyargs and all(k is not None for k in a.kw_defaults):
+                        cands.append(f)
+            if len(cands) == 1:
+                rel = f"{pkg}/__main__.py"
+                text = (f'"""Run the package: python -m {pkg}."""\nimport sys\n\nfrom .{cands[0][:-3]} import main\n\n'
+                        f'if __name__ == "__main__":\n    sys.exit(main())\n')
+                e.put_file(rel, text, label="interface wiring", quiet=quiet)
+                if _imports_ok(e, f"import {pkg}.__main__"):
+                    fixes.append((rel, f"`python -m {pkg}` needs {rel}; it now runs main() from {pkg}/{cands[0]}"))
+                else:
+                    try:
+                        os.remove(os.path.join(e.root, rel))
+                    except OSError:
+                        pass
+    for rel, why in fixes:
+        e.say(f"[wire] {rel}: {why}")
+    return fixes
+
+
 def related_tests(e, files):
     """Test files that belong to the changed files: the changed tests themselves, plus tests/test_<module>.py for each changed module.
     -> list of relative paths that exist, or [] (then the full suite runs as before)."""
@@ -1087,6 +1179,10 @@ class BuildFlow(Flow):
                     e.mark(r["id"], False, feedback)
                     feedback = coach.after(feedback, r["text"], feedback, [])
                     continue
+                wired = wire_contract(e, goal)                          # missing __init__/__main__/re-export: code fixes the wiring
+                if wired:
+                    changed = sorted(set(changed + [w for w, _ in wired]))
+                    e.report("- Interface wiring: " + "; ".join(why for _, why in wired))
                 v = v0 = verify(e, changed)
                 cok_last = True
                 lost = lost_defs(kept, public_defs(e.root), sgoal + " " + goal, keep=iface)
@@ -1115,6 +1211,9 @@ class BuildFlow(Flow):
                                   "ok": False, "text": ctext[:2000], "metrics": {}, "secs": 0})
                 log_checks(e, f"sprint {n} checks", v)
                 e.mark(r["id"], v["ok"], v["text"])
+                if wired:                                               # this try had help from code: never a training sample on its own
+                    e._trace({"type": "assist", "id": r["id"], "t": time.time(), "flow": e.flow, "step": f"sprint{n}",
+                              "fixes": [{"file": w, "why": why} for w, why in wired]})
                 if v["ok"]:
                     ok = True
                     break

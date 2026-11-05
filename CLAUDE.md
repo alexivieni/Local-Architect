@@ -115,6 +115,12 @@ saved commands, `Esc` stops between steps, `j`/`k` walk the plan.
   exists, is applied through `replace_def` (`core.merge_partial`). Anything else is still refused.
 - A request that asks for tests (`wants_tests`) gets `test_file_for(sprints)` in the first sprint; a sprint fails while the project has
   no test file (`has_tests`).
+- **Code fixes the wiring, the model writes the logic** (`arch_flows.wire_contract`, every build sprint before the checks; 2026-11-05).
+  30 live whole-project builds failed about half on the contract's SHAPE: `build_report` written in salesreport/report.py and never
+  exported, a CLI in inventory/cli.py with no `__main__.py`, a package folder with no `__init__.py`. Only unambiguous fixes (one
+  defining module, one argument-free `main()`), through `put_file` (asks the person unless review is auto), undone when the import still
+  fails (the undo writes the bytes back directly: put_file's shrink guard refuses an empty `__init__.py`). A try it helped is traced
+  `assist` and `arch_dataset` skips it as a training sample. Replay: the same miswired reply fails without it and passes with it.
 - Escalation is offered only when `arch_progress.ready_now` says the larger model's server answers and its measured speed gives a
   ~1500-token answer within `limits.escalate_max_s` (240 s).
 - Function-edit merges are pure replacements: a block with a new or repeated name, or a placeholder body over a real one, is refused.

@@ -105,7 +105,7 @@ def read_trace(path):
 
 def read_full(path):
     """One pass over a trace. -> {"calls", "marks", "tools", "escalations", "verdict"}. A broken line is skipped, never fatal."""
-    out = {"calls": {}, "marks": {}, "tools": [], "escalations": [], "verdict": None, "claude": 0}
+    out = {"calls": {}, "marks": {}, "tools": [], "escalations": [], "verdict": None, "claude": 0, "assisted": set()}
     try:
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -127,6 +127,8 @@ def read_full(path):
                     out["escalations"].append(j)
                 elif t == "verdict":
                     out["verdict"] = j
+                elif t == "assist" and j.get("id") is not None:  # code repaired the wiring for this try (arch_flows.wire_contract)
+                    out["assisted"].add(j["id"])
     except OSError:
         pass
     return out
@@ -206,6 +208,9 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                 if verdict is None:
                     stats["unverified"] += 1           # the checks could not run: it teaches nothing in either direction
                     stats["not_sure"] += 1
+                    continue
+                if verdict and cid in full.get("assisted", ()):
+                    stats["assisted"] += 1             # it passed only after code fixed its wiring: the reply alone is not the right answer
                     continue
                 skey = (role, _step_key(c.get("label")))
                 try_no = tries_seen[skey]              # how many tries of this step came before this one
