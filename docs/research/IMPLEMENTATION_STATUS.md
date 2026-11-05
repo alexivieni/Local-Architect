@@ -139,3 +139,20 @@ reached `dataset`. Now `arch_eval.keep_trace` copies each live task's run record
   learn its own answers.
 
 Oracle runs keep nothing, and each bucket keeps its newest 1000 runs.
+
+## Measured 2026-11-05 (morning, RTX 4050 6 GB)
+
+| Change | Before | After |
+|---|---|---|
+| Worker placement (`server.ollama_gpu = auto`, heavy MoE kept in RAM) | 7.96 tok/s, 9/36 layers on card | **70.9 tok/s, 36/36 layers** (~9x) |
+| n-gram speculation on edits | 56 tok/s | 306-343 tok/s |
+| No-think planning / routing | 120-260 s / 17 s | 19 s / 5 s |
+| MoE heavy beside the worker | full swap | 14-16 tok/s, ~1 s switch |
+| Claude Council answer (shared prefix first) | $0.27 | $0.18 |
+
+Pass rate has not moved yet: whole-project e2e 0/4 with the abliterated 8B (wiring, circular import, hidden behaviour);
+H1 partial 2/6. Throughput is ahead of accuracy. Next: `behavior.test_first` A/B and 4Bx4 vs 8Bx1, both queued.
+
+Shipped this morning: trace fixes (failed eval runs excluded from training, unique kept-run folders), cleanup limited to
+our own servers/models and idle slots, broker advice line per run (`behavior.broker`), spec extractor + test-first
+acceptance tests (`behavior.test_first`, off by default).
