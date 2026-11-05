@@ -1902,10 +1902,16 @@ async function simpleStart(){
   finally{goLoading(false);}
 }
 /* item 4: a first run needs zero typing */
+/* fills the folder with the practice project only (create-only, no run); starting a practice TASK is tryPractice() */
 async function usePractice(){
+  try{const r=await api("/api/arch/practice",{start:false});if(r.root)setRoot(r.root);rootError("");
+    toast("Practice project selected. Type a goal, or try the practice task.");const g=$("#spGoal");if(g)g.focus();}
+  catch(e){toast.err("The practice project could not be prepared: "+e.message);}
+}
+async function tryPractice(){
   try{const r=await api("/api/arch/practice",{});if(r.root)setRoot(r.root);rootError("");
-    toast("Practice project ready. Watch it work.");go("console");}
-  catch(e){toast.err("The practice project could not start: "+e.message);}
+    toast("Practice task started. Watch it work.");go("console");}
+  catch(e){toast.err("The practice task could not start: "+e.message);}
 }
 function simpleDraw(){
   const box=$("#spProgress"); if(!box)return; box.innerHTML="";
@@ -2162,7 +2168,7 @@ function homeHero(){
           onclick:()=>typeof HELP!=="undefined"&&hint[2]&&HELP[hint[2]]?openHelp(hint[2]):toast(hint[1]||"Describe the job, pick a project, press Do it.",6000)},"?")),
       h("p",{class:"sp-sub"},"Describe the job. Your models do it, test it, and you can undo it."),
       h("label",{class:"sp-lbl",for:"spGoal"},"What do you want done?"),
-      h("div",{class:"sp-box"},ta,doIt),
+      h("div",{class:"sp-box"},ta,doIt),cloudLine(),
       h("p",{class:"note warn sp-err",id:"spGoalErr",role:"alert",hidden:true}),
       h("p",{class:"small mute",id:"spLong",hidden:true},"Long requests work better split into steps."),
       h("div",{class:"hero-row hero-go"},
@@ -2197,7 +2203,7 @@ async function loadHome(){
   const feed=$("#homeFeed"),pc=$("#homePc");
   if(pc&&!pc.dataset.bound){pc.dataset.bound="1";pc.addEventListener("toggle",()=>{if(pc.dataset.auto!=="1")pc.dataset.touched="1";pc.dataset.auto="";});}
   const done=()=>{if(feed)feed.setAttribute("aria-busy","false");};
-  const empty=()=>emptyState("journey","No runs yet","Your finished runs appear here, newest first.","Try the practice project",usePractice);
+  const empty=()=>emptyState("journey","No runs yet","Your finished runs appear here, newest first.","Try a practice task",tryPractice);
   if(!run.root){setStat("stRuns","—",NOSTAT);done();if(feed){feed.innerHTML="";feed.append(empty());}}
   else try{const rs=await api("/api/arch/runs?root="+encodeURIComponent(run.root)),wk=Date.now()/1000-7*86400;done();
     const recent=rs.filter(r=>(r.ts||r.started||0)>=wk);
@@ -2227,7 +2233,8 @@ async function liveChip(){
   const busy=!!(G&&G.gpu_pct!=null&&+G.gpu_pct>=30);
   let short=G&&G.vram_gb!=null?`${fmt(G.vram_used_gb,1)}/${fmt(G.vram_gb,0)} GB`:"GPU –";
   if(busy)short="GPU "+Math.round(+G.gpu_pct)+"%";
-  else if(held)short+=" · model loaded";
+  else if(held){const inV=O.models.reduce((a,m)=>a+(m.vram_gb!=null?+m.vram_gb:+m.size_gb||0),0),inR=Math.max(0,held-inV);
+    short+=inR>0.2?` · model in RAM ${fmt(inR,1)} GB`:` · model on card ${fmt(inV,1)} GB`;}
   const full=[];
   if(G&&G.vram_gb!=null)full.push(`Graphics card ${G.gpu_pct??"–"}% busy · ${fmt(G.vram_used_gb,1)} of ${fmt(G.vram_gb,0)} GB used`);else if(G)full.push("No graphics card reading");
   if(held)full.push(`A model is loaded (${fmt(held,1)} GB in Ollama). Free memory unloads Architect's models only.`);
@@ -2332,6 +2339,15 @@ function consolePage(){
           h("div",{class:"console"},thread,h("div",{class:"doing",id:"cDoing"}))];
 }
 
+/* which steps of a run go to Claude, from the real settings (online.enabled + online.cloud_tier); null = everything stays local */
+function cloudPlan(){
+  const c=S&&S.cloud; if(!c||!c.on||!c.mode||c.mode==="off")return null;
+  const m="Claude"+(c.model?" "+String(c.model).replace(/^claude-/,"").replace(/-(\d)-(\d)$/," $1.$2").replace(/^./,x=>x.toUpperCase()):"");
+  const what={escalation:"Stuck steps",chat:"Stuck steps + Studio chat",plan:"Planning, review and judging",all:"Every coding step"}[c.mode]||"Some steps";
+  return {short:`${what} → ${m} (billed)`,text:`${what} go to ${m}, billed to your Anthropic key`+(c.mode==="plan"?"; your local models write the code":"")+(c.ready?"":` (not ready: ${c.text})`)+".",ready:!!c.ready};
+}
+function cloudLine(){const p=cloudPlan();if(!p)return null;
+  return h("p",{class:"note warn small",id:"cloudLine"},icon("globe")," ",p.text," ",h("button",{class:"btn link",type:"button",onclick:()=>goSetting("online.cloud_tier")},"Change"));}
 /* ---- the strip: measured numbers only, and it says when a number is not known yet ---- */
 function renderStrip(){
   const el=$("#cStrip"); if(!el||!S)return;
@@ -2358,7 +2374,7 @@ function renderStrip(){
       ". The card waits on RAM for that part, so it can look idle while the model is working."},
       icon("layers"),"part in RAM: "+spill.map(t=>t.tier).join(", ")));
   if(window.LIVE&&LIVE.running) kids.push(h("span",{class:"sep"}),h("button",{class:"chip warn livechip",title:"Working now: "+LIVE.names.join(", ")+". Open the Monitor.",onclick:()=>go("monitor")},h("i",{class:"dot busy"}),LIVE.running+" agent"+(LIVE.running>1?"s":"")+" working"));
-  if(S.cloud&&S.cloud.on) kids.push(h("span",{class:"sep"}),h("span",{class:"chip "+(S.cloud.ready?"good":"warn"),title:S.cloud.text+". Settings > Online."},icon("globe"),S.cloud.ready?"Claude: "+({escalation:"last step",chat:"chat + last step",all:"every step"}[S.cloud.mode]||"on"):"Claude not ready"));
+  {const cp=cloudPlan(); if(cp) kids.push(h("span",{class:"sep"}),h("button",{type:"button",class:"chip "+(cp.ready?"warn":"bad"),title:cp.text+" Click to change (Settings > online.cloud_tier).",onclick:()=>goSetting("online.cloud_tier")},icon("globe"),cp.short));}
   if(G&&G.vm_gb) kids.push(h("span",{class:"sep"}),
     h("span",{class:"sg",title:`The WSL2 / Docker Desktop VM holds ${fmt(G.vm_gb,1)} GB of RAM now`+(G.vm_limit_gb?` and may grow to ${fmt(G.vm_limit_gb,0)} GB (its limit)`:"")+
       ". Architect plans around it. When you do not need Docker for a while, quitting Docker Desktop and running wsl --shutdown gives the memory back."},
@@ -2405,6 +2421,11 @@ function renderDoing(){
   const el=$("#cDoing"); if(!el)return;
   el.innerHTML="";
   const kids=[h("h3",{},icon("play"),"What I'm doing")];
+  if(!EV.steps.length&&!EV.now&&!EV.verdict&&EV.running){   /* the job is running (same EV.running the strip shows) but no step event yet */
+    kids.push(h("div",{class:"idle"},h("span",{class:"dot busy","aria-hidden":"true"}),
+      h("div",{},"Running"+(EV.flow?" "+EV.flow:"")+"."),h("div",{style:"max-width:30ch"},"Getting started: the first step appears here as soon as it begins.")));
+    put(el,...kids); return;
+  }
   if(!EV.steps.length&&!EV.now&&!EV.verdict){
     kids.push(h("div",{class:"idle"},icon("console","lg"),
       h("div",{},"Nothing running."),
@@ -2580,8 +2601,8 @@ async function pollConsole(){
     /* redraw the three panels only when something they show can have moved: a new event, a new state, or a rebuilt page
        (pollGpu redraws the strip's live numbers on its own) */
     const box=$("#cDoing");
-    if((feed.events&&feed.events.length)||S!==pollConsole._S||box!==pollConsole._el){
-      pollConsole._S=S; pollConsole._el=box;
+    if((feed.events&&feed.events.length)||S!==pollConsole._S||box!==pollConsole._el||EV.running!==pollConsole._run){
+      pollConsole._S=S; pollConsole._el=box; pollConsole._run=EV.running;   /* strip and panel both read EV.running: redraw together */
       renderDoing(); renderStrip(); renderRoute();
     }
     pollConsole._t=setTimeout(pollConsole,(EV.running||snap.busy)?700:2600);
@@ -3846,8 +3867,8 @@ function getStarted(){
 /* The way back into the first-visit path: resume where it was left, or walk it again from the start. */
 function fvEntry(){
   const s=(typeof fvState==="function")?fvState():{}, mid=(s.status==="later"||s.status==="open")&&(s.step||0)>0;
-  return h("button",{class:"btn sm",title:"A short guided path: this machine, who does what, a safe practice task, the live board and the result",
-    onclick:()=>mid?fvOpen(s.step):fvOpen(0,true)},icon("spark"),mid?`Resume the tour (${(s.step||0)+1} of 5)`:"Guided tour");
+  return h("button",{class:"btn sm",title:"A short guided path: this computer, a safe practice task, and the result",
+    onclick:()=>mid?fvOpen(s.step):fvOpen(0,true)},icon("spark"),mid?`Resume the tour (${FV_SHOW[s.step||0]+1} of ${FV_STEPS.length})`:"Guided tour");
 }
 function teamSummary(){
   const ms=installed(), distinct=new Set(S.roles.filter(r=>r.assigned).map(r=>r.assigned)).size, gaps=(S.gaps||[]).length;
@@ -5126,6 +5147,10 @@ async function detail(model,cat){
 }
 
 /* ---------- Settings (schema-driven from arch_params.py) ---------- */
+/* one-click jump to one setting: open Settings, reveal the field, focus it */
+function goSetting(path){go("settings");let n=0;const t=()=>{const l=document.querySelector(`[data-path="${path}"]`);
+  if(!l){if(++n<20)setTimeout(t,150);return;}let d=l.closest("details");while(d){d.open=true;d=d.parentElement&&d.parentElement.closest("details");}
+  l.scrollIntoView({block:"center"});const c=l.querySelector("select,input");if(c)c.focus();};setTimeout(t,60);}
 function dflt(p){const d=(S.defaults||{})[p];return d!=null&&d!==""?`default ${String(d).slice(0,24)}`:"default";}
 function ctl(path,type,label,hint){
   const cur=getP(path); const ch=v=>{setP(path,v);mark();}; let i;
@@ -5137,7 +5162,7 @@ function ctl(path,type,label,hint){
   const r=(window.REC||{})[path], same=r&&JSON.stringify(cur)===JSON.stringify(r.value);
   const recEl=r&&!same?h("div",{class:"recline"},h("span",{class:"recchip",title:r.why},"Recommended for this PC: ",h("b",null,String(r.value===true?"on":r.value===false?"off":r.value))),
     h("button",{class:"btn sm",onclick:()=>{ch(r.value);render();}},"Use"),h("span",{class:"hint"},r.why+(r.basis==="measured"?" (measured here)":""))):null;
-  return h("label",{class:"f"+(r&&!same?" hasrec":"")},label,i,recEl,hint?h("span",{class:"hint"},hint):null);
+  return h("label",{class:"f"+(r&&!same?" hasrec":""),"data-path":path},label,i,recEl,hint?h("span",{class:"hint"},hint):null);
 }
 async function loadRec(){try{window.REC=await api("/api/arch/recommend");}catch(_){window.REC={};}if(page==="settings")render();}
 function recCard(){
@@ -6085,6 +6110,8 @@ $("#keysBtn").addEventListener("click",()=>openKeys());
 let ESC_AT=0,G_AT=0;
 /* "g" then a letter (bare digits used to fire while you read a page) */
 const typing=e=>{const t=e.target,n=t&&t.tagName;return n==="INPUT"||n==="TEXTAREA"||n==="SELECT"||(t&&t.isContentEditable);};
+/* nothing focused: the key lands on the page itself (body / html), not on a field, button or dialog */
+const nothingFocused=()=>{const a=document.activeElement;return !a||a===document.body||a===document.documentElement;};
 document.addEventListener("keydown",e=>{
   if((e.ctrlKey||e.metaKey)&&(e.key==="k"||e.key==="K")){e.preventDefault();PAL?closePalette():openPalette();return;}
   if(e.key==="Escape"){
@@ -6096,7 +6123,12 @@ document.addEventListener("keydown",e=>{
       if(ESC_AT&&now-ESC_AT<2000){ESC_AT=0;cStop();toast("Stopping after this step");}
       else{ESC_AT=now;toast("Press Esc again within 2 s to stop the run",2000);}return;}
   }
-  if(typing(e))return;
+  if(typing(e)){G_AT=0;return;}
+  /* Home: a printable key with nothing focused goes into the goal box (focus it, insert the character) instead of a shortcut */
+  if(page==="overview"&&nothingFocused()&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.length===1&&e.key!=="?"){
+    const g=$("#spGoal"); if(g){e.preventDefault();G_AT=0;g.focus();const a=g.selectionStart??g.value.length,b=g.selectionEnd??a;
+      g.setRangeText(e.key,a,b,"end");g.dispatchEvent(new Event("input",{bubbles:true}));return;}
+  }
   if(e.key==="/"){const i=$("#cIn");if(i){e.preventDefault();go("console");setTimeout(()=>$("#cIn")&&$("#cIn").focus(),0);}else{e.preventDefault();go("console");}return;}
   if(e.key==="?"){e.preventDefault();HELP_EL?closeHelp():openKeys();return;}
   if(page==="console"&&(e.key==="j"||e.key==="k")&&EV.steps.length){
@@ -6105,8 +6137,10 @@ document.addEventListener("keydown",e=>{
     renderDoing();return;
   }
   if(e.ctrlKey||e.metaKey||e.altKey)return;
+  /* g-chords: both keys pressed with nothing focused, the second right after "g"; any other key cancels */
+  if(!nothingFocused()){G_AT=0;return;}
   if(G_AT&&Date.now()-G_AT<1200){G_AT=0;const dest=G_CHORDS[e.key.toLowerCase()];if(dest){e.preventDefault();go(dest[0]);}return;}
-  if(e.key==="g"){G_AT=Date.now();return;}
+  G_AT=e.key==="g"?Date.now():0;
 });
 /* ============================================================================================
    First visit: a short guided path for someone opening the hub for the first time. Five stops:
@@ -6116,14 +6150,16 @@ document.addEventListener("keydown",e=>{
    you were is kept in this browser. Every action is an existing one (Get ready, the team picker,
    a normal run with the normal checks), so nothing here is a second way of doing things.
    ============================================================================================ */
-const FV_KEY="firstVisit", FV_STEPS=["This machine","Who does what","A safe first try","Watching it work","The result"];
-const FV={el:null,dock:null,info:null,loading:false,timer:null,result:null,back:null};
+/* three stops (ux_audit): This computer -> Practice task -> Result. Internal step numbers stay 0..4 (1 = team, now
+   reached only from Models; 3 = the slim dock while the practice runs); FV_SHOW maps them to the stop shown. */
+const FV_KEY="firstVisit", FV_STEPS=["This computer","Practice task","Result"], FV_SHOW=[0,0,1,1,2];
+const FV={el:null,dock:null,info:null,loading:false,timer:null,result:null,back:null,closed:false};
 function fvState(){try{const s=JSON.parse(store.get(FV_KEY,"")||"{}");return s&&typeof s==="object"?s:{};}catch(_){return {};}}
 function fvSave(p){const s=Object.assign(fvState(),p);store.set(FV_KEY,JSON.stringify(s));return s;}
 function fvSkel(){return h("div",{class:"skeleton",style:"height:110px"});}
 /* Opens by itself once, on the very first visit. Someone who already has a team and a finished task is not walked through it again. */
 function fvMaybeOpen(){
-  const s=fvState();
+  const s=fvState(); if(FV.closed)return;
   if(s.status==="done"||s.status==="skipped"||s.status==="later")return;
   if(!s.status&&S){
     const worked=(S.history||[]).some(x=>x&&x.ok>0&&!/^fake:/.test(x.model||""));
@@ -6133,6 +6169,7 @@ function fvMaybeOpen(){
   fvOpen(s.step||0);
 }
 function fvOpen(step,restart){
+  FV.closed=false;
   if(restart){fvSave({status:"open",step:0,epoch:null,root:null});FV.info=null;FV.result=null;step=0;}
   step=Math.max(0,Math.min(FV_STEPS.length-1,step|0));
   fvSave({status:"open",step});
@@ -6147,7 +6184,7 @@ async function fvLoad(){
   try{FV.info=await api("/api/arch/first_visit?root="+encodeURIComponent(run.root||""));}
   catch(e){FV.info={error:e.message};}
   FV.loading=false;
-  const s=fvState(); if(FV.el&&s.status==="open"&&s.step<=2)fvDraw(s.step);
+  const s=fvState(); if(FV.el&&!FV.closed&&s.status==="open"&&s.step<=2)fvDraw(s.step);
 }
 function fvDraw(step){
   if(!FV.el)FV.back=document.activeElement;
@@ -6156,15 +6193,15 @@ function fvDraw(step){
   FV.el=h("div",{class:"fv-wrap",
       onkeydown:e=>{if(e.key==="Escape"){e.preventDefault();e.stopPropagation();fvLater();}else if(e.key!=="Tab")e.stopPropagation();}},
     h("div",{class:"fv",role:"dialog","aria-modal":"true","aria-labelledby":"fvT"},
-      h("div",{class:"fv-top"},h("span",{},`First visit · ${step+1} of ${FV_STEPS.length}`),
-        h("span",{class:"fv-dots","aria-hidden":"true"},...FV_STEPS.map((_,i)=>h("i",{class:i===step?"on":i<step?"done":""}))),
+      h("div",{class:"fv-top"},h("span",{},`First visit · ${FV_SHOW[step]+1} of ${FV_STEPS.length}`),
+        h("span",{class:"fv-dots","aria-hidden":"true"},...FV_STEPS.map((_,i)=>h("i",{class:i===FV_SHOW[step]?"on":i<FV_SHOW[step]?"done":""}))),
         h("button",{class:"btn sm",onclick:fvLater,"aria-label":"Close for now",title:"Close for now (Esc). Home > Get started picks up where you were."},icon("x"))),
       art(["models","crew","task","console","journey"][step]||"journey","fv-art"),
       h("h2",{id:"fvT"},b.t),
       b.lede?h("p",{class:"lede"},b.lede):null,
       ...b.kids,
       h("div",{class:"fv-foot"},
-        step>0&&step<4?h("button",{class:"btn",onclick:()=>fvOpen(step-1)},"Back"):null,
+        step>0&&step<4?h("button",{class:"btn",onclick:()=>fvOpen(step===2?0:step-1)},"Back"):null,
         step<4?h("button",{class:"btn",onclick:fvSkip,title:"Close the tour for good. Home > Get started brings it back."},"Skip the tour"):null,
         h("span",{class:"grow"}),
         b.alt||null,
@@ -6173,9 +6210,9 @@ function fvDraw(step){
   const f=FV.el.querySelector(".fv-foot .btn.p:not([disabled])")||FV.el.querySelector(".fv-foot .btn"); if(f)f.focus();
 }
 function fvClose(){if(FV.el){FV.el.remove();FV.el=null;try{if(FV.back&&FV.back.focus&&document.contains(FV.back))FV.back.focus();}catch(_){}}}
-function fvLater(){fvSave({status:"later"});fvClose();fvDockHide();toast("Paused. Home > Get started > Guided tour picks up where you were.",4200);}
-function fvSkip(){fvSave({status:"skipped"});fvClose();fvDockHide();toast("Tour skipped. Home > Get started > Guided tour brings it back.",4200);}
-function fvFinish(){fvSave({status:"done"});fvClose();fvDockHide();}
+function fvLater(){FV.closed=true;fvSave({status:"later"});fvClose();fvDockHide();toast("Paused. Home > Get started > Guided tour picks up where you were.",4200);}
+function fvSkip(){FV.closed=true;fvSave({status:"skipped"});fvClose();fvDockHide();toast("Tour skipped. Home > Get started > Guided tour brings it back.",4200);}
+function fvFinish(){FV.closed=true;fvSave({status:"done"});fvClose();fvDockHide();}
 
 /* 1. This machine: the same checks as Settings > Checkup, plus whether Get ready has run. Nothing is changed to get them. */
 function fvMachine(){
@@ -6183,7 +6220,7 @@ function fvMachine(){
   const kids=[h("div",{class:"fv-files"},h("code",{},hw.gpu?shortGpu(hw.gpu):"no dedicated graphics card"),
     h("code",{},fmt(hw.vram_gb,0)+" GB graphics memory"),h("code",{},fmt(hw.ram_gb,0)+" GB RAM"),
     h("code",{},up?"model server answering":"model server not answering"))];
-  if(!i)kids.push(fvSkel());
+  if(!i)kids.push(h("p",{class:"small mute",role:"status"},"Checking this computer… this takes a few seconds."));
   else if(i.error||!m||m.error)kids.push(h("div",{class:"note warn"},"The checkup could not run: "+(i.error||(m&&m.error)||"no reply")+". Settings > Checkup has the details."));
   else{
     const rank=c=>c.ok?2:c.advisory?1:0, rows=[...m.checks].sort((a,b)=>rank(a)-rank(b)).slice(0,7);
@@ -6199,8 +6236,8 @@ function fvMachine(){
                :`Get ready ran, and ${r.total-r.passed} of its ${r.total} steps did not pass. Running it again is safe.`)
          :"Get ready has not run yet. It measures this computer, sets the context size and timeouts, and proves the worker on a few real tasks: a few minutes, once. You can carry on with this tour meanwhile; the practice task waits until it is done."));
   const alt=up&&(!r||!r.ran||!r.ok)?h("button",{class:"btn",onclick:fvReady},r&&r.ran?"Run Get ready again":"Prepare this machine"):null;
-  return {t:"This machine",lede:"What Architect found on this computer. A small model is only trustworthy here because code checks its work, so the checks come first.",
-          kids,alt,next:{label:"Next: who does what",fn:()=>fvOpen(1)}};
+  return {t:"This computer",lede:"What Architect found on this computer. A small model is only trustworthy here because code checks its work, so the checks come first.",
+          kids,alt,next:{label:"Next: practice task",fn:()=>fvOpen(2)}};
 }
 async function fvReady(){
   try{await api("/api/arch/ready",{root:run.root||undefined});toast("Get ready is running. The chip in the sidebar shows how far it is.",6000);}
@@ -6251,10 +6288,10 @@ function fvPractice(){
       ["3","The tests run. Code decides whether it passed, not the model."],
       ["4","A fix that fails goes back to the model with the error; one that passes is kept."]].map(([n,t])=>
       h("li",{},h("span",{class:"tick"},n),h("div",{},t))))];
-  if(noWorker)kids.push(h("div",{class:"note warn"},"No worker model is set, so there is nobody to write the fix yet. Step 2 picks one."));
-  return {t:"A safe first try",lede:"One small task you can watch from start to finish, on your own models.",kids,
+  if(noWorker)kids.push(h("div",{class:"note warn"},"No worker model is set, so there is nobody to write the fix yet. Models > Your models picks one."));
+  return {t:"Practice task",lede:"One small task you can watch from start to finish, on your own models.",kids,
           alt:h("button",{class:"btn",onclick:()=>fvOpen(4)},"Skip the practice"),
-          next:{label:"Start the practice task",fn:fvStartPractice,off:noWorker,why:noWorker?"Pick a worker model first (step 2)":false}};
+          next:{label:"Try a practice task",fn:fvStartPractice,off:noWorker,why:noWorker?"Pick a worker model first (Models > Your models)":false}};
 }
 async function fvStartPractice(){
   try{const r=await api("/api/arch/practice",{});fvSave({epoch:r.epoch,root:r.root,started:Date.now()});FV.result=null;go("console");fvOpen(3);}
@@ -6271,6 +6308,7 @@ async function fvTick(){
   const s=fvState(); if(s.status!=="open"||s.step!==3){fvDockHide();return;}
   let probe=null;
   try{probe=await api("/api/arch/events?since=999999999");}catch(_){}    // a cursor past the end: just "which run, still going?"
+  {const s2=fvState(); if(FV.closed||s2.status!=="open"||s2.step!==3){fvDockHide();return;}}   // skipped while we waited: never re-open
   if(probe&&(probe.epoch!==s.epoch||!probe.running)){fvDockHide();fvOpen(4);return;}  // ended, or the hub restarted, or another job replaced it
   if(page!=="console"){try{applyEvents(await api("/api/arch/events?since="+EV.since));}catch(_){}}
   if(!FV.dock)return;
@@ -6281,7 +6319,7 @@ async function fvTick(){
   const key=parts.join(" · ")+"|"+page; if(FV.dock._k===key)return; FV.dock._k=key;   // unchanged: leave it, so a screen reader is not told twice
   FV.dock.innerHTML="";
   put(FV.dock,h("i",{class:"dot busy","aria-hidden":"true"}),
-    h("div",{class:"t"},h("b",{},`First visit · 4 of ${FV_STEPS.length}: the practice task is running`),h("span",{},parts.join(" · "))),
+    h("div",{class:"t"},h("b",{},`First visit · 2 of ${FV_STEPS.length}: the practice task is running`),h("span",{},parts.join(" · "))),
     page!=="console"?h("button",{class:"btn sm",onclick:()=>go("console")},"Show the live board"):null,
     h("button",{class:"btn sm",onclick:()=>fvOpen(4)},"Skip the wait"));
 }

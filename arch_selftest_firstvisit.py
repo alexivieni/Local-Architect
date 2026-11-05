@@ -5,7 +5,7 @@ What is proven here, without a model, a GPU or the network:
     the shipped code fails exactly the one test the request names, and a correct fix passes them all;
   - /api/arch/practice starts the normal run (review auto, the bug-fix flow) in that folder, and refuses while a job runs;
   - first_visit_info reports the machine, Get ready and the team in plain words, and one failing part never blanks the others;
-  - the page wires it up: the endpoints it calls exist, every page note names a real page, the path has five stops and is
+  - the page wires it up: the endpoints it calls exist, every page note names a real page, the path has three stops (ux_audit) and is
     remembered, and the narrow-screen rules are there.
 
 Run: python arch_selftest_firstvisit.py   ->   ALL N FIRST-VISIT CHECKS PASSED
@@ -171,7 +171,8 @@ def run():
         check("the server answers /api/arch/practice", 'path == "/api/arch/practice"' in src)
         check("the page asks /api/arch/first_visit and /api/arch/practice", "/api/arch/first_visit" in ui and '"/api/arch/practice"' in ui)
         steps = re.search(r"FV_STEPS=\[([^\]]*)\]", ui)
-        check("the guided path has five stops", steps and len(re.findall(r'"[^"]+"', steps.group(1))) == 5)
+        check("the guided path has three stops: This computer, Practice task, Result", steps and re.findall(r'"([^"]+)"', steps.group(1)) == ["This computer", "Practice task", "Result"])
+        check("Skip sticks: no async tick re-opens a skipped tour", "FV.closed=true;fvSave({status:\"skipped\"})" in ui and "if(FV.closed||s2.status!==\"open\"" in ui)
         check("where you were is remembered (firstVisit in this browser)", 'FV_KEY="firstVisit"' in ui and "store.set(FV_KEY" in ui)
         for st in ("done", "skipped", "later"):
             check(f"a '{st}' tour does not open by itself again", f's.status==="{st}"' in ui)

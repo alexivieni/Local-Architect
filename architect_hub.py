@@ -2696,6 +2696,11 @@ class AHandler(mh.Handler):
         if path == "/api/arch/practice":
             # The first-visit practice task: a two-file project in Architect's own data folder with one small bug, fixed by the normal
             # flow with the normal checks. The files are rewritten first, so it always starts from the same bug; no folder of yours is used.
+            if b.get("start") is False:
+                # create-only: Home's "Use the practice project" just fills the folder field; no run starts.
+                if mh.JOB.running():
+                    return {"ok": True, "root": practice_root(), "goal": PRACTICE_GOAL, "started": False}
+                return {"ok": True, "root": practice_prepare(), "goal": PRACTICE_GOAL, "started": False}
             if mh.JOB.running():
                 raise RuntimeError("A job is already running. Let it finish (or stop it) before the practice task.")
             root = practice_prepare()

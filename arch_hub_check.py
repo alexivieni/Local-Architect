@@ -58,6 +58,22 @@ def run():
                 return {"HTTP": e.code, "body": e.read().decode()[:200]}
 
         check("hub serves the page with a per-start token", bool(tok) and "__HUB_TOKEN__" not in html)
+        pr = call("/api/arch/practice", {"start": False})
+        ev = json.loads(urllib.request.urlopen(base + "/api/arch/events?since=999999999").read().decode() or "{}")
+        check("practice create-only ({start:false}) prepares the folder and starts NO run", pr.get("started") is False and os.path.isfile(os.path.join(pr.get("root") or "", "textkit.py")) and not ev.get("running"), (pr, ev.get("running")))
+        check("Home 'Use the practice project' is create-only and focuses the goal; 'Try a practice task' is the separate run action",
+              'api("/api/arch/practice",{start:false})' in html and "function tryPractice" in html and '"Try a practice task",tryPractice' in html
+              and 'onclick:usePractice},icon("sprout"),"Use the practice project"' in html)
+        check("Console panel and strip read the same EV.running (no 'Nothing running' while the strip says running)",
+              "!EV.steps.length&&!EV.now&&!EV.verdict&&EV.running" in html and "EV.running!==pollConsole._run" in html)
+        check("first-visit tour: 3 stops, Skip sticks in memory and in store, no async path re-opens it, no empty grey box",
+              'FV_STEPS=["This computer","Practice task","Result"]' in html and "FV.closed=true;fvSave({status:\"skipped\"})" in html
+              and "if(FV.closed||s2.status!==\"open\"" in html and "Checking this computer" in html)
+        check("keys: Home types into #spGoal when nothing is focused; g-chords need nothing focused for both keys",
+              "nothingFocused()&&!e.ctrlKey" in html and "if(!nothingFocused()){G_AT=0;return;}" in html and "if(typing(e)){G_AT=0;return;}" in html)
+        check("live chip says where the model is (RAM vs card), not just 'model loaded'", "model in RAM " in html and "model on card " in html and '" · model loaded"' not in html)
+        check("Claude use is explicit from the real settings with a one-click setting link, on the strip and under Do it",
+              "function cloudPlan()" in html and 'goSetting("online.cloud_tier")' in html and "ta,doIt),cloudLine()" in html and '"Claude: "+({escalation' not in html)
         check("changes without the token are refused", call("/api/arch/assign", {"roles": {}}, token=False).get("HTTP") in (401, 403))
         st = call("/api/state")
         import arch_flows as _fl
