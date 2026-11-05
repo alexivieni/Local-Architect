@@ -152,8 +152,30 @@ def from_evals(paths, include_fake=False):
     """Task-level C from saved eval reports (hub_data/evals/*.json): per (model doing most of the calls, flow),
     p = passed / decided tasks, t = mean seconds per task, C = total seconds / passed tasks = t / p (Eq. 16 at task level).
     A 'not sure' task is left out of p (it is neither a pass nor a fail) but its seconds still count: they were spent.
-    -> [{model, flow, tasks, passed, not_sure, t, p, C}] sorted by C."""
-    agg = collections.defaultdict(lambda: {"n": 0, "pass": 0, "fail": 0, "secs": 0.0})
+    -> [{model, flow, tasks, passed, not_sure, t, p, C, orthogonalized, runs, history}] sorted by C.
+    `runs` lists the tasks behind the point (newest first); `history` is the same point per saved report, oldest first, so a
+    change that moved it can be seen."""
+    def new():
+        return {"n": 0, "pass": 0, "fail": 0, "secs": 0.0}
+
+    def add(a, r):
+        a["n"] += 1
+        a["secs"] += float(r.get("secs") or 0)
+        if r.get("verdict") == "pass":
+            a["pass"] += 1
+        elif r.get("verdict") == "fail":
+            a["fail"] += 1
+
+    def point(a):
+        decided = a["pass"] + a["fail"]
+        p = a["pass"] / decided if decided else 0.0
+        return {"tasks": a["n"], "passed": a["pass"], "not_sure": a["n"] - decided, "t": round(a["secs"] / a["n"], 1) if a["n"] else 0.0,
+                "p": round(p, 2), "C": round(a["secs"] / a["pass"], 1) if a["pass"] else None}
+
+    agg = collections.defaultdict(new)
+    per = collections.defaultdict(dict)            # (model, flow) -> {report path: aggregate}
+    runs = collections.defaultdict(list)
+    meta, flow_of = {}, {}
     for path in paths:
         try:
             with open(path, encoding="utf-8") as f:
@@ -162,34 +184,37 @@ def from_evals(paths, include_fake=False):
             continue
         if d.get("fake") and not include_fake:
             continue
+        meta[path] = (d.get("ts") or 0, d.get("label") or os.path.basename(path))
         for r in d.get("results") or []:
             models = r.get("models") or {}
             if not models:
                 continue
             main = max(models.items(), key=lambda kv: kv[1])[0]
-            a = agg[(main, r.get("flow") or "?")]
-            a["n"] += 1
-            a["secs"] += float(r.get("secs") or 0)
-            if r.get("verdict") == "pass":
-                a["pass"] += 1
-            elif r.get("verdict") == "fail":
-                a["fail"] += 1
+            # the kind of task is its family (bugfix, e2e, distributed, ...): one flow serves several families of very different
+            # difficulty (whole-project e2e builds and the distributed-systems training tasks both run the build flow)
+            key = (main, r.get("family") or r.get("flow") or "?")
+            if key not in flow_of:
+                flow_of[key] = r.get("flow") or "?"
+            add(agg[key], r)
+            add(per[key].setdefault(path, new()), r)
+            runs[key].append({"id": r.get("id"), "verdict": r.get("verdict"), "secs": r.get("secs"), "calls": r.get("calls"),
+                              "label": meta[path][1], "ts": meta[path][0], "detail": str(r.get("detail") or "")[:160]})
     out = []
-    for (model, flow), a in agg.items():
-        decided = a["pass"] + a["fail"]
-        p = a["pass"] / decided if decided else 0.0
-        out.append({"model": model, "flow": flow, "tasks": a["n"], "passed": a["pass"], "not_sure": a["n"] - decided,
-                    "t": round(a["secs"] / a["n"], 1), "p": round(p, 2),
-                    "C": round(a["secs"] / a["pass"], 1) if a["pass"] else None})
+    for (model, kind), a in agg.items():
+        hist = [dict(point(v), label=meta[pth][1], ts=meta[pth][0]) for pth, v in sorted(per[(model, kind)].items(), key=lambda kv: meta[kv[0]][0])]
+        low = model.lower()
+        out.append(dict(point(a), model=model, kind=kind, flow=flow_of[(model, kind)], history=hist,
+                        orthogonalized=any(w in low for w in ("abliterat", "uncensor", "orthogon")),
+                        runs=sorted(runs[(model, kind)], key=lambda x: -(x["ts"] or 0))[:40]))
     return sorted(out, key=lambda r: (r["C"] is None, r["C"] or 0))
 
 
 def report_evals(rows):
     if not rows:
         return "No live eval reports yet (python architect.py eval --quick)."
-    lines = [f"{'model':<40} {'flow':<10} {'tasks':>5} {'pass':>5} {'t (s)':>7} {'p':>5} {'C (s)':>8}"]
+    lines = [f"{'model':<40} {'kind of task':<12} {'tasks':>5} {'pass':>5} {'t (s)':>7} {'p':>5} {'C (s)':>8}"]
     for r in rows:
-        lines.append(f"{str(r['model'])[:40]:<40} {r['flow'][:10]:<10} {r['tasks']:>5} {r['passed']:>5} {r['t']:>7} {r['p']:>5} {str(r['C']):>8}")
+        lines.append(f"{str(r['model'])[:40]:<40} {str(r.get('kind') or r['flow'])[:12]:<12} {r['tasks']:>5} {r['passed']:>5} {r['t']:>7} {r['p']:>5} {str(r['C']):>8}")
     lines.append("C = seconds spent per task that PASSED its hidden tests (t / p, Eq. 16). A fast model that fails costs more than a slow one that passes.")
     return "\n".join(lines)
 

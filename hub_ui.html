@@ -1269,6 +1269,8 @@ p,li,dd,td{font-size:inherit}
 @keyframes rs-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .sp-step.now .sp-ico{animation:rs-pulse 1.4s ease-in-out infinite}
 @keyframes rs-pulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--acc) 18%,transparent)}}
+/* the cost map's points: a pointer, and a ring the keyboard can see */
+.cm-pt{cursor:pointer;outline:none}.cm-pt:focus-visible>:last-child{stroke:var(--ink);stroke-width:3}
 /* ===== reduced motion: one rule for the whole app (the older per-layer copies above say the same thing) ===== */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
@@ -1411,7 +1413,7 @@ const NAV_GROUPS=[
     ["library","spark","Library","Agent briefs that worked, kept as templates: what each does, why, and a button to use it"]]],
   ["1. Set up",[["tiers","layers","Tiers","Which installed model does which job on this machine, and why"],["overview","⌂","Overview","Your local engineering team at a glance"],["doctor","✚","Doctor","Checks Python, Ollama, disk space, the port, git and the network. Run this first"],["models","▤","Models","What is installed and how it fits this PC"],["roles","◎","Roles","Who does what, and which model should do it"]]],
   ["2. Build",[["start","✦","Start","Begin a project from nothing: pick a starting point"],["run","▶","Task","Give the team a goal"],["blueprints","layers","Blueprints","Draw your own workflow from steps and checks, then save it"],["queue","play","Queue","Tasks the machine works through on its own, trying another approach when one fails"],["launch","⏻","Launch","Start/stop your project for real and see if it's actually alive"]]],
-  ["3. Measure",[["tune","◆","Tune","Fit this machine, upgrades worth adding, fake code and self-improvement"],["assess","◈","Assess","Is this machine + model lineup actually ready, per workload"],["advisor","✺","Advisor","Doctor + assess + a real code scan, combined into ranked next steps"],["score","▦","Scoreboard","Measured strengths per model"],["bench","◔","Benchmarks","Pass rate over time, live and scripted, and the last live run task by task"],["logbook","▦","Logbook","Everything your models and Claude did: what it cost, what worked, and the playbooks learned from it"],["flows","⇄","Flows","The workflows and the checks inside them"]]],
+  ["3. Measure",[["tune","◆","Tune","Fit this machine, upgrades worth adding, fake code and self-improvement"],["assess","◈","Assess","Is this machine + model lineup actually ready, per workload"],["advisor","✺","Advisor","Doctor + assess + a real code scan, combined into ranked next steps"],["score","▦","Scoreboard","Measured strengths per model"],["costmap","◎","Cost map","Seconds per change that passed its tests, for each model on each kind of task"],["bench","◔","Benchmarks","Pass rate over time, live and scripted, and the last live run task by task"],["logbook","▦","Logbook","Everything your models and Claude did: what it cost, what worked, and the playbooks learned from it"],["flows","⇄","Flows","The workflows and the checks inside them"]]],
   ["4. Manage",[["portfolio","❖","Portfolio","Your apps and how they connect"],["settings","⚙","Settings","Limits, behaviour and tests"],["train","↻","Training","Turn verified work into training data"]]],
 ];
 const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
@@ -1421,7 +1423,7 @@ const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
 const TABS=[
   ["home","folder","Projects",["overview","start","portfolio"]],
   ["console","console","Workspace",["console","run","studio","gallery","agents","fleet","monitor","map","library","blueprints","queue","launch"]],
-  ["team","chip","Models",["tiers","computers","bench","logbook","score","models","roles"]],
+  ["team","chip","Models",["tiers","computers","costmap","bench","logbook","score","models","roles"]],
   ["settings","sliders","Settings",["settings","tune","doctor","assess","advisor","flows","train"]],
 ];
 /* art direction (docs/art_direction.md): every page has its own icon (sub-tabs, the page glyph, the command list) and its own
@@ -1429,12 +1431,12 @@ const TABS=[
 const PAGE_ICON={console:"console",run:"plus",studio:"chat",agents:"crew",fleet:"fleet",monitor:"monitor",map:"map",library:"library",
   blueprints:"blueprint",queue:"queue",launch:"rocket",overview:"home",start:"sprout",portfolio:"grid",tiers:"chip",bench:"chart",
   logbook:"logbook",score:"trophy",models:"box",roles:"badge",settings:"sliders",tune:"bolt",doctor:"steth",assess:"gauge",
-  advisor:"compass",flows:"flow",train:"train",components:"palette",gallery:"layers",computers:"server"};
+  advisor:"compass",flows:"flow",train:"train",components:"palette",gallery:"layers",computers:"server",costmap:"target"};
 const PAGE_ART={console:"console",run:"task",launch:"task",studio:"studio",agents:"crew",fleet:"fleet",map:"map",monitor:"monitor",
   logbook:"logbook",library:"library",blueprints:"blueprints",queue:"queue",overview:"journey",start:"projects",portfolio:"projects",
-  tiers:"models",models:"models",roles:"models",score:"models",bench:"models"};
+  tiers:"models",models:"models",roles:"models",score:"models",bench:"models",costmap:"models"};
 const SEC_ART={home:"projects",console:"console",team:"models",settings:"settings"};
-const SUBNAME={gallery:"Gallery",computers:"Computers",fleet:"Fleet",monitor:"Monitor",map:"Map",library:"Library",logbook:"Logbook",agents:"Crew",blueprints:"Blueprints",console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",settings:"Settings",train:"Training data"};
+const SUBNAME={gallery:"Gallery",computers:"Computers",fleet:"Fleet",monitor:"Monitor",map:"Map",library:"Library",logbook:"Logbook",agents:"Crew",blueprints:"Blueprints",console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",costmap:"Cost map",settings:"Settings",train:"Training data"};
 /* pages that are in no tab (the Components page) name the tab they belong to as a fifth field */
 const tabOf=id=>TABS.find(t=>t[3].includes(id))||TABS.find(t=>t[0]===(PAGES.find(p=>p[0]===id)||[])[4])||TABS[0];
 
@@ -1604,6 +1606,7 @@ function render(){
   if(page==="tune"){ if(!built.tune){v.innerHTML="";put(v,...tunePage());built.tune=1;loadTune();} return; }
   if(page==="advisor"){ if(!built.advisor){v.innerHTML="";put(v,...advisorPage());built.advisor=1;runAdvise();} return; }
   if(page==="bench"){ if(!built.bench){v.innerHTML="";put(v,...benchPage());built.bench=1;} loadBench(); return; }
+  if(page==="costmap"){ if(!built.costmap){v.innerHTML="";put(v,...costmapPage());built.costmap=1;} loadCostmap(); return; }
   v.innerHTML=""; const fn={overview,start,models,roles,flows,portfolio,score:scoreboard,settings,train}[page]; put(v,...fn());
 }
 
@@ -3462,6 +3465,134 @@ function advisorPage(){
   ];
 }
 /* ---- Benchmarks: every saved `eval` report, live and scripted kept apart. Nothing here starts a run. ---- */
+/* ===== Cost map (Models): the report's C = t / p for every model on every kind of task, from this machine's live benchmark runs.
+   Each point is (pass rate, seconds per task); every point on one dashed ray costs the same per accepted change. Read-only: it shows
+   measurements and never changes which model does what. ===== */
+const CM={flow:"all",trail:false,orth:store.get("cmOrth","0")==="1",sel:null,data:null};
+const cmKey=r=>r.model+"\u0001"+r.kind;
+const cmName=m=>String(m||"").replace(/^[^/]+\//,"");
+const CM_KIND={e2e:"whole projects",distributed:"distributed systems (training)",harness:"harness building (training)",planjson:"plans",route:"routing"};
+const cmKind=k=>CM_KIND[k]||k;
+const cmSecs=x=>x==null?"never passed":x<120?Math.round(x)+" s":(x%60===0||x>=600?Math.round(x/60):(x/60).toFixed(1))+" min";
+function costmapPage(){
+  return [h("div",{class:"card"},
+    h("div",{id:"cmOut",style:"display:flex;flex-direction:column;gap:14px"},h("p",{class:"sub"},"Reading your benchmark runs…")))];
+}
+async function loadCostmap(){
+  const out=$("#cmOut"); if(!out) return;
+  try{ CM.data=await api("/api/arch/cost"); }catch(e){ out.innerHTML=""; out.append(h("p",{class:"note bad"},"Could not read the benchmark runs: "+e.message)); return; }
+  cmDraw();
+}
+function cmChart(rows){
+  const W=680,H=380,L=56,R=60,T=18,B=44, P0=-0.04, P1=1.05;
+  const tmax=Math.max(60,...rows.map(r=>r.t),...(CM.trail?rows.flatMap(r=>(r.history||[]).map(x=>x.t)):[]));
+  const ymax=Math.ceil(tmax*1.12/60)*60;
+  const x=p=>L+(p-P0)/(P1-P0)*(W-L-R), y=t=>T+(H-T-B)*(1-t/ymax);
+  let g=`<defs><marker id="cmArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1L9 5L0 9z" fill="var(--mute)"/></marker></defs>`;
+  const step=ymax<=240?60:ymax<=600?120:ymax<=1200?300:600;
+  for(let t=0;t<=ymax;t+=step) g+=`<line x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)"/><text x="${L-8}" y="${y(t)+4}" text-anchor="end" font-size="11" fill="var(--mute)">${t<120?t+" s":t/60+" min"}</text>`;
+  for(const p of [0,.25,.5,.75,1]) g+=`<text x="${x(p)}" y="${H-B+18}" text-anchor="middle" font-size="11" fill="var(--mute)">${p*100}%</text>`;
+  g+=`<text x="${(L+W-R)/2}" y="${H-6}" text-anchor="middle" font-size="12" fill="var(--mute)">how often it passes (p)</text>`;
+  g+=`<text transform="translate(14 ${(T+H-B)/2}) rotate(-90)" text-anchor="middle" font-size="12" fill="var(--mute)">seconds per task (t)</text>`;
+  for(const C of [60,120,240,480,960,1920]){
+    const pe=Math.min(P1,ymax/C); if(pe<0.12) continue;
+    g+=`<line x1="${x(0)}" y1="${y(0)}" x2="${x(pe)}" y2="${y(C*pe)}" stroke="var(--faint)" stroke-dasharray="4 5" opacity=".7"/>`;
+    const right=pe>=P1;
+    g+=right?`<text x="${x(P1)+6}" y="${y(C*P1)+4}" font-size="11" fill="var(--faint)">${cmSecs(C)}</text>`
+            :`<text x="${x(pe)}" y="${T-5}" text-anchor="middle" font-size="11" fill="var(--faint)">${cmSecs(C)}</text>`;
+  }
+  const best={};
+  for(const r of rows) if(r.C!=null&&(!best[r.kind]||r.C<best[r.kind].C)) best[r.kind]=r;
+  let trails="", pts="", labels=[];
+  for(const r of rows){
+    const hs=r.history||[];
+    if(CM.trail&&hs.length>1) trails+=`<polyline fill="none" stroke="var(--mute)" stroke-width="1.2" stroke-dasharray="2 3" marker-end="url(#cmArrow)" points="${hs.map(q=>x(q.p)+","+y(q.t)).join(" ")}"/>`+
+      hs.slice(0,-1).map(q=>`<circle cx="${x(q.p)}" cy="${y(q.t)}" r="2.5" fill="var(--mute)"><title>${escx(`${q.label} (${when(q.ts)}): ${q.passed} of ${q.tasks} passed, ${Math.round(q.t)} s per task`)}</title></circle>`).join("");
+    const k=cmKey(r), cx=x(r.p), cy=y(r.t), sz=r.tasks>=5?7:5.5, on=CM.sel===k, isBest=best[r.kind]===r;
+    const tip=`${cmName(r.model)} on ${cmKind(r.kind)}: ${r.passed} of ${r.tasks} passed, ${Math.round(r.t)} s per task, ${r.C!=null?cmSecs(r.C)+" per accepted change":"never passed yet"}`;
+    const mark=r.orthogonalized?`<circle cx="${cx}" cy="${cy}" r="${sz}" fill="var(--acc)" stroke="var(--panel)" stroke-width="2"/>`
+                               :`<rect x="${cx-sz}" y="${cy-sz}" width="${2*sz}" height="${2*sz}" rx="1.5" fill="var(--panel)" stroke="var(--faint)" stroke-width="2"/>`;
+    pts+=`<g class="cm-pt" data-k="${escx(k)}" tabindex="0" role="button" aria-pressed="${on}" aria-label="${escx(tip)}"><title>${escx(tip)}</title>`+
+      (isBest?`<circle cx="${cx}" cy="${cy}" r="${sz+5}" fill="none" stroke="var(--good)" stroke-width="2"/>`:"")+
+      (on?`<circle cx="${cx}" cy="${cy}" r="${sz+9}" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`:"")+mark+`</g>`;
+    if(CM.flow!=="all"||on) labels.push({cx,y:cy+4,s:sz,t:cmName(r.model),left:cx+sz+8+cmName(r.model).length*6.6>W-R});
+  }
+  labels.sort((a,b)=>a.y-b.y);
+  for(let i=1;i<labels.length;i++) if(labels[i].left===labels[i-1].left&&Math.abs(labels[i].cx-labels[i-1].cx)<140&&labels[i].y-labels[i-1].y<14) labels[i].y=labels[i-1].y+14;
+  const lt=labels.map(l=>`<text x="${l.left?l.cx-l.s-6:l.cx+l.s+6}" y="${l.y}" font-size="11.5" fill="var(--ink)" text-anchor="${l.left?"end":"start"}">${escx(l.t)}</text>`).join("");
+  const box=h("div",{style:"overflow-x:auto"});
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;min-width:540px;display:block" role="img" aria-label="Cost map: pass rate across, seconds per task up; dashed rays are equal cost per accepted change">`+g+trails+pts+lt+`</svg>`;
+  return box;
+}
+function cmDraw(){
+  const out=$("#cmOut"); if(!out||!CM.data) return;
+  const every=(CM.data.evals||[]), hasOrth=every.some(r=>r.orthogonalized);
+  const all=CM.orth&&hasOrth?every.filter(r=>r.orthogonalized):every;
+  out.innerHTML="";
+  if(!every.length){ out.append(h("p",{class:"sub"},"No live benchmark run yet. architect.py eval --set representative measures your models on 17 real tasks (best overnight); the map fills in from it.")); return; }
+  const flows=[...new Set(all.map(r=>r.kind))].sort();
+  if(CM.flow!=="all"&&!flows.includes(CM.flow)) CM.flow="all";
+  const rows=CM.flow==="all"?all:all.filter(r=>r.kind===CM.flow);
+  const fbtn=(id,label)=>h("button",{class:"btn sm"+(CM.flow===id?" p":""),"aria-pressed":String(CM.flow===id),onclick:()=>{CM.flow=id;cmDraw();}},label);
+  out.append(h("div",{class:"row",style:"gap:6px;flex-wrap:wrap;align-items:center"},fbtn("all","All work"),...flows.map(f=>fbtn(f,cmKind(f))),
+    h("span",{style:"margin-left:auto;display:flex;gap:14px;flex-wrap:wrap"},
+      hasOrth?h("label",{class:"small",style:"display:flex;gap:6px;align-items:center"},
+        h("input",{type:"checkbox",checked:CM.orth,onchange:e=>{CM.orth=e.target.checked;store.set("cmOrth",CM.orth?"1":"0");cmDraw();}}),"Only orthogonalized models"):null,
+      h("label",{class:"small",style:"display:flex;gap:6px;align-items:center"},
+        h("input",{type:"checkbox",checked:CM.trail,onchange:e=>{CM.trail=e.target.checked;cmDraw();}}),"Show how points moved between runs"))));
+  const chart=cmChart(rows);
+  const pick=k=>{CM.sel=CM.sel===k?null:k;cmDraw();const d=$("#cmDetail");if(d&&CM.sel)d.scrollIntoView({block:"nearest",behavior:"smooth"});};
+  chart.addEventListener("click",e=>{const g=e.target.closest&&e.target.closest(".cm-pt");if(g)pick(g.dataset.k);});
+  chart.addEventListener("keydown",e=>{const g=e.target.closest&&e.target.closest(".cm-pt");if(g&&(e.key==="Enter"||e.key===" ")){e.preventDefault();pick(g.dataset.k);}});
+  out.append(chart);
+  out.append(h("p",{class:"small",style:"margin:0"},h("b",null,"Lower right is better: "),"further right passes more often, lower is faster per task. ",
+    "Every point on one dashed line costs the same per change that passes, so a fast model that often fails can cost more than a slow one that passes.",
+    h("span",{class:"mute",title:"C = t / p: seconds per task divided by how often it passes (equation 16 of the technical report). Measured by your own live benchmark runs (architect.py eval); the scripted harness check is left out."}," ⓘ")));
+  out.append(h("div",{class:"row small mute",style:"gap:16px;flex-wrap:wrap"},
+    h("span",null,h("b",{style:"color:var(--acc)"},"●")," orthogonalized (your abliterated models)"),
+    h("span",null,h("b",{style:"color:var(--faint)"},"■")," other models"),
+    h("span",null,h("b",{style:"color:var(--good)"},"◯")," lowest cost for that kind of task"),
+    h("span",null,"- - - same cost per accepted change"),
+    h("span",null,"small points: fewer than 5 tasks")));
+  const sel=all.find(r=>cmKey(r)===CM.sel);
+  if(sel){
+    const hs=sel.history||[];
+    out.append(h("div",{id:"cmDetail",class:"card"},
+      h("div",{class:"row",style:"gap:8px;flex-wrap:wrap;align-items:center"},h("h3",{class:"grow",style:"margin:0"},cmName(sel.model)+" on "+cmKind(sel.kind)),
+        sel.orthogonalized?h("span",{class:"chip info"},"orthogonalized"):null,
+        h("button",{class:"btn sm",onclick:()=>{CM.sel=null;cmDraw();}},"Close")),
+      h("div",{class:"btiles",style:"margin-top:10px"},
+        h("div",{class:"btile "+(sel.C==null?"bad":"")},h("b",{class:"num"},cmSecs(sel.C)),h("span",{class:"mute small"},"per change that passed")),
+        h("div",{class:"btile"},h("b",{class:"num"},sel.passed+" of "+sel.tasks),h("span",{class:"mute small"},"tasks passed"+(sel.not_sure?", "+sel.not_sure+" not sure":""))),
+        h("div",{class:"btile"},h("b",{class:"num"},fmt(sel.t,0)+" s"),h("span",{class:"mute small"},"per task, on average"))),
+      hs.length>1?h("div",null,h("h3",{style:"margin:12px 0 6px"},"Run by run"),h("div",{style:"overflow-x:auto"},h("table",null,
+        h("thead",null,h("tr",null,...["Run","When","Passed","Seconds per task","Per accepted change"].map((t,i)=>h("th",{class:i>1?"n":""},t)))),
+        h("tbody",null,...hs.map(q=>h("tr",null,h("td",null,q.label),h("td",null,when(q.ts)),h("td",{class:"n"},q.passed+" / "+q.tasks),h("td",{class:"n"},fmt(q.t,0)),h("td",{class:"n"},cmSecs(q.C)))))))):null,
+      h("h3",{style:"margin:12px 0 6px"},"The tasks behind this point"),
+      h("div",{style:"overflow-x:auto"},h("table",null,
+        h("thead",null,h("tr",null,...["Task","Result","Seconds","Calls","Run","What the checks said"].map((t,i)=>h("th",{class:i===2||i===3?"n":""},t)))),
+        h("tbody",null,...(sel.runs||[]).map(t=>h("tr",null,h("td",{class:"mono small"},t.id),
+          h("td",null,h("span",{class:"chip "+(t.verdict==="pass"?"good":t.verdict==="fail"?"bad":"warn")},t.verdict==="not_sure"?"not sure":t.verdict)),
+          h("td",{class:"n"},fmt(t.secs,0)),h("td",{class:"n"},t.calls??"–"),h("td",{class:"small"},t.label+" · "+when(t.ts)),h("td",{class:"small mute"},t.detail||""))))))));
+  }
+  const byFlow={};
+  for(const r of all) (byFlow[r.kind]=byFlow[r.kind]||[]).push(r);
+  const best=Object.entries(byFlow).map(([f,rs])=>{const ok=rs.filter(r=>r.C!=null).sort((a,b)=>a.C-b.C);return {f,a:ok[0],b:ok[1],n:rs.length};}).sort((p,q)=>(p.a?p.a.C:1e9)-(q.a?q.a.C:1e9));
+  out.append(h("div",null,h("h3",{style:"margin:6px 0"},"Cheapest per kind of task"),
+    h("p",{class:"small mute",style:"margin:0 0 6px"},"Measured, not a recommendation to switch: a model you chose stays in charge until you change it."),
+    h("div",{style:"overflow-x:auto"},h("table",null,
+      h("thead",null,h("tr",null,...["Kind of task","Cheapest","Per accepted change","Next best","Models measured"].map((t,i)=>h("th",{class:i===2||i===4?"n":""},t)))),
+      h("tbody",null,...best.map(b=>h("tr",{style:"cursor:pointer",onclick:()=>{CM.flow=b.f;cmDraw();}},h("td",null,cmKind(b.f)),
+        h("td",null,b.a?cmName(b.a.model):h("span",{class:"chip bad"},"none passed yet")),h("td",{class:"n"},b.a?cmSecs(b.a.C):"–"),
+        h("td",{class:"small"},b.b?cmName(b.b.model)+" · "+cmSecs(b.b.C):"–"),h("td",{class:"n"},String(b.n)))))))));
+  const calls=CM.data.calls||[];
+  out.append(h("div",null,h("h3",{style:"margin:6px 0"},"Per model call"),calls.length?h("div",{style:"overflow-x:auto"},h("table",null,
+      h("thead",null,h("tr",null,...["Role","Model","Calls","Cached prompt","Pass rate by try","Per accepted change","Feedback saves"].map((t,i)=>h("th",{class:i===2||i===3||i>4?"n":""},t)))),
+      h("tbody",null,...calls.map(c=>h("tr",null,h("td",null,c.role),h("td",null,cmName(c.model)),h("td",{class:"n"},String(c.calls)),
+        h("td",{class:"n"},c.rho==null?"–":Math.round(c.rho*100)+"%"),h("td",{class:"small"},(c.p_i||[]).map((p,i)=>"try "+(i+1)+": "+Math.round(p*100)+"%").join(" · ")),
+        h("td",{class:"n"},cmSecs(c.C)),h("td",{class:"n"},c.feedback_gain_s==null?"–":cmSecs(c.feedback_gain_s)))))))
+    :h("p",{class:"small mute"},"Appears after your next live benchmark: each task's run record is now kept, so the cost of every try, the share of the prompt served from cache and what the failure feedback saves can be measured.")));
+}
 function benchPage(){
   return [h("div",{class:"card"},h("h2",null,"Benchmarks"),
     h("p",{class:"sub"},"How often your models finish real tasks on this machine, judged by tests.",h("span",{class:"mute",title:"Live runs use your models on this hardware; scripted runs replace the model with a fixed script, so they test the harness itself. To measure your models: architect.py eval --set representative (17 tasks, about two hours on a 6 GB laptop, best overnight)."}," ⓘ")),

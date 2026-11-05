@@ -35,7 +35,8 @@ model, no OpenAI-style endpoint. Code decides what passes (tests, AST checks, th
 - `arch_eval.py` + `evals/` — the fixed task set per flow (`eval`, `eval --fake` oracle, `eval --compare` regression gate). `arch_selftest_eval.py`, `arch_selftest_offline.py` — the eval harness and the offline seal.
   A live task's folder is thrown away, so `keep_trace` copies its run record to `<data>/evals/runs/train|bench/.arch/runs/`: `train` =
   tagged "training" and not "holdout", the ONLY eval bucket `arch_dataset.roots` reads; `bench` = everything else, read by
-  `arch_costmodel` (the report's C = t / p̄, `architect.py cost`) and never trained on. The oracle keeps nothing; 1000 newest per bucket.
+  `arch_costmodel` (the report's C = t / p̄, `architect.py cost`, hub Models > Cost map = `costmapPage`, read-only, points per task
+  FAMILY not flow) and never trained on. The oracle keeps nothing; 1000 newest per bucket.
 - `arch_selftest*.py`, `arch_hub_check.py` — the suites; `python architect.py selftest --suite full` runs them all in an isolated home.
 - `arch_cloud.py` — Claude as an optional tier (`claude:` models): the one gate `allowed()`, per-run/per-day spend caps checked before each request, a 30-day reply cache, web search only on a person's chat message, fast mode (Opus only, falls back to normal speed). Replies are transport `claude`, never training data.
 - `arch_claudecode.py` — the real Claude Code agent via the Agent SDK in the project folder, billed to the API key (own `CLAUDE_CONFIG_DIR` = `<data>/claude_code`, so a subscription login can never be used); modes plan/acceptEdits/default, no bypass; every run kept in `<data>/cc_runs/`.

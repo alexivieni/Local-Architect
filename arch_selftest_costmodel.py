@@ -71,8 +71,41 @@ def run():
         check("from_evals(): C = seconds spent / tasks passed, 'not sure' counts its seconds but not in p",
               er["a:8b"]["C"] == 120 and er["a:8b"]["p"] == 0.5 and er["a:8b"]["not_sure"] == 1 and er["b:14b"]["C"] == 90, er)
         check("from_evals(): the slower model that passes ranks first (lower C)", cm.from_evals([ev])[0]["model"] == "b:14b")
+        check("from_evals(): the kind of task is the family (one flow serves e2e builds and training tasks alike)", {r["kind"] for r in cm.from_evals([ev])} == {"bugfix"} and all(r["flow"] == "bugfix" for r in cm.from_evals([ev])))
+        ev2 = os.path.join(d, "ev2.json")
+        with open(ev2, "w", encoding="utf-8") as f:
+            json.dump({"fake": False, "ts": 2, "label": "later", "results": [
+                {"id": "t9", "flow": "bugfix", "verdict": "pass", "secs": 30, "models": {"huihui_ai/qwen3-abliterated:8b": 2}},
+                {"id": "t1", "flow": "bugfix", "verdict": "pass", "secs": 30, "models": {"a:8b": 3}}]}, f)
+        with open(ev, encoding="utf-8") as f:
+            first = dict(json.load(f), ts=1, label="first")
+        with open(ev, "w", encoding="utf-8") as f:
+            json.dump(first, f)
+        two = {r["model"]: r for r in cm.from_evals([ev, ev2])}
+        a = two["a:8b"]
+        check("from_evals(): history is the point per report, oldest first, so a change that moved it shows",
+              [h["label"] for h in a["history"]] == ["first", "later"] and a["history"][0]["C"] == 120 and a["history"][1]["C"] == 30, a["history"])
+        check("from_evals(): each point lists its tasks (newest first) and flags orthogonalized models by name",
+              a["runs"][0]["id"] == "t1" and len(a["runs"]) == 4 and two["huihui_ai/qwen3-abliterated:8b"]["orthogonalized"] and not a["orthogonalized"], a["runs"][:2])
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+    # the hub's Cost map page (static: the page source, no browser)
+    import re
+    html = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "hub_ui.html"), encoding="utf-8").read()
+    a, b = html.find("/* ===== Cost map (Models)"), html.find("function benchPage(){")
+    block = html[a:b] if 0 <= a < b else ""
+    check("hub: the Cost map is a page in the Models place, with its own name, icon and drawing",
+          '["team","chip","Models",["tiers","computers","costmap"' in html and 'costmap:"Cost map"' in html and 'costmap:"target"' in html
+          and 'costmap:"models"' in html and 'if(page==="costmap")' in html)
+    check("hub: it draws only with theme colours (no literal colour), so every theme and accent applies",
+          bool(block) and not re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", block), re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", block)[:4])
+    check("hub: every point is a keyboard button with a spoken description; the chart has a text alternative",
+          'tabindex="0" role="button"' in block and 'aria-label="${escx(tip)}"' in block and 'role="img" aria-label="Cost map' in block
+          and 'e.key==="Enter"||e.key===" "' in block)
+    check("hub: it reads /api/arch/cost and only shows; it never assigns a model",
+          'api("/api/arch/cost")' in block and "not a recommendation to switch" in block
+          and not re.search(r"/api/(arch/)?(config|roles|tiers|settings)|setRole|saveConfig", block))
     n = sum(results)
     print(f"\n  {'ALL ' + str(n) + ' COSTMODEL CHECKS PASSED' if n == len(results) else str(len(results) - n) + ' of ' + str(len(results)) + ' COSTMODEL CHECKS FAILED'}")
     return n == len(results)

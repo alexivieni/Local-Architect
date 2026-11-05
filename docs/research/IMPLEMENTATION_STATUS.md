@@ -58,7 +58,7 @@ layers across machines. Of the 40 rows below, 21 are **Built**, 17 are **Partial
 | Report | Status | In the code |
 |---|---|---|
 | Call time t = (1−ρ)·n_in/r_p + n_out·t_tok (Eq. 15) | **Built** | `arch_costmodel.call_time`. Prompts are prefix-stable (stable part first, per-try tail last; `arch_selftest_chain` enforces it). ρ is **measured**: llama-server's exact `cache_n`, recorded per call as `prefix_reused_est`. KV slots persist on disk per project. |
-| C = t/p (Eq. 16); C = t/p̄, p̄ = Σ Q_{i−1}p_i / Σ Q_{i−1} (Eq. 17) | **Built** (2026-11-04) | `arch_costmodel.cost`, `p_bar`, `measure` (per role and model from `trace.jsonl` call + mark records, including kept live-eval runs), `from_evals` (per task from saved eval reports). `python architect.py cost`, hub `GET /api/arch/cost`. Energy E = P·C with `--watts`. |
+| C = t/p (Eq. 16); C = t/p̄, p̄ = Σ Q_{i−1}p_i / Σ Q_{i−1} (Eq. 17) | **Built** (2026-11-04) | `arch_costmodel.cost`, `p_bar`, `measure` (per role and model from `trace.jsonl` call + mark records, including kept live-eval runs), `from_evals` (per task from saved eval reports). `python architect.py cost`, hub **Models → Cost map** (`GET /api/arch/cost`): each model on each family of tasks as (p, t) with rays of equal C, click-through to the tasks, history across runs. Energy E = P·C with `--watts`. |
 | Role placement J = Σ c_r·t_r/p_r + λS (Eq. 18) | **Built** as a calculator | `arch_costmodel.run_time`. The live router uses measured success per flow (`arch_routelearn`) rather than J. |
 | Planner placement inequality (Eq. 19) | **Built** as a calculator | `arch_costmodel.planner_pays`, `architect.py cost --planner …`. Self-tests reproduce the report's worked example: 150 s > 110.8 s pays; 83.3 s < 110.8 s does not. Not yet applied automatically. |
 | Retries with feedback beat unbatched sampling (Eq. 20); batched candidates (Eq. 21) | **Partial** | Retries with feedback are the default loop. `sample_n` and `behavior.best_of_n` exist. The policy "a batch of N per attempt, then feedback" needs concurrent slots (see Eq. 11). |
@@ -103,22 +103,24 @@ regression gate, and now `cost` to turn the results into the report's units.
 
 ## What this machine has measured so far
 
-`python architect.py cost` reads the saved live eval reports in `hub_data/evals/`. Here is a selection (RTX 4050 6 GB, 2026-11-04).
-These are **small samples** (2–8 tasks per cell). Read them as early readings, not results.
+`python architect.py cost` reads the saved live eval reports in `hub_data/evals/` and groups them by family of tasks. One flow
+serves several families: whole-project (e2e) builds and the distributed-systems training tasks both run the build flow. The hub
+draws the same numbers as **Models → Cost map**. Below is a selection (RTX 4050 6 GB, 2026-11-04). These are **small samples**
+(3–6 tasks per cell), so read them as early readings, not results.
 
-| Model (most calls) | Flow | Tasks | Passed | t (s/task) | p | **C (s per passed task)** |
+| Model (most calls) | Kind of task | Tasks | Passed | t (s/task) | p | **C (s per passed task)** |
 |---|---|---|---|---|---|---|
 | huihui_ai/qwen3-abliterated:8b | feature | 3 | 3 | 38.3 | 1.00 | **38.3** |
 | huihui_ai/qwen3-abliterated:4b | bugfix | 6 | 6 | 40.4 | 1.00 | **40.4** |
-| huihui_ai/qwen3-abliterated:8b | bugfix | 3 | 3 | 60.8 | 1.00 | **60.8** |
-| qwen3:8b | build | 7 | 3 | 113.6 | 0.43 | **265.0** |
-| huihui_ai/qwen3-abliterated:8b | build | 7 | 1 | 75.6 | 0.14 | **529.0** |
-| huihui_ai/qwen3-abliterated:4b | build | 8 | 1 | 105.3 | 0.12 | **842.4** |
+| qwen3:8b | build | 3 | 3 | 58.8 | 1.00 | **58.8** |
+| huihui_ai/qwen3-abliterated:4b | build | 3 | 1 | 36.0 | 0.33 | **107.9** |
+| huihui_ai/qwen3-abliterated:8b | build | 3 | 1 | 48.5 | 0.33 | **145.6** |
+| every model (5) | whole projects (e2e) | 4 each | 0 | 96–274 | 0.00 | **never passed** |
 
-The report says a model should be judged by C, and these rows show why. On `build`, the abliterated 8B is faster per task than
-the base qwen3:8b (76 s vs 114 s) but costs twice as much per accepted change (529 s vs 265 s), because it passes less often.
-That is one measurement on 7 tasks. Before reading it as a cost of orthogonalization (H1), it needs a refusal suite, more tasks
-and repeated seeds.
+The report says a model should be judged by C, and these rows show why. On `build`, the abliterated 4B is the fastest per task
+(36 s), but it passes 1 time in 3, so it costs more per accepted change than base qwen3:8b, which passed all 3 (108 s vs 59 s).
+That is one measurement on 3 tasks. Before reading it as a cost of orthogonalization (H1), it needs a refusal suite, more tasks
+and repeated seeds. Whole-project builds stop every model so far, so they are the clearest target for harness work.
 
 ## Next steps, ranked by what they unlock
 

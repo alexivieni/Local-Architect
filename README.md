@@ -110,21 +110,24 @@ $$\text{promote } H' \iff \mathrm{Gates}(H') \land \lvert \mathrm{checks}(H') \r
 | Fit (4–5) | `arch_server.plan`, `arch_modelmath.fit` | abliterated 8B: all 36 layers + 8K window on a 6 GB card |
 | Decode (6–7) | `model_hub.fit_model`, `arch_hw.bandwidth_from` | GPU 158 GB/s, RAM 19.5 GB/s |
 | Prefix reuse (15) | prefix-stable prompts, llama-server `cache_n`, KV slots on disk | ρ recorded per call; edits 56 → 306–343 tok/s with n-gram speculation |
-| Cost (16–17) | `arch_costmodel`, `python architect.py cost`, `GET /api/arch/cost` | see the table below |
+| Cost (16–17) | `arch_costmodel`, `python architect.py cost`, hub **Models → Cost map** | see the table below |
 | Placement (18–19) | `arch_costmodel.planner_pays`, `cost --planner` | the report's worked example is a self-test: 150 s > 110.8 s pays |
 | Stall (22), fusion (23), promotion (24) | `arch_progress.Coach`, `arch_index.rrf`, `arch_selfimprove.gate` | built and self-tested |
 
-**C on this machine** (from `python architect.py cost` over live eval runs; 2–8 tasks per row, so read these as early readings):
+**C on this machine** (from `python architect.py cost` over live eval runs, per family of tasks; 3–6 tasks per row, so read these
+as early readings). In the hub: **Models → Cost map**, where you can click any point to see the tasks behind it.
 
-| Model | Flow | p | t (s/task) | **C (s per passed task)** |
+| Model | Kind of task | p | t (s/task) | **C (s per passed task)** |
 |---|---|---|---|---|
 | huihui_ai/qwen3-abliterated:8b | feature | 1.00 | 38.3 | **38.3** |
 | huihui_ai/qwen3-abliterated:4b | bugfix | 1.00 | 40.4 | **40.4** |
-| qwen3:8b | build | 0.43 | 113.6 | **265.0** |
-| huihui_ai/qwen3-abliterated:8b | build | 0.14 | 75.6 | **529.0** |
+| qwen3:8b | build | 1.00 | 58.8 | **58.8** |
+| huihui_ai/qwen3-abliterated:4b | build | 0.33 | 36.0 | **107.9** |
+| all five models measured | whole projects (e2e) | 0.00 | 96–274 | **never passed** |
 
-On `build`, the faster model costs more per accepted change because it passes less often. That is why the report ranks models by
-C and not by tokens per second.
+On `build`, the abliterated 4B is the fastest per task (36 s), but it passes 1 time in 3. So it costs more per accepted change
+than a slower model that always passes (108 s vs 59 s). That is why the report ranks models by C, not by tokens per second.
+Whole-project builds are where every model stops (0 of 4 each), so that is where the harness has to improve.
 
 **Status against the report:** of 40 items, 21 are built, 17 are partial and 2 are not yet built. The largest gaps are the
 orthogonalization procedure itself, layer splits across machines (Eq. 13) and the §9 evaluation. Section by section, with the
