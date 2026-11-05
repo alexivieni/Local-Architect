@@ -14,6 +14,13 @@ from http.server import ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 GB = 1024 ** 3
+if __name__ == "__main__" and "arch_core" not in sys.modules:
+    # Run on its own, this suite must not read the person's real settings: their worker tier is served by a live llama-server, and
+    # a role this suite does not override reached it (seen 2026-11-05, during a GPU training run). Same isolation as `selftest`.
+    _iso = tempfile.mkdtemp(prefix="chain_selftest_")
+    os.environ["ARCHITECT_HOME"] = _iso
+    os.environ["ARCHITECT_DATA_DIR"] = os.path.join(_iso, "data")
+    os.environ["ARCHITECT_NO_CACHE"] = "1"
 
 
 def _wait(cond, secs=20):
