@@ -1242,6 +1242,26 @@ def cmd_select(args):
     return 0
 
 
+def cmd_preset(args):
+    """Apply a role-profile preset (data/presets/*.json) to your settings, or undo the last role-profile write."""
+    import arch_roleprofile as rp
+    if args.undo:
+        rec = rp.undo()
+        print("nothing to undo" if not rec else f"undone: {rec['what']}")
+        return 0
+    if not args.name:
+        for k, p in rp.presets().items():
+            print(f"{k:10} {p.get('blurb', '')}")
+        return 0
+    try:
+        rec = rp.apply_preset(args.name)
+    except (KeyError, ValueError) as ex:
+        print(f"[x] {ex}")
+        return 2
+    print(f"applied {rec['what']} (preset --undo puts back what was there)")
+    return 0
+
+
 def cmd_cost(args):
     """The report's loop cost model (Eq. 15-19) from this machine's traces: seconds per ACCEPTED change, per role and model."""
     import arch_costmodel as cm
@@ -1498,7 +1518,7 @@ def _run_suites(suite):
                 print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
                 rc |= 1
         # suites whose run() returns True when every check passed (art returns 0 like the older ones)
-        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "swap", "orchestration", "squad", "select", "plugins", "telemetry", "retrieval", "modelknow", "verifymachine", "selfimprove"):
+        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "swap", "orchestration", "squad", "select", "plugins", "telemetry", "retrieval", "modelknow", "verifymachine", "selfimprove", "roleprofile"):
             try:
                 _mod = importlib.import_module("arch_selftest_" + _name)
                 _res = (getattr(_mod, "run", None) or _mod.main)()       # retrieval has only main() -> 0/1
@@ -1795,6 +1815,9 @@ def main(argv=None):
     se_.add_argument("--n", type=int, default=5)
     se_.add_argument("--seeds", help="comma-separated seeds, default 1,2")
     se_.add_argument("--json", action="store_true")
+    pr_ = sub.add_parser("preset", help="role-profile presets: Fast, Balanced (= shipped), Quality, Battery; --undo puts back the last one")
+    pr_.add_argument("name", nargs="?")
+    pr_.add_argument("--undo", action="store_true")
     co_ = sub.add_parser("cost", help="seconds per ACCEPTED change per role and model (the report's C = t / p-bar), or --planner to test Eq. 19")
     co_.add_argument("--root", help="one project folder (default: every portfolio project + this folder)")
     co_.add_argument("--watts", type=float, help="average power draw, to report energy E = P * C")
@@ -1810,7 +1833,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     fn = {"run": cmd_run, "flows": cmd_flows, "templates": cmd_templates, "route": cmd_route, "undo": cmd_undo,
           "portfolio": cmd_portfolio, "show-config": cmd_show, "serve": cmd_serve, "doctor": cmd_doctor, "assess": cmd_assess, "advise": cmd_advise,
-          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "swap": lambda a: __import__("arch_swap").main(list(a.rest or [])), "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "plugins": cmd_plugins, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
+          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "preset": cmd_preset, "swap": lambda a: __import__("arch_swap").main(list(a.rest or [])), "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "plugins": cmd_plugins, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
     if not fn:
         ap.print_help()
         return 0

@@ -1,0 +1,4 @@
+{"label": "Fast", "blurb": "Smaller prompts, shorter replies, no thinking for planning roles, the worker's fast lane on.",
+ "role_profiles": {"planner": {"thinking": "off", "ctx_max": 6144, "reply_max": 1024}, "architect": {"thinking": "off", "ctx_max": 6144, "reply_max": 1024},
+                   "reviewer": {"thinking": "off", "reply_max": 768}, "evaluator": {"thinking": "off", "reply_max": 768}, "tester": {"ctx_max": 4096, "reply_max": 2048}},
+ "settings": {"behavior.role_profiles": "on", "server.fast_lane": "on", "server.fast_think_budget": 256, "behavior.best_of_n": 1}}

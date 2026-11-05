@@ -1,0 +1,5 @@
+{"label": "Battery", "blurb": "Least work per run: small prompts, short replies, no thinking, one attempt, fast lane off, per-run caps on the chattiest roles.",
+ "role_profiles": {"planner": {"thinking": "off", "ctx_max": 4096, "reply_max": 1024}, "architect": {"thinking": "off", "ctx_max": 4096, "reply_max": 1024},
+                   "reviewer": {"thinking": "off", "ctx_max": 4096, "reply_max": 512}, "evaluator": {"thinking": "off", "ctx_max": 4096, "reply_max": 512},
+                   "generator": {"ctx_max": 6144, "budget": {"calls": 24}}, "tester": {"ctx_max": 4096, "reply_max": 2048, "budget": {"calls": 8}}},
+ "settings": {"behavior.role_profiles": "on", "server.fast_lane": "off", "server.think_budget": 256, "behavior.best_of_n": 1}}

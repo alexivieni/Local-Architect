@@ -88,6 +88,7 @@ SETTINGS = {
             ("behavior.record_live", "choice:on,off", "Record what the machine is doing", "on = while the hub runs, every 5 seconds one line with RAM, graphics memory, GPU temperature and power, the power source and the running model servers goes to hub_data/live.log (two files of about 2 MB, written straight to disk), so a freeze or a crash leaves evidence of what led up to it. off = nothing is recorded.", None),
             ("behavior.heavy_jobs", "choice:one,any", "Heavy jobs", "one = test suites, benchmarks, tuning and self-improvement run one at a time and below normal priority: a second one waits for the first, and the desktop stays usable (a laptop that ran four at once crashed). any = no waiting, normal priority.", None),
             ("behavior.postmortem", "choice:on,off", "Explain failures", "After a run fails, the model reads what happened (the checks that failed, the last feedback) and writes a short explanation in plain words next to the run (postmortem.md). When the queue retries the task, the retry is given that explanation. Costs one model call per failed run; never runs during a benchmark.", None),
+            ("behavior.role_profiles", "choice:off,on", "Role profiles", "on = each role gets its own prompt size, reply limit, thinking, sampling, tool list and budget (data/role_profiles.json, your own values in Settings role_profiles win; explicit per-call values still win over both); every call trace records what was applied and where it came from. off = unchanged. The presets (architect.py preset Fast|Balanced|Quality|Battery) turn it on, with an undo.", None),
             ("behavior.model_defaults", "choice:auto,off", "Model family defaults", "auto = each model's own family settings (sampling, thinking; arch_modelknow) fill in only what you have not set yourself for that role or model, and the call trace records which were applied. off = unchanged.", None),
             ("behavior.fold_failed_sprints", "bool", "Carry on past a failed sprint", "In unattended runs, a sprint that still fails after its retries hands its work to the next sprint instead of ending the build, so the later parts of the request are still attempted. The build only counts as complete if the last sprint passes. Off: the build stops at the first sprint that will not pass, so you can look at it.", None),
     ],
@@ -404,7 +405,7 @@ def list_presets():
 
 
 def all_schema_paths():
-    return set(_SETTINGS_BY_PATH) | {"roles", "role_overrides", "model_overrides", "tiers"}
+    return set(_SETTINGS_BY_PATH) | {"roles", "role_overrides", "model_overrides", "tiers", "role_profiles"}
 
 
 def is_known_setting(path):
@@ -417,9 +418,49 @@ def selftest_defaults_match(flat_defaults):
     the schema. Empty list means they agree."""
     problems = []
     schema_paths = set(_SETTINGS_BY_PATH)
-    default_paths = {k for k in flat_defaults if not k.startswith(("roles", "role_overrides", "model_overrides", "tiers"))}
+    default_paths = {k for k in flat_defaults if not k.startswith(("roles", "role_overrides", "model_overrides", "tiers", "role_profiles"))}
     for p in schema_paths - default_paths:
         problems.append(f"schema has '{p}' but arch_core.DEFAULTS does not")
     for p in default_paths - schema_paths:
         problems.append(f"arch_core.DEFAULTS has '{p}' but the schema does not")
     return problems
+
+
+# ----------------------------------------------------------------------------------------------- role profiles (arch_roleprofile)
+ROLE_PROFILE_FIELDS = {
+    "model": ("text", None), "ctx_max": ("int", (256, 262144)), "reply_max": ("int", (16, 32768)),
+    "thinking": ("choice:on,off,auto", None), "temperature": ("float", (0.0, 2.0)), "top_p": ("float", (0.0, 1.0)),
+    "speculation": ("choice:inherit,off", None),
+}
+
+
+def validate_role_profile(d):
+    """A person's role profile -> cleaned dict. None keeps "inherit". tools: list of tool names ('name:glob|glob' limits a writing
+    tool's paths); budget: {calls, tokens, seconds} (each int >= 1 or None). Raises ValidationError."""
+    if not isinstance(d, dict):
+        raise ValidationError("a role profile is an object")
+    out = {}
+    for k, v in d.items():
+        if v is None or v == "":
+            out[k] = None
+            continue
+        if k in ROLE_PROFILE_FIELDS:
+            t, rng = ROLE_PROFILE_FIELDS[k]
+            out[k] = coerce(t, v, rng)
+        elif k == "tools":
+            items = v.split(",") if isinstance(v, str) else v
+            if not isinstance(items, list):
+                raise ValidationError("tools is a list of tool names")
+            out[k] = [str(x).strip() for x in items if str(x).strip()]
+        elif k == "budget":
+            if not isinstance(v, dict):
+                raise ValidationError("budget is {calls, tokens, seconds}")
+            b = {}
+            for bk, bv in v.items():
+                if bk not in ("calls", "tokens", "seconds"):
+                    raise ValidationError(f"budget.{bk}: not calls, tokens or seconds")
+                b[bk] = None if bv is None else coerce("int", bv, (1, 10 ** 9))
+            out[k] = b
+        else:
+            raise ValidationError(f"{k}: not a role profile key")
+    return out

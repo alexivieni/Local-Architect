@@ -61,6 +61,7 @@ DEFAULTS = {
     "hosts": {},                   # name -> "http://addr:11434": other machines of yours running Ollama (see arch_hosts.py)
     "role_hosts": {},              # role -> host name: that role's model calls go to that machine
     "role_overrides": {},          # role -> {think, sampling, num_predict}
+    "role_profiles": {},           # role -> your role profile (arch_roleprofile; used with behavior.role_profiles = on)
     "model_overrides": {},         # model -> {num_ctx, sampling, think, system_prompt: "inline"|"system"}
     "limits": {"cloud_usd_per_run": 0.5, "cloud_usd_per_day": 5.0, "num_ctx": 8192, "max_calls": 60, "max_revisions": 3, "request_timeout": 900, "escalate_max_s": 240,
                "max_files_per_step": 6, "context_chars": 20000, "keep_alive": "10m", "max_file_bytes": 400000,
@@ -71,7 +72,7 @@ DEFAULTS = {
     "storage": {"archive": "",                         # a second drive for copies of run records (arch_archive.py); "" = off
                 "slot_cache_gb": 4.0,                  # saved prompt memory (server/slots, ~0.2-0.4 GB a project): least recently used beyond this is dropped at each save (arch_cachehygiene.py)
                 "slot_max_age_days": 30},              # a saved prompt memory unused this long is offered for removal by `architect.py caches` (asked, never automatic)
-    "behavior": {"model_defaults": "off", "telemetry": "on", "telemetry_mb": 20, "rank_cache": "on", "review_mode": "ask", "offline_tests": True, "best_of_n": 1, "evaluator": "final",   # final | each | off
+    "behavior": {"model_defaults": "off", "role_profiles": "off", "telemetry": "on", "telemetry_mb": 20, "rank_cache": "on", "review_mode": "ask", "offline_tests": True, "best_of_n": 1, "evaluator": "final",   # final | each | off
                  "playwright": "auto", "seed": None,
                  "mutation": "on", "mutation_max": 8,          # test flow: how many code mutations to try
                  "min_gain_pct": 10, "bench_runs": 5,          # optimize flow: required speed-up, benchmark repetitions
@@ -1512,6 +1513,13 @@ class Engine:
             applied["tool_format"] = got["tool_format"]      # recorded for the trace; tool calls are parsed as before
         return applied if len(applied) > 2 else {}
 
+    def _rp_note(self, role, tokens, secs):
+        """Per-role use this run, for the role profile's budget."""
+        u = self.__dict__.setdefault("_rp_used", {}).setdefault(role, {"calls": 0, "tokens": 0, "seconds": 0.0})
+        u["calls"] += 1
+        u["tokens"] += tokens
+        u["seconds"] = round(u["seconds"] + secs, 2)
+
     def call(self, role, user, extra_system="", json_out=False, think=None, temperature=None, num_predict=None, label=None, schema=None):
         """One model call as a role. Safe to call from several threads at once: counters, budgets and the trace are updated one at a time,
         while the wait for the model itself is shared -- which is the only part worth running side by side."""
@@ -1530,6 +1538,15 @@ class Engine:
         if self.seen[key] > 2:
             raise LoopDetected(f"the {role} was asked the same thing 3 times; stopping instead of repeating")
         model = self.model_for(role)
+        _prof = None
+        if self.cfg["behavior"].get("role_profiles", "off") == "on":       # arch_roleprofile; off = this block never runs
+            import arch_roleprofile as _rp
+            _prof = _rp.resolve(self.cfg, role)
+            if _prof and _prof["values"].get("model") and not self.pins.get(role):
+                model = _prof["values"]["model"]
+            _why = _rp.budget_check(_prof, getattr(self, "_rp_used", {}).get(role, {}))
+            if _why:
+                raise BudgetExceeded(_why)
         self._check_budgets(model)
         ro = (self.cfg["role_overrides"].get(role) or {})
         mo = self._model_override(model)
@@ -1583,6 +1600,10 @@ class Engine:
         model_defaults = self._model_defaults(model, role, ro, mo, options, temperature is None, think is None)
         if "thinking" in model_defaults:
             th = model_defaults["thinking"]
+        fit_ctx, _prof_tr = options["num_ctx"], None
+        if _prof:
+            th, fit_ctx, _prof_tr = _rp.apply_call(_prof, options, th, {"temperature": temperature is not None, "think": think is not None,
+                                                   "num_predict": bool(num_predict)}, ro, mo, srv_ctx)
         base_user = user
         fewshot_model = None                    # whose past reply rode along as FORMAT REFERENCE (recorded in the call trace)
         if (self.cfg["behavior"].get("learn_from_runs", "on") == "on" and not json_out and "FEEDBACK" not in user
@@ -1613,7 +1634,7 @@ class Engine:
             options["num_ctx"] = max(int(options["num_ctx"]), 200000)   # Seen live: an edit request lost the very line to change.
         cpt0 = arch_tune.cpt_for(self.stats, model)
         room = min(int(options["num_predict"]), arch_tune.REPLY_ROOM_TOKENS)
-        fits = lambda u: int((len(sys_text) + len(u)) / max(cpt0, 1.0) * arch_tune.EST_MARGIN) + room + 64 <= options["num_ctx"]
+        fits = lambda u: int((len(sys_text) + len(u)) / max(cpt0, 1.0) * arch_tune.EST_MARGIN) + room + 64 <= fit_ctx
         if not fits(user):
             what, size0 = [], len(user)
             if user != base_user:
@@ -1621,7 +1642,7 @@ class Engine:
                 what.append("the format example was left out")
             ctx_text = max((c for c in getattr(self, "_contexts", []) if c and c in user), key=len, default="")
             if not fits(user) and ctx_text:
-                allowed = int((options["num_ctx"] - room - 64) * max(cpt0, 1.0) / arch_tune.EST_MARGIN) - len(sys_text)
+                allowed = int((fit_ctx - room - 64) * max(cpt0, 1.0) / arch_tune.EST_MARGIN) - len(sys_text)
                 keep = max(1500, len(ctx_text) - (len(user) - allowed))
                 cut = arch_tune.cut_context(ctx_text, keep)
                 user = user.replace(ctx_text, cut, 1)
@@ -1685,7 +1706,10 @@ class Engine:
                                  "tokens_saved": saved, "secs_saved": hit["secs"],
                                  "tier": self.tier_of(model, role),
                                  "prompt_ref": getattr(self, "prompt_ref", ""),
-                                 "system_sha": hashlib.sha256(sys_text.encode("utf-8", "replace")).hexdigest()[:12]})
+                                 "system_sha": hashlib.sha256(sys_text.encode("utf-8", "replace")).hexdigest()[:12],
+                                 **({"profile": _prof_tr} if _prof_tr else {})})
+                    if _prof:
+                        self._rp_note(role, 0, 0.0)
                     self._provenance(model)          # a remembered reply still came from these weights (the key includes their stamp)
                     return {"text": hit["reply"], "thinking": "", "id": tid, "model": model, "truncated": False,
                             "ctx_overflow": None, "prompt_tokens": int(hit["tokens_in"]), "num_ctx": options["num_ctx"],
@@ -1851,6 +1875,9 @@ class Engine:
                "fewshot_model": fewshot_model, "model_defaults": model_defaults or None}
         if cur["host"]:
             rec["host"] = cur["name"]
+        if _prof_tr:
+            rec["profile"] = _prof_tr
+            self._rp_note(role, int(r["prompt_tokens"] or 0) + int(r["gen_tokens"] or 0), time.time() - t0)
         self._trace(rec)
         self._slot_early_save(rec)
         if _rb_key and rec.get("transport") != "claude":

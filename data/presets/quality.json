@@ -1,0 +1,4 @@
+{"label": "Quality", "blurb": "Larger prompts and replies for planning and review, thinking on, a bigger thinking budget, two attempts per step.",
+ "role_profiles": {"planner": {"ctx_max": 16384, "reply_max": 3072}, "architect": {"ctx_max": 16384, "reply_max": 3072},
+                   "reviewer": {"ctx_max": 16384, "reply_max": 2048}, "evaluator": {"ctx_max": 16384, "reply_max": 2048}, "tester": {"ctx_max": 8192, "thinking": "auto"}},
+ "settings": {"behavior.role_profiles": "on", "server.think_budget": 1600, "behavior.best_of_n": 2}}

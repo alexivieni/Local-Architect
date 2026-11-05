@@ -1,0 +1,2 @@
+{"label": "Balanced", "blurb": "The shipped role profiles (data/role_profiles.json), with none of your own role profile values.",
+ "role_profiles": {}, "settings": {"behavior.role_profiles": "on"}}
