@@ -175,12 +175,13 @@ def run():
               isinstance(adv.get("count"), int) and isinstance(adv.get("proposals"), list) and {"high", "medium", "low"} <= set(adv.get("by_severity", {})), adv)
 
         # ---- five tabs over the pages, plus the Get-ready / tune / fake-code / self-improve endpoints
-        tabs_src = re.search(r"const TABS=\[(.*?)\];", html, re.S)
+        tabs_src = re.search(r"const SIDEBAR=\[(.*?)\n\];", html, re.S)
         tab_pages = [re.findall(r'"([a-z]+)"', grp) for grp in re.findall(r'\["[a-z]+","[^"]*","[A-Za-z]+",\[([^\]]*)\]\]', tabs_src.group(1))] if tabs_src else []
+        groups = re.findall(r'\["(Work|Models|System)",\[', tabs_src.group(1)) if tabs_src else []
         page_ids = re.findall(r'\["([a-z]+)","[^"]*","[^"]*","[^"]*"\]', re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", html, re.S).group(1))
         flat = [x for g in tab_pages for x in g]
-        check("the hub shows four places (Projects, Workspace, Models, Settings) and every page is reachable from exactly one of them",
-              len(tab_pages) == 4 and sorted(flat) == sorted(page_ids) and len(set(flat)) == len(flat), (tab_pages, page_ids))
+        check("the sidebar groups places under Work, Models and System and every page is reachable from exactly one of them",
+              groups == ["Work", "Models", "System"] and len(tab_pages) >= 8 and sorted(flat) == sorted(page_ids) and len(set(flat)) == len(flat), (groups, tab_pages, page_ids))
         check("Home leads with a Get started checklist: four steps, each with one action, the current one highlighted",
               "function getStarted()" in html and html.count("t:\"Prepare this machine\"") == 1 and "Run your first task" in html and "gs-step" in html)
         ti = call("/api/arch/tune_info")

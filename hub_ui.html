@@ -547,10 +547,10 @@ main>*{max-width:1320px}
 .fm-head{display:flex;gap:6px;align-items:baseline;margin-bottom:4px}
 .fm-blurb{margin:4px 0 10px;font-size:13px;line-height:1.5}
 .fm{list-style:none;margin:0;padding:0;position:relative}
-.fm::before{content:"";position:absolute;left:7px;top:10px;bottom:10px;width:2px;border-radius:2px;background:linear-gradient(var(--accent,#6c8cff),transparent)}
+.fm::before{content:"";position:absolute;left:7px;top:10px;bottom:10px;width:2px;border-radius:2px;background:linear-gradient(var(--acc),transparent)}
 .fm-step{display:flex;gap:12px;padding:8px 0;opacity:0;transform:translateY(4px);animation:fmIn .35s ease forwards;animation-delay:calc(var(--i)*60ms)}
-.fm-dot{flex:none;width:16px;height:16px;border-radius:50%;margin-top:2px;border:2px solid var(--accent,#6c8cff);background:var(--bg,#fff);position:relative;z-index:1}
-.fm-dot.c{border-color:var(--muted,#888)}
+.fm-dot{flex:none;width:16px;height:16px;border-radius:50%;margin-top:2px;border:2px solid var(--acc);background:var(--bg);position:relative;z-index:1}
+.fm-dot.c{border-color:var(--mute)}
 .fm-title{font-weight:600;font-size:14px}
 .fm-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 @keyframes fmIn{to{opacity:1;transform:none}}
@@ -1292,6 +1292,42 @@ p,li,dd,td{font-size:inherit}
   .fm-step{opacity:1;transform:none}
   .st-load::before{border-top-color:currentColor}}
 
+
+/* ---- flagship layout (ui rebuild 2026-11-05): grouped sidebar, top bar, Home dashboard ---- */
+.navsec{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:14px 12px 4px}
+.navsec:first-child{padding-top:4px}
+.topbar{display:flex;align-items:center;gap:10px;margin:0 0 14px;min-width:0}
+.tsearch{display:flex;align-items:center;gap:10px;min-height:36px;padding:0 10px 0 12px;flex:0 1 380px;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--mute);font:inherit;cursor:pointer}
+.tsearch span{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tsearch:hover{border-color:color-mix(in srgb,var(--acc) 40%,var(--line))}
+.livechip{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.livechip.warn{border-color:var(--warn,#b7791f);color:var(--warn,#b7791f)}
+.navtoggle{display:none}
+.hero .sp-goal{width:100%;margin:10px 0}
+.hero-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.hero-row .grow{flex:1 1 220px;min-width:0}
+.hero-chat{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:14px 0}
+.statcard{display:grid;gap:4px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.statcard b{font-size:26px;line-height:1.1}
+.statcard[data-tone=good] b{color:var(--good,#2f7a4f)}.statcard[data-tone=warn] b{color:var(--warn,#b7791f)}.statcard[data-tone=bad] b{color:var(--bad,#b42318)}
+.hsec{font-size:15px;margin:18px 0 8px}
+.qgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.qcard{display:grid;gap:4px;justify-items:start;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);font:inherit;cursor:pointer}
+.qcard:hover{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
+.qcard .ic{color:var(--acc)}
+.feed{display:grid;gap:6px}
+.feedrow{display:flex;align-items:center;gap:10px;min-width:0}
+.feedrow .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:820px){
+  .navtoggle{display:inline-flex}
+  body:not(.nav-open) #nav{display:none!important}
+  body.nav-open #nav{display:flex!important;flex-direction:column;width:100%}
+  .navsec{padding:8px 8px 2px}
+  .tsearch span{display:none}.tsearch{flex:0 0 auto}
+  .livechip{font-size:12px}
+}
+@media (prefers-reduced-motion:reduce){.qcard,.tsearch{transition:none}}
 </style>
 </head>
 <body><a class="skip-link" href="#view">Skip to the main content</a>
@@ -1374,6 +1410,7 @@ p,li,dd,td{font-size:inherit}
         <button data-acc="moss" title="Moss" style="background:#2f7a4f"></button></div></div>
   </aside>
   <main>
+    <div class="topbar"><button class="btn sm navtoggle" id="navToggle" type="button" aria-label="Menu" aria-expanded="false">Menu</button><button class="tsearch" id="topSearch" type="button" aria-label="Search pages and commands (Ctrl+K)"><span>Search pages and commands</span><kbd>Ctrl K</kbd></button><span class="grow"></span><span id="liveChip" class="chip livechip" role="status" aria-live="polite" hidden></span></div>
     <div class="top"><div class="grow"><h1 id="pageTitle"></h1><p id="pageSub"></p></div><div class="row" id="pageActions"></div></div>
     <div class="subtabs" id="subtabs"></div>
     <div id="pageHint"></div>
@@ -1416,44 +1453,71 @@ let S=null, cfg={}, dirty=false, page="console", weights={};
 const opts={kv:"f16",gpu_bw:192,ram_bw:50,vram:"",ram:""};
 const run={tpl:"",tplTarget:"",root:store.get("root",""),app:"",flow:"auto",review:store.get("review","ask"),domains:[],goal:"",template:"auto",name:"",addons:[],thenBuild:true,autofix:false,options:{}};
 const sel={models:new Set(),cats:null,think:false};
-/* Groups and the tabs inside them are ordered the way a first run through the hub actually goes:
-   check the machine, build the team, build and run the project, then measure and manage it over time. */
+/* ONE page registry (NAV_GROUPS keeps its old name because the hub check reads it) and ONE sidebar (SIDEBAR). PAGES, SUBNAME,
+   PAGE_ICON and TABS are derived from these two, so adding a page means one row here plus its id in one SIDEBAR place.
+   Registry row: [id, icon, short label (the sub-tab name), subtitle]. */
 const NAV_GROUPS=[
-  ["0. Console",[["console","console","Console","Ask for something and watch it happen"],["simple","spark","Simple","One box, plain progress, a clear result","console"],["studio","chat","Studio","Talk it through with your model, then hand it to the team"],["agents","spark","Crew","Agents in the cloud and Claude Code on this PC: hand them work, schedule it, watch every step"],
+  ["registry",[
+    ["overview","home","Home","Say what you want done, see how the machine is doing, pick up where you left off"],
+    ["studio","chat","Chat first","Talk it through with your model, then hand it to the team"],
+    ["start","sprout","New project","Begin a project from nothing: pick a starting point"],
+    ["portfolio","grid","All projects","Your apps and how they connect"],
+    ["launch","rocket","Run the app","Start or stop your project for real and see if it is actually alive"],
+    ["console","console","Live","What the machine is doing right now: plan, tool calls, checks, verdict"],
+    ["run","plus","New run","Give the team a goal, with every option"],
+    ["logbook","logbook","History","Everything your models and Claude did: what it cost, what worked, and the playbooks learned from it"],
+    ["morning","chart","Reports","What ran overnight, what moved, and what needs you"],
+    ["queue","queue","Queue","Tasks the machine works through on its own, trying another approach when one fails"],
+    ["flows","flow","Mine","The workflows and the checks inside them"],
+    ["blueprints","blueprint","Build","Draw your own workflow from steps and checks, then save it"],
     ["gallery","layers","Gallery","Ready-made workflows, harness packs and agents: look inside, use, or make your own"],
-    ["computers","chip","Computers","Spread the work over the computers you own"],
-    ["fleet","layers","Fleet","Several agents at once, each on its own files; the fleet runs the tests itself when they finish"],
-    ["monitor","console","Monitor","Every agent on this machine, live: cost, tools, files, stalls and two agents on one file"],
-    ["map","layers","Map","How the pieces of one run, fleet or workflow connect: drag them about, click one for its details"],
-    ["library","spark","Library","Agent briefs that worked, kept as templates: what each does, why, and a button to use it"]]],
-  ["1. Set up",[["tiers","layers","Tiers","Which installed model does which job on this machine, and why"],["overview","⌂","Overview","Your local engineering team at a glance"],["doctor","✚","Doctor","Checks Python, Ollama, disk space, the port, git and the network. Run this first"],["models","▤","Models","What is installed and how it fits this PC"],["roles","◎","Roles","Who does what, and which model should do it"]]],
-  ["2. Build",[["morning","☀","Overnight","What ran overnight, what moved, and what needs you"],["start","✦","Start","Begin a project from nothing: pick a starting point"],["run","▶","Task","Give the team a goal"],["blueprints","layers","Blueprints","Draw your own workflow from steps and checks, then save it"],["queue","play","Queue","Tasks the machine works through on its own, trying another approach when one fails"],["launch","⏻","Launch","Start/stop your project for real and see if it's actually alive"]]],
-  ["3. Measure",[["tune","◆","Tune","Fit this machine, upgrades worth adding, fake code and self-improvement"],["assess","◈","Assess","Is this machine + model lineup actually ready, per workload"],["advisor","✺","Advisor","Doctor + assess + a real code scan, combined into ranked next steps"],["score","▦","Scoreboard","Measured strengths per model"],["costmap","◎","Cost map","Seconds per change that passed its tests, for each model on each kind of task"],["caches","▤","Caches","Every cache a request meets: what each holds, how often it is reused, what it saved"],["bench","◔","Benchmarks","Pass rate over time, live and scripted, and the last live run task by task"],["logbook","▦","Logbook","Everything your models and Claude did: what it cost, what worked, and the playbooks learned from it"],["flows","⇄","Flows","The workflows and the checks inside them"]]],
-  ["4. Manage",[["portfolio","❖","Portfolio","Your apps and how they connect"],["settings","⚙","Settings","Limits, behaviour and tests"],["train","↻","Training","Turn verified work into training data"]]],
+    ["agents","crew","Agents","Agents in the cloud and Claude Code on this PC: hand them work, schedule it, watch every step"],
+    ["fleet","fleet","Fleet","Several agents at once, each on its own files; the fleet runs the tests itself when they finish"],
+    ["monitor","monitor","Live","Every agent on this machine, live: cost, tools, files, stalls and two agents on one file"],
+    ["map","map","Map","How the pieces of one run, fleet or workflow connect: drag them about, click one for its details"],
+    ["library","library","Briefs","Agent briefs that worked, kept as templates: what each does, why, and a button to use it"],
+    ["models","box","Installed","Every model on this machine: type, provider, tier, measured speed and pass rate"],
+    ["tiers","chip","Tiers & roles","Which installed model does which job on this machine, and why"],
+    ["roles","badge","Specialists","Who does what, and which model should do it"],
+    ["bench","chart","Benchmarks","Pass rate over time, live and scripted, and the last live run task by task"],
+    ["score","trophy","Scores","Measured strengths per model"],
+    ["caches","db","Caches","Every cache a request meets: what each holds, how often it is reused, what it saved"],
+    ["orchestra","crew","Orchestration","Who handed what to whom: agents, briefs, tokens, context, cache and training data"],
+    ["costmap","target","Time per pass","Seconds per change that passed its tests, for each model on each kind of task"],
+    ["advisor","compass","Health","Ranked next steps from the checkup, the readiness check and a real code scan"],
+    ["doctor","steth","Checkup","Checks Python, Ollama, disk space, the port, git and the network"],
+    ["assess","gauge","Readiness check","Is this machine and model lineup actually ready, per workload"],
+    ["computers","server","Hardware","This machine and the other computers you own"],
+    ["tune","bolt","Tune","Fit this machine, upgrades worth adding, fake code and self-improvement"],
+    ["settings","sliders","Settings","Limits, behaviour and tests"],
+    ["train","train","Training data","Turn verified work into training data"],
+    ["components","palette","Interface parts","Every part of the interface, in the light and the dark theme"]]],
 ];
 const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
-/* Five places instead of fourteen pages. Every old page id still works (go("run") etc.); a tab just groups the pages that belong together. */
-/* Four places. Projects: where you start (and the Get started checklist). Workspace: ask for something and watch it happen. Models:
-   which models do the work and how well they measure. Settings: everything that tunes the machine. Every old page id still works. */
-const TABS=[
-  ["home","folder","Projects",["overview","morning","start","portfolio"]],
-  ["console","console","Workspace",["console","run","studio","gallery","agents","fleet","monitor","map","library","blueprints","queue","launch"]],
-  ["team","chip","Models",["tiers","computers","costmap","caches","bench","logbook","score","models","roles"]],
-  ["settings","sliders","Settings",["settings","tune","doctor","assess","advisor","flows","train"]],
+/* The sidebar: [section, [[place id, icon, label, [page ids = its sub-tabs, at most 5, so no overflow menu]]]]. */
+const SIDEBAR=[
+  ["Work",[["home","home","Home",["overview","studio","start","portfolio","launch"]],
+           ["runs","play","Runs",["console","run","logbook","morning","queue"]],
+           ["workflows","flow","Workflows",["flows","blueprints","gallery"]],
+           ["agentsp","crew","Agents",["agents","orchestra","fleet","monitor","map","library"]]]],
+  ["Models",[["team","chip","Models",["models","tiers","roles","bench","score"]],
+             ["cachesp","db","Caches",["caches"]],
+             ["cost","target","Cost",["costmap"]]]],
+  ["System",[["machine","server","Machine",["advisor","doctor","assess","computers","tune"]],
+             ["settings","sliders","Settings",["settings","train"]],
+             ["help","palette","Help",["components"]]]],
 ];
-/* art direction (docs/art_direction.md): every page has its own icon (sub-tabs, the page glyph, the command list) and its own
-   small drawing (the page heading and its empty states). Pages without a drawing of their own borrow their place's. */
-const PAGE_ICON={console:"console",run:"plus",studio:"chat",agents:"crew",fleet:"fleet",monitor:"monitor",map:"map",library:"library",
-  blueprints:"blueprint",queue:"queue",launch:"rocket",overview:"home",start:"sprout",portfolio:"grid",tiers:"chip",bench:"chart",
-  logbook:"logbook",score:"trophy",models:"box",roles:"badge",settings:"sliders",tune:"bolt",doctor:"steth",assess:"gauge",
-  advisor:"compass",flows:"flow",train:"train",components:"palette",gallery:"layers",computers:"server",costmap:"target",morning:"chart",caches:"db"};
+const TABS=SIDEBAR.flatMap(([,places])=>places);
+/* old ids (and words people type) that are not pages any more: each still lands somewhere sensible */
+const LEGACY={simple:"overview",home:"overview",crew:"agents",blueprint:"blueprints",overnight:"morning",history:"logbook",health:"advisor",
+  readiness:"assess",hardware:"computers",machine:"advisor",workflows:"flows",cost:"costmap",help:"components",runs:"console"};
+const SUBNAME=Object.fromEntries(PAGES.map(p=>[p[0],p[2]]));
+const PAGE_ICON=Object.fromEntries(PAGES.map(p=>[p[0],p[1]]));
 const PAGE_ART={console:"console",run:"task",launch:"task",studio:"studio",agents:"crew",fleet:"fleet",map:"map",monitor:"monitor",
   logbook:"logbook",library:"library",blueprints:"blueprints",queue:"queue",overview:"journey",start:"projects",portfolio:"projects",
   tiers:"models",models:"models",roles:"models",score:"models",bench:"models",costmap:"models",caches:"models"};
-const SEC_ART={home:"projects",console:"console",team:"models",settings:"settings"};
-const SUBNAME={gallery:"Gallery",computers:"Computers",fleet:"Fleet",monitor:"Monitor",map:"Map",library:"Library",logbook:"Logbook",agents:"Crew",blueprints:"Blueprints",console:"Console",studio:"Chat about the code",tiers:"Your models",queue:"Queue",overview:"Home",run:"New task",start:"Start a project",launch:"Run the app",flows:"Workflows",portfolio:"All projects",models:"Installed",roles:"Specialists",score:"Scoreboard",tune:"Tune & improve",doctor:"Checkup",assess:"Readiness",advisor:"Advisor",bench:"Benchmarks",costmap:"Cost map",morning:"Overnight report",caches:"Caches",settings:"Settings",train:"Training data"};
-/* pages that are in no tab (the Components page) name the tab they belong to as a fifth field */
-const tabOf=id=>TABS.find(t=>t[3].includes(id))||TABS.find(t=>t[0]===(PAGES.find(p=>p[0]===id)||[])[4])||TABS[0];
+const SEC_ART={home:"projects",runs:"console",workflows:"console",agentsp:"console",team:"models",cachesp:"models",cost:"models",machine:"settings",settings:"settings",help:"settings"};
+const tabOf=id=>TABS.find(t=>t[3].includes(id))||TABS[0];
 
 function queueDropTarget(btn){
   btn.addEventListener("dragover",e=>{e.preventDefault();btn.classList.add("dropok");});
@@ -1477,32 +1541,19 @@ document.addEventListener("dragstart",e=>{const el=e.target.closest&&e.target.cl
 document.addEventListener("click",e=>{const c=e.target.closest&&e.target.closest("#sOllama");if(c){const f=c.closest(".sidefoot");if(f){f.classList.toggle("sf-open");c.setAttribute("aria-expanded",String(f.classList.contains("sf-open")));}}});
 function buildNav(){
   const n=$("#nav");n.innerHTML="";const cur=tabOf(page);
-  document.body.classList.toggle("simple-mode",simpleMode());
-  if(simpleMode()){
-    n.append(h("button",{class:"nav","aria-current":"page",onclick:()=>go("simple")},icon("spark"),"Simple"),
-             h("button",{class:"nav",onclick:()=>setMode("advanced"),title:"Show every page and setting"},icon("layers"),"Advanced mode"));
-    const sb=$("#subtabs");if(sb)sb.innerHTML="";return;
+  for(const [sec,places] of SIDEBAR){
+    n.append(h("div",{class:"navsec","aria-hidden":"true"},sec));
+    for(const t of places){const b=h("button",{class:"nav","aria-current":t===cur?"page":false,onclick:()=>{go(t[3][0]);document.body.classList.remove("nav-open");}},icon(t[1]),t[2]);
+      if(t[0]==="runs"){b.title="Drop a task here to queue it";queueDropTarget(b);} n.append(b);}
   }
-  n.append(h("button",{class:"nav",onclick:()=>setMode("simple"),title:"One box, plain progress, a clear result"},icon("spark"),"Simple mode"));
-  for(const t of TABS)n.append(h("button",{class:"nav","aria-current":t===cur?"page":false,onclick:()=>go(t[3][0])},icon(t[1]),t[2]));
   const sb=$("#subtabs");sb.innerHTML="";
-  if(cur[3].length>1){
-    const ids=cur[3], MAXV=5, vis=ids.slice(0,MAXV); if(!vis.includes(page)&&ids.includes(page))vis[MAXV-1]=page;
-    const rest=ids.filter(i=>!vis.includes(i));
-    for(const id of vis){const b=h("button",{"aria-current":id===page?"page":false,onclick:()=>go(id)},SUBNAME[id]||id);if(id==="queue"){b.title="Drop a task here to queue it";queueDropTarget(b);}sb.append(b);}
-    if(rest.length){
-      const menu=h("div",{class:"st-menu",role:"menu",hidden:true},...rest.map(id=>h("button",{role:"menuitem",type:"button",onclick:()=>{menu.hidden=true;go(id);}},SUBNAME[id]||id)));
-      const more=h("button",{class:"st-more","aria-haspopup":"menu","aria-expanded":"false",type:"button",onclick:e=>{e.stopPropagation();menu.hidden=!menu.hidden;more.setAttribute("aria-expanded",String(!menu.hidden));if(!menu.hidden)menu.querySelector("button").focus();}},"More ▾");
-      document.addEventListener("click",()=>{menu.hidden=true;more.setAttribute("aria-expanded","false");},{once:true});
-      menu.addEventListener("keydown",e=>{if(e.key==="Escape"){menu.hidden=true;more.focus();}});
-      sb.append(h("span",{class:"st-wrap"},more,menu));
-    }
-  }
+  if(cur[3].length>1)for(const id of cur[3]){const b=h("button",{"aria-current":id===page?"page":false,onclick:()=>go(id)},SUBNAME[id]||id);if(id==="queue"){b.title="Drop a task here to queue it";queueDropTarget(b);}sb.append(b);}
   /* the pills scroll sideways on a narrow screen instead of wrapping; keep the current one in view */
   const on=sb.querySelector("[aria-current=page]");
   if(on&&sb.scrollWidth>sb.clientWidth)sb.scrollLeft=Math.max(0,on.offsetLeft-(sb.clientWidth-on.offsetWidth)/2);
 }
-function go(id){if(id!=="simple"&&simpleMode()&&!go._adv&&id!=="settings"){id="simple";}page=id;buildNav();document.body.classList.toggle("sheet-wrap",id==="overview");document.body.classList.toggle("oneScreen",id==="console");const p=PAGES.find(x=>x[0]===id);$("#pageTitle").textContent=SUBNAME[id]||p[2];$("#pageSub").textContent=p[3];$("#pageActions").innerHTML="";built={};render();const v=$("#view");v.style.animation="none";void v.offsetWidth;v.style.animation="";if(id==="run")pollJob();pageHint(id);window.scrollTo(0,0);}
+function greeting(){const hr=new Date().getHours();return (hr<5?"Working late":hr<12?"Good morning":hr<18?"Good afternoon":"Good evening")+". What should we build?";}
+function go(id){id=LEGACY[id]||id;if(!PAGES.some(x=>x[0]===id))id="overview";page=id;buildNav();document.body.classList.toggle("sheet-wrap",id==="overview");document.body.classList.toggle("oneScreen",id==="console");const p=PAGES.find(x=>x[0]===id);$("#pageTitle").textContent=id==="overview"?greeting():(SUBNAME[id]||p[2]);$("#pageSub").textContent=p[3];$("#pageActions").innerHTML="";if(tabOf(id)[0]==="runs")$("#pageActions").append(h("button",{class:"btn",type:"button",title:"Start or stop your project for real",onclick:()=>go("launch")},icon("rocket"),"Run the app"));built={};render();const v=$("#view");v.style.animation="none";void v.offsetWidth;v.style.animation="";if(id==="run")pollJob();pageHint(id);window.scrollTo(0,0);}
 let built={};
 /* One look for "working on it", "that failed" and "nothing here yet" on every page. Pages write these as plain sentences
    ("Reading the backlog…", "Could not scan: …", "No runs yet"); this only tags such a sentence with a class so the stylesheet
@@ -1560,21 +1611,9 @@ const PLAIN_STEP=s=>{const t=String(s||"").toLowerCase();
   if(/locate|explore|read|scout|context/.test(t))return"Reading your code";if(/repro/.test(t))return"Reproducing the problem";
   if(/test/.test(t))return"Running the checks";if(/judge|review|verify|evaluat/.test(t))return"Double-checking the work";
   if(/sprint|fix|generat|write|build|edit|apply/.test(t))return"Writing the change";if(/save|handoff|report/.test(t))return"Saving the result";return"Working";};
-function simpleMode(){return store.get("uiMode","simple")==="simple";}
-function setMode(m){store.set("uiMode",m);built={};go._adv=m!=="simple";buildNav();go(m==="simple"?"simple":"console");}
-function simplePage(){
-  const ta=h("textarea",{id:"spGoal",rows:4,class:"sp-goal","aria-label":"What do you want done?",placeholder:"For example: the login page crashes when the password is empty. Fix it.",value:run.goal||"",oninput:e=>run.goal=e.target.value});
-  const folder=h("input",{type:"text",id:"spRoot","aria-label":"Project folder",value:run.root||"",placeholder:"C:\\path\\to\\your\\project",oninput:e=>{run.root=e.target.value;store.set("root",run.root);}});
-  return [h("section",{class:"card sp",role:"region","aria-labelledby":"spTitle"},
-    h("h2",{id:"spTitle",class:"sp-title"},"What do you want done?"),
-    h("p",{class:"sp-sub"},"Say it in your own words. The app reads your code, makes the change, and runs real checks before keeping anything. You can undo every change."),
-    h("div",{class:"sp-recipes",role:"group","aria-label":"Start from an example"},...RECIPES.map(([l,t])=>h("button",{class:"sp-recipe",type:"button",onclick:()=>{ta.value=t;run.goal=t;ta.focus();ta.setSelectionRange(t.length,t.length);}},l))),
-    ta,
-    h("details",{class:"sp-more"},h("summary",null,"Which project? ",h("span",{class:"sp-folder"},run.root||"not chosen yet")),h("label",{class:"f"},"Project folder",folder)),
-    h("div",{class:"sp-actions"},h("button",{class:"btn p sp-go",type:"button",onclick:simpleStart},"Start"),
-      h("button",{class:"btn",type:"button",onclick:()=>setMode("advanced")},"Advanced mode"))),
-    h("section",{class:"card sp-progress",id:"spProgress",role:"status","aria-live":"polite","aria-label":"Progress"})];
-}
+/* Simple mode is no longer a separate page: Home is the simple experience and every page stays reachable. */
+function simpleMode(){return false;}
+function setMode(m){go(m==="simple"?"overview":"console");}
 async function simpleStart(){
   const g=(run.goal||"").trim(); if(!g){toast("Type what you want first");$("#spGoal")&&$("#spGoal").focus();return;}
   if(!run.root){toast("Choose the project folder first");const d=document.querySelector(".sp-more");if(d)d.open=true;$("#spRoot")&&$("#spRoot").focus();return;}
@@ -1596,13 +1635,84 @@ function simpleDraw(){
         h("button",{class:"btn",type:"button",onclick:async()=>{const b=$("#spWhy");b.innerHTML="";try{const r=await api("/api/arch/why?root="+encodeURIComponent(run.root||""));b.append(h("ol",null,...(r.sentences||[]).map(t=>h("li",null,t))));}catch(e){b.textContent=e.message;}}},"What happened, step by step"),
         h("button",{class:"btn",type:"button",onclick:()=>setMode("advanced")},"See all the details")),h("div",{id:"spWhy"})));}
 }
-setInterval(()=>{if(page==="simple")simpleDraw();},1500);
+setInterval(()=>{if(page==="overview")simpleDraw();},1500);
 
+/* ===== Home: the one goal box (the old Simple page), four stat cards, quick launch and recent activity. ===== */
+const QUICK=[["Fix a bug","Fix this bug: "],["Add a feature","Add this feature, with tests: "],["Review","Review this project and list the three most important problems, with file and line."],["Explain","Explain in plain words what this project does and how its parts fit together."]];
+function homeHero(){
+  const ta=h("textarea",{id:"spGoal",rows:3,class:"sp-goal","aria-label":"What do you want done?",placeholder:"For example: the login page crashes when the password is empty. Fix it.",value:run.goal||"",oninput:e=>run.goal=e.target.value,
+    onkeydown:e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();simpleStart();}}});
+  const folder=h("input",{type:"text",id:"spRoot","aria-label":"Project folder",value:run.root||"",placeholder:"C:\\path\\to\\your\\project",oninput:e=>{run.root=e.target.value;store.set("root",run.root);}});
+  const stat=(id,lbl)=>h("div",{class:"statcard",id:id},h("span",{class:"mute small"},lbl),h("b",{class:"num"},"–"),h("span",{class:"small mute sc-sub"},""));
+  const flow=(ic,t,sub,fn)=>h("button",{class:"qcard",type:"button",onclick:fn},icon(ic),h("b",null,t),h("span",{class:"small mute"},sub));
+  return [h("section",{class:"card sp hero",role:"region","aria-label":"What do you want done?"},
+      h("div",{class:"sp-recipes",role:"group","aria-label":"Start from an example"},...QUICK.map(([l,t])=>h("button",{class:"sp-recipe",type:"button",onclick:()=>{ta.value=t;run.goal=t;ta.focus();ta.setSelectionRange(t.length,t.length);}},l))),
+      ta,
+      h("div",{class:"hero-row"},h("label",{class:"f grow"},"Project",folder),
+        h("label",{class:"f hero-chat"},h("input",{type:"checkbox",checked:store.get("chatFirst",false),onchange:e=>store.set("chatFirst",e.target.checked)}),"Chat first"),
+        h("button",{class:"btn p sp-go",type:"button",onclick:()=>store.get("chatFirst",false)?go("studio"):simpleStart()},"Start"))),
+    h("section",{class:"card sp-progress",id:"spProgress",role:"status","aria-live":"polite","aria-label":"Progress"}),
+    h("div",{class:"statrow"},stat("stPass","Pass rate (last live benchmark)"),stat("stTok","Speed"),stat("stRuns","Runs this week"),stat("stGpu","GPU free")),
+    h("h2",{class:"hsec"},"Quick launch"),
+    h("div",{class:"qgrid"},flow("plus","New run","Every option for one task",()=>go("run")),flow("crew","Run agents","Several agents, one file each",()=>go("agents")),
+      flow("flow","Build a workflow","Steps and checks you draw",()=>go("blueprints")),flow("steth","Check this machine","Ranked next steps",()=>go("advisor"))),
+    h("h2",{class:"hsec"},"Recent activity"),
+    h("div",{id:"homeFeed",class:"card feed"},h("p",{class:"mute small"},"Reading recent runs…"))];
+}
+function setStat(id,big,sub,tone){const c=$("#"+id);if(!c)return;c.querySelector("b").textContent=big;c.querySelector(".sc-sub").textContent=sub||"";c.dataset.tone=tone||"";}
+async function loadHome(){
+  /* every number is measured or shown as "–": an unknown is never drawn as 0 */
+  try{const r=await api("/api/arch/evals"),runs=(r.runs||[]).filter(x=>!x.fake),last=runs[runs.length-1];
+    if(last&&last.pass_rate!=null)setStat("stPass",fmt(last.pass_rate,0)+"%",`${last.n} tasks, ${when(last.ts)}`,last.pass_rate>=75?"good":last.pass_rate>=45?"warn":"bad");
+    else setStat("stPass","–","no live benchmark yet");}catch(e){setStat("stPass","–","could not read: "+e.message);}
+  try{const m=await api("/api/arch/machine"),ts=JSON.stringify(m).match(/"(?:tok_s|tokps|tok_per_s)"\s*:\s*([0-9.]+)/);
+    setStat("stTok",ts?fmt(+ts[1],0)+" tok/s":"–",ts?"measured on this machine":"not measured yet");}catch(_){setStat("stTok","–","not measured yet");}
+  const feed=$("#homeFeed");
+  if(!run.root){setStat("stRuns","–","choose a project");if(feed){feed.innerHTML="";feed.append(h("p",{class:"mute small"},"Choose a project above; its runs show up here."));}}
+  else try{const rs=await api("/api/arch/runs?root="+encodeURIComponent(run.root)),wk=Date.now()/1000-7*86400;
+    const recent=rs.filter(r=>(r.ts||r.started||0)>=wk);
+    setStat("stRuns",String(rs.some(r=>r.ts||r.started)?recent.length:rs.length),rs.some(r=>r.ts||r.started)?"in the last 7 days":"in this project");
+    if(feed){feed.innerHTML="";if(!rs.length)feed.append(h("p",{class:"mute small"},"No runs in this project yet."));
+      for(const r of rs.slice(0,8)){const st=r.verdict||r.state||"",tone=/pass|complete/.test(st)?"good":/fail/.test(st)?"bad":"warn";
+        feed.append(h("div",{class:"feedrow"},h("span",{class:"chip "+tone},st||"?"),h("span",{class:"grow"},r.goal||r.name),h("span",{class:"chip acc"},r.flow||""),
+          h("a",{class:"link",onclick:()=>showReport(r)},"report")));}}
+  }catch(e){setStat("stRuns","–","could not read runs");if(feed)feed.textContent="Could not read runs: "+e.message;}
+  liveChip();
+}
+/* the top-bar chip: GPU use, graphics memory and what Ollama holds, polled every 10 s on every page */
+let OLLAMA_OK=true;
+async function liveChip(){
+  const c=$("#liveChip");if(!c||document.hidden)return;
+  let G=null,O=null;
+  try{G=await api("/api/arch/gpu");}catch(_){}
+  if(OLLAMA_OK)try{O=await api("/api/arch/ollama");}catch(e){if(/404|not found/i.test(e.message))OLLAMA_OK=false;}
+  if(G&&G.vram_gb!=null){const free=G.vram_gb-(G.vram_used_gb||0),c2=$("#stGpu");
+    if(c2)setStat("stGpu",fmt(free,1)+" GB",`of ${fmt(G.vram_gb,1)} GB, ${G.gpu_pct??"–"}% busy`,free<1?"warn":"good");}
+  if(!G&&!O){c.hidden=true;return;}
+  c.hidden=false;c.innerHTML="";
+  const parts=[];
+  if(G&&G.vram_gb!=null)parts.push(`GPU ${G.gpu_pct??"–"}% · VRAM ${fmt(G.vram_used_gb,1)}/${fmt(G.vram_gb,1)} GB`);
+  else if(G)parts.push("No GPU reading");
+  const held=O&&Array.isArray(O.models)?O.models.reduce((a,m)=>a+(+m.size_gb||0),0):null;
+  if(held!=null)parts.push(`Ollama holding ${fmt(held,1)} GB`);
+  const spill=O&&Array.isArray(O.models)&&O.models.some(m=>m.size_gb!=null&&m.vram_gb!=null&&m.size_gb-m.vram_gb>0.2);
+  c.classList.toggle("warn",!!spill);c.title=G?gpuTitle(G)+(spill?" A model Ollama holds is partly in RAM.":""):"";
+  c.append(parts.join(" · "));
+  if(O&&(O.models||[]).length)c.append(h("button",{class:"btn sm",type:"button",title:"Ask Ollama to let go of the models it holds (our llama-server tiers are not touched)",onclick:async()=>{
+    for(const m of O.models.filter(m=>!m.ours)){try{await api("/api/arch/ollama/unload",{model:m.name});}catch(e){toast.err("Not unloaded: "+e.message,6000);return;}}
+    toast("Ollama let go of its models");liveChip();}},"Unload"));
+}
+setInterval(liveChip,10000);setTimeout(liveChip,1200);
+(function topbar(){
+  const s=document.getElementById("topSearch");if(s)s.addEventListener("click",()=>{if(typeof openPalette==="function")openPalette();});
+  const t=document.getElementById("navToggle");if(t)t.addEventListener("click",()=>{const o=document.body.classList.toggle("nav-open");t.setAttribute("aria-expanded",String(o));});
+})();
 function render(){
   if(!S)return; const v=$("#view");
   if(page==="gallery"){ v.innerHTML="";put(v,...galleryPage()); return; }
   if(page==="computers"){ v.innerHTML="";put(v,...computersPage()); return; }
-  if(page==="simple"){ if(!built.simple){v.innerHTML="";put(v,...simplePage());built.simple=1;} simpleDraw(); return; }
+  /* Home: the hero (one goal box, stat cards, quick launch, activity) is built once per visit so typing survives refreshes; the team summary below it is redrawn */
+  if(page==="overview"){ if(!built.overview){v.innerHTML="";put(v,...homeHero(),h("div",{id:"homeBody"}));built.overview=1;loadHome();} const hb=$("#homeBody"); if(hb){hb.innerHTML="";put(hb,...overview());} simpleDraw(); return; }
   if(page==="console"){ if(!built.console){v.innerHTML="";put(v,...consolePage());built.console=1;} pollConsole(); return; }
   if(page==="studio"){ if(!built.studio){v.innerHTML="";put(v,...studioPage());built.studio=1;loadBacklog();} pollStudio(); return; }
   /* built once per visit like the other live pages: rebuilding on every state refresh wiped whatever was being typed */
@@ -1623,6 +1733,7 @@ function render(){
   if(page==="bench"){ if(!built.bench){v.innerHTML="";put(v,...benchPage());built.bench=1;} loadBench(); return; }
   if(page==="morning"){ v.innerHTML="";put(v,...morningPage());loadMorning(); return; }
   if(page==="costmap"){ if(!built.costmap){v.innerHTML="";put(v,...costmapPage());built.costmap=1;} loadCostmap(); return; }
+  if(page==="orchestra"){ if(!built.orchestra){v.innerHTML="";put(v,...orchPage());built.orchestra=1;} loadOrch(); return; }
   if(page==="caches"){ if(!built.caches){v.innerHTML="";put(v,...cachesPage());built.caches=1;} loadCaches(); return; }
   v.innerHTML=""; const fn={overview,start,models,roles,flows,portfolio,score:scoreboard,settings,train}[page]; put(v,...fn());
 }
@@ -2116,26 +2227,6 @@ function pickerOptions(){
   const cl=[["claude:claude-fable-5-1","Claude Fable 5.1 (most capable, priciest)"],["claude:claude-opus-5-5","Claude Opus 5.5 (best value)"],["claude:claude-sonnet-5-5","Claude Sonnet 5.5 (half the price)"],["claude:claude-haiku-5-5","Claude Haiku 5.5 (cheapest, quick)"]];
   return {loc,cl};
 }
-function modelPicker(){
-  if(store.get("chatUse",null)===null&&S.cloud&&S.cloud.chat_ready&&S.cloud.mode==="all")store.set("chatUse","claude:"+S.cloud.model);   // Use Claude = all: the chat starts on Claude too
-  const {loc,cl}=pickerOptions(), cur=store.get("chatUse","local"), ready=S.cloud&&S.cloud.chat_ready;
-  const sel=h("select",{class:"mpick"+(cur.startsWith("claude")?" cl":""),"aria-label":"Who answers this message",title:"Who answers (Ctrl+. switches between your last local and last Claude choice)",
-    onchange:e=>setChatUse(e.target.value)},
-    h("optgroup",{label:"On this machine (free, private)"},...loc.map(([v,l])=>h("option",{value:v,selected:cur===v},l))),
-    h("optgroup",{label:ready?"Claude (paid, leaves this machine)":"Claude (not ready: "+((S.cloud&&S.cloud.chat_why)||"turn on online features")+")"},
-      ...cl.map(([v,l])=>h("option",{value:v,selected:cur===v||(cur==="claude"&&v==="claude:claude-opus-5-5"),disabled:!ready},l))));
-  return sel;
-}
-function chatKnobs(){
-  const cl=store.get("chatUse","local").startsWith("claude");
-  const eff=h("select",{class:"mpick knob",id:"kEff","aria-label":"Effort",title:"How hard Claude thinks. Higher = better on hard problems, slower and pricier. Typing 'deep think' or 'council' in a message uses max for that message.",
-      style:cl?"":"display:none",onchange:e=>store.set("chatEffort",e.target.value)},
-    ...[["low","Effort: low"],["medium","Effort: medium"],["high","Effort: high"],["xhigh","Effort: x-high"],["max","Effort: max"]].map(([v,l])=>h("option",{value:v,selected:store.get("chatEffort","high")===v},l)));
-  const ctx=h("select",{class:"mpick knob",id:"kCtx","aria-label":"Context",title:"How much of the project goes with your message. Local models are capped at their own window; Claude can take the large sizes.",
-      onchange:e=>store.set("chatCtx",e.target.value)},
-    ...[["small","Context: small"],["normal","Context: normal"],["large","Context: large"],["max","Context: whole project"]].map(([v,l])=>h("option",{value:v,selected:store.get("chatCtx","normal")===v},l)));
-  return h("span",{class:"knobs"},eff,ctx);
-}
 /* ---- the model menu: models with a check, number keys, Effort > , the Council toggle ---- */
 /* Words in a message that change how it is answered. "council" convenes the Council (Claude only), "deep think" asks for max effort.
    The stored setting (chatUltra) and the server's older trigger words are unchanged, so those words keep working too. */
@@ -2313,7 +2404,7 @@ function ccDraw(r){
 }
 /* ---- subagents (like Claude Code's /agents): saved in <data_dir>/subagents.json, handed to every Claude Code run ---- */
 let SA={list:[],models:[],edit:-1};
-async function saLoad(){const r=await api("/api/arch/subagents");SA.list=r.subagents||[];SA.models=r.models||[];SA.edit=-1;saDraw();}
+async function saLoad(){try{const r=await api("/api/arch/subagents");SA.list=r.subagents||[];SA.models=r.models||[];SA.edit=-1;saDraw();}catch(e){const b=$("#saBox");if(b)b.textContent="Could not load subagents: "+e.message;}}
 async function saSave(list){try{const r=await api("/api/arch/subagents",{subagents:list});SA.list=r.subagents;SA.edit=-1;saDraw();toast("Subagents saved: the next Claude Code run can use them");return true;}catch(e){toast.err(e.message,8000);return false;}}
 function saDraw(){
   const box=$("#saBox"); if(!box)return; box.innerHTML="";
@@ -2698,7 +2789,12 @@ async function pollStudio(){
         }
       }
     }
-  }catch(_){}
+    pollStudio.fails=0;
+  }catch(e){
+    /* say so after three misses in a row (a restarted hub has a new token), once, instead of a thread that silently goes stale */
+    pollStudio.fails=(pollStudio.fails||0)+1;
+    if(pollStudio.fails===3){const t=$("#stThread");if(t)t.append(h("div",{class:"note bad"},"Lost contact with the hub: "+e.message+". Reload the page if this stays."));else toast.err("Chat: lost contact with the hub");}
+  }
   studioTimer=setTimeout(pollStudio,(studioJob&&!studioJob.done)?1500:2500);
 }
 
@@ -3173,7 +3269,7 @@ function roles(){
   const out=[]; const ms=installed();
   out.push(h("div",{class:"card"},h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Different jobs need different strengths"),
       h("p",{class:"sub",style:"margin:0"},"Each role lists the test categories it depends on. Recommendations use your measured scores; a role without measurements shows a labelled guess. Changes save immediately.")),
-    h("button",{class:"btn p",disabled:!ms.length,onclick:async()=>{await api("/api/arch/apply_recommended",{});toast("Recommended team saved");refresh(true);}},"Apply recommended team"))));
+    h("button",{class:"btn p",disabled:!ms.length,onclick:async()=>{try{await api("/api/arch/apply_recommended",{});toast("Recommended team saved");refresh(true);}catch(e){toast.err("Not saved: "+e.message,6000);}}},"Apply recommended team"))));
   const groupLabel={Core:"Core — plan, design, judge",Builders:"Builders — write the code",Quality:"Quality — test, hunt, optimise",
     Security:"Security — harden, attack, defend",Infra:"Infra — network, config, ML"};
   for(const g of ["Core","Builders","Quality","Security","Infra"]){const rs=S.roles.filter(r=>(r.group||"Core")===g);if(!rs.length)continue;
@@ -3534,7 +3630,7 @@ function caFunnel(layers){
   });
   const label="How one request falls through the caches, top to bottom: "+says.join("; ");
   return h("div",{class:"ca-scroll",tabindex:"0",role:"region","aria-label":"Cache funnel (scrolls sideways on a narrow screen)",
-    html:`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;min-width:520px;display:block" role="img" aria-label="${escx(label)}">`+g+`</svg>`});
+    html:`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block" role="img" aria-label="${escx(label)}">`+g+`</svg>`});
 }
 function caText(t){   // `code` in a finding becomes code
   return String(t||"").split("`").map((p,i)=>i%2?h("code",null,p):p);
@@ -3596,6 +3692,61 @@ function caDisk(L){
         h("td",{class:"small"},when(l.oldest)),h("td",{class:"small"},when(l.newest)),
         h("td",null,id!=="slots"?"–":l.orphans?h("span",{class:"chip warn"},caInt(l.orphans)+" files, "+caBytes(l.orphan_bytes)):"none"));})))),
     h("p",{class:"small mute",style:"margin:8px 0 0"},h("code",null,"python architect.py caches")," lists them; ",h("code",null,"--prune --yes")," removes them."));
+}
+const OR={data:null,cats:null};
+function fmtN(n){n=+n||0;return n>=1e9?(n/1e9).toFixed(2)+" B":n>=1e6?(n/1e6).toFixed(1)+" M":n>=1e3?(n/1e3).toFixed(1)+" K":String(n);}
+function orchPage(){
+  return [h("div",{class:"card"},
+    h("div",{class:"row",style:"gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px"},
+      h("p",{class:"sub grow",style:"margin:0"},"How work was handed out: the lead, each workflow and phase, every agent with the brief it got, the tokens, context and cache it used, and how much training data your local models have. Read-only."),
+      h("button",{type:"button",id:"orRefresh",class:"btn sm",onclick:()=>loadOrch(true)},"Refresh")),
+    h("div",{id:"orOut",style:"display:flex;flex-direction:column;gap:14px"},h("p",{class:"sub"},"Reading the transcripts…")))];
+}
+async function loadOrch(fresh){
+  const out=$("#orOut"); if(!out) return;
+  try{ OR.data=await api("/api/arch/orchestration"+(fresh?"?fresh=1":"")); }
+  catch(e){ out.innerHTML=""; out.append(h("p",{class:"note bad"},"Could not read the orchestration: "+e.message)); return; }
+  orDraw();
+}
+function orStat(label,val,sub){return h("div",{class:"card",style:"flex:1;min-width:150px;padding:12px"},h("div",{class:"small mute"},label),h("div",{style:"font-size:22px;font-weight:600;font-variant-numeric:tabular-nums"},val),sub?h("div",{class:"small mute"},sub):null);}
+function orNode(n,depth){
+  const t=n.total||n.tokens||{},kids=n.children||n.agents||n.phases||n.workflows||[];
+  const name=(n.label||n.name||n.title||n.id||"agent")+"";
+  const head=h("summary",{style:"cursor:pointer;display:flex;gap:10px;flex-wrap:wrap;align-items:center"},
+    h("b",null,name.slice(0,90)),n.category?h("span",{class:"chip"},n.category):null,
+    n.model?h("span",{class:"small mute"},n.model):null,
+    h("span",{class:"small mute",style:"font-variant-numeric:tabular-nums"},"out "+fmtN(t.output||t.output_tokens||t.tokens_out)+" · cache "+fmtN(t.cache_read)+(n.peak_context?" · peak ctx "+fmtN(n.peak_context):"")),
+    n.verdict?h("span",{class:"chip "+(n.verdict==="pass"||n.verdict==="done"?"good":"warn")},n.verdict):null);
+  const body=[];
+  if(n.prompt) body.push(h("div",null,h("div",{class:"small mute"},"Brief (how the lead dictated)"),h("pre",{style:"white-space:pre-wrap;max-height:180px;overflow:auto"},n.prompt)));
+  if(n.tool_calls&&Object.keys(n.tool_calls).length) body.push(h("div",{class:"small"},"Tools: "+Object.entries(n.tool_calls).map(([k,v])=>k+" ×"+v).join(", ")));
+  if(n.category_reason) body.push(h("div",{class:"small mute"},"Category because: "+n.category_reason));
+  if(n.result) body.push(h("div",null,h("div",{class:"small mute"},"Result"),h("pre",{style:"white-space:pre-wrap;max-height:180px;overflow:auto"},String(n.result).slice(0,1500))));
+  for(const k of (Array.isArray(kids)?kids:[]).slice(0,200)) body.push(orNode(k,depth+1));
+  const d=h("details",{style:"margin-left:"+(depth?14:0)+"px;border-left:2px solid var(--line,#333);padding-left:10px"},head,...body);
+  if(!n.collapsed_default&&depth<2) d.open=true;
+  return d;
+}
+function orDraw(){
+  const out=$("#orOut"); if(!out||!OR.data) return;
+  const d=OR.data,c=d.claude||{},T=c.totals||{},loc=d.local||{},tr=d.training||{},crew=d.crew||{};
+  out.innerHTML="";
+  const share=T.cache_hit_share!=null?Math.round(T.cache_hit_share*100)+"%":"–";
+  out.append(h("div",{class:"row",style:"gap:10px;flex-wrap:wrap"},
+    orStat("Claude agents",fmtN(T.agents),fmtN(T.workflows)+" workflows"),
+    orStat("Output tokens",fmtN(T.output),"what costs the most"),
+    orStat("Cache hit share",share,fmtN(T.cache_read)+" read from cache"),
+    orStat("Local runs",fmtN((loc.totals||{}).runs||(loc.runs||[]).length),fmtN((loc.totals||{}).cached_exact)+" exact cache hits"),
+    orStat("Training samples",fmtN((tr.counts||{}).sft||tr.sft),"excluded runs: "+fmtN(Object.values(tr.excluded||{}).reduce((a,b)=>a+(+b||0),0)))));
+  if(d.categories&&d.categories.folded_total) out.append(h("p",{class:"small mute"},d.categories.folded_total+" other agents are folded away."));
+  const sec=(title,nodes)=>{const box=h("div",{class:"card"},h("h3",{style:"margin:0 0 8px"},title));for(const n of (nodes||[]).slice(0,20)) box.append(orNode(n,0)); if(!(nodes||[]).length) box.append(h("p",{class:"sub"},"Nothing yet.")); return box;};
+  out.append(sec("Claude orchestration",c.sessions||c.tree||[]));
+  out.append(sec("Your local agents (same columns)",crew.workflows||crew.runs||[]));
+  if(tr.excluded) out.append(h("div",{class:"card"},h("h3",{style:"margin:0 0 8px"},"Training data, and why runs were left out"),
+    h("div",{class:"small"},Object.entries(tr.counts||{}).map(([k,v])=>k+": "+v).join(" · ")||"no samples yet"),
+    h("div",{class:"small mute"},Object.entries(tr.excluded).filter(([,v])=>v).map(([k,v])=>k+": "+v).join(" · "))));
+  const g=d.glossary||{}; if(Object.keys(g).length) out.append(h("div",{class:"card"},h("h3",{style:"margin:0 0 8px"},"Words on this page"),
+    ...Object.entries(g).map(([k,v])=>h("div",{class:"small",style:"margin:3px 0"},h("b",null,k+": "),v))));
 }
 function cachesPage(){
   return [h("div",{class:"card"},
@@ -3733,7 +3884,7 @@ function cmChart(rows){
   for(let i=1;i<labels.length;i++) if(labels[i].left===labels[i-1].left&&Math.abs(labels[i].cx-labels[i-1].cx)<140&&labels[i].y-labels[i-1].y<14) labels[i].y=labels[i-1].y+14;
   const lt=labels.map(l=>`<text x="${l.left?l.cx-l.s-6:l.cx+l.s+6}" y="${l.y}" font-size="11.5" fill="var(--ink)" text-anchor="${l.left?"end":"start"}">${escx(l.t)}</text>`).join("");
   const box=h("div",{style:"overflow-x:auto"});
-  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;min-width:540px;display:block" role="img" aria-label="Cost map: pass rate across, seconds per task up; dashed rays are equal cost per accepted change">`+g+trails+pts+lt+`</svg>`;
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block" role="img" aria-label="Cost map: pass rate across, seconds per task up; dashed rays are equal cost per accepted change">`+g+trails+pts+lt+`</svg>`;
   return box;
 }
 function cmDraw(){
@@ -4157,7 +4308,7 @@ function scoreboard(){
       h("tbody",null,...rows.filter(x=>x.c!=null||rows.every(y=>y.c==null)).map(({m,c})=>h("tr",null,h("td",{class:"mono"},m.name),h("td",{class:"n"},cell(c)),...S.categories.map(([cat])=>{const v=m.agg[cat];return h("td",{class:"n"},v?h("a",{class:"cell "+sc(v.score),style:"cursor:pointer",title:`${v.runs} run(s), ${v.n} task(s)`,onclick:()=>detail(m.name,cat)},fmt(v.score,0)):h("span",{class:"cell s-na"},"–"));})))))):h("div",{class:"empty"},"No models installed.")));
   const unm=rows.filter(x=>x.c==null);if(unm.length&&rows.some(x=>x.c!=null))out[0].append(h("p",{class:"small mute",style:"margin-top:10px"},unm.length+" model"+(unm.length>1?"s":"")+" not measured yet: "+unm.map(x=>x.m.name).join(", ")+". Tick them under Run tests below."));
   out.push(h("div",{class:"card"},h("h2",null,"What matters to you"),h("p",{class:"sub"},"Weights decide the Overall column. (Role recommendations use each role's own weights.)"),
-    h("div",{class:"fgrid"},...S.categories.map(([c,l])=>h("label",{class:"f"},`${l}: ${weights[c]??0}`,h("input",{type:"range",min:0,max:30,value:weights[c]??0,oninput:e=>{weights[c]=+e.target.value;e.target.parentNode.firstChild.textContent=`${l}: ${weights[c]}`;},onchange:async()=>{await api("/api/weights",{weights});render();}}))))));
+    h("div",{class:"fgrid"},...S.categories.map(([c,l])=>h("label",{class:"f"},`${l}: ${weights[c]??0}`,h("input",{type:"range",min:0,max:30,value:weights[c]??0,oninput:e=>{weights[c]=+e.target.value;e.target.parentNode.firstChild.textContent=`${l}: ${weights[c]}`;},onchange:async()=>{try{await api("/api/weights",{weights});render();}catch(e){toast.err("Weights not saved: "+e.message,6000);}}}))))));
   const running=S.tests.running;
   out.push(h("div",{class:"card"},h("h2",null,"Run tests"),
     h("div",{class:"row"},...ms.map(m=>h("label",{class:"sw"},h("input",{type:"checkbox",checked:sel.models.has(m.name),onchange:e=>{e.target.checked?sel.models.add(m.name):sel.models.delete(m.name);}}),h("span",{class:"mono small"},m.name)))),
@@ -4230,8 +4381,6 @@ function presetsCard(){
    links to it and Ctrl+K finds it. Built from the classes the real pages use, so a stylesheet change shows here first.
    Tokens, rules and the keyboard model: docs/design_system.md.
    ============================================================================================ */
-PAGES.push(["components","layers","Components","Every part of the interface, in the light and the dark theme","settings"]);
-SUBNAME.components="Components";
 const CMP_SWATCHES=["bg","panel","soft","line","ink","mute","faint","acc","acc2","good","goodbg","warn","warnbg","bad","badbg","info","infobg","llm","code","judge","claude"];
 function cmpSec(title,...kids){return h("section",{class:"cmp-sec"},h("h3",{class:"cmp-h"},title),...kids);}
 function cmpMenu(){
@@ -5489,7 +5638,7 @@ function artCounts(root){
 /* the place you are in, its glyph and its drawing in the page heading, and the icons on the sub-tabs */
 function artNav(){
   const cur=tabOf(page); document.body.dataset.sec=cur[0]; document.body.dataset.page=page;
-  [...$("#nav").children].forEach((b,i)=>{if(TABS[i])b.dataset.sec=TABS[i][0];});
+  [...$("#nav").querySelectorAll("button.nav")].forEach((b,i)=>{if(TABS[i])b.dataset.sec=TABS[i][0];});
   const sb=$("#subtabs"); if(sb.children.length===cur[3].length)[...sb.children].forEach((b,i)=>{if(!b.querySelector("svg"))b.prepend(icon(PAGE_ICON[cur[3][i]]||"dot"));});
   const top=$(".top"); if(!top)return;
   let g=$("#pageGlyph"); if(!g){g=h("span",{id:"pageGlyph","aria-hidden":"true"});top.prepend(g);}
@@ -5502,7 +5651,7 @@ function artBusy(){const j=$("#sJob");document.body.classList.toggle("is-busy",!
 {const j=$("#sJob"); if(j&&window.MutationObserver)new MutationObserver(artBusy).observe(j,{attributes:true,attributeFilter:["hidden","class"]});}
 {const _ae=applyEvents; applyEvents=function(){const r=_ae.apply(this,arguments);artBusy();return r;};}
 document.addEventListener("visibilitychange",()=>document.documentElement.classList.toggle("tab-away",document.hidden));
-go("console");refresh(true).then(()=>setTimeout(fvMaybeOpen,400));
+go("overview");refresh(true).then(()=>setTimeout(fvMaybeOpen,400));
 setInterval(()=>{if(!document.hidden&&!dirty&&page!=="run"&&!(S&&S.tests.running&&page==="score"))refresh();},9000);
 </script>
 <script>

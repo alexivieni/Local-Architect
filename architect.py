@@ -1372,7 +1372,7 @@ def _run_suites(suite):
                 print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
                 rc |= 1
         # suites whose run() returns True when every check passed (art returns 0 like the older ones)
-        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "promptprefix", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst"):
+        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "orchestration", "squad"):
             try:
                 _res = importlib.import_module("arch_selftest_" + _name).run()
                 rc |= (0 if (_res is True or (type(_res) is int and _res == 0)) else 1)     # False == 0, so check the type
@@ -1393,6 +1393,10 @@ def _run_suites(suite):
 
 
 def main(argv=None):
+    _argv = list(sys.argv[1:] if argv is None else argv)
+    if _argv[:1] == ["crew"]:                # local agent workflows (arch_squad.py has its own arguments)
+        import arch_squad
+        return arch_squad.main(_argv[1:])
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd")
     common = argparse.ArgumentParser(add_help=False)
@@ -1580,6 +1584,9 @@ def main(argv=None):
     ft.add_argument("--root", help="project folder (its run history gives the measured swaps per run)")
     ft.add_argument("--kv", choices=["f16", "q8_0"], default="f16", help="KV cache type to assume (server setting OLLAMA_KV_CACHE_TYPE)")
     ft.add_argument("--json", action="store_true")
+    oc = sub.add_parser("orchestration", help="who delegated what to whom: Claude Code agents, local runs, tokens, caching, training data")
+    oc.add_argument("--json", action="store_true")
+    oc.add_argument("--limit", type=int, default=5, help="newest Claude sessions to show")
     tk = sub.add_parser("tasks", help="real task templates (goal sentences tied to the flow that proves them); --expand ID TARGET prints one filled in")
     tk.add_argument("--group", help="only this group, e.g. Fix")
     tk.add_argument("--expand", metavar="ID", help="print the goal for this template")
@@ -1638,7 +1645,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     fn = {"run": cmd_run, "flows": cmd_flows, "templates": cmd_templates, "route": cmd_route, "undo": cmd_undo,
           "portfolio": cmd_portfolio, "show-config": cmd_show, "serve": cmd_serve, "doctor": cmd_doctor, "assess": cmd_assess, "advise": cmd_advise,
-          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches}.get(a.cmd)
+          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
     if not fn:
         ap.print_help()
         return 0

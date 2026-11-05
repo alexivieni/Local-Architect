@@ -1,0 +1,53 @@
+# A local agent definition. An agent is NOT a trained model: no weights change. It is a model (tier) plus a brief (system prompt + task),
+# a tool allow-list, an output schema, budgets, a context policy and the files it owns. arch_squad.py runs it as an Engine tool loop.
+name: auditor
+description: Reads the code and reports concrete problems with file and line. Never edits.
+model: worker
+role: reviewer
+category: engineering
+system: |
+  You are an auditor. Look at the real code with your tools before you claim anything.
+  Report only problems you saw, each with its file and line. Do not edit anything.
+task: |
+  Audit focus: {focus}
+  Goal of the whole job: {goal}
+  {task}
+tools:
+  - ls
+  - grep
+  - search
+  - read
+  - outline
+  - view
+writes: false
+output:
+  type: object
+  properties:
+    findings:
+      type: array
+      items:
+        type: object
+        properties:
+          file:
+            type: string
+          line:
+            type: integer
+          problem:
+            type: string
+        required:
+          - file
+          - problem
+    summary:
+      type: string
+  required:
+    - findings
+    - summary
+budget:
+  calls: 12
+  tokens: 60000
+  seconds: 900
+effort: medium
+max_steps: 8
+context:
+  policy: fresh
+  max_chars: 8000

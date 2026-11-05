@@ -1,0 +1,26 @@
+# The audit -> build -> verify workflow the lead ran with Claude subagents, as data for local agents.
+# Run: python architect.py crew workflows/audit_build_verify.yaml --goal "..." [--owns a.py,b.py] [--fake]
+name: audit-build-verify
+description: Three auditors look at the code side by side, one builder fixes what they found, one verifier tries to prove it wrong.
+phases:
+  - title: Audit
+    parallel:
+      - agent: auditor
+        label: "audit:correctness"
+        vars:
+          focus: correctness - wrong results, unhandled errors, edge cases
+      - agent: auditor
+        label: "audit:safety"
+        vars:
+          focus: safety - paths, secrets, subprocess and network use
+      - agent: auditor
+        label: "audit:tests"
+        vars:
+          focus: tests - what is untested or tested in a way that cannot fail
+  - title: Build
+    agent: builder
+    label: build
+    owns: "{owns}"
+  - title: Verify
+    agent: verifier
+    label: verify

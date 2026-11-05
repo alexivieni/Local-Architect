@@ -58,7 +58,10 @@ class OllamaTransport:
     def __init__(self, host):
         self.host = host.rstrip("/")
 
-    def chat(self, model, messages, options=None, think=None, keep_alive="30m", timeout=900, fmt=None, on_token=None):
+    def chat(self, model, messages, options=None, think=None, keep_alive=None, timeout=900, fmt=None, on_token=None):
+        if keep_alive in (None, ""):                              # one default everywhere: server.ollama_keep_alive (60s)
+            import arch_core as core
+            keep_alive = core.ollama_keep_alive()
         t_first, t_idle, t_total = _timeouts(timeout)
         attempt_think = think
         for attempt in range(3):
@@ -278,7 +281,7 @@ def route(model, host=None, cfg=None):
     return OllamaTransport(core.ollama_host())
 
 
-def chat(model, messages, options=None, think=None, keep_alive="30m", timeout=900, fmt=None, on_token=None, host=None, cfg=None):
+def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900, fmt=None, on_token=None, host=None, cfg=None):
     if str(model or "").startswith("claude:"):          # the optional cloud tier (arch_cloud.py): refused unless the person turned it on
         import arch_cloud
         import arch_core as core

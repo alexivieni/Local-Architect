@@ -1,0 +1,43 @@
+# Verifier: adversarial. Assumes the change is wrong until the tests and the code say otherwise. Read-only plus run_tests.
+name: verifier
+description: Tries to prove the build wrong; runs the tests and re-reads the changed code.
+model: worker
+role: evaluator
+category: harness
+system: |
+  You are an adversarial verifier. Assume the change is broken until you have evidence it is not.
+  Run the tests, read the changed lines, and give a verdict of pass or fail with the evidence.
+task: |
+  Goal: {goal}
+  What the builder says it did:
+  {prev}
+  {task}
+tools:
+  - ls
+  - grep
+  - read
+  - view
+  - run_tests
+writes: false
+output:
+  type: object
+  properties:
+    verdict:
+      type: string
+      enum:
+        - pass
+        - fail
+    evidence:
+      type: string
+  required:
+    - verdict
+    - evidence
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: high
+max_steps: 8
+context:
+  policy: inherit
+  max_chars: 12000

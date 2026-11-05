@@ -118,7 +118,7 @@ def run():
     a, b = html.find("/* ===== Cost map (Models)"), html.find("function benchPage(){")
     block = html[a:b] if 0 <= a < b else ""
     check("hub: the Cost map is a page in the Models place, with its own name, icon and drawing",
-          '["team","chip","Models",["tiers","computers","costmap"' in html and 'costmap:"Cost map"' in html and 'costmap:"target"' in html
+          '["cost","target","Cost",["costmap"]]' in html and '["costmap","target",' in html
           and 'costmap:"models"' in html and 'if(page==="costmap")' in html)
     check("hub: it draws only with theme colours (no literal colour), so every theme and accent applies",
           bool(block) and not re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", block), re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", block)[:4])

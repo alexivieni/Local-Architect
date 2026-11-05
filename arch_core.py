@@ -95,7 +95,7 @@ DEFAULTS = {
                  "config_strict": "medium"},                   # config files: findings at or above this severity fail the check (high|medium|low)
     "tests": {"command": ""},
     "tiers": {"router": "", "worker": "", "heavy": "", "draft": "", "cloud": ""},   # model TIERS: any installed model (Ollama tag or .gguf path) per slot; roles name a tier (arch_roles.TIER_OF); empty = the hardware profile's default
-    "server": {"kind": "auto", "binary": "", "port": 8081, "kv": "q8_0", "flash_attn": True, "draft": "auto", "parallel": 1, "ubatch": 256, "ctx": 0, "slots": True, "ngram": "auto", "cache_ram": 0, "make_room": "auto", "heavy_beside": "auto", "think_budget": 800, "fast_lane": "off", "fast_think_budget": 256, "idle_free_min": 15, "ollama_gpu": "auto"},   # the resident llama-server (arch_server.py); auto = use it when the binary is installed, else Ollama. ctx 0 = the hardware profile's measured window.
+    "server": {"kind": "auto", "binary": "", "port": 8081, "kv": "q8_0", "flash_attn": True, "draft": "auto", "parallel": 1, "ubatch": 256, "ctx": 0, "slots": True, "ngram": "auto", "cache_ram": 0, "make_room": "auto", "heavy_beside": "auto", "think_budget": 800, "fast_lane": "off", "fast_think_budget": 256, "idle_free_min": 15, "ollama_gpu": "auto", "ollama_keep_alive": "60s"},   # the resident llama-server (arch_server.py); auto = use it when the binary is installed, else Ollama. ctx 0 = the hardware profile's measured window.
     "flows": {"engine": "legacy", "budget_scale": 1.0},                 # legacy = the Python flow classes, YAML only fills ids no class provides; data = flows/*.yaml win; off = YAML ignored
     "cache": {"responses": True, "max_rows": 4000, "max_days": 30},   # arch_cache.py: remember temperature-0 replies so a retry or a repeated task costs nothing. Never used by `eval`, never at temperature > 0.
     "supervisor": {"daily_runs": 40, "daily_minutes": 240, "task_minutes": 15, "max_attempts": 3},   # arch_supervisor.py: the queue the machine works through on its own, and the ceilings that stop it running away
@@ -152,6 +152,10 @@ def ollama_host():
     return h.replace("0.0.0.0", "127.0.0.1").rstrip("/")
 
 
+_OLLAMA_LOCK = threading.Lock()
+_OLLAMA_USERS = {}                 # model -> runs in this process that loaded it through Ollama and have not finished
+
+
 class LLMError(Exception):
     pass
 
@@ -184,7 +188,17 @@ def strip_think(text):
     return re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
 
 
-def stream_chat(model, messages, options=None, think=None, keep_alive="30m", timeout=900, fmt=None, on_token=None, host=None):
+def ollama_keep_alive(cfg=None):
+    """How long Ollama keeps a model in memory after a call (server.ollama_keep_alive, default 60s): one value for every chat call,
+    the ~20 GB off-card MoE included, so nothing sits in RAM for half an hour after a run."""
+    try:
+        v = ((cfg or load_config()).get("server") or {}).get("ollama_keep_alive")
+    except Exception:
+        v = None
+    return v if v not in (None, "") else "60s"
+
+
+def stream_chat(model, messages, options=None, think=None, keep_alive=None, timeout=900, fmt=None, on_token=None, host=None):
     """One model call -> {"text","thinking","tok_s","gen_tokens","prompt_tokens","cached_tokens","done_reason","prefill_tok_s","load_s","transport"}.
     The server that answers (Ollama, or the resident llama-server for a model it serves) is chosen by arch_transport.route; `timeout` is one
     number or {"first", "idle", "total"} seconds (arch_tune.timeouts_for)."""
@@ -1268,6 +1282,7 @@ class Engine:
 
     def finish(self, ok, error=None):
         self._bring_back()
+        self._release_ollama()
         if self.calls and keeps_prompt_memory(self.root):      # never for a throwaway folder (eval, temp, live test): nothing reopens it
             try:
                 import arch_server
@@ -1614,8 +1629,9 @@ class Engine:
         tok = tok if events_on() else None
 
         def chat():
+            self._note_ollama(cur["model"], cur["host"])
             try:
-                return stream_chat(cur["model"], msgs, options, th, lim["keep_alive"], timeouts(), fmt, on_token=tok, host=cur["host"])
+                return stream_chat(cur["model"], msgs, options, th, self._ka(), timeouts(), fmt, on_token=tok, host=cur["host"])
             except LLMError as ex:
                 big = self.pins.get(role)
                 if big and cur["model"] == big:
@@ -1640,10 +1656,11 @@ class Engine:
                         opts["num_predict"] = arch_tune.clamp_num_predict(opts["num_ctx"], est2, options["num_predict"])[0]
                         options.clear()
                         options.update(opts)
-                        return stream_chat(own, msgs, options, th, lim["keep_alive"], timeouts(), fmt, host=None, on_token=tok)
+                        self._note_ollama(own, None)
+                        return stream_chat(own, msgs, options, th, self._ka(), timeouts(), fmt, host=None, on_token=tok)
                     self.pins[role] = big                  # nothing else to step back to (a step that pins a tier): the normal recovery below
                 if not cur["host"] and "not reachable" in str(ex) and self._restart_local(ex):
-                    return stream_chat(cur["model"], msgs, options, th, lim["keep_alive"], timeouts(), fmt, host=None, on_token=tok)
+                    return stream_chat(cur["model"], msgs, options, th, self._ka(), timeouts(), fmt, host=None, on_token=tok)
                 if not cur["host"] or "not reachable" not in str(ex):
                     raise
                 local = self.cfg.get("default_model") or next(iter(self.installed()), None)
@@ -1653,7 +1670,8 @@ class Engine:
                 self.say(f"[!] {cur['name']} is not reachable; the {role} role continues on {local} on this computer for the rest of this run")
                 self.report(f"- Host `{cur['name']}` was unreachable: `{role}` ran on `{local}` here instead of `{cur['model']}` there.")
                 cur.update(model=local, host=None)
-                return stream_chat(local, msgs, options, th, lim["keep_alive"], timeouts(), fmt, on_token=tok)
+                self._note_ollama(local, None)
+                return stream_chat(local, msgs, options, th, self._ka(), timeouts(), fmt, on_token=tok)
 
         self._inflight[model] += 1
         try:
@@ -1844,10 +1862,89 @@ class Engine:
         except Exception:
             pass
 
+    def _ka(self):
+        return ollama_keep_alive(self.cfg)
+
+    def _note_ollama(self, model, host):
+        """Remember a model this run sent to LOCAL Ollama (not llama-server, not a remote host, not the cloud): finish unloads exactly these."""
+        if host or not model or str(model).startswith("claude:"):
+            return
+        try:
+            import arch_transport
+            if not isinstance(arch_transport.route(model, None, self.cfg), arch_transport.OllamaTransport):
+                return
+        except Exception:
+            return
+        used = self.__dict__.setdefault("ollama_used", set())
+        if model not in used:
+            used.add(model)
+            with _OLLAMA_LOCK:
+                _OLLAMA_USERS[model] = _OLLAMA_USERS.get(model, 0) + 1
+
+    def _release_ollama(self):
+        """End of run: unload (keep_alive 0) only the models THIS run loaded through Ollama, and only when no other Architect job holds the
+        job lock and no other run in this process still uses that model. Another app's model is never in the list. -> names unloaded."""
+        used = self.__dict__.pop("ollama_used", None) or set()
+        if not used:
+            return []
+        with _OLLAMA_LOCK:
+            for m in used:
+                _OLLAMA_USERS[m] = max(0, _OLLAMA_USERS.get(m, 0) - 1)
+            free = sorted(m for m in used if not _OLLAMA_USERS.get(m))
+        try:
+            import arch_cleanup
+            if arch_cleanup._job_running():
+                return []
+        except Exception:
+            pass
+        gone = []
+        try:
+            import arch_ollama
+            held = self._held_longer_elsewhere(arch_ollama)
+            for m in free:
+                if m in held:                             # someone else asked Ollama to keep it longer than we do: not ours to drop
+                    continue
+                if arch_ollama.unload(m):
+                    gone.append(m)
+        except Exception:
+            return gone
+        if gone:
+            try:
+                self.report(f"- Unloaded from Ollama at the end of the run: {', '.join('`%s`' % m for m in gone)}.")
+            except Exception:
+                pass
+        return gone
+
+    def _held_longer_elsewhere(self, arch_ollama):
+        """Names Ollama will keep loaded clearly past what our own keep_alive asks: another client (another app, a benchmark, a chat
+        window) requested a longer hold after our last call, so that model is in use elsewhere. Unknown expiry -> not counted."""
+        ka = str(self._ka()).strip().lower()
+        m = re.fullmatch(r"(-?\d+(?:\.\d+)?)\s*([smh]?)", ka)
+        if not m:
+            return set()
+        secs = float(m.group(1)) * {"": 1, "s": 1, "m": 60, "h": 3600}[m.group(2)]
+        out = set()
+        try:
+            loaded = arch_ollama.status(timeout=2).get("loaded") or []
+        except Exception:
+            return out
+        now = time.time()
+        for row in loaded:
+            until = str(row.get("until") or "")
+            try:
+                t = datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", until).replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                continue
+            if secs < 0 or t - now > secs + 120:
+                out.add(row.get("name"))
+        return out
+
     def _bring_back(self, model=None, allow=0):
         """Our tiers that stepped aside come back: when a call needs one of them (`model` is a name it answers to), or at the end of the
         run (`model` None), so the machine ends as it began. The models they made room for leave Ollama first (arch_server.come_back).
         `allow` = calls in flight that may be ignored (the failed call whose fallback needs the worker)."""
+        if model is None and sum(self._inflight.values()) <= allow:
+            self._release_ollama()                        # the run is over (finish, or run_flow's exception path): what it loaded leaves
         aside = getattr(self, "_aside", None)
         if (not aside or (model is not None and not any(model in names for names in aside.values()))
                 or sum(self._inflight.values()) > allow):

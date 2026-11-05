@@ -1066,6 +1066,32 @@ MAP_KINDS = ("run", "fleet", "flow", "cc")
 MAP_MAX_NODES = 120
 
 
+
+def ollama_unload_request(b):
+    """POST /api/arch/ollama/unload {"model"}: unload one model of ours from Ollama (keep_alive 0). Another app's model only with an
+    explicit {"all": true}, which then unloads every loaded model. -> {"ok", "unloaded": [names], "refused": [names]}"""
+    import arch_ollama
+    view = arch_ollama.loaded_view(core.load_config())
+    loaded = {m["name"]: m for m in view["models"]}
+    every = b.get("all") is True
+    model = str(b.get("model") or "").strip()
+    if not every and not model:
+        raise ValueError("Name a model to unload (or send all: true).")
+    targets = list(loaded) if every and not model else [model]
+    gone, refused = [], []
+    for name in targets:
+        m = loaded.get(name)
+        if not m:
+            continue
+        if not m["ours"] and not every:
+            refused.append(name)
+            continue
+        if arch_ollama.unload(name):
+            gone.append(name)
+    if refused and not gone:
+        raise ValueError(f"{', '.join(refused)} is not a model this app uses; send all: true to unload it anyway.")
+    return {"ok": True, "unloaded": gone, "refused": refused}
+
 class _Graph:
     def __init__(self, kind, ident, title):
         self.out = {"kind": kind, "id": ident, "title": title, "nodes": [], "edges": []}
@@ -1499,6 +1525,11 @@ class AHandler(mh.Handler):
             out["default_cmd"] = runner.default_cmd(root)
             out["log_tail"] = runner.logs(root, 200)
             return self._send(200, out)
+        if u.path == "/api/arch/ollama":                # what Ollama holds in memory right now, ours or not (read-only)
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            import arch_ollama
+            return self._send(200, arch_ollama.loaded_view(core.load_config()))
         if u.path == "/api/arch/doctor":
             if not self._host_ok():
                 return self._send(403, {"error": "bad host"})
@@ -1615,6 +1646,16 @@ class AHandler(mh.Handler):
                     return self._send(200, {"text": f.read()[:200000], "t": os.path.getmtime(fs[-1]), "file": os.path.basename(fs[-1])})
             except OSError as ex:
                 return self._send(200, {"text": "", "t": None, "error": str(ex)[:200]})
+        if u.path == "/api/arch/orchestration":         # who handed what to whom: agents, tokens, cache, training data (read-only; cached 60 s)
+            import arch_orchestration
+            now = time.time()
+            c = getattr(AHandler, "_orch_cache", None)
+            if not c or now - c[0] > 60 or "fresh" in u.query:
+                try:
+                    c = AHandler._orch_cache = (now, arch_orchestration.snapshot(limit=3))
+                except Exception as ex:
+                    return self._send(200, {"error": str(ex)[:200]})
+            return self._send(200, c[1])
         if u.path == "/api/arch/caches":                # every cache layer, both ends of Claude, findings (read-only; cached 60 s)
             import arch_cachestats
             now = time.time()
@@ -2003,6 +2044,8 @@ class AHandler(mh.Handler):
                 raise ValueError("A download needs an explicit confirmation (it can be many GB).")
             mh.JOB.start("Download " + tag, ["architect.py", "pull", tag, "--yes"])
             return {"ok": True}
+        if path == "/api/arch/ollama/unload":
+            return ollama_unload_request(b)
         if path == "/api/arch/sharpen":
             # a rough request -> a precise one: target files (checked to exist), acceptance checks, a draft test, risks (local by default)
             import arch_augment

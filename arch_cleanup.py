@@ -3,7 +3,9 @@
 What it closes (only things that are ours):
   servers   our llama-server tiers (router, worker, heavy) recorded in the server state
   strays    llama-server processes from OUR bin/llama folder that the state no longer knows (a crash, a killed hub)
-  ollama    models Ollama is holding in memory (unloaded with keep_alive 0; the Ollama service itself keeps running)
+  ollama    models of ours that Ollama is holding in memory (unloaded with keep_alive 0); other apps' models are left alone
+  ollama_service  the `ollama serve` Architect itself started (pid recorded by arch_ollama.ensure_running), stopped only once
+            nothing else is loaded in it; an Ollama the person started is never stopped
   launch    projects started from the Launch page that are still running (arch_runner)
   temp      throwaway eval folders (%TEMP%/eval_*) older than two hours that still carry our .arch marker
 It never touches a run in progress: while a heavy job (eval, selftest, livetest, tune, self-improve) holds the job lock in another
@@ -62,13 +64,43 @@ def _job_running():
 
 
 def _ollama(path, body=None, timeout=10):
-    host = OLLAMA if OLLAMA.startswith("http") else "http://" + OLLAMA
+    try:
+        import arch_ollama
+        host = arch_ollama._url()                         # the configured host (OLLAMA_HOST, then Settings), like every other caller
+    except Exception:
+        host = OLLAMA if OLLAMA.startswith("http") else "http://" + OLLAMA
     if not ("127.0.0.1" in host or "localhost" in host):
         return None                                       # only a local Ollama
     req = urllib.request.Request(host.rstrip("/") + path, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json"}, method="POST" if body is not None else "GET")
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode() or "{}")
+
+
+def _is_ollama_pid(pid):
+    """True when that pid runs an ollama program, False when it runs something else, None when it cannot be told."""
+    try:
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=10).stdout
+        else:
+            out = open(f"/proc/{int(pid)}/comm").read()
+    except Exception:
+        return None
+    if not out.strip() or "No tasks" in out:
+        return False
+    return "ollama" in out.lower()
+
+
+def _our_ollama_service():
+    """The marker arch_ollama wrote when Architect started `ollama serve`, if that very process still runs; else None."""
+    try:
+        import arch_ollama
+        rec = arch_ollama.started_by_us()
+    except Exception:
+        return None
+    if not rec or _is_ollama_pid(rec["pid"]) is not True:
+        return None
+    return rec
 
 
 def _our_llama_pids():
@@ -120,6 +152,9 @@ def plan(cfg=None, roots=None):
             items.append({"kind": "ollama", "what": f"Ollama is holding {m.get('name')} in memory", "how": "unload", "model": m.get("name")})
     except Exception:
         pass
+    svc = _our_ollama_service()
+    if svc:
+        items.append({"kind": "ollama_service", "what": f"the Ollama service Architect started (pid {svc['pid']})", "how": "stop", "pid": int(svc["pid"])})
     try:
         import arch_runner
         for root in roots or _known_roots():
@@ -138,7 +173,7 @@ def plan(cfg=None, roots=None):
             continue
     if busy:
         for it in items:
-            if it["kind"] in ("servers", "strays", "ollama"):
+            if it["kind"] in ("servers", "strays", "ollama", "ollama_service"):
                 it["how"] = "keep"
                 it["why"] = f"a {busy.get('job')} run (pid {busy.get('pid')}) is using it"
     return {"busy": busy, "items": items}
@@ -175,6 +210,21 @@ def run(p, yes=False, say=print):
             elif it["how"] == "unload":
                 _ollama("/api/generate", {"model": it["model"], "keep_alive": 0}, timeout=30)
                 done.append(f"unloaded {it['model']} from Ollama")
+            elif it["how"] == "stop" and it["kind"] == "ollama_service":
+                try:
+                    left = [m.get("name") for m in (_ollama("/api/ps") or {}).get("models") or []]
+                except Exception:
+                    left = []
+                if left:                                  # another app's model is still in it: stopping would take that away too
+                    done.append(f"kept the Ollama service (pid {it['pid']}): still holding {', '.join(map(str, left))}")
+                    continue
+                arch_server._kill(it["pid"])
+                try:
+                    import arch_ollama
+                    arch_ollama.clear_started()
+                except Exception:
+                    pass
+                done.append(f"stopped the Ollama service Architect started (pid {it['pid']})")
             elif it["how"] == "stop" and it["kind"] == "launch":
                 import arch_runner
                 arch_runner.stop(it["root"])

@@ -77,11 +77,12 @@ def ensure_running(say=print, wait_s=20):
     flags = (0x00000008 | 0x00000200) if os.name == "nt" else 0          # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     try:
         env = dict(os.environ, OLLAMA_HOST=f"{'[' + hn + ']' if ':' in hn else hn}:{port}")   # the port this install is set to use
-        subprocess.Popen([exe, "serve"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        proc = subprocess.Popen([exe, "serve"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          creationflags=flags, start_new_session=(os.name != "nt"), close_fds=True, env=env)
     except OSError as e:
         say(f"[ollama] could not start it ({e})")
         return False
+    _mark_started(proc.pid, exe)
     t0 = time.time()
     while time.time() - t0 < wait_s:
         if status(timeout=2).get("up"):
@@ -90,6 +91,62 @@ def ensure_running(say=print, wait_s=20):
         time.sleep(1.0)
     say(f"[ollama] started, but it did not answer within {wait_s}s")
     return False
+
+
+def _marker():
+    return os.path.join(core.data_dir(), "ollama_started.json")
+
+
+def _mark_started(pid, exe=None):
+    """Record that ARCHITECT started this `ollama serve` (pid + time): only that one may be stopped on hub exit (arch_cleanup)."""
+    try:
+        os.makedirs(core.data_dir(), exist_ok=True)
+        with open(_marker(), "w", encoding="utf-8") as f:
+            json.dump({"pid": int(pid), "exe": exe, "t": time.time()}, f)
+    except (OSError, ValueError, TypeError):
+        pass
+
+
+def started_by_us():
+    """-> the marker dict {pid, exe, t} when Architect started the Ollama service and that pid is still alive; else None."""
+    try:
+        with open(_marker(), encoding="utf-8") as f:
+            rec = json.load(f)
+        pid = int(rec.get("pid") or 0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    if not pid:
+        return None
+    try:
+        import arch_server
+        alive = arch_server._alive(pid)
+    except Exception:
+        alive = True
+    if not alive:
+        clear_started()
+        return None
+    return rec
+
+
+def clear_started():
+    try:
+        os.remove(_marker())
+    except OSError:
+        pass
+
+
+def loaded_view(cfg=None, host=None):
+    """-> {"running", "models": [{name, size_gb, vram_gb, ours, expires}], "ram_gb"} for the hub. `ours` = a model this app is set to use."""
+    import arch_cleanup
+    st = status(host, timeout=2)
+    ours = arch_cleanup._our_models(cfg)
+    models, ram = [], 0.0
+    for m in st.get("loaded") or []:
+        size, vram = m.get("size") or 0, m.get("size_vram") or 0
+        models.append({"name": m.get("name"), "size_gb": round(size / 1024 ** 3, 2), "vram_gb": round(vram / 1024 ** 3, 2),
+                       "ours": bool(ours is not None and m.get("name") in ours), "expires": m.get("until")})
+        ram += size
+    return {"running": bool(st.get("up")), "models": models, "ram_gb": round(ram / 1024 ** 3, 2)}
 
 
 def status(host=None, timeout=3):
@@ -144,8 +201,10 @@ def free_gpu(keep, host=None, say=print):
     return gone
 
 
-def warm(model, host=None, keep_alive="30m", timeout=600):
+def warm(model, host=None, keep_alive=None, timeout=600):
     """Load the model now so the first real call does not pay the load time. -> seconds taken, or None on failure."""
+    if keep_alive in (None, ""):
+        keep_alive = core.ollama_keep_alive()
     t0 = time.time()
     try:
         _json(_url(host) + "/api/generate", {"model": model, "keep_alive": keep_alive}, timeout=timeout)
