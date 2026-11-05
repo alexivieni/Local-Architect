@@ -539,6 +539,34 @@ def duplicate_bodies(root, files):
 
 
 DEDUP_WORDS = re.compile(r"duplicat|identical|copy-?pasted|the same code|become one|merge|combine|dedup", re.I)
+_MERGE = re.compile(r"`?([A-Za-z_]\w*)`?\s+and\s+`?([A-Za-z_]\w*)`?\s+(?:should|must|to)\s+(?:become|be merged into|turn into)\s+one"
+                    r"|(?:merge|combine)\s+`?([A-Za-z_]\w*)`?\s+and\s+`?([A-Za-z_]\w*)`?", re.I)
+
+
+def merge_names(goal):
+    """Pairs of names the request says should become one ("_norm_a and _norm_b should become one", "merge a and b"). -> [(a, b)]"""
+    out = []
+    for m in _MERGE.finditer(goal or ""):
+        a, b = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+        if a and b and a != b and a.lower() not in ("it", "this", "that") and b.lower() not in ("it", "this", "that"):
+            out.append((a, b))
+    return out
+
+
+def still_both(root, files, pairs):
+    """-> [(a, b, file)] where both names are still defined at the top of a file the refactor touches."""
+    import ast
+    out = []
+    for f in files:
+        if not f.endswith(".py") or not os.path.isfile(os.path.join(root, f)):
+            continue
+        try:
+            names = {n.name for n in ast.parse(core.read_text(os.path.join(root, f))[0]).body
+                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+        except (SyntaxError, ValueError, OSError):
+            continue
+        out += [(a, b, f) for a, b in pairs if a in names and b in names]
+    return out
 
 
 def lost_defs(before, after, said="", keep=()):
@@ -1794,6 +1822,11 @@ class RefactorFlow(Flow):
             if v["ok"] and shape0 and code_shape(e.root, files) == shape0:
                 v = dict(v, ok=False, text="Your reply changed only spacing or formatting: the code itself is exactly what it was, so the "
                          "refactor was not done. Make the change the goal asks for: " + goal)
+            both = still_both(e.root, files, merge_names(goal))
+            if v["ok"] and both:                            # the request names the two to merge: both still there is not done
+                v = dict(v, ok=False, text="The request says " + "; ".join(f"{a} and {b} should become one" for a, b, _ in both[:3])
+                         + ", but both are still defined in " + ", ".join(sorted({f for _, _, f in both})) + ". Keep ONE (or replace both with "
+                         "one expression), point every caller and test at it, and delete the other.")
             still = duplicate_bodies(e.root, files) if dups0 else []
             if v["ok"] and dups0 and len(still) >= len(dups0):
                 v = dict(v, ok=False, text="These functions still have the same body under different names: "
@@ -1805,7 +1838,7 @@ class RefactorFlow(Flow):
             if v["ok"]:
                 ok = True
                 break
-            feedback = ("FEEDBACK: " + (v["text"] if v["text"].startswith(("Your reply changed only", "These functions still"))
+            feedback = ("FEEDBACK: " + (v["text"] if v["text"].startswith(("Your reply changed only", "These functions still", "The request says"))
                                         else "behaviour changed or checks failed. Make a smaller step that keeps every test green:\n" + v["text"]) + "\n\n")
         e.deny_prefixes = []
         after = ck.metrics_python(e.root, files)

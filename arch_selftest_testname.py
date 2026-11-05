@@ -52,6 +52,17 @@ def run():
         e.call = lambda *a, **k: {"id": 2, "text": reply2}
         out2 = f._write(e, ["cart.py"], "improve the tests for cart.py", "tests/test_cart_extra.py", [], "write")
         check("a reply that already uses the right name is left as it is", out2 == ["tests/test_cart_extra.py"], out2)
+
+        # the refactor flow's named merge (live: models kept both _norm_a and _norm_b, only changing a body)
+        import arch_flows as F
+        check("the refactor request's own words name the pair to merge",
+              F.merge_names("the two duplicated helpers _norm_a and _norm_b should become one simple expression") == [("_norm_a", "_norm_b")]
+              and F.merge_names("merge `load` and `read` into one") == [("load", "read")] and F.merge_names("make it faster and cleaner") == [])
+        open(os.path.join(root, "dates.py"), "w", encoding="utf-8").write("def _norm_a(x):\n    return x\n\n\ndef _norm_b(x):\n    return x + 0\n")
+        both = F.still_both(root, ["dates.py"], [("_norm_a", "_norm_b")])
+        open(os.path.join(root, "dates.py"), "w", encoding="utf-8").write("def _norm_a(x):\n    return x\n")
+        check("a try that keeps both names is not done (even with different bodies); one name left is",
+              both == [("_norm_a", "_norm_b", "dates.py")] and F.still_both(root, ["dates.py"], [("_norm_a", "_norm_b")]) == [], both)
     finally:
         for k, v in saved.items():
             if v is None:
