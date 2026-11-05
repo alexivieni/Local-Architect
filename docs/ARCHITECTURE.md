@@ -176,8 +176,8 @@ flowchart TB
 
 Prompts are prefix-stable: every retry template puts the stable part first and the per-try part last.
 `arch_selftest_chain` fails any retry template in the Python flow modules (`arch_flows`, `arch_flows_ci`, `arch_flows_fake`,
-`arch_flows_pro`, `arch_flows_sec`) that puts `{feedback}` before the project context. It does not scan the YAML engine's prompt
-files (`prompts/<flow>/*.md`) yet; a one-off check on 2026-11-05 found all of them in order. Within a run, `Engine.context`
+`arch_flows_pro`, `arch_flows_sec`) that puts `{feedback}` before the project context. `arch_selftest_promptprefix` checks the
+YAML engine's 47 prompt files (`prompts/<flow>/*.md`) the same way: every per-try placeholder after every stable one. Within a run, `Engine.context`
 keeps each query's first file order, adds new files at the end and moves the files being edited last, so everything before the
 first edited file is reused. Before that order was pinned, re-ranking reshuffled the files on every retry and only 14–46% of the
 repeated input was reused (measured). The format reference (a past reply of yours that passed, from `arch_ledger`) goes at the
