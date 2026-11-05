@@ -1363,12 +1363,53 @@ document.addEventListener("keydown",e=>{
 /* ---- Claude agents: your Managed Agents (made in the Claude Console), run from here, every event visible ---- */
 let AG={list:null,sid:store.get("agSession",""),since:0,events:[],status:"",timer:0};
 function agentsPage(){
-  setTimeout(agentsLoad,0);
+  setTimeout(agentsLoad,0); setTimeout(ccLoad,0);
   const out=h("div",{id:"agOut"}),pick=h("div",{id:"agPick"},h("div",{class:"skeleton",style:"height:90px"}));
   return [h("div",{class:"card"},h("div",{class:"row"},h("span",{class:"cbadge",style:"font-size:13px;padding:2px 10px"},"Claude"),h("h2",{class:"grow",style:"margin:0"},"Claude agents"),
       h("a",{class:"btn sm",href:"https://platform.claude.com/agents",target:"_blank",rel:"noopener"},"Open the Console")),
     h("p",{class:"sub"},"Your Managed Agents run on Anthropic's side, in their own sandbox. Pick one, give it a task, and watch everything it does here: its messages, every tool it calls, and each status change. Billed to your API key."),pick),
-    h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"What the agent is doing"),h("span",{class:"chip",id:"agStatus"},AG.status||"no session")),out)];
+    h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"What the agent is doing"),h("span",{class:"chip",id:"agStatus"},AG.status||"no session")),out),
+    h("div",{class:"card",id:"ccCard"},h("div",{class:"row"},h("span",{class:"cbadge",style:"font-size:13px;padding:2px 10px"},"Claude Code"),h("h2",{class:"grow",style:"margin:0"},"Claude Code, on your API key"),h("span",{class:"chip",id:"ccStatus"},"…")),
+      h("p",{class:"sub"},"The real Claude Code agent, working in your project folder here on this PC, billed to your API key (never your subscription). Every message, thinking step, tool call and result appears below as it happens; Send again to continue the same session."),
+      h("div",{id:"ccForm"}),h("div",{id:"ccOut"}))];
+}
+let CC={run:"",since:0,events:[],session:store.get("ccSession",""),timer:0};
+async function ccLoad(){
+  const f=$("#ccForm"); if(!f)return; let st; try{st=await api("/api/arch/claudecode");}catch(e){f.textContent=e.message;return;}
+  const chip=$("#ccStatus"); chip.textContent=st.ready?"ready":"not ready"; chip.className="chip "+(st.ready?"good":"warn");
+  f.innerHTML=""; if(!st.ready){f.append(h("div",{class:"note warn"},st.why));return;}
+  const mode=h("select",{id:"ccMode"},...[["plan","Plan: reads and plans, changes nothing"],["acceptEdits","Accept edits: edits files, asks for nothing else"],["default","Manual: risky tools are refused"]].map(([v,l])=>h("option",{value:v,selected:store.get("ccMode","plan")===v},l)));
+  const model=h("select",{id:"ccModel"},...[["","Default model"],["opus","Opus"],["sonnet","Sonnet"],["haiku","Haiku"],["fable","Fable"]].map(([v,l])=>h("option",{value:v,selected:store.get("ccModel","")===v},l)));
+  mode.onchange=()=>store.set("ccMode",mode.value); model.onchange=()=>store.set("ccModel",model.value);
+  const ta=h("textarea",{id:"ccMsg",rows:3,style:"width:100%;font:inherit",placeholder:"Talk to it exactly like Claude Code: e.g. Find the slowest part of the Console page and fix it, with a test."});
+  f.append(h("div",{class:"fgrid"},h("label",{class:"f"},"Mode",mode),h("label",{class:"f"},"Model",model)),ta,
+    h("div",{class:"row",style:"margin-top:8px"},h("span",{class:"grow small mute",id:"ccSess"},CC.session?"Session: "+CC.session:"New session"),
+      CC.session?h("button",{class:"btn sm",onclick:()=>{CC.session="";store.set("ccSession","");$("#ccSess").textContent="New session";}},"New session"):null,
+      h("button",{class:"btn sm danger",onclick:()=>CC.run&&api("/api/arch/claudecode",{stop:CC.run})},"Stop"),
+      h("button",{class:"btn p",onclick:ccSend},"Send")));
+}
+async function ccSend(){
+  const m=($("#ccMsg").value||"").trim(); if(!m){toast("Type a task first");return;}
+  try{const r=await api("/api/arch/claudecode",{message:m,root:run.root||"",mode:$("#ccMode").value,model:$("#ccModel").value,resume:CC.session||""});
+    CC.run=r.run;CC.since=0;CC.events.push({t:Date.now()/1000,type:"you",text:m});$("#ccMsg").value="";ccPoll();}catch(e){toast.err(e.message,8000);}
+}
+async function ccPoll(){
+  clearTimeout(CC.timer); if(!CC.run||!$("#ccOut"))return;
+  try{const r=await api("/api/arch/claudecode?run="+CC.run+"&since="+CC.since); CC.events.push(...r.events); CC.since=r.n;
+    if(r.session){CC.session=r.session;store.set("ccSession",r.session);const se=$("#ccSess");if(se)se.textContent="Session: "+r.session;}
+    const chip=$("#ccStatus"); if(chip){chip.textContent=r.status+(r.cost?` · $${Number(r.cost).toFixed(4)}`:"");chip.className="chip "+({running:"warn",done:"good",error:"bad"}[r.status]||"");}
+    ccDraw(r); if(r.status==="running")CC.timer=setTimeout(ccPoll,1200);
+  }catch(e){CC.timer=setTimeout(ccPoll,3000);}
+}
+function ccDraw(r){
+  const out=$("#ccOut"); if(!out)return; out.innerHTML="";
+  if(r.error)out.append(h("div",{class:"note bad"},String(r.error)));
+  for(const e of CC.events){
+    const ico=e.type==="you"?"you":e.type==="assistant"?"C":e.type==="user"?"↳":e.type.startsWith("result")?"✓":"·";
+    out.append(h("div",{class:"agev "+(e.type==="assistant"?"agent-message":"")},h("span",{class:"agico"},ico),
+      h("div",{class:"grow"},h("div",{class:"small mute"},(e.type==="assistant"?"Claude Code":e.type==="user"?"tool result":e.type)+(e.model?" · "+e.model:"")+(e.usage?` · ${e.usage.input_tokens||0}+${e.usage.cache_read_input_tokens||0} cached in / ${e.usage.output_tokens||0} out`:"")),
+        e.type==="assistant"||e.type==="you"||e.type.startsWith("result")?renderText(e.text||""):h("div",{class:"agtxt"},e.text||""))));
+  }
 }
 async function agentsLoad(){
   const box=$("#agPick"); if(!box)return;

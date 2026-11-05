@@ -570,6 +570,12 @@ class AHandler(mh.Handler):
             st = mh.build_state()
             a_out = assess.assess(st.get("models", []), st.get("hw"), core.deep_merge(core.DEFAULTS, mh.read_config()))
             return self._send(200, advisor.advise(root, d_out, a_out))
+        if u.path == "/api/arch/claudecode":
+            import arch_claudecode as cc
+            q = parse_qs(u.query)
+            if q.get("run"):
+                return self._send(200, cc.snapshot(q["run"][0], int((q.get("since") or ["0"])[0])))
+            return self._send(200, cc.status())
         if u.path == "/api/arch/agents":
             import arch_agents
             q = parse_qs(u.query)
@@ -865,6 +871,22 @@ class AHandler(mh.Handler):
                 raise ValueError("A download needs an explicit confirmation (it can be many GB).")
             mh.JOB.start("Download " + tag, ["architect.py", "pull", tag, "--yes"])
             return {"ok": True}
+        if path == "/api/arch/claudecode":
+            import arch_claudecode as cc
+            if b.get("stop"):
+                cc.stop(str(b["stop"]))
+                return {"ok": True}
+            msg = str(b.get("message") or "").strip()[:20000]
+            if not msg:
+                raise ValueError("Type a task for Claude Code first.")
+            root = safe_root(b.get("root") or HERE)
+            model = str(b.get("model") or "") or None
+            if model and not re.fullmatch(r"claude-[a-z0-9.-]{3,40}|opus|sonnet|haiku|fable", model):
+                raise ValueError("unknown model")
+            sess = str(b.get("resume") or "") or None
+            if sess and not re.fullmatch(r"[0-9a-f-]{20,60}", sess):
+                raise ValueError("bad session id")
+            return {"ok": True, "run": cc.start(root, msg, str(b.get("mode") or "plan"), model, sess)}
         if path == "/api/arch/agents":
             import arch_agents
             msg = str(b.get("message") or "").strip()[:20000]
