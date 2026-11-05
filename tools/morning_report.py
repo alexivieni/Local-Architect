@@ -83,6 +83,20 @@ def build(hours=14.0):
         out.append(f"(could not read the cost model: {ex})")
     out.append("")
 
+    out += ["## Why tasks failed (arch_triage, from what the checks said)", ""]
+    try:
+        import arch_triage as T
+        res = [r for d in reps for r in (d.get("results") or [])]
+        fam = T.summarize(res)
+        if fam:
+            for f, n in sorted(fam.items(), key=lambda kv: -kv[1]):
+                out.append(f"- {f}: {n} -- {T.PLAIN.get(f, f)}")
+        else:
+            out.append("No failed task in this window.")
+    except Exception as ex:
+        out.append(f"(could not triage: {ex})")
+    out.append("")
+
     h1 = os.path.join(E.evals_dir(), "h1_summary.md")
     out += ["## H1: base vs abliterated worker", ""]
     if os.path.isfile(h1) and os.path.getmtime(h1) >= since:

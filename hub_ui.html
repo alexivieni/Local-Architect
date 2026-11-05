@@ -3681,6 +3681,7 @@ const cmKey=r=>r.model+"\u0001"+r.kind;
 const cmName=m=>String(m||"").replace(/^[^/]+\//,"");
 const CM_KIND={e2e:"whole projects",distributed:"distributed systems (training)",harness:"harness building (training)",planjson:"plans",route:"routing"};
 const cmKind=k=>CM_KIND[k]||k;
+const CM_WHY={environment:"the machine (server, memory, tools), not the model",refusal:"the model declined a safe task",wiring:"the shape the request states: a name, module, entry point or signature",tests:"only the model's own tests failed; the hidden check passed",timeout:"ran out of time or budget",behaviour:"the code ran and did the wrong thing"};
 const cmSecs=x=>x==null?"never passed":x<120?Math.round(x)+" s":(x%60===0||x>=600?Math.round(x/60):(x/60).toFixed(1))+" min";
 function costmapPage(){
   if(CM.peek) CM.peek=false; else CM.orth=store.get("cmOrth","0")==="1";   // a chip may set the saved filter aside for one visit only
@@ -3774,6 +3775,9 @@ function cmDraw(){
         h("div",{class:"btile "+(sel.C==null?"bad":"")},h("b",{class:"num"},cmSecs(sel.C)),h("span",{class:"mute small"},"per change that passed")),
         h("div",{class:"btile"},h("b",{class:"num"},sel.passed+" of "+sel.tasks),h("span",{class:"mute small"},"tasks passed"+(sel.not_sure?", "+sel.not_sure+" not sure":""))),
         h("div",{class:"btile"},h("b",{class:"num"},fmt(sel.t,0)+" s"),h("span",{class:"mute small"},"per task, on average"))),
+      Object.keys(sel.failures||{}).length?h("div",{class:"row small",style:"gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center"},
+        h("span",{class:"mute"},"Why the failures failed:"),
+        ...Object.entries(sel.failures).sort((x,y)=>y[1]-x[1]).map(([f,n])=>h("span",{class:"chip"+(f==="environment"?"":" warn"),title:CM_WHY[f]||f},f+" "+n))):null,
       hs.length>1?h("div",null,h("h3",{style:"margin:12px 0 6px"},"Run by run"),h("div",{style:"overflow-x:auto"},h("table",null,
         h("thead",null,h("tr",null,...["Run","When","Passed","Seconds per task","Per accepted change"].map((t,i)=>h("th",{class:i>1?"n":""},t)))),
         h("tbody",null,...hs.map(q=>h("tr",null,h("td",null,q.label),h("td",null,when(q.ts)),h("td",{class:"n"},q.passed+" / "+q.tasks),h("td",{class:"n"},fmt(q.t,0)),h("td",{class:"n"},cmSecs(q.C)))))))):null,

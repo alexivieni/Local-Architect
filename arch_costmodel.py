@@ -176,6 +176,7 @@ def from_evals(paths, include_fake=False):
     per = collections.defaultdict(dict)            # (model, flow) -> {report path: aggregate}
     runs = collections.defaultdict(list)
     meta, flow_of = {}, {}
+    fails = collections.defaultdict(dict)       # (model, kind) -> {failure family: count} (arch_triage)
     for path in paths:
         try:
             with open(path, encoding="utf-8") as f:
@@ -197,13 +198,20 @@ def from_evals(paths, include_fake=False):
                 flow_of[key] = r.get("flow") or "?"
             add(agg[key], r)
             add(per[key].setdefault(path, new()), r)
-            runs[key].append({"id": r.get("id"), "verdict": r.get("verdict"), "secs": r.get("secs"), "calls": r.get("calls"),
+            try:
+                import arch_triage
+                fam = arch_triage.classify(r)
+            except Exception:
+                fam = None
+            if fam:
+                fails[key][fam] = fails[key].get(fam, 0) + 1
+            runs[key].append({"id": r.get("id"), "verdict": r.get("verdict"), "secs": r.get("secs"), "calls": r.get("calls"), "why": fam,
                               "label": meta[path][1], "ts": meta[path][0], "detail": str(r.get("detail") or "")[:160]})
     out = []
     for (model, kind), a in agg.items():
         hist = [dict(point(v), label=meta[pth][1], ts=meta[pth][0]) for pth, v in sorted(per[(model, kind)].items(), key=lambda kv: meta[kv[0]][0])]
         low = model.lower()
-        out.append(dict(point(a), model=model, kind=kind, flow=flow_of[(model, kind)], history=hist,
+        out.append(dict(point(a), model=model, kind=kind, flow=flow_of[(model, kind)], history=hist, failures=dict(fails[(model, kind)]),
                         orthogonalized=any(w in low for w in ("abliterat", "uncensor", "orthogon")),
                         runs=sorted(runs[(model, kind)], key=lambda x: -(x["ts"] or 0))[:40]))
     return sorted(out, key=lambda r: (r["C"] is None, r["C"] or 0))
