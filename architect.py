@@ -1099,6 +1099,30 @@ def cmd_start(args):
     return 0
 
 
+def cmd_cost(args):
+    """The report's loop cost model (Eq. 15-19) from this machine's traces: seconds per ACCEPTED change, per role and model."""
+    import arch_costmodel as cm
+    import arch_costs
+    if args.planner:
+        v = [float(x) for x in args.planner.split(",")]
+        if len(v) not in (9, 10):
+            print("--planner wants c_b,t_b,p_b,p_b_new,c_r,t_l,p_l,t_s,p_s[,lambda*dS]  e.g. 20,15,0.40,0.50,1,120,0.9,30,0.8,15")
+            return 2
+        pays, left, right = cm.planner_pays(*v)
+        print(f"builder time saved {left:.1f} s  vs  planner time added {right:.1f} s  ->  "
+              + ("the larger planner PAYS" if pays else "keep the small planner"))
+        return 0
+    import glob as _glob
+    roots = [args.root] if args.root else (arch_costs._roots(None) or [os.getcwd()])
+    rows = cm.measure(roots, power_w=args.watts, min_calls=args.min_calls)
+    ev = cm.from_evals(sorted(_glob.glob(os.path.join(core.data_dir(), "evals", "*.json"))))
+    if args.json:
+        print(json.dumps({"calls": rows, "evals": ev}, indent=1))
+    else:
+        print("Per task, from your saved eval runs:\n" + cm.report_evals(ev) + "\n\nPer model call, from run traces:\n" + cm.report(rows))
+    return 0
+
+
 def cmd_explain(args):
     """Model options for this machine and a kind of work, in plain words first, numbers second, formula third."""
     import arch_hw
@@ -1303,6 +1327,16 @@ def _run_suites(suite):
                 if _e.code not in (None, 0):
                     print(f"[x] arch_selftest_{_name}: {_e.code}")
                     rc |= 1
+            except Exception as _e:
+                print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
+                rc |= 1
+        # suites whose run() returns True when every check passed (art returns 0 like the older ones)
+        for _name in ("a11y", "art", "costmodel", "idle"):
+            try:
+                _res = importlib.import_module("arch_selftest_" + _name).run()
+                rc |= (0 if (_res is True or (type(_res) is int and _res == 0)) else 1)     # False == 0, so check the type
+            except SystemExit as _e:
+                rc |= 0 if _e.code in (None, 0) else 1
             except Exception as _e:
                 print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
                 rc |= 1
@@ -1542,12 +1576,18 @@ def main(argv=None):
     ex_.add_argument("--kv", choices=["f16", "q8_0", "q4_0"], default="q8_0")
     ex_.add_argument("--quants", help="also show this model at other storage formats")
     ex_.add_argument("--json", action="store_true")
+    co_ = sub.add_parser("cost", help="seconds per ACCEPTED change per role and model (the report's C = t / p-bar), or --planner to test Eq. 19")
+    co_.add_argument("--root", help="one project folder (default: every portfolio project + this folder)")
+    co_.add_argument("--watts", type=float, help="average power draw, to report energy E = P * C")
+    co_.add_argument("--min-calls", type=int, default=3)
+    co_.add_argument("--planner", help="c_b,t_b,p_b,p_b_new,c_r,t_l,p_l,t_s,p_s[,lambda*dS]: does a larger planner pay?")
+    co_.add_argument("--json", action="store_true")
     st = sub.add_parser("selftest")
     st.add_argument("--suite", choices=["core", "all", "full"], default="core", help="core = engine, flows, tune, catalog, fake-code (default); all = + pro/security/hub-API suites; full = + the self-improvement pipeline")
     a = ap.parse_args(argv)
     fn = {"run": cmd_run, "flows": cmd_flows, "templates": cmd_templates, "route": cmd_route, "undo": cmd_undo,
           "portfolio": cmd_portfolio, "show-config": cmd_show, "serve": cmd_serve, "doctor": cmd_doctor, "assess": cmd_assess, "advise": cmd_advise,
-          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist}.get(a.cmd)
+          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist}.get(a.cmd)
     if not fn:
         ap.print_help()
         return 0

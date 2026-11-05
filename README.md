@@ -1,26 +1,149 @@
 # Local Architect
 
-**An AI engineering team that runs entirely on your own computer.** Describe what you want in plain words; local models plan it,
-write the code, and run real tests, and only work that passes the checks is kept. No cloud, no account, no subscription: your code
-never leaves your machine unless you turn on the optional Claude step.
+**A local-first agentic coding harness built on orthogonalized small language models.** The model proposes; code decides.
+
+Python 3.10+ · standard library only · offline by default · runs on a 6 GB laptop GPU ·
+[technical report](docs/research/README.md) · [architecture](docs/ARCHITECTURE.md) · [report vs code](docs/research/IMPLEMENTATION_STATUS.md)
+
+An agentic coding system puts a language model in a loop: retrieve context, propose an edit, run the checks, try again.
+Architect runs that loop entirely on your own hardware. It rests on three parts, each set out in the
+[technical report](docs/research/README.md):
+
+1. **Orthogonalized small models.** The tiers run 4B–35B models whose refusal direction has been projected out of the weights
+   ($P = I - \hat r \hat r^\top$). Unattended pipelines then do not stop on false-positive refusals, and the caution taken out of
+   the weights moves into the control plane.
+2. **A deterministic harness.** Memory, retrieval and verification live outside the weights. Tests, parsers and scanners decide
+   what is kept. A check that cannot run gives the verdict *not sure*, never a pass.
+3. **A quantitative design model.** GPU memory, RAM, storage and the network are treated as one memory hierarchy. Every placement
+   decision is judged by one number: the expected time per accepted change, $C = t/\bar p$.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  U["Request"] --> R["Router<br/>qwen3 1.7B · CPU"]
+  R --> F["Flow<br/>YAML steps, budgets"]
+  F --> X["Retrieve<br/>AST skeleton · FTS5 + TF-IDF"]
+  X --> W["Worker<br/>abliterated 8B · GPU"]
+  W --> A["Apply edit<br/>read-before-edit · undo"]
+  A --> G{"Gates<br/>tests · parse · scanners"}
+  G -- "pass" --> V["Accept"]
+  G -- "fail" --> FB["Failure text<br/>in the prompt tail"]
+  FB --> W
+  G -- "stalled" --> H["Heavy<br/>35B MoE · experts in RAM"]
+  H --> A
+  H -. "opt-in, spend-capped" .-> CL["Claude tier"]
+  V --> T[("trace.jsonl")]
+  T --> LB["Logbook · playbooks · route learning"]
+  T --> DS["Verified local work only<br/>dataset · LoRA · eval gate · promote"]
+```
+
+Each step is data (`flows/*.yaml`): a tier, a prompt file, its gates, retries and a `{calls, tokens, seconds}` budget, enforced
+before a request leaves. A gate answers **True**, **False** or **None**. None means "could not run" and is never counted as a pass
+or used as training data. Failure feedback always goes at the end of the prompt, so the stable prefix stays in the KV cache across
+retries.
+
+### Where the bytes live
+
+```mermaid
+flowchart TB
+  subgraph GPU["GPU · RTX 4050 6 GB · 158 GB/s measured"]
+    WK["Worker: all 36 layers + 8K KV cache, about 5.3 GB"]
+    HA["Heavy, when loaded: attention + shared weights"]
+  end
+  subgraph RAM["RAM · 32 GB · 19.5 GB/s measured"]
+    HE["Heavy: MoE experts, --n-cpu-moe"]
+    RT["Router 1.7B on performance cores"]
+    PC["Page cache: warm model swaps"]
+  end
+  subgraph NVME["NVMe"]
+    MD["Model weights · KV slot per project"]
+  end
+  subgraph SD["SD card · 32 GB"]
+    AR["Run archive · learning data · backups"]
+  end
+  subgraph LAN["Other PCs, optional"]
+    HO["Whole roles; only text crosses the network"]
+  end
+  GPU <--> RAM
+  RAM <--> NVME
+  NVME --> SD
+  RAM -. "prompts and replies" .-> LAN
+```
+
+## The design model
+
+The report's equations are implemented in the code. Each one comes with its parameters measured on this machine.
+
+**Memory fit.** A model fits on the card only if its weights, its KV cache and the runtime overhead fit together:
+
+$$\kappa = 2\,L\,h_{kv}\,d_h\,b, \qquad M + \kappa n + O \le V \quad\Longrightarrow\quad n^{\ast} = \left\lfloor \frac{V - O - M}{\kappa} \right\rfloor$$
+
+**Decoding is bandwidth-bound.** Each token reads every active weight and its cache once, from wherever they live:
+
+$$t_{tok} \approx \sum_{\tau \in \lbrace \text{gpu},\ \text{ram},\ \text{disk} \rbrace} \frac{D_\tau}{B_\tau}, \qquad \sum_\tau D_\tau = M_{\text{active}} + \kappa \bar n$$
+
+**Call time with a cached prefix.** ρ is the share of the prompt served from the KV cache:
+
+$$t = (1-\rho)\,\frac{n_{in}}{r_p} + n_{out}\, t_{tok}$$
+
+**Time per accepted change.** This is the quantity a model is judged by. It uses the attempt-weighted pass rate $\bar p$ over
+attempts $1, \dots, k$:
+
+$$C = \frac{t}{\bar p}, \qquad \bar p = \frac{\sum_{i=1}^{k} Q_{i-1}\, p_i}{\sum_{i=1}^{k} Q_{i-1}}, \qquad Q_i = \prod_{j \le i} (1 - p_j)$$
+
+**Placing roles.** For role counts $c_r$, swaps $S$ and swap cost $\lambda$, moving the planner from a small model $s$ to a large
+model $\ell$ pays only when the builder time it saves exceeds the planner time it adds:
+
+$$J = \sum_r c_r \frac{t_r}{p_r} + \lambda S, \qquad c_b\, t_b \left(\frac{1}{p_b} - \frac{1}{p_b'}\right) > c_r \left(\frac{t_\ell}{p_\ell} - \frac{t_s}{p_s}\right) + \lambda\, \Delta S$$
+
+**Loop control, retrieval and self-improvement.** A step is stalled when it repeats itself. Retrieval rankings are fused by
+reciprocal rank. A self-edit is promoted only when every gate passes and no checks were removed:
+
+$$h_i = h_{i-1} \ \lor\ f_i = f_{i-1} \ \lor\ h_i = h_{i-2}, \qquad \mathrm{RRF}(d) = \sum_j \frac{1}{60 + \mathrm{rank}_j(d)}, \qquad \mathrm{Gates}(H') \land \lvert \mathrm{checks}(H') \rvert \ge \lvert \mathrm{checks}(H) \rvert$$
+
+| Equation | Where it runs | Measured on the reference laptop |
+|---|---|---|
+| Fit (4–5) | `arch_server.plan`, `arch_modelmath.fit` | abliterated 8B: all 36 layers + 8K window on a 6 GB card |
+| Decode (6–7) | `model_hub.fit_model`, `arch_hw.bandwidth_from` | GPU 158 GB/s, RAM 19.5 GB/s |
+| Prefix reuse (15) | prefix-stable prompts, llama-server `cache_n`, KV slots on disk | ρ recorded per call; edits 56 → 306–343 tok/s with n-gram speculation |
+| Cost (16–17) | `arch_costmodel`, `python architect.py cost`, `GET /api/arch/cost` | see the table below |
+| Placement (18–19) | `arch_costmodel.planner_pays`, `cost --planner` | the report's worked example is a self-test: 150 s > 110.8 s pays |
+| Stall (22), fusion (23), promotion (24) | `arch_progress.Coach`, `arch_index.rrf`, `arch_selfimprove.gate` | built and self-tested |
+
+**C on this machine** (from `python architect.py cost` over live eval runs; 2–8 tasks per row, so read these as early readings):
+
+| Model | Flow | p | t (s/task) | **C (s per passed task)** |
+|---|---|---|---|---|
+| huihui_ai/qwen3-abliterated:8b | feature | 1.00 | 38.3 | **38.3** |
+| huihui_ai/qwen3-abliterated:4b | bugfix | 1.00 | 40.4 | **40.4** |
+| qwen3:8b | build | 0.43 | 113.6 | **265.0** |
+| huihui_ai/qwen3-abliterated:8b | build | 0.14 | 75.6 | **529.0** |
+
+On `build`, the faster model costs more per accepted change because it passes less often. That is why the report ranks models by
+C and not by tokens per second.
+
+**Status against the report:** of 40 items, 21 are built, 17 are partial and 2 are not yet built. The largest gaps are the
+orthogonalization procedure itself, layer splits across machines (Eq. 13) and the §9 evaluation. Section by section, with the
+code for each: [docs/research/IMPLEMENTATION_STATUS.md](docs/research/IMPLEMENTATION_STATUS.md).
+
+## What you get
 
 - **Builds, fixes, tests, refactors, secures and reviews** code through 19 workflows (build, bugfix, feature, test, refactor, secure, ...).
 - **Code decides what passes**, not the model: tests, syntax checks, a fake-code detector and scanners gate every change, and every run can be undone.
 - **Uses your whole machine**: a small router model on the processor, a fast worker on the graphics card, a larger "heavy" model beside it,
   tests on the efficiency cores, run records archived to a second drive.
 - **Shows its work**: a web hub with live typing, the plan, every check, which model did what, and a one-page receipt per run.
-- **Gets better with use**: verified runs become training data for your own models.
-- **Optional Claude step**: when every local model is stuck, one step can be handed to Claude (off by default, spend-capped, never used as training data).
+- **Gets better with use**: verified local runs become training data for your own models.
+- **Optional Claude step**: when every local model is stuck, one step can be handed to Claude. It is off by default, spend-capped,
+  and its output is never used as training data.
 
-
-**Architecture:** see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — harness, agents, components, workload placement, tokens and caching.
-
-**Research:** [Engineering Local Agentic Coding Harnesses with Orthogonalized Small Language Models](docs/research/README.md) (technical report, PDF, with a map from each section to the code).
-
-**Engineering docs:** [architecture review (22 ranked changes)](docs/architecture_review_20261104.md) ·
-[Claude-to-local synthesis](docs/claude_to_local_synthesis.md) · [agent method](docs/agent_method.md) ·
-[PC plan](docs/pc_plan_20261104.md) · [Claude API review](docs/claude_api_review.md) · [design system](docs/design_system.md) ·
-[art direction](docs/art_direction.md) · [training plan](docs/training_plan.md) · [hybrid benchmark](docs/hybrid_benchmark.md)
+**Docs:** [architecture](docs/ARCHITECTURE.md) (harness, agents, components, placement, tokens and caching) ·
+[technical report](docs/research/README.md) · [report vs code](docs/research/IMPLEMENTATION_STATUS.md) ·
+[architecture review](docs/architecture_review_20261104.md) · [Claude-to-local synthesis](docs/claude_to_local_synthesis.md) ·
+[agent method](docs/agent_method.md) · [PC plan](docs/pc_plan_20261104.md) · [Claude API review](docs/claude_api_review.md) ·
+[design system](docs/design_system.md) · [art direction](docs/art_direction.md) · [training plan](docs/training_plan.md) ·
+[hybrid benchmark](docs/hybrid_benchmark.md)
 
 ## What's new today (2026-11-04)
 

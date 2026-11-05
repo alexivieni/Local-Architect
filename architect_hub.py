@@ -1568,6 +1568,16 @@ class AHandler(mh.Handler):
                     pass
                 c = AHandler._live_cache = (now, sorted(set(map(str, names)))[:20])
             return self._send(200, {"running": len(c[1]), "names": c[1]})
+        if u.path == "/api/arch/cost":                  # the report's C = t / p-bar from this machine's evals and traces (read-only)
+            import glob as _glob
+            import arch_costmodel as cm
+            import arch_costs
+            try:
+                ev = cm.from_evals(sorted(_glob.glob(os.path.join(core.data_dir(), "evals", "*.json"))))
+                return self._send(200, {"evals": ev, "calls": cm.measure(arch_costs._roots(None) or [os.getcwd()]),
+                                        "formula": "C = t / p_bar (seconds per accepted change, Eq. 17)"})
+            except Exception as ex:
+                return self._send(200, {"evals": [], "calls": [], "error": str(ex)[:200]})
         if u.path == "/api/arch/recommend":
             import arch_recommend
             try:

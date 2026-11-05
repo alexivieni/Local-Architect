@@ -22,8 +22,8 @@ November 2026. [PDF](Engineering_Local_Agentic_Coding_Harnesses_Vieni_2026.pdf)
 | §4.4 Loading and swapping | Fewer swaps; warm before a run | Resident tiers, swap ledger (`arch_chain.py`), idle unloading (`server.idle_free_min`) |
 | §4.5 Batching | Parallel candidates on shared prefixes | `sample_n` steps, best-of-N rescue (`arch_flows.best_of_n`) |
 | §4.6 Several machines | Route whole roles to other machines | `arch_hosts.py`, hub **Models → Computers** |
-| §5.1 Cost of an accepted change, `C = t / p̄` | Time per accepted change = call time / attempt-weighted pass rate | Run traces + `arch_costs.py` (cost per finished task); `arch_routelearn.py` picks the route with the best measured outcome |
-| §5.2 Placing roles across models | Thinking roles vs builder roles | Tiers (router/worker/heavy/Claude), `arch_broker.py`, Claude "plan" mode |
+| §5.1 Cost of an accepted change, `C = t / p̄` | Time per accepted change = call time / attempt-weighted pass rate | `arch_costmodel.py` computes Eq. 15-17 from run traces and eval reports (`python architect.py cost`, `GET /api/arch/cost`); `arch_routelearn.py` picks the route with the best measured outcome |
+| §5.2 Placing roles across models | Thinking roles vs builder roles | Tiers (router/worker/heavy/Claude), `arch_broker.py`, Claude "plan" mode; Eq. 18-19 as `arch_costmodel.run_time` / `planner_pays` (`cost --planner`), tested on the report's worked example |
 | §5.3 Retries, sampling, batching | Strategy-diverse retries, escalation | `arch_progress.py` (Coach, escalation), best-of-N |
 | §5.4 Loop detection | Stop repeating the same call | `core.LoopDetected`, stall detection, repeat-read pointer |
 | §5.5 Retrieval fusion | BM25 ⊕ TF-IDF | `arch_fts.py`, `arch_index.py` |
@@ -31,3 +31,5 @@ November 2026. [PDF](Engineering_Local_Agentic_Coding_Harnesses_Vieni_2026.pdf)
 | §9 Proposed evaluation | 14B and 32B, base vs orthogonalized | `evals/` families + `tools/hybrid_bench.py` + `tools/train_traces.py` |
 | §11 Phase 3: speculative decoding, shared-prefix batches, cross-machine overlap | Throughput | n-gram speculation (measured 56 → 306–343 tok/s on edits), draft models (`server.draft`), `arch_fleet.py` GPU scheduling |
 | §11 Phase 4: learning from tests | RL from pass/fail rewards on labelled runs | Verified traces → `arch_dataset.py` → `train_lora.py` (SFT/DPO today; GRPO needs a 24 GB GPU) |
+
+**Implementation status, section by section and equation by equation:** [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
