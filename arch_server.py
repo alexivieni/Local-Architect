@@ -949,6 +949,46 @@ def _kill(pid):
         pass
 
 
+GRACE_S = 8.0          # how long a server may take to finish its exit handler (llama-server writes --lookup-cache-dynamic then)
+
+# Windows: our servers run with CREATE_NO_WINDOW, i.e. on a console of their own that we do not share, so os.kill(pid, CTRL_*_EVENT)
+# from here cannot reach them (and CREATE_NEW_PROCESS_GROUP would make the child ignore Ctrl+C). A short helper process detaches from
+# our console, attaches to the server's, ignores the event itself and raises Ctrl+C there; llama-server's console handler treats
+# CTRL_C_EVENT as SIGINT and shuts down cleanly. The helper is its own process so our console is never touched.
+_CTRL_C_HELPER = (
+    "import ctypes,sys\n"
+    "k=ctypes.windll.kernel32\n"
+    "k.FreeConsole()\n"
+    "if not k.AttachConsole(int(sys.argv[1])): sys.exit(2)\n"
+    "k.SetConsoleCtrlHandler(None,True)\n"
+    "sys.exit(0 if k.GenerateConsoleCtrlEvent(0,0) else 3)\n")
+
+
+def _ask_exit(pid):
+    """Ask a process to shut down cleanly (Ctrl+C on its console / SIGINT). -> True when the request was delivered. Never raises."""
+    try:
+        if sys.platform.startswith("win"):
+            r = subprocess.run([sys.executable, "-I", "-c", _CTRL_C_HELPER, str(int(pid))], capture_output=True, timeout=5,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+            return r.returncode == 0
+        os.kill(pid, signal.SIGINT)
+        return True
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+
+
+def _graceful(pid, grace=GRACE_S):
+    """Ctrl+C / SIGINT, wait up to `grace` s for the exit, then the hard kill. -> "clean" | "killed". Bounded: ~grace + 5 s."""
+    if _ask_exit(pid):
+        t0 = time.time()
+        while time.time() - t0 < grace:
+            if not _alive(pid):
+                return "clean"
+            time.sleep(0.2)
+    _kill(pid)
+    return "killed"
+
+
 def stop(tiers=None, say=print):
     st = load_state()
     gone = {t: rec for t, rec in (st.get("processes") or {}).items() if not tiers or t in tiers}
@@ -961,8 +1001,8 @@ def stop(tiers=None, say=print):
     save_state(st)                  # first: a watchdog reading the state between the kill and the save would start the tier again
     for t, rec in gone.items():
         if rec.get("pid") and _alive(rec["pid"]):
-            _kill(rec["pid"])
-            say(f"[server] {t}: stopped (pid {rec['pid']})")
+            how = _graceful(rec["pid"])
+            say(f"[server] {t}: stopped (pid {rec['pid']}" + (", cleanly" if how == "clean" else ", forced") + ")")
         orphan = _pid_on_port(rec.get("port") or 0) if rec.get("port") else None
         if orphan and orphan != rec.get("pid"):
             _kill(orphan)
