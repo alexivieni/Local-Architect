@@ -217,6 +217,31 @@ def from_evals(paths, include_fake=False):
     return sorted(out, key=lambda r: (r["C"] is None, r["C"] or 0))
 
 
+def p_cheapest(rows, draws=2000, seed=7):
+    """How sure is "cheapest"? For each kind of task: draw every model's pass rate from Beta(passed + 1, failed + 1) and its
+    C = t / p, count how often each model is cheapest. -> {kind: {model: probability}}. With 3 tasks a point, 'cheapest' is often
+    luck; this says how much (Thompson sampling, the same draw a bandit router would make)."""
+    import random
+    rnd = random.Random(seed)
+    by = collections.defaultdict(list)
+    for r in rows:
+        by[r.get("kind") or r.get("flow")].append(r)
+    out = {}
+    for kind, rs in by.items():
+        wins = collections.Counter()
+        for _ in range(draws):
+            best, bm = None, None
+            for r in rs:
+                fails = max(0, (r.get("tasks") or 0) - (r.get("passed") or 0) - (r.get("not_sure") or 0))
+                p = rnd.betavariate((r.get("passed") or 0) + 1, fails + 1)
+                c = (r.get("t") or 0) / max(p, 1e-6)
+                if best is None or c < best:
+                    best, bm = c, r["model"]
+            wins[bm] += 1
+        out[kind] = {m: round(n / draws, 3) for m, n in wins.items()}
+    return out
+
+
 def report_evals(rows):
     if not rows:
         return "No live eval reports yet (python architect.py eval --quick)."

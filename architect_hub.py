@@ -1627,7 +1627,7 @@ class AHandler(mh.Handler):
             import arch_costmodel as cm
             try:
                 ev = cm.from_evals(sorted(_glob.glob(os.path.join(core.data_dir(), "evals", "*.json"))))
-                return self._send(200, {"evals": ev, "calls": cm.measure(cm.default_roots()),
+                return self._send(200, {"evals": ev, "calls": cm.measure(cm.default_roots()), "p_cheapest": cm.p_cheapest(ev),
                                         "formula": "C = t / p_bar (seconds per accepted change, Eq. 17)"})
             except Exception as ex:
                 return self._send(200, {"evals": [], "calls": [], "error": str(ex)[:200]})

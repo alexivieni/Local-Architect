@@ -90,6 +90,11 @@ def run():
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
+    pc = cm.p_cheapest([{"model": "a", "kind": "k", "tasks": 20, "passed": 20, "t": 30}, {"model": "b", "kind": "k", "tasks": 20, "passed": 2, "t": 30},
+                        {"model": "x", "kind": "j", "tasks": 3, "passed": 3, "t": 40}, {"model": "y", "kind": "j", "tasks": 3, "passed": 3, "t": 40}])
+    check("p_cheapest: a clear winner is near certain; two identical records split about evenly (Thompson draws)",
+          pc["k"]["a"] > 0.97 and 0.35 < pc["j"].get("x", 0) < 0.65, pc)
+
     # the hub's Cost map page (static: the page source, no browser)
     import re
     html = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "hub_ui.html"), encoding="utf-8").read()

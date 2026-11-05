@@ -3796,9 +3796,12 @@ function cmDraw(){
   out.append(h("div",null,h("h3",{style:"margin:6px 0"},"Cheapest per kind of task"),
     h("p",{class:"small mute",style:"margin:0 0 6px"},"Measured, not a recommendation to switch: a model you chose stays in charge until you change it."),
     h("div",{style:"overflow-x:auto"},h("table",null,
-      h("thead",null,h("tr",null,...["Kind of task","Cheapest","Per accepted change","Next best","Models measured"].map((t,i)=>h("th",{class:i===2||i===4?"n":""},t)))),
+      h("thead",null,h("tr",null,...["Kind of task","Cheapest","How sure","Per accepted change","Next best","Models measured"].map((t,i)=>h("th",{class:i===2||i===3||i===5?"n":""},t)))),
       h("tbody",null,...best.map(b=>h("tr",{style:"cursor:pointer",onclick:()=>{CM.flow=b.f;cmDraw();}},h("td",null,cmKind(b.f)),
-        h("td",null,b.a?cmName(b.a.model):h("span",{class:"chip bad"},"none passed yet")),h("td",{class:"n"},b.a?cmSecs(b.a.C):"–"),
+        h("td",null,b.a?cmName(b.a.model):h("span",{class:"chip bad"},"none passed yet")),
+        h("td",{class:"n",title:"How often this model came out cheapest when its pass rate is redrawn from what was measured (2000 draws): a few tasks a point make 'cheapest' partly luck"},
+          (()=>{const pc=((CM.data.p_cheapest||{})[b.f]||{})[b.a?b.a.model:""];return pc==null?"–":Math.round(pc*100)+"%";})()),
+        h("td",{class:"n"},b.a?cmSecs(b.a.C):"–"),
         h("td",{class:"small"},b.b?cmName(b.b.model)+" · "+cmSecs(b.b.C):"–"),h("td",{class:"n"},String(b.n)))))))));
   const calls=CM.data.calls||[];
   out.append(h("div",null,h("h3",{style:"margin:6px 0"},"Per model call"),calls.length?h("div",{style:"overflow-x:auto"},h("table",null,
