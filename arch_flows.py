@@ -1084,7 +1084,25 @@ GOAL: {goal}
 
 {context}"""
 
-BUILD_SPRINT = """Implement this sprint. Make the smallest complete change that satisfies the acceptance criteria, including tests for backend behaviour (under tests/, runnable with the project's test command).
+# behavior.test_first: the tester writes acceptance tests from the request alone, before any code (arch_spec). Stable part first.
+ACCEPTANCE_TESTS = """Write ACCEPTANCE TESTS for a request BEFORE any code exists. You see only the request and the spec code extracted from it.
+Rules: pytest test functions only, each with at least one assert (or pytest.raises); import ONLY the names listed under INTERFACE (plus
+the standard library and pytest); start the file with `import os, sys` and `sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))`;
+run a command line as `subprocess.run([sys.executable, "-m", <module>, ...], cwd=<that project folder>, capture_output=True, text=True)`;
+use tmp_path for any file; no network except a server the request itself describes on 127.0.0.1. Test the usages and the statements
+listed; assert an exact value only where the request states it. Keep it small: 3-8 tests. Reply with exactly ONE block:
+FILE: {path}
+```python
+...
+```
+
+REQUEST:
+{goal}
+
+SPEC:
+{spec}"""
+
+BUILD_SPRINT ="""Implement this sprint. Make the smallest complete change that satisfies the acceptance criteria, including tests for backend behaviour (under tests/, runnable with the project's test command).
 
 SPRINT {n}/{total}: {name}
 GOAL: {sgoal}
@@ -1361,6 +1379,16 @@ class BuildFlow(Flow):
                 for sp_ in sprints:                                     # the tests exist: no sprint writes them, and none may edit them
                     sp_["files"] = [f for f in (sp_.get("files") or []) if f != tests_for]
                 e.deny_prefixes = list(e.deny_prefixes) + [tests_for]
+        acc_rel = ""                                                    # behavior.test_first: acceptance tests from the request alone
+        if e.cfg["behavior"].get("test_first", "off") == "on" and e.review in ("auto", "dry") and not rs.get("plan"):
+            import arch_spec
+            sp_ = arch_spec.spec(goal)
+            if arch_spec.has_interface(sp_) and not os.path.isfile(os.path.join(e.root, arch_spec.ACCEPTANCE)):
+                acc_rel = arch_spec.write_acceptance(e, goal, sp_, ACCEPTANCE_TESTS)
+                if acc_rel:                                             # locked: the builder codes against it and may not edit it
+                    e.deny_prefixes = list(e.deny_prefixes) + [acc_rel]
+                    iface_text += (f"\n({acc_rel} holds acceptance tests written from the request; it is locked: make the CODE pass it, "
+                                   "never edit it)")
         done, all_files = [], list(rs.get("files") or [])
         carry = ""                                                      # the failure of a folded sprint, handed to the next one
         import arch_chain
@@ -1392,7 +1420,7 @@ class BuildFlow(Flow):
                 rescue = attempt == e.cfg["limits"]["max_revisions"] + 1
                 if rescue and not (k_res > 1 and not e.pins.get(role) and e.review in ("auto", "dry")):
                     break                                               # the extra round is only a best-of-N rescue for a stuck step
-                if attempt >= 2:                                        # optimal stopping (arch_costmodel.retry_worth): measured hopeless
+                if attempt >= 2 and not rescue:                         # optimal stopping (arch_costmodel.retry_worth); never skips the rescue
                     try:
                         import arch_costmodel
                         if not arch_costmodel.retry_worth(role, e.model_for(role), attempt + 1, e.cfg):
@@ -1475,6 +1503,10 @@ class BuildFlow(Flow):
                         if sok is False:
                             cok_last = False
                             v = dict(v, ok=False, text=(stext + ("\n\n" + v["text"] if v.get("text") else "")))
+                if acc_rel and not v["ok"] and n < len(sprints) and not lost and not missing:
+                    import arch_spec                                    # an earlier sprint: acceptance tests for later work are advisory
+                    if arch_spec.only_acceptance_fails(e, v, acc_rel):
+                        v = dict(v, ok=True, text="(For later in this build) acceptance tests still failing in " + acc_rel + "\n" + (v.get("text") or ""))
                 log_checks(e, f"sprint {n} checks", v)
                 e.mark(r["id"], v["ok"], v["text"])
                 if wired:                                               # this try had help from code: never a training sample on its own
@@ -1506,6 +1538,10 @@ class BuildFlow(Flow):
                     continue
                 feedback = coach.after("FEEDBACK: your last change failed these checks. Fix them (smallest change):\n" + v["text"] + hint + "\n\n", r["text"], v["text"], applied)
             coach.close()
+            if acc_rel and not ok and n == len(sprints) and e.review == "auto":
+                import arch_spec                                        # a wrong acceptance test may not block a correct build forever
+                ok, why_ = arch_spec.drop_rule(e, goal, verify, contract_check, changed, acc_rel)
+                e.report(f"- Acceptance drop rule: {'applied, ' if ok else 'not applied: '}{why_}")
             all_files = sorted(set(all_files + changed))
             judged = None
             if ok and e.cfg["behavior"]["evaluator"] == "each" and acc:
@@ -2007,6 +2043,23 @@ def route(e, goal, forced=None):
     return (top[0] if top[1] > 0 else ("new" if empty else "build")), doms, "best keyword match" if top[1] > 0 else "default"
 
 
+def broker_advice(e, flow_id, rows=None, state=None):
+    """Suggestion only (behavior.broker = suggest): one line naming the measured-cheapest model for this kind of task next to the one
+    that will run. Never changes a model; a failure here never stops the run."""
+    try:
+        import arch_broker
+        current = e.model_for("generator")
+        a = arch_broker.advise(e.cfg, flow_id, getattr(e, "goal", ""), "generate", current=current, rows=rows, state=state)
+        if not a:
+            return None
+        e.say(a["line"])
+        e._trace(dict({k: v for k, v in a.items() if k != "line"}, type="broker", t=time.time(), flow=flow_id))
+        e.report(f"- Broker: {a['line']}")
+        return a
+    except Exception:
+        return None
+
+
 def run_flow(e, flow_id, params=None):
     params = params or {}
     flow = FLOWS[flow_id]
@@ -2014,6 +2067,7 @@ def run_flow(e, flow_id, params=None):
     e.state["params"] = json.loads(json.dumps({k: v for k, v in params.items() if k != "resume"}, default=str))
     e._write_state()
     model_down = False
+    broker_advice(e, flow_id)
     if not (e.state.get("todo")) and getattr(flow, "steps", None):
         try:                                              # Python flows have no per-step hook: the list is set now and closed at the end
             e.todo_set([{"id": f"s{i}", "title": str(t)} for i, t in enumerate(flow.steps, 1)])

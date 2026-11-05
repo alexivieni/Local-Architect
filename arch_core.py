@@ -77,7 +77,7 @@ DEFAULTS = {
                  "min_gain_pct": 10, "bench_runs": 5,          # optimize flow: required speed-up, benchmark repetitions
                  "hunt_max_files": 4, "hunt_findings": 5,      # hunt flow
                  "network": "offline", "net_allow": [], "net_block_tools": True,   # policy for code run by the Architect: offline | practice | open (default: offline -- nothing the harness runs leaves this machine unless you say so; the binary block below is independent of this)
-                 "thinking": "roles", "sampling": "roles", "chat_model": "worker", "stall_samples": 3, "ground_edits": "on", "tests_first": "off", "tests_on_ecores": "auto", "chores_on_ecores": "auto", "close_on_exit": "auto", "reply_budget": "auto", "retry_stop": "auto", "sandbox_mem_mb": 4096,     # roles = as each role defines; plan_debug_only / model_card: measured A/B options
+                 "thinking": "roles", "sampling": "roles", "chat_model": "worker", "stall_samples": 3, "ground_edits": "on", "tests_first": "off", "test_first": "off", "tests_on_ecores": "auto", "chores_on_ecores": "auto", "close_on_exit": "auto", "reply_budget": "auto", "retry_stop": "auto", "broker": "suggest", "sandbox_mem_mb": 4096,     # roles = as each role defines; plan_debug_only / model_card: measured A/B options
                  "edit_style": "patch",                        # patch = EDIT blocks (search/replace); whole = write complete files under ~200 lines (small models); auto = whole under ~80 lines
                  "max_shrink_pct": 60,                         # refuse a reply that would cut an existing file (25+ lines) by more than this percent; 0 = off
                  "swap_aware": "on", "fast_tests": "on",      # fast_tests: in fix loops run the tests related to the changed files first, then the whole suite
@@ -2041,8 +2041,19 @@ class Engine:
         if model not in self._off_card:
             keep = False
             try:
+                moe = model == self.tier_model("heavy")
+                if not moe:
+                    try:
+                        import arch_passport
+                        moe = bool((arch_passport.load(model) or {}).get("moe"))
+                    except Exception:
+                        moe = False
+                host = os.environ.get("OLLAMA_HOST", "127.0.0.1")
+                local = any(h in host for h in ("127.0.0.1", "localhost", "0.0.0.0")) or ":" not in host and "." not in host
+                # only a mixture-of-experts (or the heavy tier) on THIS machine's Ollama: a dense model would crawl from RAM, and a
+                # model on another machine does not use this card (review 2026-11-05)
                 if (str((self.cfg.get("server") or {}).get("ollama_gpu", "auto")) == "auto" and not str(model).startswith("claude")
-                        and model != self.tier_model("worker")):
+                        and model != self.tier_model("worker") and moe and local):
                     import arch_server
                     rec = ((arch_server.load_state().get("processes") or {}).get("worker") or {})
                     keep = bool(arch_server.serving("tier:worker", self.cfg)) and int(rec.get("ngl") or 0) > 0

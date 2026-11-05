@@ -458,6 +458,9 @@ def trace_economics(root, run_name):
             out["escalations"].append({"step": rec.get("step"), "role": rec.get("role"), "to": rec.get("to") or rec.get("model")})
         elif t == "verdict":
             out["verdict"] = {"verdict": rec.get("verdict"), "why": str(rec.get("why") or rec.get("reason") or "")[:300]}
+        elif t == "broker" and len(out.setdefault("broker", [])) < 20:
+            out["broker"].append({k: rec.get(k) for k in ("t", "flow", "family", "suggest", "current", "why", "sure", "C", "target")})
+    out.setdefault("broker", [])
     return out
 
 

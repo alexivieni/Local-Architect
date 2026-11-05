@@ -31,9 +31,11 @@ def run():
         arch_server._kill = lambda pid: calls["kill"].append(pid)
         arch_server.stop = lambda *a, **k: calls.__setitem__("stop", calls["stop"] + 1)
         C._our_llama_pids = lambda: [101, 102, 555]
-        C._ollama = lambda path, body=None, timeout=10: ({"models": [{"name": "moe:35b"}]} if path == "/api/ps"
+        C._ollama = lambda path, body=None, timeout=10: ({"models": [{"name": "moe:35b"}, {"name": "other-app:7b"}]} if path == "/api/ps"
                                                          else calls["unload"].append(body["model"]) or {})
         C._known_roots = lambda: []
+        C._our_models = lambda cfg=None: {"moe:35b"}
+        C._slots_busy = lambda: False
         arch_heavy.holder = lambda: None
         real_temp = tempfile.gettempdir
         tempfile.gettempdir = lambda: tmp

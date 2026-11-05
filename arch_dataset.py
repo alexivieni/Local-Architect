@@ -183,6 +183,13 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
     for root in root_list:
         for run in runs_of(root):
             stats["runs"] += 1
+            try:                                       # a kept eval run whose HIDDEN checks did not pass teaches nothing, whatever
+                with open(os.path.join(run, "eval_task.json"), encoding="utf-8") as _f:   # its in-run gates said (review 2026-11-05)
+                    if (json.load(_f) or {}).get("verdict") != "pass":
+                        stats["eval_not_passed"] += 1
+                        continue
+            except (OSError, ValueError):
+                pass
             full = read_full(os.path.join(run, "trace.jsonl"))
             calls, marks = full["calls"], full["marks"]
             run_name = os.path.basename(run)

@@ -40,6 +40,7 @@ def run():
             e = eng()
             check("a model Ollama answers stays off the card while our worker server holds layers on it", e._keep_off_card("moe:35b"))
             check("the worker itself is never affected", not e._keep_off_card("w:8b"))
+            check("a dense model that is not the heavy tier keeps the card (it would crawl from RAM)", not e._keep_off_card("dense:14b"))
             check("a Claude model is never affected", not e._keep_off_card("claude:opus"))
             check("server.ollama_gpu = allow leaves Ollama's own choice", not eng(ollama_gpu="allow")._keep_off_card("moe:35b"))
             state["processes"]["worker"]["ngl"] = 0

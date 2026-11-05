@@ -27,6 +27,29 @@ OLLAMA = os.environ.get("OLLAMA_HOST", "127.0.0.1:11434")
 TEMP_AGE_S = 2 * 3600
 
 
+def _our_models(cfg):
+    """Models this app is set to use (tiers + assigned roles + default); None when the settings cannot be read (then all count)."""
+    try:
+        import arch_core
+        c = cfg or arch_core.load_config()
+        names = set(v for v in (c.get("tiers") or {}).values() if v) | set(v for v in (c.get("roles") or {}).values() if v)
+        if c.get("default_model"):
+            names.add(c["default_model"])
+        return names
+    except Exception:
+        return None
+
+
+def _slots_busy():
+    """True when our worker server is answering right now (a plain run holds no job lock)."""
+    try:
+        import arch_server
+        sv = arch_server.serving("tier:worker")
+        return bool(sv and arch_server.busy(sv["url"]))
+    except Exception:
+        return False
+
+
 def _job_running():
     try:
         import arch_heavy
@@ -79,7 +102,7 @@ def plan(cfg=None, roots=None):
     """-> {"busy": job or None, "items": [{"kind", "what", "how"}]}. Reads only."""
     import arch_server
     items = []
-    busy = _job_running()
+    busy = _job_running() or ({"job": "a run", "pid": 0} if _slots_busy() else None)
     st = arch_server.load_state()
     tracked = set()
     for t, rec in (st.get("processes") or {}).items():
@@ -90,7 +113,10 @@ def plan(cfg=None, roots=None):
         if pid not in tracked:
             items.append({"kind": "strays", "what": f"llama-server pid {pid} that no record knows", "how": "kill", "pid": pid})
     try:
+        ours = _our_models(cfg)
         for m in (_ollama("/api/ps") or {}).get("models") or []:
+            if ours is not None and m.get("name") not in ours:
+                continue                                  # another app's model: not ours to unload
             items.append({"kind": "ollama", "what": f"Ollama is holding {m.get('name')} in memory", "how": "unload", "model": m.get("name")})
     except Exception:
         pass
@@ -105,7 +131,8 @@ def plan(cfg=None, roots=None):
     now = time.time()
     for d in glob.glob(os.path.join(tempfile.gettempdir(), "eval_*")):
         try:
-            if os.path.isdir(os.path.join(d, ".arch")) and now - os.path.getmtime(d) > TEMP_AGE_S:
+            newest = max([os.path.getmtime(d)] + [os.path.getmtime(t) for t in glob.glob(os.path.join(d, ".arch", "runs", "*", "trace.jsonl"))])
+            if os.path.isdir(os.path.join(d, ".arch")) and now - newest > TEMP_AGE_S and not busy:
                 items.append({"kind": "temp", "what": f"throwaway eval folder {os.path.basename(d)}", "how": "delete", "path": d})
         except OSError:
             continue

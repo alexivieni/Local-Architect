@@ -218,6 +218,63 @@ def explain(decision):
     return f"{head} Why: {d.get('why', '')}.{when}{money}".replace("..", ".")
 
 
+# ------------------------------------------------------------------------------------------------------------ advice at a run's start
+def eval_paths():
+    import glob
+    return sorted(glob.glob(os.path.join(core.data_dir(), "evals", "*.json")))
+
+
+def family_rows(rows, flow):
+    """The Cost map's rule: points whose family IS the flow id first; else the points measured through that flow."""
+    same = [r for r in rows if (r.get("kind") or "") == flow]
+    return same or [r for r in rows if (r.get("flow") or "") == flow]
+
+
+def advise(cfg, flow, goal="", kind="generate", current=None, rows=None, state=None, log=True):
+    """Suggestion only: which model the saved benchmarks measured as cheapest (C = seconds per passed task) for this flow's family,
+    how sure (Thompson draws), next to the model that will actually run. Never changes any assignment.
+    -> {"suggest": model | None, "why", "current", "family", "sure", "C", "target", "line"} or None when behavior.broker = off."""
+    if str(((cfg or {}).get("behavior") or {}).get("broker", "suggest")) == "off":
+        return None
+    import arch_costmodel
+    if rows is None:
+        try:
+            rows = arch_costmodel.from_evals(eval_paths())
+        except Exception:
+            rows = []
+    fam = family_rows(rows or [], flow)
+    family = (fam[0].get("kind") or flow) if fam else flow
+    target = None
+    if state is None and os.environ.get("ARCHITECT_SELFTEST") == "1":
+        state = {}                                 # self-tests never read the live machine for advice
+    try:
+        target = route({"kind": kind if kind in KINDS else "generate"}, state=state if state is not None else gather(cfg), cfg=cfg, log=False).get("target")
+    except Exception:
+        pass
+    priced = [r for r in fam if r.get("C")]
+    out = {"suggest": None, "current": current, "family": family, "sure": None, "C": None, "target": target}
+    if not priced:
+        out["why"] = f"no measured benchmark for {family} tasks yet, so nothing to suggest"
+        out["line"] = f"Measured: nothing yet for {family} (no saved benchmark); " + (f"{current} runs it." if current else "the assigned model runs it.")
+    else:
+        sure = (arch_costmodel.p_cheapest(fam).get(family) or {})
+        best = min(priced, key=lambda r: r["C"])
+        p = float(sure.get(best["model"], 0.0))
+        out.update(suggest=best["model"], sure=round(p, 3), C=best["C"])
+        out["why"] = (f"{best['model']} is cheapest for {family}: {best['C']:g} s per passed task "
+                      f"({best['passed']} of {best['tasks']} passed), {round(p * 100)}% sure it is the cheapest")
+        tail = ("it is also the model that runs it." if current == best["model"] else
+                f"your worker {current} runs it." if current else "the assigned model runs it.")
+        out["line"] = f"Measured: {best['model']} is cheapest for {family} ({best['C']:g} s per passed task, {round(p * 100)}% sure); {tail}"
+    if target:
+        out["line"] += f" Broker: {WORDS.get(target, target)}."
+    if log:
+        _log({"kind": "advice", "flow": flow, "family": family},
+             {"ts": round(time.time(), 3), "target": "advice", "eta_s": None, "cost_usd": 0.0, "evidence": "measured" if out["suggest"] else "none",
+              "why": out["why"] + f"; current {current}; suggest {out['suggest']}"})
+    return out
+
+
 # ------------------------------------------------------------------------------------------------------------ the decision log
 def log_path():
     return os.path.join(core.data_dir(), "broker.jsonl")

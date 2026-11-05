@@ -565,7 +565,7 @@ def keep_trace(run_dir, task, res, label=""):
         return None
     bucket = bucket_for(task)
     base = os.path.join(kept_runs_dir(bucket), ".arch", "runs")
-    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{time.strftime('%Y%m%d_%H%M%S')}_{task['id']}")[:120]
+    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{time.strftime('%Y%m%d_%H%M%S')}_{task['id']}")[:110] + f"_{os.getpid()}_{int(time.time() * 1000) % 100000}"
     dest = os.path.join(base, name)
     try:
         os.makedirs(dest, exist_ok=True)

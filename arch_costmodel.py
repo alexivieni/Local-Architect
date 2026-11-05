@@ -63,7 +63,7 @@ def planner_pays(c_b, t_b, p_b, p_b_new, c_r, t_l, p_l, t_s, p_s, lam_dS=0.0):
 
 
 # ---------------------------------------------------------------------------------------------------- measured from traces
-_TRY = re.compile(r"[-_\s]*(?:try|attempt|round)\s*\d+\s*$", re.I)       # "fix-try2", "sprint1-try1", "build try 3"
+_TRY = re.compile(r"[-_\s]*(?:try|attempt|round)\s*\d+(?:[-_]?(?:sample|cand)\d+)?\s*$", re.I)       # "fix-try2", "sprint1-try1", "build try 3"
 
 
 def default_roots():
