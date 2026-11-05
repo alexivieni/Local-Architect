@@ -2121,8 +2121,9 @@ class Engine:
                 used += len(parts[-1])
                 continue
             o = outline(p)
-            if o:
-                parts.append(f"=== {f} (outline only; not fully shown) ===\n{o}")
+            if o and used + len(o) <= budget:                   # outlines count against the budget too (they used to be added
+                parts.append(f"=== {f} (outline only; not fully shown) ===\n{o}")   # without limit: 36k chars for a 4k request)
+                used += len(parts[-1])
         if not files:
             parts.append("(the project folder has no source files yet)")
         out = "\n\n".join(parts)

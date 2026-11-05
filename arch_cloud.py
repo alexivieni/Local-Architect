@@ -142,9 +142,7 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
     def one(lens):
         name, how = lens
         with asked_for(None, "medium"):
-            msgs = [m for m in messages if m.get("role") != "system"]
-            sys_ = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
-            msgs = [{"role": "system", "content": (sys_ + "\n\n" if sys_ else "") + f"You are the {name} on a small team. {how} Keep it under 300 words."}] + msgs
+            msgs = list(messages) + [{"role": "user", "content": f"You are the {name} on a small team. {how} Keep it under 300 words."}]
             _HERE.label = name
             try:
                 return name, chat(worker, msgs, {"num_predict": 1200}, cfg=cfg, client=client)
@@ -152,7 +150,13 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
                 _HERE.label = None
 
     with cf.ThreadPoolExecutor(max_workers=len(ULTRA_LENSES)) as ex:
-        for fut in cf.as_completed([ex.submit(one, l) for l in ULTRA_LENSES]):
+        first_f = ex.submit(one, ULTRA_LENSES[0])                    # writes the shared cache ...
+        try:
+            first_f.result()
+        except Exception:
+            pass
+        futs = [first_f] + [ex.submit(one, l) for l in ULTRA_LENSES[1:]]   # ... the rest read it at ~0.1x
+        for fut in cf.as_completed(futs):
             try:
                 name, r = fut.result()
                 calls_all.extend(r.get("calls") or [])
@@ -169,7 +173,7 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
     def refute(i):
         with asked_for(None, "medium"):
             _HERE.label = f"skeptic {i}"
-            return chat(worker, [m for m in messages if m.get("role") != "system"] + [{"role": "user", "content":
+            return chat(worker, list(messages) + [{"role": "user", "content":
                         "A teammate proposed this answer:\n\n" + notes.get("solver", "") + f"\n\nYou are skeptic #{i}. Try to REFUTE it: list concrete "
                         "errors, wrong assumptions or missing steps, each with why. If it is correct, say 'no objections'. Under 150 words."}],
                         {"num_predict": 600}, cfg=cfg, client=client)
@@ -202,9 +206,9 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
     return r
 
 
-def cost(model, prompt_tokens, gen_tokens):
+def cost(model, prompt_tokens, gen_tokens, cache_read=0, cache_write=0):
     pin, pout = PRICES.get(api_model(model), PRICES[DEFAULT_MODEL])
-    return (prompt_tokens or 0) * pin / 1e6 + (gen_tokens or 0) * pout / 1e6
+    return ((prompt_tokens or 0) + 0.1 * (cache_read or 0) + 1.25 * (cache_write or 0)) * pin / 1e6 + (gen_tokens or 0) * pout / 1e6
 
 
 def spent():
@@ -240,6 +244,8 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
         client = anthropic.Anthropic(timeout=max(60.0, secs))
     system = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
     msgs = [{"role": m["role"], "content": str(m.get("content") or "")} for m in messages if m.get("role") in ("user", "assistant")]
+    if msgs and msgs[0]["role"] == "user" and len(msgs[0]["content"]) > 3000:     # the project context: shared by every agent of a team
+        msgs[0] = {"role": "user", "content": [{"type": "text", "text": msgs[0]["content"], "cache_control": {"type": "ephemeral"}}]}
     if not msgs or msgs[0]["role"] != "user":
         msgs.insert(0, {"role": "user", "content": "(continue)"})
     while msgs and msgs[-1]["role"] == "assistant":                  # no prefill on current models
@@ -250,7 +256,7 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
     kw = dict(model=api_model(model), thinking=kw_thinking, max_tokens=max(1024, min(want * 2, 64000)) if eff not in ("xhigh", "max") else 64000, messages=msgs,
               output_config={"effort": eff})
     if system:
-        kw["system"] = system
+        kw["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]   # cached: same prefix next call = ~0.1x price
     if isinstance(fmt, dict):                                        # a JSON schema: structured output
         kw["output_config"] = {"effort": eff, "format": {"type": "json_schema", "schema": fmt}}
     elif fmt == "json":
@@ -298,11 +304,13 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
         raise LLMError("Claude declined this request (refusal); treated as could-not-run, not as an answer")
     u = getattr(final, "usage", None)
     pt, gt = getattr(u, "input_tokens", 0) or 0, getattr(u, "output_tokens", 0) or 0
-    usd = cost(model, pt, gt)
+    cr, cw = getattr(u, "cache_read_input_tokens", 0) or 0, getattr(u, "cache_creation_input_tokens", 0) or 0
+    usd = cost(model, pt, gt, cr, cw)
     _SPENT["usd"] += usd
     _SPENT["calls"] += 1
     secs = max(time.time() - (first or t0), 1e-6)
-    rec = {"label": getattr(_HERE, "label", None) or "answer", "model": api_model(model), "effort": eff, "in": pt, "out": gt,
+    rec = {"label": getattr(_HERE, "label", None) or "answer", "model": api_model(model), "effort": eff, "in": pt + cr + cw, "out": gt,
+           "cached": cr, "cache_write": cw,
            "usd": round(usd, 5), "secs": round(time.time() - t0, 1), "thinking": "".join(thinking)[:4000], "text": "".join(text)[:4000]}
     return {"calls": [rec], "text": "".join(text), "thinking": "".join(thinking), "gen_tokens": gt, "prompt_tokens": pt, "cached_tokens": None,
             "done_reason": "length" if stop == "max_tokens" else "stop", "tok_s": round(gt / secs, 1) if gt else None,

@@ -817,7 +817,7 @@ def run():
         kw = fc.sent[0]
         check("cloud tier: system text goes in `system`, a trailing assistant turn is dropped (no prefill), no temperature is sent, "
               "effort is set, tokens stream to on_token, the reply is tagged transport=claude with its cost",
-              kw["system"] == "S" and kw["messages"][-1]["role"] == "user" and "temperature" not in kw and kw["model"] == "claude-sonnet-5-5"
+              kw["system"][0]["text"] == "S" and kw["system"][0]["cache_control"]["type"] == "ephemeral" and kw["messages"][-1]["role"] == "user" and "temperature" not in kw and kw["model"] == "claude-sonnet-5-5"
               and kw["output_config"]["effort"] == "high" and "".join(toks) == r["text"] and r["transport"] == "claude"
               and abs(r["usd"] - (1000 * 2 + 500 * 10) / 1e6) < 1e-9)
         try:
