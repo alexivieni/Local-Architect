@@ -1519,6 +1519,47 @@ class AHandler(mh.Handler):
             st = mh.build_state()
             a_out = assess.assess(st.get("models", []), st.get("hw"), core.deep_merge(core.DEFAULTS, mh.read_config()))
             return self._send(200, advisor.advise(root, d_out, a_out))
+        if u.path == "/api/arch/why":
+            # a finished run in plain sentences (arch_why: built from the trace records, no model call)
+            import arch_why
+            q = parse_qs(u.query)
+            root = safe_root((q.get("root") or [HERE])[0])
+            rid = (q.get("run") or [""])[0]
+            if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", rid or ""):
+                last = core.latest_run(root)
+                rid = os.path.basename(last) if last else ""
+            d = os.path.join(root, ".arch", "runs", rid) if rid else ""
+            try:
+                return self._send(200, {"run": rid, "sentences": arch_why.explain_run(d) if d and os.path.isdir(d) else []})
+            except Exception as ex:
+                return self._send(200, {"run": rid, "sentences": [], "error": str(ex)[:200]})
+        if u.path == "/api/arch/live":
+            # how many agents are working right now, anywhere (hub-started Claude Code runs + everything the monitor sees)
+            now = time.time()
+            c = getattr(AHandler, "_live_cache", None)
+            if not c or now - c[0] > 10:
+                names = []
+                try:
+                    import arch_claudecode as _cc
+                    def _alive(pid):                      # a run whose process is gone is not working, whatever its record says
+                        try:
+                            import arch_server as _sv
+                            return bool(pid) and _sv._alive(int(pid))
+                        except Exception:
+                            return False
+                    names += [r.get("id") or "claude" for r in (_cc.list_runs(limit=30) or [])
+                              if r.get("status") == "running" and _alive(r.get("pid"))]
+                except Exception:
+                    pass
+                try:
+                    import arch_overseer as _ov
+                    s = _ov.summary()
+                    names += [a.get("name") or "agent" for a in (s.get("agents") or [])
+                              if (a.get("live") or a.get("status") == "running") and float(a.get("quiet_s") or 0) < 600]
+                except Exception:
+                    pass
+                c = AHandler._live_cache = (now, sorted(set(map(str, names)))[:20])
+            return self._send(200, {"running": len(c[1]), "names": c[1]})
         if u.path == "/api/arch/recommend":
             import arch_recommend
             try:
@@ -1880,6 +1921,15 @@ class AHandler(mh.Handler):
                 raise ValueError("A download needs an explicit confirmation (it can be many GB).")
             mh.JOB.start("Download " + tag, ["architect.py", "pull", tag, "--yes"])
             return {"ok": True}
+        if path == "/api/arch/sharpen":
+            # a rough request -> a precise one: target files (checked to exist), acceptance checks, a draft test, risks (local by default)
+            import arch_augment
+            goal = str(b.get("goal") or "").strip()[:4000]
+            if not goal:
+                raise ValueError("Type what you want first.")
+            use = "claude" if b.get("use") == "claude" else "local"
+            res = arch_augment.sharpen(safe_root(b.get("root") or HERE), goal, use=use)
+            return {"result": res, "summary": arch_augment.summary(res)}
         if path == "/api/arch/claudecode":
             import arch_claudecode as cc
             if b.get("stop"):

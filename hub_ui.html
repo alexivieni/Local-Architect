@@ -1085,6 +1085,12 @@ div.st-err::before,p.st-err::before{background:color-mix(in srgb,var(--bad) 18%,
 .recline{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-top:6px}
 .recchip{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--acc2);color:var(--acc)}
 label.f.hasrec>input,label.f.hasrec>select{border-color:var(--acc)}
+
+/* sharpen, why, live chip, drop target */
+.sharp{margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:var(--rs);display:grid;gap:8px}
+.whylist{margin:8px 0 0;padding-left:20px;display:grid;gap:4px;font-size:13px}
+.livechip{cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.subtabs button.dropok{outline:2px dashed var(--acc);outline-offset:2px}
 /* ===== art direction (docs/art_direction.md): section hues, page glyphs, illustrations, signs of life, the theme picker. Tokens only ===== */
 /* section hue: one colour per place, used for an icon tint and the active marker, nothing else */
 body[data-sec=home],.nav[data-sec=home]{--hue:var(--hue-projects)}
@@ -1346,11 +1352,18 @@ const SUBNAME={fleet:"Fleet",monitor:"Monitor",map:"Map",library:"Library",logbo
 /* pages that are in no tab (the Components page) name the tab they belong to as a fifth field */
 const tabOf=id=>TABS.find(t=>t[3].includes(id))||TABS.find(t=>t[0]===(PAGES.find(p=>p[0]===id)||[])[4])||TABS[0];
 
+function queueDropTarget(btn){
+  btn.addEventListener("dragover",e=>{e.preventDefault();btn.classList.add("dropok");});
+  btn.addEventListener("dragleave",()=>btn.classList.remove("dropok"));
+  btn.addEventListener("drop",async e=>{e.preventDefault();btn.classList.remove("dropok");const t=(e.dataTransfer.getData("text/plain")||"").trim();
+    if(!t)return; try{await api("/api/arch/queue",{add:{goal:t.slice(0,2000),root:run.root||""}});toast("Queued: "+t.slice(0,60));}catch(err){toast.err(err.message);}});
+}
+document.addEventListener("dragstart",e=>{const el=e.target.closest&&e.target.closest(".sidea,.msg.you .body,.tcard,.chip.acc");if(el&&!e.dataTransfer.getData("text/plain"))e.dataTransfer.setData("text/plain",el.innerText);},true);
 function buildNav(){
   const n=$("#nav");n.innerHTML="";const cur=tabOf(page);
   for(const t of TABS)n.append(h("button",{class:"nav","aria-current":t===cur?"page":false,onclick:()=>go(t[3][0])},icon(t[1]),t[2]));
   const sb=$("#subtabs");sb.innerHTML="";
-  if(cur[3].length>1)for(const id of cur[3])sb.append(h("button",{"aria-current":id===page?"page":false,onclick:()=>go(id)},SUBNAME[id]||id));
+  if(cur[3].length>1)for(const id of cur[3]){const b=h("button",{"aria-current":id===page?"page":false,onclick:()=>go(id)},SUBNAME[id]||id);if(id==="queue"){b.title="Drop a task here to queue it";queueDropTarget(b);}sb.append(b);}
   /* the pills scroll sideways on a narrow screen instead of wrapping; keep the current one in view */
   const on=sb.querySelector("[aria-current=page]");
   if(on&&sb.scrollWidth>sb.clientWidth)sb.scrollLeft=Math.max(0,on.offsetLeft-(sb.clientWidth-on.offsetWidth)/2);
@@ -1501,6 +1514,7 @@ function renderStrip(){
       (t.moe_cpu_layers?`; the experts of ${t.moe_cpu_layers} layers stay in RAM`:"")).join("; ")+
       ". The card waits on RAM for that part, so it can look idle while the model is working."},
       icon("layers"),"part in RAM: "+spill.map(t=>t.tier).join(", ")));
+  if(window.LIVE&&LIVE.running) kids.push(h("span",{class:"sep"}),h("button",{class:"chip warn livechip",title:"Working now: "+LIVE.names.join(", ")+". Open the Monitor.",onclick:()=>go("monitor")},h("i",{class:"dot busy"}),LIVE.running+" agent"+(LIVE.running>1?"s":"")+" working"));
   if(S.cloud&&S.cloud.on) kids.push(h("span",{class:"sep"}),h("span",{class:"chip "+(S.cloud.ready?"good":"warn"),title:S.cloud.text+". Settings > Online."},icon("globe"),S.cloud.ready?"Claude: "+({escalation:"last step",chat:"chat + last step",all:"every step"}[S.cloud.mode]||"on"):"Claude not ready"));
   if(G&&G.vm_gb) kids.push(h("span",{class:"sep"}),
     h("span",{class:"sg",title:`The WSL2 / Docker Desktop VM holds ${fmt(G.vm_gb,1)} GB of RAM now`+(G.vm_limit_gb?` and may grow to ${fmt(G.vm_limit_gb,0)} GB (its limit)`:"")+
@@ -1536,6 +1550,7 @@ function gpuTitle(G){
 }
 async function pollGpu(){
   if(document.hidden||!$("#cStrip")) return;
+  try{ window.LIVE=await api("/api/arch/live"); }catch(_){}
   try{ GPU=await api("/api/arch/gpu"); (window.PULSE=window.PULSE||[]).push(GPU.gpu_pct||0); if(PULSE.length>36)PULSE.shift(); renderStrip(); }catch(_){}
 }
 setInterval(pollGpu,5000); setTimeout(pollGpu,800);
@@ -1614,6 +1629,11 @@ function renderDoing(){
     const acts=v==="pass"?[["Build on it","Next: "],["Explain what changed","Explain what the last run changed and why, file by file."],["Add tests for it","Add more tests for what the last run built, including edge cases."]]
       :[["Try a different way","Try again with a different approach: "+(EV.post&&EV.post.next_try?EV.post.next_try:"")],["Make it smaller","Do only the first, smallest part of the last request: "],["Why did it fail?","Explain in plain words why the last run did not pass."]];
     kids.push(h("div",{class:"sect"},h("p",{class:"lbl","data-n":"06"},"Next"),h("div",{class:"sd-ideas"},...acts.map(([l,t])=>h("button",{class:"chip sidea",onclick:()=>ask(t)},l)))));
+    kids.push(h("div",{class:"sd-ideas",style:"margin-top:6px"},
+      h("button",{class:"chip sidea",title:"The run in plain sentences: what happened, in order, and why",onclick:explainRun},"Explain why"),
+      h("button",{class:"chip sidea",title:"Turn this into a fleet plan: several agents, each with its own files",onclick:()=>{store.set("fleetGoal",(EV.goal||run.goal||""));go("fleet");}},"Make it a fleet"),
+      h("button",{class:"chip sidea",title:"Open this workflow in Blueprints to edit and save as your own",onclick:()=>{store.set("bpFlow",EV.flow||"");go("blueprints");}},"Save as Blueprint")),
+      h("div",{id:"whyBox"}));
   }
   if(EV.post&&EV.verdict&&EV.verdict.verdict!=="pass"){
     const p=EV.post;
@@ -1634,6 +1654,12 @@ function laneView(){
       h("div",{class:"lane-bar"},...L.filter(c=>c.tier===tr).map(c=>h("i",{class:"lane-b "+tr,title:`${c.role} · ${c.model} · ${fmt(c.secs,1)} s`,
         style:`left:${100*((c.t-c.secs)-t0)/span}%;width:${Math.max(0.8,100*c.secs/span)}%`}))),
       h("span",{class:"small mute num"},fmt(busy(tr),0)+" s"))));
+}
+async function explainRun(){
+  const b=$("#whyBox"); if(!b)return; b.innerHTML="";
+  try{const r=await api("/api/arch/why?root="+encodeURIComponent(run.root||"")+"&run="+encodeURIComponent((EV.verdict||{}).run||""));
+    b.append(h("ol",{class:"whylist"},...(r.sentences||[]).map(t=>h("li",null,t))));
+    if(!(r.sentences||[]).length)b.append(h("p",{class:"small mute"},"No finished run to explain yet."));}catch(e){b.append(h("p",{class:"small mute"},e.message));}
 }
 function stepFacets(st){
   const id=st.step, tl=EV.tools.filter(t=>t.step===id), gs=EV.gates.filter(g=>g.step===id);
@@ -3050,7 +3076,7 @@ function runPage(){
       h("div",{class:"row",style:"margin-top:10px;align-items:flex-end"},
         h("label",{class:"f"},"Approve changes",h("select",{id:"rRev",onchange:e=>run.review=e.target.value},...[["ask","Ask me before each change"],["dry","Only show what it would change"],["auto","Apply, then prove it with tests"]].map(([v,l])=>h("option",{value:v,selected:run.review===v},l)))),
         h("span",{class:"grow"}),
-        h("div",{class:"row",style:"margin-left:auto;flex-wrap:nowrap"},h("button",{class:"btn",onclick:previewRoute},"What will it do?"),h("button",{class:"btn p",id:"goBtn",onclick:startRun},"Start"))),
+        h("div",{class:"row",style:"margin-left:auto;flex-wrap:nowrap"},h("button",{class:"btn",title:"Turn a rough request into a precise one: target files, acceptance checks, a draft test (your local model, free)",onclick:sharpenGoal},"Sharpen"),h("button",{class:"btn",onclick:previewRoute},"What will it do?"),h("button",{class:"btn p",id:"goBtn",onclick:startRun},"Start"))),
       h("div",{id:"reqOut"}),h("div",{id:"routeOut"}),h("div",{id:"examples",class:"row",style:"margin-top:8px"}),
       /* the advanced options: grouped under headings, labels above inputs, the folder path on a row of its own so it is never cut off */
       h("details",{class:"adv"},h("summary",null,"Where, and advanced: project folder, workflow and focus"),
@@ -3364,6 +3390,20 @@ function drawRequests(){const o=$("#reqOut");if(!o)return;o.innerHTML="";const p
     ...parts.map((x,i)=>h("div",{class:"req"},h("span",{class:"stl-n"},String(i+1)),h("span",{class:"grow"},x),
       h("button",{class:"btn sm",onclick:()=>{run.goal=x;const g=$("#goal");if(g)g.value=x;drawRequests();previewRoute(true);}},"Only this")))));}
 let _pvT=0;function livePreview(){drawRequests();clearTimeout(_pvT);if((run.goal||"").trim().length>12)_pvT=setTimeout(()=>previewRoute(true),900);}
+async function sharpenGoal(){
+  const g=(run.goal||"").trim(); if(!g){toast("Type what you want first");return;}
+  const o=$("#routeOut"); if(o){o.innerHTML="";o.append(h("div",{class:"note info"},"Sharpening with your local model…"));}
+  try{const r=await api("/api/arch/sharpen",{goal:g,root:run.root||""}); const x=r.result||{};
+    const box=h("div",{class:"card-inner sharp"},h("div",{class:"row"},h("b",{class:"grow"},"A sharper version of your request"),
+        h("button",{class:"btn p sm",onclick:()=>{run.goal=x.goal||g;const ta=$("#goal");if(ta)ta.value=run.goal;toast("Using the sharpened request");}},"Use this")),
+      h("p",null,x.goal||""),
+      (x.target_files||[]).length?h("div",{class:"small"},h("b",null,"Files: "),...(x.target_files||[]).map(f=>h("span",{class:"chip "+(f.status==="new"?"info":f.status==="missing"?"warn":""),title:f.why||""},f.path))):null,
+      ((x.acceptance||{}).statements||[]).length?h("ul",{class:"small"},...x.acceptance.statements.slice(0,8).map(t=>h("li",null,t))):null,
+      (x.risks||[]).length?h("div",{class:"small mute"},"Risks: "+x.risks.slice(0,3).join("; ")):null,
+      r.summary?h("details",{class:"small"},h("summary",null,"Plain summary"),h("div",null,String(r.summary))):null);
+    if(o){o.innerHTML="";o.append(box);}
+  }catch(e){if(o)o.innerHTML="";toast.err(e.message,8000);}
+}
 async function previewRoute(quiet){
   const g=run.goal.trim();if(!g){if(quiet!==true)toast("Type a goal first");return;}
   try{const r=await api("/api/arch/route",{goal:g,root:run.root||undefined});const fl=S.flows.find(f=>f.id===r.flow);
