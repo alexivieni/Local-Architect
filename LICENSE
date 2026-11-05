@@ -20,6 +20,9 @@ THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRI
 AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
 OR ITS USE.
 
+Bundled third-party file: static/fonts/inter.woff2 is the Inter typeface (c) The Inter Project Authors, licensed under the
+SIL Open Font License 1.1 (static/fonts/LICENSE-Inter.txt). It is not covered by the proprietary terms above.
+
 Third-party models, runtimes and libraries that this software can download or run (for example llama.cpp, Ollama
 and model weights) are not part of this repository and remain under their own licenses.
 
