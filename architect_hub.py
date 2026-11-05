@@ -2346,6 +2346,11 @@ def main(argv=None):
         except Exception:
             pass   # a freeze then leaves evidence
     start_crew_scheduler()
+    try:                                                   # closing the hub closes what the app started (behavior.close_on_exit)
+        import arch_cleanup
+        arch_cleanup.install_exit_hook(core.load_config, say=print)
+    except Exception:
+        pass
     return mh.serve(a.port, not a.no_browser)
 
 

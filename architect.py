@@ -1091,6 +1091,13 @@ def cmd_start(args):
         arch_ollama.ensure_running(say=print)             # its own process: it keeps running when this window closes
     except Exception as ex:                               # Ollama is the fallback: never let it stop the hub from starting
         print(f"[ollama] could not check or start it ({type(ex).__name__}: {ex})")
+    try:                                                  # a crash or a killed window can leave strays: start from a free machine
+        import arch_cleanup
+        cp = arch_cleanup.plan(core.load_config())
+        cp["items"] = [it for it in cp["items"] if it["kind"] in ("strays", "temp")]
+        arch_cleanup.run(cp, yes=True)
+    except Exception:
+        pass
     st = arch_server.ensure(core.load_config(), say=print, watch=True)   # the hub keeps a watchdog: crashed tiers restart, stepped-aside ones come back
     print("server: " + (st.get("mode") or "ollama"))
     if not args.no_hub:
@@ -1133,6 +1140,18 @@ def cmd_cost(args):
         print(json.dumps({"calls": rows, "evals": ev}, indent=1))
     else:
         print("Per task, from your saved eval runs:\n" + cm.report_evals(ev) + "\n\nPer model call, from run traces:\n" + cm.report(rows))
+    return 0
+
+
+def cmd_cleanup(args):
+    """Close what the app started (model servers, Ollama models, Launch runs, leftover eval folders). Without --yes it only lists."""
+    import arch_cleanup
+    p = arch_cleanup.plan(core.load_config())
+    print(arch_cleanup.report(p))
+    if args.yes:
+        arch_cleanup.run(p, yes=True)
+    elif p["items"]:
+        print("Nothing was closed. To close it: python architect.py cleanup --yes")
     return 0
 
 
@@ -1344,7 +1363,7 @@ def _run_suites(suite):
                 print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
                 rc |= 1
         # suites whose run() returns True when every check passed (art returns 0 like the older ones)
-        for _name in ("a11y", "art", "bestofn", "costmodel", "idle", "cachehygiene", "cachespage", "placement_wired", "provenance", "refusal", "smoke", "wiring"):
+        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "idle", "cachehygiene", "cachespage", "offcard", "placement_wired", "provenance", "refusal", "smoke", "wiring"):
             try:
                 _res = importlib.import_module("arch_selftest_" + _name).run()
                 rc |= (0 if (_res is True or (type(_res) is int and _res == 0)) else 1)     # False == 0, so check the type
@@ -1589,6 +1608,8 @@ def main(argv=None):
     ex_.add_argument("--kv", choices=["f16", "q8_0", "q4_0"], default="q8_0")
     ex_.add_argument("--quants", help="also show this model at other storage formats")
     ex_.add_argument("--json", action="store_true")
+    cl_ = sub.add_parser("cleanup", help="close what the app started: model servers, Ollama models, Launch runs, leftover eval folders")
+    cl_.add_argument("--yes", action="store_true")
     co_ = sub.add_parser("cost", help="seconds per ACCEPTED change per role and model (the report's C = t / p-bar), or --planner to test Eq. 19")
     co_.add_argument("--root", help="one project folder (default: every portfolio project + this folder)")
     co_.add_argument("--watts", type=float, help="average power draw, to report energy E = P * C")
@@ -1604,7 +1625,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     fn = {"run": cmd_run, "flows": cmd_flows, "templates": cmd_templates, "route": cmd_route, "undo": cmd_undo,
           "portfolio": cmd_portfolio, "show-config": cmd_show, "serve": cmd_serve, "doctor": cmd_doctor, "assess": cmd_assess, "advise": cmd_advise,
-          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches}.get(a.cmd)
+          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "cleanup": cmd_cleanup, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches}.get(a.cmd)
     if not fn:
         ap.print_help()
         return 0

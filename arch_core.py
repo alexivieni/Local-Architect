@@ -77,7 +77,7 @@ DEFAULTS = {
                  "min_gain_pct": 10, "bench_runs": 5,          # optimize flow: required speed-up, benchmark repetitions
                  "hunt_max_files": 4, "hunt_findings": 5,      # hunt flow
                  "network": "offline", "net_allow": [], "net_block_tools": True,   # policy for code run by the Architect: offline | practice | open (default: offline -- nothing the harness runs leaves this machine unless you say so; the binary block below is independent of this)
-                 "thinking": "roles", "sampling": "roles", "chat_model": "worker", "stall_samples": 3, "ground_edits": "on", "tests_first": "off", "tests_on_ecores": "auto", "chores_on_ecores": "auto", "sandbox_mem_mb": 4096,     # roles = as each role defines; plan_debug_only / model_card: measured A/B options
+                 "thinking": "roles", "sampling": "roles", "chat_model": "worker", "stall_samples": 3, "ground_edits": "on", "tests_first": "off", "tests_on_ecores": "auto", "chores_on_ecores": "auto", "close_on_exit": "auto", "sandbox_mem_mb": 4096,     # roles = as each role defines; plan_debug_only / model_card: measured A/B options
                  "edit_style": "patch",                        # patch = EDIT blocks (search/replace); whole = write complete files under ~200 lines (small models); auto = whole under ~80 lines
                  "max_shrink_pct": 60,                         # refuse a reply that would cut an existing file (25+ lines) by more than this percent; 0 = off
                  "swap_aware": "on", "fast_tests": "on",      # fast_tests: in fix loops run the tests related to the changed files first, then the whole suite
@@ -95,7 +95,7 @@ DEFAULTS = {
                  "config_strict": "medium"},                   # config files: findings at or above this severity fail the check (high|medium|low)
     "tests": {"command": ""},
     "tiers": {"router": "", "worker": "", "heavy": "", "draft": "", "cloud": ""},   # model TIERS: any installed model (Ollama tag or .gguf path) per slot; roles name a tier (arch_roles.TIER_OF); empty = the hardware profile's default
-    "server": {"kind": "auto", "binary": "", "port": 8081, "kv": "q8_0", "flash_attn": True, "draft": "auto", "parallel": 1, "ubatch": 256, "ctx": 0, "slots": True, "ngram": "auto", "cache_ram": 0, "make_room": "auto", "heavy_beside": "auto", "think_budget": 800, "fast_lane": "off", "fast_think_budget": 256, "idle_free_min": 15},   # the resident llama-server (arch_server.py); auto = use it when the binary is installed, else Ollama. ctx 0 = the hardware profile's measured window.
+    "server": {"kind": "auto", "binary": "", "port": 8081, "kv": "q8_0", "flash_attn": True, "draft": "auto", "parallel": 1, "ubatch": 256, "ctx": 0, "slots": True, "ngram": "auto", "cache_ram": 0, "make_room": "auto", "heavy_beside": "auto", "think_budget": 800, "fast_lane": "off", "fast_think_budget": 256, "idle_free_min": 15, "ollama_gpu": "auto"},   # the resident llama-server (arch_server.py); auto = use it when the binary is installed, else Ollama. ctx 0 = the hardware profile's measured window.
     "flows": {"engine": "legacy", "budget_scale": 1.0},                 # legacy = the Python flow classes, YAML only fills ids no class provides; data = flows/*.yaml win; off = YAML ignored
     "cache": {"responses": True, "max_rows": 4000, "max_days": 30},   # arch_cache.py: remember temperature-0 replies so a retry or a repeated task costs nothing. Never used by `eval`, never at temperature > 0.
     "supervisor": {"daily_runs": 40, "daily_minutes": 240, "task_minutes": 15, "max_attempts": 3},   # arch_supervisor.py: the queue the machine works through on its own, and the ceilings that stop it running away
@@ -1431,6 +1431,8 @@ class Engine:
             if mo.get(hk):
                 options[hk] = int(mo[hk])
         srv_ctx = self._served_ctx(model)
+        if not srv_ctx and self._keep_off_card(model):
+            options["num_gpu"] = 0                # Ollama would put part of this model on the card our worker server owns: RAM only
         if srv_ctx and srv_ctx < options["num_ctx"]:
             options["num_ctx"] = srv_ctx          # llama-server's window is set when it starts: a bigger number here only overruns it
         if temperature is not None:
@@ -2010,6 +2012,27 @@ class Engine:
             ctxs.append(min(w, self._served_ctx(m) or w))
             cpts.append(arch_tune.cpt_for(self.stats, m))
         return arch_tune.context_chars_for(min(ctxs or [base]), min(cpts or [arch_tune.DEFAULT_CPT]), lim["context_chars"])
+
+    def _keep_off_card(self, model):
+        """Should a model that Ollama (not our llama-server) answers stay entirely in RAM? Yes when our worker server is running with
+        layers on the graphics card and server.ollama_gpu is "auto": seen 2026-11-05, Ollama loaded the heavy MoE 28% onto the card
+        for the planner/evaluator roles, the plan then saw a full card and gave the worker 9 of its 36 layers, so every worker call ran
+        mostly on the CPU. A mixture-of-experts model reads only its active experts per token, so it stays usable from RAM.
+        server.ollama_gpu = "allow" restores Ollama's own choice. Cloud models and machines elsewhere are never affected."""
+        if not hasattr(self, "_off_card"):
+            self._off_card = {}
+        if model not in self._off_card:
+            keep = False
+            try:
+                if (str((self.cfg.get("server") or {}).get("ollama_gpu", "auto")) == "auto" and not str(model).startswith("claude")
+                        and model != self.tier_model("worker")):
+                    import arch_server
+                    rec = ((arch_server.load_state().get("processes") or {}).get("worker") or {})
+                    keep = bool(arch_server.serving("tier:worker", self.cfg)) and int(rec.get("ngl") or 0) > 0
+            except Exception:
+                keep = False
+            self._off_card[model] = keep
+        return self._off_card[model]
 
     def _served_ctx(self, model):
         """The window a running llama-server gives `model` (fixed at its start), or None when no llama-server serves it."""
