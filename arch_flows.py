@@ -1524,6 +1524,57 @@ KEYWORDS = {
 PRIORITY = ["pentest", "secure", "network", "cicd", "config", "ml", "a11y", "types", "document", "harden", "migrate", "deps", "bugfix", "refactor", "design", "hunt", "optimize", "test", "review", "feature", "new", "build"]
 
 
+class _RouteCache:
+    """The router model's past decisions, keyed by the normalised request and whether the folder was empty, kept on disk
+    (<data>/route_cache.json, at most 500 entries, 30 days). Same request, same answer, no model call. Off during eval and
+    self-tests, so measurements always exercise the real router."""
+    MAX, AGE = 500, 30 * 86400
+
+    def _path(self):
+        return os.path.join(core.data_dir(), "route_cache.json")
+
+    def _off(self):
+        return os.environ.get("ARCHITECT_EVAL") == "1" or os.environ.get("ARCHITECT_SELFTEST") == "1" or os.environ.get("ARCHITECT_NO_CACHE") == "1"
+
+    def _load(self):
+        try:
+            with open(self._path(), encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def get(self, key):
+        if self._off():
+            return None
+        v = self._load().get(key)
+        return (v[0], v[1]) if v and time.time() - v[2] < self.AGE else None
+
+    def put(self, key, flow, why):
+        if self._off():
+            return
+        d = self._load()
+        d[key] = [flow, why, time.time()]
+        if len(d) > self.MAX:
+            for k in sorted(d, key=lambda k: d[k][2])[:len(d) - self.MAX]:
+                d.pop(k, None)
+        try:
+            tmp = f"{self._path()}.{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(d, f)
+            os.replace(tmp, self._path())
+        except OSError:
+            pass
+
+
+_ROUTE_CACHE = _RouteCache()
+
+
+def _route_key(e, goal, empty):
+    import hashlib
+    norm = re.sub(r"\s+", " ", (goal or "").strip().lower())
+    return hashlib.sha1(f"{norm}|{int(bool(empty))}|{','.join(sorted(FLOWS))}".encode("utf-8")).hexdigest()
+
+
 def route(e, goal, forced=None):
     """-> (flow_id, domains, why). The router MODEL decides (behavior.routing = model, the default); the keyword match is given to it as a hint and is
     the fallback when no model answers. behavior.routing = keywords restores the old rule-first order (the model only breaks ties)."""
@@ -1553,6 +1604,17 @@ def route(e, goal, forced=None):
         return top[0], doms, kw_why
     hint = (f"\n\nA simple keyword matcher suggests: {top[0]} ({kw_why}). Treat that as a weak hint; decide from what the person actually wants." if top[1] > 0 else "") + \
            ("\nThe project folder is empty." if empty else "\nThe project already has files.")
+    try:                                                   # what past runs on this machine say (arch_routelearn): evidence, not a rule
+        import arch_routelearn
+        learned = arch_routelearn.suggest_for(goal, cfg=e.cfg)
+        if learned and learned.get("flow") in FLOWS:
+            hint += learned["hint"]
+    except Exception:
+        pass
+    ck = _route_key(e, goal, empty)
+    cached = _ROUTE_CACHE.get(ck)
+    if cached and cached[0] in FLOWS:                      # the same request in the same kind of folder: the router already decided
+        return cached[0], doms, cached[1] + " (remembered)"
     try:
         r, j = e.ask_json("router", "Pick the workflow for this request. new = start a project from nothing (a template plus a first build); design = decide structure/architecture/contracts before code; "
                                     "build = create new functionality; feature = one feature across data, API and UI; bugfix = something is broken; refactor = change structure without changing behaviour; "
@@ -1565,7 +1627,9 @@ def route(e, goal, forced=None):
             if empty and pick in ("test", "optimize", "hunt", "review", "refactor", "bugfix"):
                 pick = "new"                                  # nothing exists to test, review or fix yet: start the project (checked in code)
             agree = "agrees with" if pick == top[0] else "differs from"
-            return pick, doms, f"router model ({agree} the keyword hint): " + str(j.get("why", ""))[:100]
+            why = f"router model ({agree} the keyword hint): " + str(j.get("why", ""))[:100]
+            _ROUTE_CACHE.put(ck, pick, why)
+            return pick, doms, why
     except (LLMError, BudgetExceeded, LoopDetected):
         pass
     if strong:

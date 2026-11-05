@@ -8,7 +8,10 @@ What stays true with it on:
   * code still decides: Claude's reply goes through the same apply/tests/gates as any local reply;
   * a refusal is "could not run" (LLMError), never a pass;
   * spend is capped per process (`limits.cloud_usd_per_run`) and per day across all calls (`limits.cloud_usd_per_day`,
-    kept in data_dir()/cloud_spend.json), both checked BEFORE each request;
+    kept in data_dir()/cloud_spend.json), both checked BEFORE each request: the worst case of the call (input + max_tokens) is
+    held under a lock first, so calls in flight together all count, and max_tokens is clamped to what is left. Claude Code runs,
+    fleets, Managed Agent sessions and batches hold their money through the same `reserve` and record what they really spent
+    with `settle`;
   * a reply Claude already gave to the exact same request is answered from data_dir()/cloud_cache/ for $0 (`online.cloud_cache`,
     30 days; never during eval or the self-tests). Efficiency only: cached replies are still transport "claude", never training data;
   * the key is never stored by the app: the SDK reads ANTHROPIC_API_KEY (or an `ant auth login` profile) itself;
@@ -191,7 +194,7 @@ def status(cfg):
             "chat_why": "" if chat_ready else ("turn on Settings > Online > Allow online features" if not on_ else
                         "install the Anthropic SDK (pip install anthropic)" if not sdk else "set ANTHROPIC_API_KEY, then restart the hub"),
             "model": api_model(chosen_model(cfg)), "spent_usd": round(_SPENT["usd"], 4), "spent_today_usd": round(spent_today(), 4),
-            "day_cap_usd": _day_cap(cfg)}
+            "held_today_usd": round(held_today(), 4), "day_cap_usd": _day_cap(cfg)}
 
 
 def mode(cfg):
@@ -324,8 +327,15 @@ def _cache_control(ttl):
     return {"type": "ephemeral", "ttl": "1h"} if ttl == "1h" else {"type": "ephemeral"}
 
 
-# ---- the daily spend cap, across every Claude call on this machine (data_dir()/cloud_spend.json: date -> usd)
-_SPEND_LOCK = _th.Lock()
+# ---- the daily spend cap, across every Claude call on this machine
+# data_dir()/cloud_spend.json: {"YYYY-MM-DD": usd spent, ..., "_held": {hold id: {"usd", "pid", "until", "what"}}}.
+# A hold is money set aside BEFORE a request (a Claude Code run's budget, a fleet agent's, a Managed Agent session's estimate, a
+# batch's worst case, one chat call's worst case); it counts against today's cap until `settle` swaps it for what was really spent.
+# Every read-modify-write takes the in-process lock AND an OS file lock (cloud_spend.json.lock), so two processes never lose a write.
+_SPEND_LOCK = _th.RLock()
+_HELD_KEY = "_held"
+HOLD_HOURS = 12                      # a hold whose owner never settled it (a crash) stops counting after this long
+_FILE_LOCK_WAIT_S = 10.0
 
 
 def _spend_file():
@@ -340,43 +350,344 @@ def _today():
 
 def _read_spend():
     import json
-    try:
-        with open(_spend_file(), encoding="utf-8") as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    for i in range(3):                                               # a write being swapped in on Windows: read again shortly
+        try:
+            with open(_spend_file(), encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except PermissionError:
+            time.sleep(0.02 * (i + 1))
+        except (OSError, ValueError):
+            return {}
+    return {}
 
 
-def spent_today():
+def _held(d):
+    h = d.get(_HELD_KEY) if isinstance(d, dict) else None
+    return h if isinstance(h, dict) else {}
+
+
+def _day_total(d):
     try:
-        return float(_read_spend().get(_today()) or 0.0)
-    except (TypeError, ValueError):
+        return float(d.get(_today()) or 0.0)
+    except (TypeError, ValueError, AttributeError):
         return 0.0
 
 
-def _add_spend(usd):
-    """Add one call's cost to today's total. Keeps the last 60 days; a file that cannot be written never fails the reply."""
-    import json
+def spent_today():
+    """What Claude has really cost today (settled spend only; money on hold is in `held_today`)."""
+    return _day_total(_read_spend())
+
+
+def _pid_alive(pid):
+    """True unless the process is known to be gone. Never signals the process (os.kill(pid, 0) TERMINATES it on Windows)."""
     import os
-    if not usd:
-        return
-    with _SPEND_LOCK:
-        d = _read_spend()
+    import sys
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    try:
+        if sys.platform.startswith("win"):
+            import ctypes
+            k = ctypes.windll.kernel32
+            h = k.OpenProcess(0x1000, False, pid)                    # PROCESS_QUERY_LIMITED_INFORMATION
+            if not h:
+                return ctypes.GetLastError() == 5                    # access denied: it exists; anything else: gone
+            try:
+                code = ctypes.c_ulong()
+                ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+                return (not ok) or code.value == 259                 # STILL_ACTIVE
+            finally:
+                k.CloseHandle(h)
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except Exception:
+        return True                                                  # cannot tell: keep the hold (the cautious side)
+
+
+def _live_holds(d, now=None):
+    """Holds that still count: not past their time, and their owner process still running (a pid of 0 = not tied to a process)."""
+    now = time.time() if now is None else now
+    out = {}
+    for hid, h in _held(d).items():
         try:
-            d[_today()] = round(float(d.get(_today()) or 0.0) + float(usd), 6)
-        except (TypeError, ValueError):
-            d[_today()] = round(float(usd), 6)
-        d = {k: d[k] for k in sorted(d)[-60:]}
-        p = _spend_file()
+            if float(h.get("until") or 0) < now:
+                continue
+            if h.get("pid") and not _pid_alive(h.get("pid")):
+                continue
+            out[hid] = h
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return out
+
+
+def held_today():
+    """USD on hold right now (requests and runs in flight, across every process on this machine)."""
+    return round(sum(float(h.get("usd") or 0) for h in _live_holds(_read_spend()).values()), 6)
+
+
+class _FileLock:
+    """The OS's own lock on cloud_spend.json.lock (msvcrt / fcntl, the pattern in arch_heavy.py), released by the OS on a crash."""
+    def __enter__(self):
+        import os
+        self.f, self.locked = None, False
+        p = _spend_file() + ".lock"
         try:
             os.makedirs(os.path.dirname(p), exist_ok=True)
-            tmp = p + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(d, f)
-            os.replace(tmp, p)
+            self.f = open(p, "a+b")
+        except OSError as e:
+            _spend_warn(f"could not open the spend lock ({e}); writing without it")
+            return self
+        t_end = time.time() + _FILE_LOCK_WAIT_S
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    self.f.seek(0)
+                    msvcrt.locking(self.f.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.locked = True
+                return self
+            except OSError:
+                if time.time() > t_end:
+                    _spend_warn("another process held the spend lock for 10 s; writing without it")
+                    return self
+                time.sleep(0.02)
+
+    def __exit__(self, *a):
+        import os
+        try:
+            if self.f and self.locked:
+                if os.name == "nt":
+                    import msvcrt
+                    self.f.seek(0)
+                    msvcrt.locking(self.f.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.f.fileno(), fcntl.LOCK_UN)
         except OSError:
             pass
+        finally:
+            if self.f:
+                self.f.close()
+        return False
+
+
+def _spend_warn(msg):
+    import sys
+    try:
+        print(f"[arch_cloud] spend ledger: {msg}", file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
+_LAST_WRITE_ERROR = {"msg": ""}
+
+
+def _write_spend(d):
+    """Write the ledger whole, under a per-process/per-thread temp name, swapped in with retries (on Windows os.replace fails while
+    any reader has the file open). -> True when it reached the disk; a failure is said on stderr, never passed over in silence."""
+    import json
+    import os
+    p = _spend_file()
+    days = sorted(k for k in d if k != _HELD_KEY)[-60:]              # keep the last 60 days
+    out = {k: d[k] for k in days}
+    if _held(d):
+        out[_HELD_KEY] = _held(d)
+    tmp = f"{p}.{os.getpid()}.{_th.get_ident()}.tmp"
+    try:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(out, f)
+    except OSError as e:
+        _LAST_WRITE_ERROR["msg"] = str(e)
+        _spend_warn(f"could not write {tmp}: {e}")
+        return False
+    err = None
+    for _ in range(5):
+        try:
+            os.replace(tmp, p)
+            return True
+        except PermissionError as e:                                 # a reader has it open right now: wait 50 ms and try again
+            err = e
+            time.sleep(0.05)
+        except OSError as e:
+            err = e
+            break
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    _LAST_WRITE_ERROR["msg"] = str(err)
+    _spend_warn(f"could not record spend in {p}: {err}")
+    return False
+
+
+def _mutate(fn):
+    """Read-modify-write the ledger under both locks. fn(d) changes d in place and returns a result. -> (result, written)."""
+    with _SPEND_LOCK:
+        with _FileLock():
+            d = _read_spend()
+            res = fn(d)
+            return res, _write_spend(d)
+
+
+def _add_spend(usd):
+    """Add what was really spent to today's total (keeps the last 60 days). A write that fails is said on stderr; it never fails the
+    reply. -> True when recorded."""
+    try:
+        usd = float(usd or 0)
+    except (TypeError, ValueError):
+        return False
+    if usd <= 0:
+        return True
+
+    def add(d):
+        d[_today()] = round(_day_total(d) + usd, 6)
+    return _mutate(add)[1]
+
+
+class SpendRefused(LLMError, RuntimeError):
+    """A cap would be passed: refused before any money moves. Is an LLMError (could not run) and a RuntimeError (the hub's 'refused')."""
+
+
+def reserve(cfg, usd, what="Claude", hours=HOLD_HOURS, tied_to_process=True, check_only=False):
+    """Set `usd` aside against today's cap (limits.cloud_usd_per_day) before the money is spent. Refuses (SpendRefused, plain words)
+    when today's spend + every live hold + `usd` would pass the cap. -> the hold id, to hand to `settle` with what was really spent.
+    `check_only` checks without holding anything (a fleet checks its whole bill, then every agent holds its own budget).
+    `tied_to_process=False` keeps the hold after this process ends (a batch is paid for long after the command that sent it)."""
+    import os
+    try:
+        usd = max(0.0, float(usd or 0))
+    except (TypeError, ValueError):
+        raise SpendRefused(f"{what}: the amount to set aside is not a number ({str(usd)[:20]!r})")
+    day_cap = _day_cap(cfg)
+
+    def take(d):
+        live = _live_holds(d)
+        d[_HELD_KEY] = live                                          # finished/dead holds are dropped while we are here
+        spent, held = _day_total(d), sum(float(h.get("usd") or 0) for h in live.values())
+        if spent + held + usd > day_cap + 1e-9:
+            return None, (f"{what} would pass Claude's daily spend cap: ${spent:.2f} spent + ${held:.2f} in flight + ${usd:.2f} "
+                          f"for this > ${day_cap:.2f} today (Settings > Claude spend per day)")
+        if check_only:
+            return "", ""
+        hid = f"h{os.getpid()}_{_th.get_ident()}_{time.time_ns()}"
+        live[hid] = {"usd": round(usd, 6), "pid": os.getpid() if tied_to_process else 0,
+                     "until": time.time() + float(hours) * 3600, "what": str(what)[:80], "t": time.time()}
+        return hid, ""
+    (hid, why), written = _mutate(take)
+    if hid is None:
+        raise SpendRefused(why)
+    if not check_only and not written:                               # the hold never reached the disk: the cap could not hold it
+        raise SpendRefused(f"{what}: could not record the spend hold ({_LAST_WRITE_ERROR['msg'][:120]}); refused so the daily cap holds")
+    return hid
+
+
+def settle(hold_id, actual_usd):
+    """Swap a hold for what was really spent (0 when nothing was). Safe to call twice: the second call adds nothing.
+    -> True when the actual spend was recorded."""
+    try:
+        actual = max(0.0, float(actual_usd or 0))
+    except (TypeError, ValueError):
+        actual = 0.0
+
+    with _SPEND_LOCK:
+        if hold_id and hold_id in _SETTLED:
+            return True
+        if hold_id:
+            _SETTLED.add(hold_id)
+
+    def swap(d):
+        h = _held(d)
+        if hold_id and hold_id in h:
+            h.pop(hold_id, None)
+            d[_HELD_KEY] = h
+        if actual > 0:                                               # what was spent is spent, even when the hold had lapsed
+            d[_today()] = round(_day_total(d) + actual, 6)
+    return _mutate(swap)[1]
+
+
+_SETTLED = set()
+
+
+def worst_case_usd(model, input_chars, max_tokens, fast=False, searches=0):
+    """The most one call can cost: every input token at the cache-write price (1.25x), plus `max_tokens` of output."""
+    pin, pout = PRICES.get(api_model(model), PRICES[DEFAULT_MODEL])
+    est_in = int(input_chars or 0) / 3.0 + 50                        # ~3 characters a token is generous for English and code
+    usd = est_in * pin * 1.25 / 1e6 + int(max_tokens or 0) * pout / 1e6
+    return usd * (2.0 if fast else 1.0) + searches * WEB_SEARCH_USD
+
+
+def tokens_affordable(model, input_chars, budget_usd, fast=False, searches=0):
+    """How many output tokens `budget_usd` pays for after the worst-case input. Can be 0 or less."""
+    pin, pout = PRICES.get(api_model(model), PRICES[DEFAULT_MODEL])
+    left = float(budget_usd) / (2.0 if fast else 1.0) - searches * WEB_SEARCH_USD / (2.0 if fast else 1.0)
+    left -= (int(input_chars or 0) / 3.0 + 50) * pin * 1.25 / 1e6
+    return int(left * 1e6 / pout) if pout else 0
+
+
+# The per-run (per-process) cap, reserved the same way under _SPEND_LOCK: calls in flight together all count.
+_RUN_HELD = {"usd": 0.0}
+MIN_REPLY_TOKENS = 1024
+
+
+def _run_msg(cfg):
+    cap = _cap(cfg)
+    return f"Claude budget for this run is used up (${_SPENT['usd']:.2f} of ${cap:.2f}; Settings > Claude spend per run)"
+
+
+def _day_msg(cfg, today):
+    return f"Claude's daily spend cap is reached (${today:.2f} of ${_day_cap(cfg):.2f} today; Settings > Claude spend per day)"
+
+
+def _caps_reached(cfg):
+    """Raise LLMError when either cap is already used up by what was spent (holds are weighed in `_hold_for_call`)."""
+    if _SPENT["usd"] >= _cap(cfg):
+        raise LLMError(_run_msg(cfg))
+    today = spent_today()
+    if today >= _day_cap(cfg):
+        raise LLMError(_day_msg(cfg, today))
+
+
+def _hold_for_call(cfg, model, input_chars, max_tokens, fast=False, searches=0):
+    """Before one request: weigh what is spent AND what calls in flight have set aside, clamp max_tokens to what is left of the
+    tighter cap, and hold the worst case (per run in memory, per day in the ledger). -> (hold id, worst usd, max_tokens).
+    Refuses (LLMError) when what is left cannot pay for MIN_REPLY_TOKENS of answer."""
+    cap, day_cap = _cap(cfg), _day_cap(cfg)
+    with _SPEND_LOCK:
+        if _SPENT["usd"] >= cap:
+            raise LLMError(_run_msg(cfg))
+        d = _read_spend()
+        today = _day_total(d)
+        if today >= day_cap:
+            raise LLMError(_day_msg(cfg, today))
+        run_left = cap - _SPENT["usd"] - _RUN_HELD["usd"]
+        day_left = day_cap - today - sum(float(h.get("usd") or 0) for h in _live_holds(d).values())
+        afford = tokens_affordable(model, input_chars, min(run_left, day_left), fast, searches)
+        if afford < MIN_REPLY_TOKENS:
+            if run_left <= day_left:
+                raise LLMError(f"Claude budget for this run cannot pay for this call: ${_SPENT['usd']:.2f} spent + "
+                               f"${_RUN_HELD['usd']:.2f} in flight of ${cap:.2f} (Settings > Claude spend per run)")
+            raise LLMError(f"Claude's daily spend cap leaves too little for this call: ${today:.2f} spent + "
+                           f"${day_cap - today - day_left:.2f} in flight of ${day_cap:.2f} today (Settings > Claude spend per day)")
+        max_tokens = max(1, min(int(max_tokens), afford))
+        worst = worst_case_usd(model, input_chars, max_tokens, fast, searches)
+        try:
+            hid = reserve(cfg, worst, what="this Claude call", hours=2)
+        except SpendRefused as e:
+            raise LLMError(str(e))
+        _RUN_HELD["usd"] += worst
+    return hid, worst, max_tokens
 
 
 def _day_cap(cfg):
@@ -480,12 +791,7 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
         return {"calls": [rec], "text": txt, "thinking": hit.get("thinking") or "", "gen_tokens": hit.get("gen_tokens") or 0,
                 "prompt_tokens": 0, "cached_tokens": None, "done_reason": hit.get("done_reason") or "stop", "tok_s": None,
                 "prefill_tok_s": None, "load_s": None, "transport": "claude", "usd": 0.0, "cached": True}
-    cap = _cap(cfg)
-    if _SPENT["usd"] >= cap:
-        raise LLMError(f"Claude budget for this run is used up (${_SPENT['usd']:.2f} of ${cap:.2f}; Settings > Claude spend per run)")
-    day_cap, today = _day_cap(cfg), spent_today()
-    if today >= day_cap:
-        raise LLMError(f"Claude's daily spend cap is reached (${today:.2f} of ${day_cap:.2f} today; Settings > Claude spend per day)")
+    _caps_reached(cfg)                                               # the cheap early refusal, before a client is even made
     if client is None:
         try:
             import anthropic
@@ -525,6 +831,23 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
             and not getattr(_HERE, "nofast", False) and hasattr(getattr(client, "beta", None), "messages"))
     pt = gt = cr = cw = 0
     searches, queries, web_errors = 0, [], []
+    in_chars = len(system) + sum(len(m["content"]) for m in plain)
+    max_searches = WEB_TOOL["max_uses"] * 3 if web else 0            # up to two pause_turn resumes, each re-sending the input
+    hid, worst, kw["max_tokens"] = _hold_for_call(cfg, model, in_chars * (3 if web else 1), kw["max_tokens"], fast, max_searches)
+    released = [False]
+
+    def _release(spent_usd):
+        """Swap this call's hold for what it really cost (per run and per day). Once."""
+        if released[0]:
+            return
+        released[0] = True
+        with _SPEND_LOCK:
+            _RUN_HELD["usd"] = max(0.0, _RUN_HELD["usd"] - worst)
+            _SPENT["usd"] += spent_usd
+        settle(hid, spent_usd)
+
+    def _so_far():
+        return cost(model, pt, gt, cr, cw, ttl) * (2.0 if fast else 1.0) + searches * WEB_SEARCH_USD
     try:
         for _turn in range(3):                                       # a searching reply may pause (pause_turn) and is resumed, at most twice
             try:
@@ -582,8 +905,10 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
             # the server paused its own search loop: send the turn back as it stands and let it continue
             kw["messages"] = list(kw["messages"]) + [{"role": "assistant", "content": getattr(final, "content", None) or []}]
     except LLMError:
+        _release(_so_far())
         raise
     except Exception as e:
+        _release(_so_far())                                          # what finished turns cost is counted; the rest of the hold is freed
         if fast:                                                     # fast mode refused (its own rate limit): same call at normal speed
             _HERE.nofast = True
             try:
@@ -591,13 +916,15 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
             finally:
                 _HERE.nofast = False
         raise LLMError(f"Claude did not answer: {type(e).__name__}: {str(e)[:300]}")
+    except BaseException:
+        _release(_so_far())
+        raise
     stop = getattr(final, "stop_reason", None)
-    if stop == "refusal":
+    usd = _so_far()
+    _release(usd)
+    if stop == "refusal":                                            # a refusal is still billed for its tokens
         raise LLMError("Claude declined this request (refusal); treated as could-not-run, not as an answer")
-    usd = cost(model, pt, gt, cr, cw, ttl) * (2.0 if fast else 1.0) + searches * WEB_SEARCH_USD
-    _SPENT["usd"] += usd
     _SPENT["calls"] += 1
-    _add_spend(usd)
     if ckey and stop != "max_tokens" and text:                      # a cut-off reply is never kept
         _cache_put(ckey, {"t": time.time(), "model": api_model(model), "effort": eff, "text": "".join(text),
                           "thinking": "".join(thinking)[:20000], "gen_tokens": gt, "done_reason": "stop"})

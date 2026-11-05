@@ -869,7 +869,7 @@ def run():
         arch_cloud._SPENT.update(usd=0.0, calls=0)
         check("chat effort: 'ultrathink' in a message means max effort (beats the picked level), it reaches the request with room to answer, "
               "and Fable 5.1 is priced at its own rate",
-              fe.sent[0]["output_config"]["effort"] == "max" and fe.sent[0]["max_tokens"] == 64000 and fe.sent[0]["model"] == "claude-fable-5-1"
+              fe.sent[0]["output_config"]["effort"] == "max" and 0 < fe.sent[0]["max_tokens"] <= 64000 and fe.sent[0]["model"] == "claude-fable-5-1"
               and abs(r3["usd"] - (1000 * 10 + 500 * 50) / 1e6) < 1e-9 and arch_cloud.effort_for("hi", "medium") == "medium")
         # ---- Claude Code subagents (/agents): starters, validation, the file, and the hand-off to the SDK
         import dataclasses

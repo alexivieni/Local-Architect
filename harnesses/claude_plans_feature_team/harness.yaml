@@ -1,0 +1,44 @@
+# Composed by arch_harness.py; edit this file, then compose again.
+name: "claude_plans_feature_team"
+title: "Claude plans, local builds: feature team"
+blurb: "Claude writes the plan with an acceptance contract per sprint and judges the result; the local worker writes every line; the whole suite must pass at the end; a read-only Claude reviewer can be launched afterwards from fleet.json."
+goal_kind: "feature"
+review: "ask"
+tiers:
+  worker: ""
+  heavy: ""
+  cloud: ""
+flow: "plan_local_build"
+gates:
+  - "tests_pass"
+tools: []
+claude_mode: "plan"
+budgets:
+  calls: 40
+  tokens: 240000
+  seconds: 3600
+  heavy_calls: 4
+  usd_per_run: 1.5
+  usd_per_day: 5
+  fleet_usd: 2
+agents:
+  - template: "reviewer"
+    name: "feature_review"
+    values:
+      topic: "feature"
+      targets: "the files the last run changed (its report.md lists them)"
+      goal: "the feature asked for in the last run"
+      focus: "acceptance criteria not met, stubs, untested paths"
+settings:
+  behavior.tests_first: "on"
+  behavior.evaluator: "final"
+  behavior.keep_best_try: true
+  behavior.network: "offline"
+why:
+  claude_mode: "plan = Claude only thinks (plans and judges); code is written locally, so most tokens stay on this machine."
+  gates: "tests_pass at the end: a judge's score never makes a pass on its own; the suite must be green."
+  budgets: "Tighter than the flow's own ceiling, and a hard dollar cap per run and per day."
+  agents: "One read-only reviewer, capped at $1.50, owning only its notes file; you start it after the run if you want it."
+mode: "own"
+source: "plan_local_build"
+run: "python arch_harness.py run claude_plans_feature_team \"your goal\" --root PATH"

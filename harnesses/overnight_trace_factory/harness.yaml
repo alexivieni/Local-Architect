@@ -1,0 +1,83 @@
+# Composed by arch_harness.py; edit this file, then compose again.
+name: "overnight_trace_factory"
+title: "Overnight trace factory"
+blurb: "Unattended, read-only runs that look through a project with tools and answer a question; every run is a tool trajectory judged by code, kept as training data. The project's tests must still pass at the end."
+goal_kind: "traces"
+review: "auto"
+tiers:
+  worker: ""
+flow:
+  title: "Overnight trace factory"
+  kind: "tool_loop"
+  produces:
+    - "an answer"
+    - "a tool trajectory in the trace"
+  uses_roles:
+    - "architect"
+  steps:
+    - id: "look"
+      kind: "tool_loop"
+      title: "Look around and answer"
+      role: "architect"
+      tier: "worker"
+      prompt: "explore/explore"
+      tools:
+        - "ls"
+        - "grep"
+        - "search"
+        - "read"
+        - "outline"
+        - "run_tests"
+        - "memory_read"
+      allow_writes: false
+      max_steps: 8
+      store_text: "answer"
+      budget:
+        tokens: 100000
+        seconds: 780
+    - id: "remember"
+      kind: "tool_loop"
+      title: "Remember one thing worth keeping"
+      role: "architect"
+      tier: "worker"
+      prompt: "explore/remember"
+      tools:
+        - "memory_append"
+      max_steps: 2
+      when: "look.ok"
+      on_fail: "continue"
+      budget:
+        tokens: 20000
+        seconds: 180
+  verdict:
+    pass_if: "look.ok"
+gates:
+  - "tests_pass"
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "run_tests"
+  - "memory_read"
+  - "memory_append"
+claude_mode: "off"
+budgets:
+  calls: 14
+  tokens: 120000
+  seconds: 900
+agents: []
+settings:
+  behavior.seed: 1234
+  behavior.network: "offline"
+  behavior.learn_from_runs: "off"
+  limits.max_calls: 20
+why:
+  claude_mode: "Claude's replies are never training data, so the factory is local-only (a code rule for goal_kind traces)."
+  tools: "Read-only tools plus one memory line: a trajectory that edits nothing can run unattended with review auto."
+  settings: "A fixed seed makes runs repeatable; past replies are not shown as examples, so each trace stands on its own."
+  gates: "tests_pass last: a run that left the project broken is not kept as a pass."
+mode: "own"
+source: ""
+run: "python arch_harness.py run overnight_trace_factory \"your goal\" --root PATH"

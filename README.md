@@ -12,6 +12,19 @@ never leaves your machine unless you turn on the optional Claude step.
 - **Gets better with use**: verified runs become training data for your own models.
 - **Optional Claude step**: when every local model is stuck, one step can be handed to Claude (off by default, spend-capped, never used as training data).
 
+## What's new today (2026-11-04)
+
+- **Local agents** (`arch_localagent.py`): the fleet can give a brief to your own worker model, which owns only its files and runs its tests itself.
+- **Harness packs** (`harnesses/`, `arch_harness.py`): named, code-checked bundles of a flow, tiers, gates and budgets, applied to one run only.
+- **Flow iterator** (`arch_iterate.py`): proposes changes to a flow from its own runs and adopts one only after a measured trial shows no regression.
+- **Several machines** (`hosts`): health checks, a tiny benchmark per machine, routing to the fastest with fallback to this computer.
+- **Hub**: a guided first visit with a practice bug, the agents' workspace (Fleet, Map, Logbook, Library, Monitor), Blueprints, and a faster, calmer page.
+- **Building blocks** (library and CLI for now): a workload broker, a placement planner, route sense from past runs, request sharpening,
+  a secret scrubber and plain-words explanations of any run (`arch_why.py`).
+- **Evals and nights**: 65 distributed-systems and 40 harness tasks with hidden judges, a hybrid local-vs-Claude benchmark, and `tools/overnight.py`.
+
+Details, how to try each one, and known limits: [docs/release_20261104.md](docs/release_20261104.md).
+
 ## Requirements
 
 - Windows 10/11, macOS or Linux; Python 3.10+ (3.12 recommended). Standard library only.

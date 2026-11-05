@@ -34,6 +34,37 @@ import model_hub as mh
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _GPU_PLAN = {}            # /api/arch/gpu: the server plan, re-read at most once a minute
+_LIVE_LAST = {}           # the live recorder's newest sample (behavior.record_live), reused by /api/arch/gpu while it is fresh
+LIVE_FRESH_S = 7.0        # the recorder samples every 5 s; older than this and the endpoint measures for itself
+
+
+def _keep_recorder_samples(arch_hw):
+    """Wrap arch_hw.record_once (looked up by name on every pass of the recorder's loop) so each sample it writes is also kept here.
+    The console's GPU strip then reads that sample instead of starting nvidia-smi and tasklist a second time every 5 s."""
+    if getattr(arch_hw.record_once, "_keeps_last", False):
+        return
+    orig = arch_hw.record_once
+
+    def record_once(*a, **k):
+        row = orig(*a, **k)
+        if isinstance(row, dict):
+            _LIVE_LAST.clear()
+            _LIVE_LAST.update(row, _at=time.time())
+        return row
+    record_once._keeps_last = True
+    arch_hw.record_once = record_once
+
+
+def _live_sample(arch_hw, now=None):
+    """The same answer as arch_hw.live(): the recorder's sample when it is under LIVE_FRESH_S old, else a fresh measurement (the
+    recorder off, stalled or not started yet). The recorder's own fields (time, running servers) are left out."""
+    now = time.time() if now is None else now
+    row = dict(_LIVE_LAST)
+    if row and now - row.get("_at", 0) < LIVE_FRESH_S:
+        for k in ("_at", "t", "servers"):
+            row.pop(k, None)
+        return row
+    return arch_hw.live()
 PORTFOLIO_FILE = os.path.join(core.HOME, "portfolio.json")
 
 # ---------------------------------------------------------------------------------------------
@@ -473,6 +504,96 @@ def machines_info(cfg=None):
             "plan": H.plan(cfg, [], probes), "power": arch_power.battery()}
 
 
+# ---- First visit: the short guided path a person sees the first time they open the hub ----------------------------------------
+# Everything here is read from what the app already knows (Doctor, Get ready, the tier picker). The one thing it adds is a practice
+# project in Architect's OWN data folder, so the first task can never touch a folder of the person's.
+TIER_WORDS = {
+    "worker": "Writes and fixes the code. This is the one you will notice: it lives on the graphics card when it fits.",
+    "router": "Reads your request and picks the workflow. A one-word answer, so a small model on the processor is enough.",
+    "heavy": "Called only when the worker has failed a step. Bigger and slower, used sparingly.",
+    "draft": "Optional. Guesses the worker's next words so it answers faster; must share the worker's vocabulary.",
+}
+PRACTICE_FILES = {
+    "textkit.py": (
+        '"""A tiny practice module. Architect fixes one small bug in it on your first visit."""\n'
+        "import re\n\n\n"
+        "def slugify(text):\n"
+        "    \"\"\"'Hello World!' -> 'hello-world'\"\"\"\n"
+        "    text = text.strip().lower()\n"
+        "    text = re.sub(r\"[^a-z0-9\\s-]\", \"\", text)\n"
+        "    return text.replace(\" \", \"-\")\n"),
+    "test_textkit.py": (
+        "from textkit import slugify\n\n\n"
+        "def test_simple():\n"
+        "    assert slugify(\"Hello World\") == \"hello-world\"\n\n\n"
+        "def test_punctuation():\n"
+        "    assert slugify(\"Hello, World!\") == \"hello-world\"\n\n\n"
+        "def test_repeated_spaces():\n"
+        "    assert slugify(\"Hello   World\") == \"hello-world\"\n"),
+}
+PRACTICE_GOAL = ("slugify('Hello   World') in textkit.py returns 'hello---world' instead of 'hello-world': "
+                 "repeated spaces must become a single dash. Fix slugify so every test in test_textkit.py passes.")
+
+
+def practice_root():
+    return os.path.join(core.data_dir(), "practice", "textkit")
+
+
+def practice_prepare(root=None):
+    """(Re)write the two practice files, so every practice run starts from the same small bug. Only this folder is written."""
+    root = root or practice_root()
+    os.makedirs(root, exist_ok=True)
+    for name, body in PRACTICE_FILES.items():
+        with open(os.path.join(root, name), "w", encoding="utf-8", newline="\n") as f:
+            f.write(body)
+    return root
+
+
+def first_visit_info(root=None, hub_port=8766, doctor_run=None, team_plan=None):
+    """What the first-visit path shows in one reply: the machine checks (Doctor), whether Get ready has run, and which model would do
+    which job, in plain words. Read-only. Each part fails on its own, with the reason, so one missing piece never blanks the path."""
+    out = {"machine": None, "ready": None, "team": None, "practice": {"root": practice_root(), "goal": PRACTICE_GOAL,
+                                                                      "files": sorted(PRACTICE_FILES)}}
+    try:
+        if doctor_run is None:
+            import arch_doctor
+            doctor_run = arch_doctor.run
+        d = doctor_run(root or HERE, hub_port)
+        checks = d.get("checks") or []
+        out["machine"] = {"ok": bool(d.get("ok")), "checks": [{"name": c.get("name"), "ok": bool(c.get("ok")), "advisory": bool(c.get("advisory")),
+                                                               "detail": str(c.get("detail") or "")[:240]} for c in checks],
+                          "passed": sum(1 for c in checks if c.get("ok")), "total": len(checks),
+                          "blocking": [c.get("name") for c in checks if not c.get("ok") and not c.get("advisory")]}
+    except Exception as ex:
+        out["machine"] = {"error": f"{type(ex).__name__}: {str(ex)[:200]}"}
+    try:
+        import arch_ready
+        r = arch_ready.load_ready() or {}
+        steps = r.get("steps") or []
+        out["ready"] = {"ran": bool(steps), "ok": bool(r.get("ok")) if steps else None,
+                        "passed": sum(1 for s in steps if s.get("ok")), "total": len(steps)}
+    except Exception as ex:
+        out["ready"] = {"ran": False, "ok": None, "error": f"{type(ex).__name__}: {str(ex)[:200]}"}
+    try:
+        if team_plan is None:
+            import arch_port
+            team_plan = arch_port.pick_tiers(say=lambda m: None)
+        cfg_ = core.load_config()
+        current = {t: (cfg_.get("tiers") or {}).get(t, "") for t in TIER_WORDS}
+        tiers = []
+        for t, words in TIER_WORDS.items():
+            rec = (team_plan.get("tiers") or {}).get(t) or {}
+            tiers.append({"tier": t, "what": words, "recommended": rec.get("model") or "", "current": current.get(t) or "",
+                          "why": str(rec.get("why") or "")[:300], "on_card": bool(rec.get("full_gpu")), "cpu": bool(rec.get("cpu"))})
+        out["team"] = {"tiers": tiers, "first_run": not any(current.values()),
+                       "has_worker": bool(current.get("worker") or ((team_plan.get("tiers") or {}).get("worker") or {}).get("model")),
+                       "matches": all((x["current"] or "") == (x["recommended"] or "") for x in tiers),
+                       "notes": [str(n)[:300] for n in (team_plan.get("notes") or [])][:4]}
+    except Exception as ex:
+        out["team"] = {"error": f"{type(ex).__name__}: {str(ex)[:200]}", "tiers": [], "has_worker": False}
+    return out
+
+
 def _read_text(path, limit=20000):
     try:
         with open(path, encoding="utf-8") as f:
@@ -498,6 +619,834 @@ def code_health(root):
             "ci": {"summary": arch_ci.summarize(cires), "findings": cires["findings"][:12], "parser": cires["parser"]},
             "resumable": {"run_id": rz["run_id"], "flow": rz["flow"], "goal": rz.get("goal", ""), "status": rz["status"]} if rz else None,
             "self": {"verify": si.verify(), "history": si.history()[-8:]}}
+
+
+# ---------------------------------------------------------------------------------------------
+# Blueprints: a workflow drawn on the hub, saved as flows/<id>.yaml and judged by the SAME validator
+# `architect.py flows --validate` uses. A file the validator refuses is removed again; nothing half-valid stays on disk.
+# ---------------------------------------------------------------------------------------------
+BLUEPRINT_KINDS = ("generate", "code", "ask_json", "judge", "doc", "sample_n", "cascade", "tool_loop")
+BLUEPRINT_NEEDS_PROMPT = {"generate", "ask_json", "doc", "sample_n", "cascade", "tool_loop"}   # these read step["prompt"] when they run
+BLUEPRINT_TIERS = ("router", "worker", "heavy")
+BLUEPRINT_ID = re.compile(r"[a-z][a-z0-9_]{2,30}")
+_BP_STEP_ID = re.compile(r"[a-z][a-z0-9_]{0,39}")
+_BP_PROMPT = re.compile(r"[a-z0-9_-]{1,40}(/[a-z0-9_-]{1,60})?")
+
+
+def _bp_text(s, n=120):
+    """One line of text that both PyYAML and the built-in YAML reader read back unchanged inside double quotes."""
+    s = re.sub(r"[\x00-\x1f\x7f\\]", " ", str(s or "")).replace('"', "'")
+    return re.sub(r"\s+", " ", s).strip()[:n]
+
+
+def _bp_builtin_ids(flows_dir):
+    """Every workflow id that is not a blueprint someone drew here: the Python flows, plus YAML files without `blueprint: true`."""
+    import arch_dataflow
+    ids, drawn = set(fl.FLOWS), set()
+    for d in {arch_dataflow.FLOWS_DIR, flows_dir}:
+        if not os.path.isdir(d):
+            continue
+        for f in os.listdir(d):
+            if f.endswith(".yaml"):
+                (drawn if _bp_is_blueprint(os.path.join(d, f)) else ids).add(f[:-5])
+    # a blueprint saved earlier is registered in fl.FLOWS like any YAML flow once the app restarts; it stays the person's own,
+    # unless a Python flow class has the same id (that one is built in, whatever a YAML file claims)
+    py_ids = {k for k, v in fl.FLOWS.items() if type(v).__module__ != "arch_dataflow"}
+    return ids - (drawn - py_ids)
+
+
+def _bp_is_blueprint(path):
+    import arch_dataflow
+    try:
+        doc = arch_dataflow.load_yaml_file(path)
+    except Exception:
+        return False
+    return isinstance(doc, dict) and doc.get("blueprint") is True
+
+
+def blueprint_kit(flow=None):
+    """What the Blueprints page may offer: step kinds, tiers, roles, the registered gates (with their first doc line), the prompt files
+    on disk, and which ids are taken. With `flow`, also each step's prompt as `flow/name`, so a loaded workflow keeps its prompts."""
+    import arch_dataflow
+    import arch_gates
+    gates = []
+    for name in sorted(arch_gates.GATES):
+        doc = (getattr(arch_gates.GATES[name], "__doc__", None) or "").strip().split("\n")[0][:160]
+        gates.append({"name": name, "doc": doc})
+    prompts = []
+    if os.path.isdir(arch_dataflow.PROMPTS_DIR):
+        for d in sorted(os.listdir(arch_dataflow.PROMPTS_DIR)):
+            sub = os.path.join(arch_dataflow.PROMPTS_DIR, d)
+            if os.path.isdir(sub):
+                prompts += [f"{d}/{f[:-3]}" for f in sorted(os.listdir(sub)) if f.endswith(".md")]
+    out = {"kinds": list(BLUEPRINT_KINDS), "needs_prompt": sorted(BLUEPRINT_NEEDS_PROMPT), "tiers": list(BLUEPRINT_TIERS),
+           "roles": sorted(roles.ROLES), "gates": gates, "prompts": prompts, "taken": sorted(_bp_builtin_ids(arch_dataflow.FLOWS_DIR)),
+           "id_pattern": BLUEPRINT_ID.pattern}
+    if flow and re.fullmatch(r"[a-z0-9_]{1,40}", flow):
+        path = os.path.join(arch_dataflow.FLOWS_DIR, f"{flow}.yaml")
+        try:
+            doc = arch_dataflow.load_yaml_file(path) if os.path.isfile(path) else {}
+        except Exception:
+            doc = {}
+        pof = {}
+        for st in (doc.get("steps") or []) if isinstance(doc, dict) else []:
+            if isinstance(st, dict) and st.get("id") and isinstance(st.get("prompt"), str):
+                p = st["prompt"][:-3] if st["prompt"].endswith(".md") else st["prompt"]
+                pof[st["id"]] = p if "/" in p else f"{flow}/{p}"
+        out["prompts_of"] = pof
+        out["blueprint"] = bool(isinstance(doc, dict) and doc.get("blueprint") is True)
+    return out
+
+
+def _bp_steps(raw):
+    """The steps as sent by the page -> clean dicts. Anything structurally wrong is refused here (ValueError); whether the workflow makes
+    sense is the validator's call, not this function's."""
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("A blueprint needs at least one step.")
+    if len(raw) > 30:
+        raise ValueError("At most 30 steps in one blueprint.")
+    out, seen = [], set()
+    for n, s in enumerate(raw, 1):
+        if not isinstance(s, dict):
+            raise ValueError(f"step {n} is not an object")
+        kind = str(s.get("kind") or "generate")
+        if kind not in BLUEPRINT_KINDS:
+            raise ValueError(f"step {n}: '{kind}' is not a step kind a blueprint can hold ({', '.join(BLUEPRINT_KINDS)})")
+        sid = str(s.get("id") or "").strip() or f"step{n}"
+        if not _BP_STEP_ID.fullmatch(sid):
+            raise ValueError(f"step {n}: the id '{sid[:40]}' must be lower-case letters, digits and _ (starting with a letter)")
+        if sid in seen:                                     # left to the validator would also work; a clear message here is kinder
+            raise ValueError(f"step {n}: the id '{sid}' is used twice")
+        seen.add(sid)
+        tier = str(s.get("tier") or "")
+        if tier and tier not in BLUEPRINT_TIERS:
+            raise ValueError(f"step {n}: tier must be one of {', '.join(BLUEPRINT_TIERS)}")
+        role = str(s.get("role") or "")
+        if role and role not in roles.ROLES:
+            raise ValueError(f"step {n}: '{role[:40]}' is not a role")
+        prompt = str(s.get("prompt") or "").strip()
+        if prompt.endswith(".md"):
+            prompt = prompt[:-3]
+        if prompt and not _BP_PROMPT.fullmatch(prompt):
+            raise ValueError(f"step {n}: a prompt is named like review/review (folder/file under prompts/)")
+        check = str(s.get("check") or "").strip()
+        if check and not re.fullmatch(r"[a-z][a-z0-9_]{0,60}", check):
+            raise ValueError(f"step {n}: '{check[:40]}' is not a check name")
+        try:
+            retries = max(0, min(5, int(s.get("retries") or 0)))
+        except (TypeError, ValueError):
+            raise ValueError(f"step {n}: retries must be a whole number from 0 to 5")
+        out.append({"id": sid, "kind": kind, "title": _bp_text(s.get("title")) or sid, "tier": tier, "role": role, "prompt": prompt,
+                    "check": check, "retries": retries, "when": _bp_text(s.get("when"), 300)})
+    return out
+
+
+def blueprint_yaml(fid, title, steps, blurb="", budget=None):
+    """The flow document as text, in the subset of YAML the built-in reader understands (so it also loads without PyYAML)."""
+    b = budget or {}
+    lines = [f"id: {fid}", f'title: "{_bp_text(title) or fid}"', "kind: direct",
+             f'blurb: "{_bp_text(blurb, 300) or "Drawn on the Blueprints page of the hub."}"', "blueprint: true",
+             "budget: {calls: %d, tokens: %d, seconds: %d}" % (b.get("calls", 40), b.get("tokens", 200000), b.get("seconds", 1800)), "steps:"]
+    for s in steps:
+        lines += ["", f"  - id: {s['id']}", f"    kind: {s['kind']}", f'    title: "{s["title"]}"']
+        if s["kind"] != "code":
+            if s["tier"]:
+                lines.append(f"    tier: {s['tier']}")
+            if s["role"]:
+                lines.append(f"    role: {s['role']}")
+            if s["prompt"]:
+                lines.append(f'    prompt: "{s["prompt"]}"')
+        if s["when"]:
+            lines.append(f'    when: "{s["when"]}"')
+        if s["kind"] == "code":
+            lines.append(f"    gate: {s['check'] or 'none'}")
+        elif s["kind"] != "judge" and s["check"]:
+            lines.append("    verify: {run_tests: true}" if s["check"] == "tests" else f"    verify: {{gate: {s['check']}}}")
+        if s["retries"] and s["kind"] not in ("code", "judge"):
+            lines.append(f"    retries: {s['retries']}")
+    lines += ["", "verdict:", '  pass_if: "' + " and ".join(f"{s['id']}.ok" for s in steps) + '"', ""]
+    return "\n".join(lines)
+
+
+def save_blueprint(b, flows_dir=None):
+    """POST /api/arch/flow_save. {id, title, steps, blurb?, budget?, overwrite?, dry?} -> {ok, id, path, problems, validator, yaml}.
+
+    Refused outright (ValueError, HTTP 400): an id outside [a-z][a-z0-9_]{2,30}, the id of a built-in workflow, or a blueprint that
+    already exists unless `overwrite` is true. Otherwise the file is written, read back and validated by arch_dataflow.validate; when
+    that finds problems the file is deleted (an overwritten blueprint is put back as it was) and the problems are returned with ok False.
+    `dry` validates the same text without writing anything."""
+    import arch_dataflow
+    flows_dir = flows_dir or arch_dataflow.FLOWS_DIR
+    fid = str(b.get("id") or "").strip()
+    if not BLUEPRINT_ID.fullmatch(fid):
+        raise ValueError("A blueprint id is 3 to 31 characters: a lower-case letter first, then lower-case letters, digits or _.")
+    if fid in _bp_builtin_ids(flows_dir):
+        raise ValueError(f"'{fid}' is a built-in workflow. Pick a new id; the built-in ones are never overwritten from the hub.")
+    steps = _bp_steps(b.get("steps"))
+    budget = {}
+    for k, lo, hi in (("calls", 1, 400), ("tokens", 1000, 5_000_000), ("seconds", 30, 86_400)):
+        v = (b.get("budget") or {}).get(k) if isinstance(b.get("budget"), dict) else None
+        if v not in (None, ""):
+            try:
+                budget[k] = max(lo, min(hi, int(v)))
+            except (TypeError, ValueError):
+                raise ValueError(f"budget.{k} must be a whole number")
+    text = blueprint_yaml(fid, b.get("title") or fid, steps, b.get("blurb") or "", budget)
+    path = os.path.join(flows_dir, f"{fid}.yaml")
+    rel = f"flows/{fid}.yaml"
+
+    def judge(doc):
+        probs = list(arch_dataflow.validate(doc))
+        own = []
+        for s in arch_dataflow.validate_steps(doc if isinstance(doc, dict) else {}):
+            if s.get("kind") in BLUEPRINT_NEEDS_PROMPT and not s.get("prompt"):
+                own.append(f"step {s.get('id')}: a {s.get('kind')} step talks to a model, so it needs a prompt file (prompts/<folder>/<name>.md)")
+        return probs, own
+
+    if b.get("dry"):
+        import arch_ci
+        try:
+            doc = arch_ci.load_yaml(text)
+        except Exception as ex:
+            return {"ok": False, "id": fid, "path": rel, "dry": True, "problems": [f"the file would not read back: {ex}"], "validator": [], "yaml": text}
+        probs, own = judge(doc)
+        return {"ok": not (probs or own), "id": fid, "path": rel, "dry": True, "problems": probs + own, "validator": probs, "yaml": text}
+    old = None
+    if os.path.exists(path):
+        if b.get("overwrite") is not True:
+            raise ValueError(f"You already have a blueprint called '{fid}'. Tick 'Replace my blueprint' to save over it, or pick a new id.")
+        with open(path, encoding="utf-8") as f:
+            old = f.read()
+    os.makedirs(flows_dir, exist_ok=True)
+    with open(path, "w" if old is not None else "x", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    try:
+        probs, own = judge(arch_dataflow.load_yaml_file(path))
+    except Exception as ex:
+        probs, own = [f"the file would not read back: {type(ex).__name__}: {ex}"], []
+    if probs or own:
+        if old is not None:
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(old)
+        else:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        return {"ok": False, "id": fid, "path": rel, "problems": probs + own, "validator": probs, "kept": old is not None, "yaml": text}
+    live = False
+    if os.path.normcase(os.path.abspath(flows_dir)) == os.path.normcase(os.path.abspath(arch_dataflow.FLOWS_DIR)):
+        try:                                                 # runnable from this hub now, the same way load_all registers it at start
+            if ((core.load_config().get("flows") or {}).get("engine") or "legacy") != "off":
+                fl.FLOWS[fid] = arch_dataflow.DataFlow(arch_dataflow.load_yaml_file(path), path)
+                live = True
+        except Exception:
+            live = False
+    return {"ok": True, "id": fid, "path": rel, "problems": [], "validator": [], "replaced": old is not None, "live": live, "yaml": text}
+
+
+# ---------------------------------------------------------------------------------------------
+# Crew: the week's cost and the agent schedule. Both come from modules that may not be in this install yet, so every call is guarded:
+# the hub starts and the page says what is missing instead of failing.
+# ---------------------------------------------------------------------------------------------
+def costs_summary(days=7):
+    try:
+        import arch_costs
+        out = arch_costs.summary(days=days)
+    except Exception as ex:                                  # missing module, missing function, or its own error
+        return {"available": False, "days": days, "error": f"{type(ex).__name__}: {str(ex)[:200]}"}
+    if not isinstance(out, dict):
+        return {"available": False, "days": days, "error": "arch_costs.summary did not return a dict"}
+    return dict(out, available=True)
+
+
+def crew_schedule_list():
+    try:
+        import arch_agents
+        items = arch_agents.schedule_list()
+    except Exception as ex:
+        return {"available": False, "schedules": [], "error": f"{type(ex).__name__}: {str(ex)[:200]}"}
+    if isinstance(items, dict):
+        items = items.get("schedules") or items.get("items") or []
+    return {"available": True, "schedules": list(items or [])}
+
+
+def crew_schedule_change(b):
+    """POST /api/arch/crew_schedule: {add: {agent_id, message, at, repeat, environment_id?, repo_url?}} or {remove: sid}."""
+    try:
+        import arch_agents
+    except Exception as ex:
+        raise ValueError(f"Scheduling is not available in this install ({type(ex).__name__}).")
+    if b.get("remove") is not None:
+        sid = str(b["remove"])
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", sid):
+            raise ValueError("that is not a schedule id")
+        if not hasattr(arch_agents, "schedule_remove"):
+            raise ValueError("Scheduling is not available in this install yet (arch_agents.schedule_remove is missing).")
+        res = arch_agents.schedule_remove(sid)
+        return dict(crew_schedule_list(), ok=res is not False, removed=sid)
+    a = b.get("add")
+    if not isinstance(a, dict):
+        raise ValueError("say add or remove")
+    aid = str(a.get("agent_id") or "")
+    if not re.fullmatch(r"agent_[A-Za-z0-9]{6,64}", aid):
+        raise ValueError("Pick one of your agents.")
+    msg = str(a.get("message") or "").strip()[:20000]
+    if not msg:
+        raise ValueError("Say what the agent should do.")
+    at = str(a.get("at") or "")
+    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", at):
+        raise ValueError("The time is HH:MM, for example 07:30.")
+    repeat = str(a.get("repeat") or "daily")
+    if repeat not in ("daily", "once"):
+        raise ValueError("repeat is daily or once")
+    env = str(a.get("environment_id") or "").strip() or None
+    if env and not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", env):
+        raise ValueError("that is not an environment id")
+    repo = str(a.get("repo_url") or "").strip() or None
+    if repo and not re.fullmatch(r"https://github\.com/[\w.-]+/[\w.-]+(\.git)?", repo):
+        raise ValueError("That is not a GitHub repository address.")
+    if not hasattr(arch_agents, "schedule_add"):
+        raise ValueError("Scheduling is not available in this install yet (arch_agents.schedule_add is missing).")
+    made = arch_agents.schedule_add(aid, msg, at=at, repeat=repeat, environment_id=env, repo_url=repo)
+    return dict(crew_schedule_list(), ok=True, added=made)
+
+
+# ---------------------------------------------------------------------------------------------
+# The agents' workspace: Fleet (several agents at once), Map (how the pieces of one run connect), Logbook (what every run taught us),
+# Library (briefs that worked), Monitor (every agent on this machine, live) and the price of a Claude message before it is sent.
+# Each backend module may be missing in an install, so every call goes through _guarded: the hub starts, the page says what is missing.
+# ---------------------------------------------------------------------------------------------
+def _plain(x):
+    """Anything a module hands back -> plain JSON (sets, paths and odd objects become strings), so _send never fails on it."""
+    return json.loads(json.dumps(x, default=lambda o: sorted(o) if isinstance(o, (set, frozenset)) else str(o)))
+
+
+def _guarded(fn, *a, **kw):
+    """-> (result, None) or (None, "Name: why") when the module or the call failed."""
+    try:
+        return fn(*a, **kw), None
+    except Exception as ex:
+        return None, f"{type(ex).__name__}: {str(ex)[:300]}"
+
+
+def _mod(name):
+    import importlib
+    try:
+        return importlib.import_module(name)
+    except ImportError as ex:
+        raise ValueError(f"{name}.py is not in this install ({type(ex).__name__})") from None
+
+
+FLEET_CAP_MAX = 500.0
+
+
+def fleet_plan_from(rows):
+    """The Fleet page's table rows -> the plan arch_fleet.launch takes. Files may be one comma/newline separated string; a local agent's
+    brief is its goal. Nothing is judged here: plan_check does that, so its plain words reach the page unchanged."""
+    plan = []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            plan.append(r)
+            continue
+        kind = str(r.get("kind") or "claude").strip()
+        files = r.get("files")
+        if isinstance(files, str):
+            files = [f.strip() for f in re.split(r"[,\n]", files) if f.strip()]
+        a = {"name": str(r.get("name") or "").strip()[:80], "kind": kind, "files": list(files or [])}
+        brief = str(r.get("brief") or "").strip()[:20000]
+        if kind == "local":
+            a["goal"] = brief
+        else:
+            a["brief"] = brief
+            a["mode"] = str(r.get("mode") or "acceptEdits")
+        b = r.get("budget_usd", r.get("budget"))
+        a["budget_usd"] = None if b in (None, "") else b
+        for k in ("model", "after", "flow"):
+            if r.get(k):
+                a[k] = r[k]
+        plan.append(a)
+    return plan
+
+
+def _fleet_cap(b):
+    try:
+        cap = float(b.get("cap", 20.0))
+    except (TypeError, ValueError):
+        raise ValueError("the spending cap must be a number")
+    if not 0 < cap <= FLEET_CAP_MAX:
+        raise ValueError(f"the spending cap must be above $0 and at most ${FLEET_CAP_MAX:.0f}")
+    return cap
+
+
+def _fleet_tests(b):
+    t = b.get("tests")
+    if isinstance(t, str):
+        t = [x.strip() for x in t.splitlines() if x.strip()]
+    return [str(x).strip() for x in (t or []) if str(x).strip()][:10]
+
+
+def fleet_check(b):
+    """POST /api/arch/fleet {check: rows, cap, tests} -> {problems, total, cap, agents}. Spends nothing."""
+    fleet = _mod("arch_fleet")
+    plan = fleet_plan_from(b.get("check") if "check" in b else b.get("launch"))
+    cap = _fleet_cap(b)
+    problems = list(fleet.plan_check(plan, cap))
+    for c in _fleet_tests(b):
+        p = fleet.command_problem(c)
+        if p:
+            problems.append(p)
+    try:                                                  # a template's {slot} left in a brief would reach the agent as written
+        import arch_agentlib
+        for a in plan:
+            if isinstance(a, dict):
+                left = arch_agentlib.leftovers(" ".join([str(a.get("brief") or a.get("goal") or "")] + [str(f) for f in a.get("files") or []]))
+                if left:
+                    problems.append(f"{a.get('name') or 'an agent'}: fill in {', '.join(left)} first (left from the template)")
+    except Exception:
+        pass
+    total = 0.0
+    for a in plan:
+        try:
+            total += float((a or {}).get("budget_usd") or 0)
+        except (TypeError, ValueError, AttributeError):
+            pass
+    return {"ok": not problems, "problems": problems, "total": round(total, 2), "cap": cap, "agents": len(plan)}
+
+
+def fleet_info(fid=None):
+    """GET /api/arch/fleet[?id=] -> the fleets so far, or one fleet's live status."""
+    fleet, err = _guarded(_mod, "arch_fleet")
+    if err:
+        return {"available": False, "error": err, "fleets": []}
+    if fid:
+        st, err = _guarded(fleet.status, fid)
+        return _plain(st) if not err else {"error": err}
+    fleets, err = _guarded(fleet.list_fleets, 30)
+    return _plain({"available": True, "fleets": fleets or [], "error": err, "kinds": list(getattr(fleet, "KINDS", ("claude", "local"))),
+                   "max_agents": getattr(fleet, "MAX_AGENTS", 16), "allowed": list(getattr(fleet, "ALLOWED_PREFIXES", ())),
+                   "default_tests": list(getattr(fleet, "DEFAULT_TESTS", ())), "cap_max": FLEET_CAP_MAX})
+
+
+def fleet_change(b):
+    fleet = _mod("arch_fleet")
+    if b.get("stop"):
+        return {"ok": bool(fleet.stop(str(b["stop"]))), "stopped": str(b["stop"])}
+    if "check" in b:
+        return fleet_check(b)
+    if "launch" in b:
+        chk = fleet_check(b)
+        if chk["problems"]:
+            raise ValueError("The plan was not launched: " + "; ".join(chk["problems"]))
+        root = safe_root(b.get("root") or HERE)
+        fid = fleet.launch(fleet_plan_from(b["launch"]), root, total_cap_usd=chk["cap"], tests=_fleet_tests(b))
+        return {"ok": True, "id": fid}
+    raise ValueError("say check, launch or stop")
+
+
+# ---- the Map: one run, fleet, flow or Claude Code run as nodes and edges ----------------------------------------------------------
+MAP_KINDS = ("run", "fleet", "flow", "cc")
+MAP_MAX_NODES = 120
+
+
+class _Graph:
+    def __init__(self, kind, ident, title):
+        self.out = {"kind": kind, "id": ident, "title": title, "nodes": [], "edges": []}
+        self._ids, self._edges = {}, set()
+
+    def node(self, key, typ, label, sub="", **detail):
+        if key in self._ids:
+            n = self._ids[key]
+            for k, v in detail.items():
+                if isinstance(v, (int, float)) and not isinstance(v, bool) and isinstance(n["detail"].get(k), (int, float)) \
+                        and not isinstance(n["detail"].get(k), bool) and k not in ("secs", "tries"):
+                    n["detail"][k] = round(n["detail"][k] + v, 6)
+                elif v not in (None, "", [], {}) or k == "ok":       # ok None = could not run: kept, never dropped
+                    n["detail"][k] = v
+            return key
+        if len(self.out["nodes"]) >= MAP_MAX_NODES:
+            return None
+        n = {"id": key, "type": typ, "label": str(label or key)[:60], "sub": str(sub or "")[:80],
+             "detail": {k: v for k, v in detail.items() if v not in (None, "", [], {}) or k == "ok"}}
+        self._ids[key] = n
+        self.out["nodes"].append(n)
+        return key
+
+    def edge(self, a, b, label=""):
+        if a and b and a != b and (a, b) not in self._edges:
+            self._edges.add((a, b))
+            self.out["edges"].append({"from": a, "to": b, "label": str(label or "")[:30]})
+
+    def result(self):
+        self.out["truncated"] = len(self.out["nodes"]) >= MAP_MAX_NODES
+        return _plain(self.out)
+
+
+def _last_user(msgs):
+    for m in reversed(msgs or []):
+        if isinstance(m, dict) and m.get("role") == "user":
+            c = m.get("content")
+            return (c if isinstance(c, str) else json.dumps(c, default=str))[:1500]
+    return ""
+
+
+def _tier_label(tier, model):
+    t = str(tier or "").lower()
+    if str(model or "").startswith("claude") or t == "claude":
+        return "claude", "Claude"
+    return (t or "model"), {"router": "Router", "worker": "Worker", "heavy": "Heavy", "draft": "Draft"}.get(t, t.title() or "Model")
+
+
+def map_run(root, run_name):
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", run_name or ""):
+        raise ValueError("that is not a run id")
+    rd = os.path.join(root, ".arch", "runs", run_name)
+    if not os.path.isdir(rd):
+        raise ValueError("no such run")
+    rep = _read_text(os.path.join(rd, "report.md")) or ""
+    goal = (re.search(r"- Goal: (.*)", rep) or [None, ""])[1].strip()
+    flow = (re.search(r"- Flow: `(\w+)`", rep) or [None, ""])[1]
+    g = _Graph("run", run_name, goal[:80] or run_name)
+    req = g.node("req", "request", "Request", flow and f"flow: {flow}", prompt=goal or "(the goal is not in the report)", run=run_name)
+    steps, cur, verdict = [], None, None
+
+    def step_node(name):
+        nonlocal cur
+        key = "step:" + str(name)
+        if key not in g._ids:
+            if g.node(key, "step", name, "step") and key not in steps:
+                steps.append(key)
+        cur = key
+        return key
+    try:
+        lines = open(os.path.join(rd, "trace.jsonl"), encoding="utf-8", errors="replace").read().splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(r, dict):
+            continue
+        t = r.get("type")
+        if t == "step":
+            s = step_node(r.get("step") or "step")
+            if "ok" in r:
+                g.node(s, "step", "", ok=r.get("ok"), unsure=r.get("unsure") or None, tries=r.get("tries"), secs=r.get("secs"))
+                for f in r.get("changed") or []:
+                    g.edge(s, g.node("file:" + str(f), "file", os.path.basename(str(f)), str(f), path=str(f)), "edited")
+        elif t == "call":
+            s = cur or step_node(r.get("label") or r.get("role") or "model call")
+            tk, tl = _tier_label(r.get("tier"), r.get("model"))
+            tn = g.node("tier:" + tk, "claude" if tk == "claude" else "tier", tl, r.get("model") or "", model=r.get("model"), calls=1,
+                        tokens_in=int(r.get("prompt_tokens") or 0), tokens_out=int(r.get("gen_tokens") or 0), cost=float(r.get("usd") or 0))
+            g.node(s, "step", "", role=r.get("role"), calls=1, tokens_in=int(r.get("prompt_tokens") or 0),
+                   tokens_out=int(r.get("gen_tokens") or 0), cost=float(r.get("usd") or 0),
+                   prompt=_last_user(r.get("messages")), reply=str(r.get("reply") or "")[:1500])
+            g.edge(s, tn, r.get("role") or "")
+        elif t == "tool":
+            s = cur or step_node(r.get("step") or "tools")
+            tn = g.node("tool:" + str(r.get("tool")), "tool", r.get("tool") or "tool", "tool", uses=1,
+                        last_args=json.dumps(r.get("args") or {}, default=str)[:600], last_result=str(r.get("result") or "")[:800])
+            g.edge(s, tn)
+            args = r.get("args") or {}
+            path = args.get("path") or args.get("file") if isinstance(args, dict) else None
+            if path and r.get("tool") in ("apply", "edit_lines"):
+                g.edge(s, g.node("file:" + str(path), "file", os.path.basename(str(path)), str(path), path=str(path)), "edited")
+        elif t == "check":
+            s = cur or step_node(r.get("step") or "checks")
+            ck_ = g.node(f"check:{s}:{r.get('gate')}", "check", r.get("gate") or "check", "check", ok=r.get("ok"),
+                         result=str(r.get("text") or "")[:1500], secs=r.get("secs"))
+            g.edge(s, ck_)
+        elif t == "verdict":
+            verdict = r
+    prev = req
+    for s in steps:
+        g.edge(prev, s, "then" if prev != req else "")
+        prev = s
+    if verdict or not steps:
+        v = (verdict or {}).get("verdict") or ("pass" if re.search(r"passed checks|complete", rep, re.I) else "unknown")
+        vn = g.node("verdict", "verdict", "Verdict: " + v, (verdict or {}).get("why") or "", result=(verdict or {}).get("why") or "",
+                    verdict=v, meter=(verdict or {}).get("meter"))
+        g.edge(prev, vn)
+    return g.result()
+
+
+def map_fleet(fid):
+    fleet = _mod("arch_fleet")
+    st = fleet.status(fid)
+    if st.get("error") and not st.get("agents"):
+        raise ValueError(st["error"])
+    g = _Graph("fleet", fid, f"Fleet {fid}")
+    req = g.node("req", "request", "Fleet", f"{len(st.get('agents') or [])} agents, cap ${st.get('cap_usd') or 0}",
+                 root=st.get("root"), phase=st.get("phase"), cost=st.get("total_cost"))
+    names = {}
+    for a in st.get("agents") or []:
+        an = g.node("agent:" + a["name"], "agent", a["name"], f"{a.get('kind') or 'claude'} · {a.get('status')}",
+                    status=a.get("status"), cost=a.get("cost"), budget=a.get("budget_usd"), turns=a.get("turns"), error=a.get("error"),
+                    last_event=(a.get("last_event") or {}).get("text") if isinstance(a.get("last_event"), dict) else a.get("last_event"),
+                    run=a.get("run"), files=a.get("files"))
+        names[a["name"]] = an
+        after = a.get("after") or []
+        for x in ([after] if isinstance(after, str) else after):
+            g.edge(names.get(x), an, "after")
+        if not after:
+            g.edge(req, an)
+        if (a.get("kind") or "claude") == "local":
+            tn = g.node("tier:" + (a.get("lane") or "worker"), "tier", "Worker" if a.get("lane") != "cpu" else "Router", a.get("lane") or "")
+        else:
+            tn = g.node("tier:claude", "claude", "Claude", a.get("model") or "Claude Code", cost=float(a.get("cost") or 0))
+        g.edge(an, tn)
+        for f in a.get("files") or []:
+            g.edge(an, g.node("file:" + str(f), "file", os.path.basename(str(f).rstrip("/")) or str(f), str(f), path=str(f)), "owns")
+    tests = st.get("tests") or [{"cmd": c, "ok": None, "planned": True} for c in st.get("tests_planned") or []]
+    vn = g.node("verdict", "verdict", "Verdict: " + str(st.get("verdict") or st.get("phase") or "running"), "",
+                verdict=st.get("verdict"), diffstat=st.get("diffstat"), strays=st.get("strays"))
+    for i, t in enumerate(tests):
+        cmd = t.get("cmd") or t.get("command") or str(t)
+        cn = g.node(f"check:{i}", "check", cmd[:40], "test", ok=t.get("ok"), result=str(t.get("output") or "")[-1500:], command=cmd)
+        for an in names.values():
+            g.edge(an, cn)
+        g.edge(cn, vn)
+    if not tests:
+        for an in names.values():
+            g.edge(an, vn)
+    return g.result()
+
+
+def map_flow(fid):
+    if not re.fullmatch(r"[a-z0-9_]{1,40}", fid or ""):
+        raise ValueError("flow must be a workflow id like bugfix")
+    fm = _mod("arch_dataflow").flow_map(fid)
+    if fm.get("error"):
+        raise ValueError(fm["error"])
+    g = _Graph("flow", fid, fm.get("title") or fid)
+    prev = g.node("req", "request", "Request", fm.get("title") or fid, prompt=fm.get("blurb"), budget=fm.get("budget"))
+    for s in fm.get("steps") or []:
+        sn = g.node("step:" + str(s.get("id")), "step", s.get("title") or s.get("id"), s.get("kind") or "",
+                    role=s.get("role"), budget=s.get("budget"), retries=s.get("retries"), when=s.get("when"))
+        g.edge(prev, sn, "then" if prev != "req" else "")
+        if s.get("tier") or s.get("model"):
+            tk, tl = _tier_label(s.get("tier"), s.get("model"))
+            g.edge(sn, g.node("tier:" + tk, "claude" if tk == "claude" else "tier", tl, s.get("model") or "", model=s.get("model")), s.get("role") or "")
+        if s.get("check"):
+            g.edge(sn, g.node(f"check:{s.get('id')}", "check", s["check"], "check", gate=s["check"]))
+        prev = sn
+    g.edge(prev, g.node("verdict", "verdict", "Verdict", "pass only when every check passed"))
+    return g.result()
+
+
+def _cc_file(ev):
+    try:
+        d = json.loads(ev.get("text") or "{}")
+    except ValueError:
+        return None
+    return (d.get("file_path") or d.get("notebook_path") or d.get("path")) if isinstance(d, dict) else None
+
+
+def map_cc(rid):
+    d = _mod("arch_claudecode").load_run(rid)
+    if d.get("error") and not d.get("events"):
+        raise ValueError(d["error"])
+    g = _Graph("cc", rid, (d.get("prompt") or rid)[:80])
+    req = g.node("req", "request", "Request", d.get("mode") or "", prompt=str(d.get("prompt") or "")[:3000], root=d.get("root"))
+    ag = g.node("agent", "agent", "Claude Code", str(d.get("status") or ""), status=d.get("status"), cost=d.get("cost"),
+                turns=d.get("turns"), error=d.get("error"), session=d.get("session"))
+    g.edge(req, ag)
+    tn = g.node("tier:claude", "claude", "Claude", d.get("model") or "default model")
+    tin = tout = 0
+    for ev in d.get("events") or []:
+        if ev.get("type") == "assistant" and isinstance(ev.get("usage"), dict):
+            tin += int(ev["usage"].get("input_tokens") or 0)
+            tout += int(ev["usage"].get("output_tokens") or 0)
+        if ev.get("type") == "tool":
+            name = "Agent" if ev.get("name") == "Task" else (ev.get("name") or "tool")
+            t = g.node("tool:" + name, "tool", name, "tool", uses=1, last_args=str(ev.get("arg") or "")[:600])
+            g.edge(ag, t)
+            f = _cc_file(ev)
+            if f and name in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+                g.edge(t, g.node("file:" + f, "file", os.path.basename(f), f, path=f), "edited")
+    g.node("tier:claude", "claude", "", tokens_in=tin, tokens_out=tout, cost=float(d.get("cost") or 0))
+    g.edge(ag, tn)
+    final = next((e for e in reversed(d.get("events") or []) if e.get("type") == "result"), None)
+    g.edge(ag, g.node("verdict", "verdict", "Result: " + str(d.get("status") or "?"), "", result=str((final or {}).get("text") or d.get("error") or "")[:2000]))
+    return g.result()
+
+
+def map_graph(kind, ident, root=None):
+    """GET /api/arch/map -> {kind, id, title, nodes:[{id, type, label, sub, detail}], edges:[{from, to, label}]} or {error}.
+    Node types: request, step, agent, tier, claude, tool, file, check, verdict. Read-only."""
+    if kind not in MAP_KINDS:
+        return {"error": "kind is run, fleet, flow or cc"}
+    try:
+        if kind == "run":
+            return map_run(safe_root(root or HERE), ident)
+        if kind == "fleet":
+            return map_fleet(ident)
+        if kind == "flow":
+            return map_flow(ident)
+        return map_cc(ident)
+    except Exception as ex:
+        return {"error": f"{str(ex)[:300]}" if isinstance(ex, ValueError) else f"{type(ex).__name__}: {str(ex)[:300]}"}
+
+
+def map_sources(root=None):
+    """What the Map can draw: the project's runs, the fleets, the workflows, the Claude Code runs."""
+    out = {"runs": [], "fleets": [], "flows": [], "cc": []}
+    try:
+        r = safe_root(root or HERE)
+        out["runs"] = [{"id": x["name"], "label": (x.get("goal") or x["name"])[:80], "flow": x.get("flow")} for x in run_listing(r)]
+    except Exception:
+        pass
+    fls, _ = _guarded(lambda: _mod("arch_fleet").list_fleets(30))
+    out["fleets"] = [{"id": f["id"], "label": f"{f['id']} · {f.get('agents')} agents · {f.get('phase')}"} for f in fls or []]
+    try:
+        out["flows"] = sorted(n[:-5] for n in os.listdir(os.path.join(HERE, "flows")) if n.endswith(".yaml"))
+    except OSError:
+        pass
+    ccs, _ = _guarded(lambda: _mod("arch_claudecode").list_runs(30))
+    out["cc"] = [{"id": c.get("id"), "label": str(c.get("prompt") or c.get("id"))[:80]} for c in ccs or []]
+    return _plain(out)
+
+
+# ---- the Logbook ------------------------------------------------------------------------------------------------------------------
+def logbook_info(q=None):
+    lb, err = _guarded(_mod, "arch_learn")
+    if err:
+        return {"available": False, "error": err}
+    if q is not None:
+        res, err = _guarded(lb.similar, str(q)[:500], 8)
+        return _plain({"available": True, "similar": res or [], "error": err})
+    st, err = _guarded(lb.stats)
+    text = ""
+    try:
+        text = _read_text(lb.playbooks_path(), 60000) or ""
+    except Exception:
+        pass
+    return _plain({"available": True, "stats": st or {}, "error": err, "playbooks": text})
+
+
+def logbook_ingest():
+    lb = _mod("arch_learn")
+    res = lb.ingest()
+    pb, err = _guarded(lb.playbooks)
+    return _plain(dict(logbook_info(), ok=True, ingested=res, playbooks_error=err))
+
+
+# ---- the Library ------------------------------------------------------------------------------------------------------------------
+def library_info(name=None):
+    lib, err = _guarded(_mod, "arch_agentlib")
+    if err:
+        return {"available": False, "error": err, "templates": []}
+    if name:
+        t, err = _guarded(lib.load, name)
+        if err:
+            return {"error": err.split(": ", 1)[-1]}
+        ex, _ = _guarded(lib.explain, name)
+        t = {k: v for k, v in t.items() if k != "path"}
+        return _plain({"template": t, "explain": ex or ""})
+    items, err = _guarded(lib.list_templates)
+    method = _read_text(os.path.join(HERE, "docs", "agent_method.md"), 80000)
+    return _plain({"available": True, "templates": items or [], "error": err, "method": method or None})
+
+
+def library_fill(b):
+    lib = _mod("arch_agentlib")
+    name = str(b.get("fill") or "")
+    vals = {str(k): str(v) for k, v in (b.get("values") or {}).items() if str(v).strip()}
+    p = lib.fill_parts(name, **vals)
+    if p.get("kind") != "agent":
+        raise ValueError(f"{name} is a footer: it is added to other briefs, not run as an agent")
+    tests = []
+    try:
+        import arch_fleet
+        tests = [c for c in p.get("tests") or [] if arch_fleet.command_problem(c) is None]
+    except Exception:
+        pass
+    return _plain({"ok": True, "row": {"name": p["name"].replace("_", "-"), "kind": "claude", "brief": p["brief"], "files": ", ".join(p["files"]),
+                                       "budget": p["budget_usd"], "mode": p["mode"]}, "tests": tests})
+
+
+# ---- the Monitor ------------------------------------------------------------------------------------------------------------------
+MON_AGENT_KEYS = ("id", "name", "status", "cost", "turns", "tools_total", "edits", "errors", "refusals", "live", "quiet_s", "fleet",
+                  "strays", "mode", "started", "ended", "error")
+
+
+def _timeline_tail(path, n=150):
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 96000))
+            raw = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in raw[-n:]:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict):
+            out.append({k: r.get(k) for k in ("t", "agent", "kind", "detail")})
+    return out[::-1]
+
+
+def monitor_info():
+    ov, err = _guarded(_mod, "arch_overseer")
+    if err:
+        return {"available": False, "error": err}
+    s, err = _guarded(ov.scan)
+    if err or not isinstance(s, dict):
+        s2, err2 = _guarded(ov.summary)
+        s, err = (s2, err) if isinstance(s2, dict) else ({}, err or err2)
+    agents = []
+    for a in s.get("agents") or []:
+        row = {k: a.get(k) for k in MON_AGENT_KEYS}
+        row["files_edited"] = sorted((a.get("files_edited") or {}).keys()) if isinstance(a.get("files_edited"), dict) else list(a.get("files_edited") or [])
+        row["tools"] = sorted((a.get("tool_calls") or {}).items(), key=lambda kv: -kv[1])[:6] if isinstance(a.get("tool_calls"), dict) else []
+        row["stalls"] = len(a.get("stalls") or [])
+        agents.append(row)
+    les, lerr = _guarded(ov.lessons, None, False)
+    tl = []
+    try:
+        tl = _timeline_tail(os.path.join(ov.overseer().out, "timeline.jsonl"))
+    except Exception:
+        pass
+    return _plain({"available": True, "error": err, "agents": agents, "totals": s.get("totals") or {}, "conflicts": s.get("conflicts") or [],
+                   "overlaps": s.get("overlaps") or [], "stalls": (s.get("stalls") or [])[:20], "top_tools": s.get("top_tools") or [],
+                   "timeline": tl, "lessons": les or [], "lessons_error": lerr, "t": time.time()})
+
+
+# ---- what a Claude message will cost, before it is sent --------------------------------------------------------------------------
+CTX_TOKENS = {"small": 1000, "normal": 3500, "large": 15000, "max": 50000}      # the chat's context sizes (the hub's own labels)
+
+
+def token_preview(b):
+    """POST /api/arch/token_preview {model, message, ctx, council} -> {available, usd, line, ...}. Nothing is sent to a model."""
+    model = str(b.get("model") or "").strip()
+    if model.startswith("claude:"):
+        model = model[len("claude:"):]
+    if model and not re.fullmatch(r"claude-[a-z0-9.-]{3,40}", model):
+        raise ValueError("unknown model")
+    msg = str(b.get("message") or "")[:200000]
+    tok, err = _guarded(_mod, "arch_tokens")
+    if err:
+        return {"available": False, "error": err}
+    cfg_, _ = _guarded(core.load_config)                  # online off (the default) -> the offline chars/3.5 estimate, no request
+    est, err = _guarded(tok.estimate_cost, model or None, "", [{"role": "user", "content": msg or " "}], cfg=cfg_ or {})
+    if err:
+        return {"available": False, "error": err}
+    ctx_n = CTX_TOKENS.get(str(b.get("ctx") or "normal"), CTX_TOKENS["normal"])
+    extra, _ = _guarded(lambda: _mod("arch_cloud").cost(model or est.get("model"), ctx_n, 0))
+    usd = float(est.get("usd") or 0) + float(extra or 0)
+    line = (f"about ${usd:.3f} ({int(est.get('input_tokens') or 0) + ctx_n:,} tokens in with ~{ctx_n:,} of project context, "
+            f"~{int(est.get('expected_out') or 0):,} out; {'counted' if est.get('source') == 'counted' else 'estimate'})")
+    if b.get("council"):
+        line += " · the Council runs several agents: several times this"
+    return _plain({"available": True, "usd": round(usd, 6), "line": line, "source": est.get("source"), "model": est.get("model"),
+                   "input_tokens": est.get("input_tokens"), "context_tokens": ctx_n, "expected_out": est.get("expected_out")})
 
 
 class AHandler(mh.Handler):
@@ -570,6 +1519,12 @@ class AHandler(mh.Handler):
             st = mh.build_state()
             a_out = assess.assess(st.get("models", []), st.get("hw"), core.deep_merge(core.DEFAULTS, mh.read_config()))
             return self._send(200, advisor.advise(root, d_out, a_out))
+        if u.path == "/api/arch/recommend":
+            import arch_recommend
+            try:
+                return self._send(200, arch_recommend.recommend())
+            except Exception as ex:
+                return self._send(200, {"_error": {"value": None, "why": str(ex)[:200], "basis": "error"}})
         if u.path == "/api/arch/claudecode":
             import arch_claudecode as cc
             q = parse_qs(u.query)
@@ -603,6 +1558,19 @@ class AHandler(mh.Handler):
             if not self._host_ok():
                 return self._send(403, {"error": "bad host"})
             return self._send(200, tune_info())
+        if u.path == "/api/arch/first_visit":
+            # The first-visit path: machine checks, Get ready, which model does which job, and the practice task. Read-only.
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            try:
+                root = safe_root((parse_qs(u.query).get("root") or [HERE])[0], create_ok=True)
+            except ValueError:
+                root = HERE
+            try:
+                hub_port = self.server.server_address[1]
+            except Exception:
+                hub_port = 8766
+            return self._send(200, first_visit_info(root, hub_port))
         if u.path == "/api/arch/code_health":
             if not self._host_ok():
                 return self._send(403, {"error": "bad host"})
@@ -733,7 +1701,7 @@ class AHandler(mh.Handler):
                 up = {p["tier"] for p in arch_server.status(core.load_config()).get("processes", []) if p.get("up")}
             except Exception:
                 up = set()
-            return self._send(200, dict(arch_hw.live(), tiers=[dict(t, up=t["tier"] in up) for t in _GPU_PLAN.get("tiers", [])],
+            return self._send(200, dict(_live_sample(arch_hw), tiers=[dict(t, up=t["tier"] in up) for t in _GPU_PLAN.get("tiers", [])],
                                         notes=_GPU_PLAN.get("notes", [])))
         if u.path == "/api/arch/queue":
             import arch_supervisor as sv
@@ -756,6 +1724,44 @@ class AHandler(mh.Handler):
             return self._send(200, mh.JOB.event_feed(since))
         if u.path == "/api/arch/events/stream":
             return self._event_stream(parse_qs(u.query))
+        if u.path == "/api/arch/blueprint_kit":
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            try:
+                return self._send(200, blueprint_kit((parse_qs(u.query).get("flow") or [""])[0]))
+            except Exception as ex:
+                return self._send(200, {"error": f"{type(ex).__name__}: {str(ex)[:200]}", "kinds": list(BLUEPRINT_KINDS), "tiers": list(BLUEPRINT_TIERS),
+                                        "gates": [], "prompts": [], "roles": [], "taken": []})
+        if u.path == "/api/arch/costs":
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            try:
+                days = max(1, min(90, int((parse_qs(u.query).get("days") or ["7"])[0])))
+            except ValueError:
+                days = 7
+            return self._send(200, costs_summary(days))
+        if u.path == "/api/arch/crew_schedule":
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            return self._send(200, crew_schedule_list())
+        if u.path in ("/api/arch/fleet", "/api/arch/map", "/api/arch/map_sources", "/api/arch/logbook", "/api/arch/library",
+                      "/api/arch/monitor"):
+            # The agents' workspace pages. Read-only; each module is optional and every call is guarded.
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            q = parse_qs(u.query)
+            one = lambda k: (q.get(k) or [""])[0]
+            if u.path == "/api/arch/fleet":
+                return self._send(200, fleet_info(one("id") or None))
+            if u.path == "/api/arch/map":
+                return self._send(200, map_graph(one("kind"), one("id"), one("root") or None))
+            if u.path == "/api/arch/map_sources":
+                return self._send(200, map_sources(one("root") or None))
+            if u.path == "/api/arch/logbook":
+                return self._send(200, logbook_info(one("q") if "q" in q else None))
+            if u.path == "/api/arch/library":
+                return self._send(200, library_info(one("name") or None))
+            return self._send(200, monitor_info())
         return super().do_GET()
 
     def _event_stream(self, q):
@@ -1060,6 +2066,17 @@ class AHandler(mh.Handler):
                 d[parts[-1]] = v
             mh.write_config(cfg)
             return {"ok": True, "applied": name, "settings": coerced, "config": core.deep_merge(core.DEFAULTS, cfg)}
+        if path == "/api/arch/practice":
+            # The first-visit practice task: a two-file project in Architect's own data folder with one small bug, fixed by the normal
+            # flow with the normal checks. The files are rewritten first, so it always starts from the same bug; no folder of yours is used.
+            if mh.JOB.running():
+                raise RuntimeError("A job is already running. Let it finish (or stop it) before the practice task.")
+            root = practice_prepare()
+            argv = ["architect.py", "run", PRACTICE_GOAL, "--root", root, "--review", "auto"]
+            if "bugfix" in fl.FLOWS:
+                argv += ["--flow", "bugfix"]
+            mh.JOB.start("Practice task: fix slugify", argv)
+            return {"ok": True, "root": root, "goal": PRACTICE_GOAL, "epoch": mh.JOB.epoch}
         if path == "/api/arch/apply_recommended":
             ranked, plan = roles.recommend(mh.build_state().get("models", []))
             cfg = mh.read_config()
@@ -1200,6 +2217,20 @@ class AHandler(mh.Handler):
         if path == "/api/arch/undo":
             mh.JOB.start("Undo last run", ["architect.py", "undo", "--root", safe_root(b.get("root") or HERE)])
             return {"ok": True}
+        if path == "/api/arch/flow_save":
+            return save_blueprint(b)
+        if path == "/api/arch/crew_schedule":
+            return crew_schedule_change(b)
+        if path == "/api/arch/fleet":
+            return fleet_change(b)
+        if path == "/api/arch/logbook":
+            if not b.get("ingest"):
+                raise ValueError("say ingest")
+            return logbook_ingest()
+        if path == "/api/arch/library":
+            return library_fill(b)
+        if path == "/api/arch/token_preview":
+            return token_preview(b)
         return super().route(path, b)
 
 
@@ -1222,8 +2253,20 @@ def main(argv=None):
         def servers_up():
             return {"servers": sorted(t for t, r in (arch_server.load_state().get("processes") or {}).items()
                                       if r.get("pid") and arch_server._alive(r["pid"]))}
+        _keep_recorder_samples(arch_hw)                      # /api/arch/gpu reuses these samples instead of measuring again
         arch_hw.start_recorder(os.path.join(core.data_dir(), "live.log"), extra=servers_up)   # a freeze then leaves evidence
+    start_crew_scheduler()
     return mh.serve(a.port, not a.no_browser)
+
+
+def start_crew_scheduler():
+    """The Crew page's scheduled agent runs fire while the hub is up. Missing module or function: the hub starts anyway."""
+    try:
+        import arch_agents
+        arch_agents.start_scheduler()
+        return True
+    except Exception:
+        return False
 
 
 if __name__ == "__main__":

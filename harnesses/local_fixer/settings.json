@@ -1,0 +1,10 @@
+{
+  "behavior.escalate": "stalled",
+  "behavior.keep_best_try": true,
+  "behavior.fake_code": "fail",
+  "behavior.network": "offline",
+  "limits.max_revisions": 3,
+  "limits.max_calls": 40,
+  "online.enabled": false,
+  "online.cloud_tier": "off"
+}

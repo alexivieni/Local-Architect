@@ -1,0 +1,30 @@
+# Composed by arch_harness.py; edit this file, then compose again.
+name: "local_fixer"
+title: "Local-only fixer"
+blurb: "A bug report becomes a failing reproduction test, then a minimal fix, on this machine's models only. Nothing leaves the machine."
+goal_kind: "fix"
+review: "ask"
+tiers:
+  worker: ""
+  heavy: ""
+flow: "bugfix"
+gates: []
+tools: []
+claude_mode: "off"
+budgets: {}
+agents: []
+settings:
+  behavior.escalate: "stalled"
+  behavior.keep_best_try: true
+  behavior.fake_code: "fail"
+  behavior.network: "offline"
+  limits.max_revisions: 3
+  limits.max_calls: 40
+why:
+  flow: "The installed bugfix flow is used as is (not a copy), so its read-only-tests rule and the reproduction gate keep working."
+  tiers: "The worker writes the fix; the heavy tier is asked only when a step is stuck and it can answer in time."
+  claude_mode: "Local-only by design: online features are switched off for this run, whatever your settings say."
+  settings: "Fake code fails the step, a worse try is undone, and the tests run without network."
+mode: "installed"
+source: "bugfix"
+run: "python arch_harness.py run local_fixer \"your goal\" --root PATH"

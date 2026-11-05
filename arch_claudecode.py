@@ -298,18 +298,34 @@ def _new_run_id():
 
 def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40, budget=5.0, tag=None):
     """Run one Claude Code turn in `root` in the background. -> run id (follow-ups pass the session id as `resume`).
-    `tag` is free text kept in the run's meta (a fleet puts its id there)."""
+    `tag` is free text kept in the run's meta (a fleet puts its id there).
+    Gated like every Claude call (arch_cloud.allowed: never in the self-tests or eval, only with online features on), and the
+    run's whole budget is held against the daily cap (arch_cloud.reserve) before it starts; what it really cost is recorded at the end."""
+    import arch_cloud
+    cfg = core.load_config()
+    with arch_cloud.asked_for():                 # the person started this run by hand: online features must be on, not Use Claude
+        ok, why = arch_cloud.allowed(cfg)
+    if not ok:
+        raise RuntimeError(why)
     if not status()["ready"]:
         raise RuntimeError(status()["why"])
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise RuntimeError("set ANTHROPIC_API_KEY, then restart the hub")
     if mode not in MODES:
         mode = "plan"
-    args = {"prompt": prompt, "mode": mode, "model": model, "resume": resume, "max_turns": int(max_turns), "budget": float(budget)}
+    try:
+        budget = float(budget)
+    except (TypeError, ValueError):
+        raise RuntimeError(f"the budget must be a number of dollars (got {str(budget)[:20]!r})")
+    if not budget > 0:
+        raise RuntimeError("the budget must be above $0 (it is the run's hard spend limit)")
+    hold = arch_cloud.reserve(cfg, budget, what="This Claude Code run")   # SpendRefused (a RuntimeError) past the daily cap
+    args = {"prompt": prompt, "mode": mode, "model": model, "resume": resume, "max_turns": int(max_turns), "budget": budget}
     with _LOCK:
         rid = _new_run_id()
         started = time.time()
-        _RUNS[rid] = {"events": [], "status": "running", "session": resume, "cost": 0.0, "started": started, "error": None, "proc": None}
+        _RUNS[rid] = {"events": [], "status": "running", "session": resume, "cost": 0.0, "started": started, "error": None, "proc": None,
+                      "hold": hold, "usage_usd": 0.0}
     write_meta(rid, prompt=prompt, mode=mode, model=model, budget=args["budget"], max_turns=args["max_turns"], root=os.path.abspath(root),
                resume=resume, tag=tag, started=started, ended=None, status="running", cost=0.0, turns=None, session=resume,
                error=None, pid=os.getpid())
@@ -317,10 +333,24 @@ def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40, budg
     return rid
 
 
+def _settle_run(rid):
+    """Swap the run's hold for what it really cost: the ResultMessage's total when one came, else the usage seen so far (a run
+    stopped or broken part-way was still billed for the turns it took). Once per run."""
+    import arch_cloud
+    with _LOCK:
+        r = _RUNS.get(rid) or {}
+        hold = r.pop("hold", None)
+        if not hold:
+            return
+        actual = r.get("cost") if r.get("result_cost") else max(float(r.get("cost") or 0), float(r.get("usage_usd") or 0))
+    arch_cloud.settle(hold, actual or 0.0)
+
+
 def _pump(rid, args, root):
     try:
         _drive(rid, args, root)
     finally:
+        _settle_run(rid)
         with _LOCK:
             r = _RUNS.get(rid) or {}
             final = {k: r.get(k) for k in ("status", "cost", "turns", "session", "error")}
@@ -329,6 +359,21 @@ def _pump(rid, args, root):
             final["status"] = "error"
             final["error"] = final["error"] or "the run ended unexpectedly"
         write_meta(rid, ended=time.time(), **final)
+
+
+def _count_usage(rid, model, usage):
+    """Running estimate of what the run has cost, from each assistant message's token counts (used only when no result came)."""
+    try:
+        import arch_cloud
+        u = usage or {}
+        usd = arch_cloud.cost(model or "", u.get("input_tokens") or 0, u.get("output_tokens") or 0,
+                              u.get("cache_read_input_tokens") or 0, u.get("cache_creation_input_tokens") or 0)
+    except Exception:
+        return
+    with _LOCK:
+        r = _RUNS.get(rid)
+        if r is not None:
+            r["usage_usd"] = float(r.get("usage_usd") or 0) + usd
 
 
 def _drive(rid, args, root):
@@ -375,6 +420,7 @@ def _drive(rid, args, root):
             elif name == "AssistantMessage":
                 u = getattr(m, "usage", None) or {}
                 usage = {k: u.get(k) for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
+                _count_usage(rid, getattr(m, "model", None), usage)
                 sub = getattr(m, "parent_tool_use_id", None)          # set when a subagent (Task tool) is the one talking
                 for b in m.content or []:
                     bn = type(b).__name__
@@ -391,8 +437,11 @@ def _drive(rid, args, root):
                         c = b.content if isinstance(b.content, str) else json.dumps(b.content, ensure_ascii=False, default=str)
                         add({"t": t, "type": "tool_result", "id": b.tool_use_id, "error": bool(b.is_error), "text": (c or "(no output)")[:4000]})
             elif name == "ResultMessage":
+                with _LOCK:
+                    _RUNS[rid]["result_cost"] = True
                 add({"t": t, "type": "result", "text": (m.result or "")[:4000]}, session=m.session_id, cost=m.total_cost_usd or 0,
                     turns=m.num_turns, error=(m.result or m.subtype) if m.is_error else None)
+                _settle_run(rid)                                      # the real cost goes into today's total now
 
     try:
         asyncio.run(go())

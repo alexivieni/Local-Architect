@@ -32,6 +32,22 @@ import re
 import string
 import time
 
+
+def _compact_turns(turns, full=4, short=10):
+    """Context editing for the tool loop (what long-running frontier agents do with old tool results): the newest `full` steps
+    verbatim, the next `short` cut to 600 characters, anything older to its first line. A small model's window then holds a long
+    exploration instead of overflowing on old file dumps; nothing is lost from the trace, only from the prompt."""
+    n, out = len(turns), []
+    for i, t in enumerate(turns):
+        age = n - i
+        if age <= full:
+            out.append(t)
+        elif age <= full + short:
+            out.append(t if len(t) <= 600 else t[:600] + " ... [older result shortened]")
+        else:
+            out.append(t.splitlines()[0][:160] if t else t)
+    return "\n".join(out)
+
 import arch_core as core
 import arch_gates
 from arch_core import BudgetExceeded, LLMError, LoopDetected
@@ -805,7 +821,7 @@ class DataFlow:
             base = render(tpl, ctx, extra)
             for i in range(max_steps):
                 last = i == max_steps - 1
-                user = base + ("\n\nWHAT YOU HAVE DONE SO FAR:\n" + "\n".join(turns) if turns else "") + \
+                user = base + ("\n\nWHAT YOU HAVE DONE SO FAR:\n" + _compact_turns(turns) if turns else "") + \
                     ("\n\nTHIS IS YOUR LAST STEP: answer now, from what you have seen, with {\"final\": \"...\"}." if last else "")
                 r, j = e.ask_json(role, user, schema=schema)
                 if not isinstance(j, dict):

@@ -2782,3 +2782,4 @@ def suggest(goal):
 
 
 import arch_templates_more  # noqa: E402,F401  (registers eight more templates: cli_tool, tui_app, etl_pipeline, state_machine, event_bus, cache_layer, plugin_host, docs_site)
+import arch_templates_extra  # noqa: E402,F401  (registers eight more: tool_server, agent_fleet, lease_queue, api_gateway, event_store, model_cli, telemetry_collector, fts_rag)

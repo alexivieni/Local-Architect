@@ -10,6 +10,10 @@ The lead's part, done here:
     the output kept. It records pass / fail / could-not-run per command, `git diff --stat`, and any changed file no agent owned.
   * Only test commands from `ALLOWED_PREFIXES` are accepted; shell punctuation is refused.
 
+Kinds: claude (arch_claudecode), local (one `architect.py run` subprocess) and local_agent (arch_localagent.run in this process: the
+tool loop on the local models, writes refused outside its own files, its run log in cc_runs like a Claude run). Both local kinds
+share the one graphics card the same way (`_GPU_CV`, one writer at a time; a local_agent on the router tier uses the CPU lane).
+
 Three outcomes, never two: a command that timed out or could not start is `ok: None`, and makes the fleet's verdict `not_sure`.
 """
 import json
@@ -30,7 +34,9 @@ FINISHED = ("done", "error", "stopped", "lost")
 MAX_AGENTS = 16
 DEFAULT_TESTS = ("python arch_hub_check.py",)
 FLEET_ID_RE = re.compile(r"fl\d{10,16}")
-KINDS = ("claude", "local")
+KINDS = ("claude", "local", "local_agent")
+LOCAL_KINDS = ("local", "local_agent")  # local = one `architect.py run`; local_agent = arch_localagent.run (the tool loop, own files)
+AGENT_TIERS = ("worker", "heavy", "router")
 FLOW_RE = re.compile(r"[a-z][a-z0-9_]{0,30}")
 CPU_FLOWS = ("route", "explain")        # planning-only steps: the router model on the CPU, so the graphics card stays free
 _GPU_CV = threading.Condition()         # ONE graphics card: local agents that write take it one at a time (across fleets too)
@@ -79,8 +85,19 @@ def plan_check(plan, total_cap_usd=20.0):
         names.add(name)
         kind = a.get("kind") or "claude"
         if kind not in KINDS:
-            problems.append(f"{label}: kind must be claude or local (got {str(kind)[:20]!r})")
-        if kind == "local":
+            problems.append(f"{label}: kind must be claude, local or local_agent (got {str(kind)[:20]!r})")
+        if kind == "local_agent":
+            if not str(a.get("goal") or a.get("brief") or "").strip():
+                problems.append(f"{label}: a local agent needs a goal (or a brief)")
+            if (a.get("mode") or "acceptEdits") != "acceptEdits":
+                problems.append(f"{label}: a local agent edits its own files; it has no plan mode")
+            if a.get("tier") and a["tier"] not in AGENT_TIERS:
+                problems.append(f"{label}: tier must be one of {', '.join(AGENT_TIERS)}")
+            lb = a.get("budget") or {}
+            if not isinstance(lb, dict) or any(k not in ("calls", "seconds", "tokens") or not isinstance(v, (int, float))
+                                               or isinstance(v, bool) or v <= 0 for k, v in lb.items()):
+                problems.append(f"{label}: budget must be {{calls, seconds}} with numbers above 0")
+        elif kind == "local":
             if not str(a.get("goal") or "").strip():
                 problems.append(f"{label}: a local agent needs a goal")
             if a.get("flow") and not FLOW_RE.fullmatch(str(a["flow"])):
@@ -99,7 +116,9 @@ def plan_check(plan, total_cap_usd=20.0):
         if not isinstance(after, list) or any(x not in names or x == name for x in after):
             problems.append(f"{label}: 'after' must name agents listed before it")
         try:
-            if kind == "local" and a.get("budget_usd") in (None, "", 0):
+            if kind == "local_agent":
+                budget = 0.0                                     # the local models cost no money; its limit is calls/seconds
+            elif kind == "local" and a.get("budget_usd") in (None, "", 0):
                 budget = 0.0                                     # a local agent costs nothing
             else:
                 budget = float(a.get("budget_usd"))
@@ -269,10 +288,11 @@ def _new_id():
 
 
 def launch(plan, root, total_cap_usd=20.0, tests=DEFAULT_TESTS, starter=None, runner=None, poll=3.0, test_timeout=1800,
-           max_wait_s=4 * 3600, max_turns=60, local_runner=None, local_timeout=3600):
+           max_wait_s=4 * 3600, max_turns=60, local_runner=None, local_timeout=3600, agent_runner=None):
     """Check the plan, start every agent at once, watch them, then test. -> fleet id. ValueError (plain words) when refused.
     `starter(root=, prompt=, mode=, model=, budget=, max_turns=, tag=) -> run id` and `runner(cmd, cwd, timeout) -> {rc, output}`
-    are for tests; by default they are arch_claudecode.start and run_command."""
+    are for tests; by default they are arch_claudecode.start and run_command. `agent_runner` stands in for arch_localagent.run
+    (kind local_agent), called with the same arguments."""
     tests = list(tests or [])
     problems = plan_check(plan, total_cap_usd) + [p for p in (command_problem(c) for c in tests) if p]
     if not root or not os.path.isdir(root):
@@ -282,17 +302,29 @@ def launch(plan, root, total_cap_usd=20.0, tests=DEFAULT_TESTS, starter=None, ru
     if starter is None:
         import arch_claudecode as cc
         starter = cc.start
+        claude_bill = sum(float(a.get("budget_usd") or 0) for a in plan if (a.get("kind") or "claude") == "claude")
+        if claude_bill > 0:                                      # the whole fleet's Claude bill must fit under today's cap BEFORE
+            import arch_cloud                                    # anything starts; each agent then holds its own budget (cc.start)
+            try:
+                arch_cloud.reserve(core.load_config(), claude_bill, what=f"This fleet's {claude_bill:.2f} USD of agent budgets",
+                                   check_only=True)
+            except arch_cloud.SpendRefused as e:
+                raise ValueError(str(e))
     runner = runner or run_command
     root = os.path.abspath(root)
     fid = _new_id()
     before = runner("git status --porcelain", root, 60)
     agents = []
     for a in plan:
-        local = (a.get("kind") or "claude") == "local"
+        kind = a.get("kind") or "claude"
+        local = kind in LOCAL_KINDS
         after = a.get("after") or []
         after = [after] if isinstance(after, str) else list(after)
-        agents.append({"name": a["name"].strip(), "kind": "local" if local else "claude",
-                       "brief": a.get("goal") if local else a["brief"], "files": [_clean_path(f)[0] for f in a["files"]],
+        agents.append({"name": a["name"].strip(), "kind": kind,
+                       "brief": (a.get("goal") or a.get("brief")) if local else a["brief"],
+                       "files": [_clean_path(f)[0] for f in a["files"]],
+                       "tier": (a.get("tier") or "worker") if kind == "local_agent" else None,
+                       "local_budget": dict(a.get("budget") or {}) if kind == "local_agent" else None,
                        "budget_usd": float(a.get("budget_usd") or 0) if local else float(a["budget_usd"]),
                        "model": a.get("model") or None, "mode": "acceptEdits" if local else (a.get("mode") or "acceptEdits"),
                        "flow": (a.get("flow") or None) if local else None, "after": after,
@@ -306,7 +338,7 @@ def launch(plan, root, total_cap_usd=20.0, tests=DEFAULT_TESTS, starter=None, ru
         _write(state)
     threads = []
     for a in agents:                                             # each start returns at once; the agents run side by side
-        if a["kind"] == "local" or a["after"]:
+        if a["kind"] in LOCAL_KINDS or a["after"]:
             continue                                             # started by its own thread below
         try:
             a["run"] = starter(root=root, prompt=a["brief"].rstrip() + footer(a, tests), mode=a["mode"], model=a["model"],
@@ -314,7 +346,7 @@ def launch(plan, root, total_cap_usd=20.0, tests=DEFAULT_TESTS, starter=None, ru
             a["status"] = "running"
         except Exception as e:
             a["status"], a["error"] = "error", f"could not start: {type(e).__name__}: {str(e)[:300]}"
-    ready = [a for a in agents if a["kind"] == "local" and not a["after"]]
+    ready = [a for a in agents if a["kind"] in LOCAL_KINDS and not a["after"]]
     for a in ready:                                              # plan order, decided here so two local agents never race for the card
         if a["lane"] == "gpu":
             with _GPU_CV:
@@ -328,10 +360,10 @@ def launch(plan, root, total_cap_usd=20.0, tests=DEFAULT_TESTS, starter=None, ru
     _update(fid, started)
     local_runner = local_runner or run_local
     for a in agents:
-        if a["kind"] == "local" or a["after"]:
+        if a["kind"] in LOCAL_KINDS or a["after"]:
             th = threading.Thread(target=_agent_thread, name=f"fleet-{fid}-{a['name']}", daemon=True,
                                   args=(fid, a["name"], root, tests, starter, local_runner, poll, max_turns, local_timeout,
-                                        any(a is r for r in ready)))
+                                        any(a is r for r in ready), agent_runner))
             threads.append(th)
     for th in threads:
         th.start()
@@ -345,7 +377,8 @@ def launch(plan, root, total_cap_usd=20.0, tests=DEFAULT_TESTS, starter=None, ru
 # ---- local agents: the same job on the models of this machine ---------------------------------------------------------------------
 def lane_of(agent):
     """'cpu' for planning-only steps (they use the router on the CPU), else 'gpu': the one card, one writer at a time."""
-    return "cpu" if agent.get("lane") == "cpu" or agent.get("flow") in CPU_FLOWS else "gpu"
+    return ("cpu" if agent.get("lane") == "cpu" or agent.get("flow") in CPU_FLOWS
+            or (agent.get("kind") == "local_agent" and agent.get("tier") == "router") else "gpu")
 
 
 def local_footer(agent):
@@ -428,7 +461,7 @@ def _plan_text(run):
     return ""
 
 
-def _agent_thread(fid, name, root, tests, starter, local_runner, poll, max_turns, local_timeout, queued):
+def _agent_thread(fid, name, root, tests, starter, local_runner, poll, max_turns, local_timeout, queued, agent_runner=None):
     """One agent that does not start at once: it waits for its `after` agents, and a local one for the graphics card."""
     key = (fid, name)
     gpu_taken = False
@@ -456,7 +489,7 @@ def _agent_thread(fid, name, root, tests, starter, local_runner, poll, max_turns
             time.sleep(min(poll, 0.5))
         me = dict(me)
         waited_for = None
-        if me["kind"] != "local":                                # a Claude agent that only needed to wait its turn
+        if me["kind"] not in LOCAL_KINDS:                        # a Claude agent that only needed to wait its turn
             run = starter(root=root, prompt=me["brief"].rstrip() + footer(me, tests), mode=me["mode"], model=me["model"],
                           budget=me["budget_usd"], max_turns=max_turns, tag=fid)
             _set_agent(fid, name, run=run, status="running", why=None)
@@ -485,6 +518,19 @@ def _agent_thread(fid, name, root, tests, starter, local_runner, poll, max_turns
         why = (f"waited {waited:.1f} s for {waited_for}: one graphics card, one writer at a time" if waited_for
                else ("ran at once: planning-only work uses the CPU router" if me["lane"] == "cpu" else "had the graphics card free"))
         _set_agent(fid, name, status="running", waited_s=waited, why=why, started=time.time())
+        if me["kind"] == "local_agent":                          # the tool loop in this process, its own files, its own tests
+            if agent_runner is None:
+                import arch_localagent
+                agent_runner = arch_localagent.run
+            res = agent_runner(str(me["brief"]).rstrip() + extra, root, files=list(me["files"]),
+                               budget=me.get("local_budget") or None, tier=me.get("tier") or "worker", tag=fid,
+                               should_stop=lambda: _stopping(fid),
+                               on_start=lambda rid: _set_agent(fid, name, run=rid)) or {}
+            st = res.get("status") if res.get("status") in FINISHED else "error"
+            _set_agent(fid, name, status=st, run=res.get("id"), error=None if st == "done" else (res.get("why") or "not complete"),
+                       output=str(res.get("answer") or res.get("why") or "")[-4000:], checks=res.get("checks"),
+                       refused=res.get("refused") or [], ended=time.time())
+            return
         goal = str(me["brief"]).rstrip() + extra + local_footer(me)
         env = dict(os.environ, ARCHITECT_FLEET=fid, ARCHITECT_FLEET_AGENT=f"{fid}:{name}")
         r = local_runner(local_argv(me, root, goal), root, local_timeout, env) or {}
@@ -544,6 +590,8 @@ def hybrid_plan(goal, parts, plan_budget_usd=1.0, review_budget_usd=1.0, review=
 
 
 def _settle(agent):
+    if agent.get("kind") == "local_agent" and agent.get("status") in FINISHED:
+        return agent                                             # its own thread wrote the last word (the run log says the same)
     v = _view(agent.get("run"))
     if v:
         agent.update({k: v[k] for k in ("status", "cost", "turns", "error")})
@@ -634,7 +682,7 @@ def status(fid):
         a = _settle(dict(a)) if st.get("phase") in ("starting", "running") else dict(a)
         agents.append({k: a.get(k) for k in ("name", "run", "status", "cost", "turns", "files", "mode", "budget_usd", "error",
                                               "last_event", "kind", "lane", "flow", "after", "waited_s", "waiting_for", "why",
-                                              "trace", "rc")})
+                                              "trace", "rc", "tier", "checks", "refused")})
     waits = [{"agent": a["name"], "waited_s": a.get("waited_s"), "for": a.get("waiting_for"), "why": a.get("why")}
              for a in agents if a.get("waiting_for") or a.get("status") in ("queued", "waiting")]
     with _LOCK:

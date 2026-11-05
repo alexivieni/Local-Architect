@@ -17,12 +17,69 @@ _RUNS = {}            # session id -> {"events": [...], "status", "agent", "star
 _LOCK = threading.Lock()
 
 
-def _client():
+SESSION_HOLD_USD = 2.0      # set aside against the daily cap per session turn (a Managed Agent has no dollar limit of its own)
+
+
+def _cfg():
     import arch_core as core
-    if not (core.load_config().get("online") or {}).get("enabled") or arch_cloud._testing():
-        raise RuntimeError("turn on Settings > Online > Allow online features first")
+    return core.load_config()
+
+
+def _client():
+    """The one gate every Claude call uses (never in the self-tests or eval; online features on). The person drives this page by
+    hand, so the Use Claude mode is not needed."""
+    with arch_cloud.asked_for():
+        ok, why = arch_cloud.allowed(_cfg())
+    if not ok:
+        raise RuntimeError(why)
     import anthropic
     return anthropic.Anthropic()
+
+
+def _hold(what):
+    """Hold one session turn's estimate against today's cap; SpendRefused (a RuntimeError) when it does not fit."""
+    return arch_cloud.reserve(_cfg(), SESSION_HOLD_USD, what=what)
+
+
+def _usage_usd(c, sid):
+    """What the session has cost so far by its own usage counters, or None when they cannot be read."""
+    try:
+        s = c.beta.sessions.retrieve(sid)
+    except Exception:
+        return None
+    u = getattr(s, "usage", None) if not isinstance(s, dict) else s.get("usage")
+    if u is None:
+        return None
+
+    def g(k):
+        v = u.get(k) if isinstance(u, dict) else getattr(u, k, None)
+        try:
+            return int(v or 0)
+        except (TypeError, ValueError):
+            return 0
+    model = None
+    with _LOCK:
+        model = (_RUNS.get(sid) or {}).get("model")
+    return arch_cloud.cost(model or "", g("input_tokens"), g("output_tokens"), g("cache_read_input_tokens"),
+                           g("cache_creation_input_tokens"))
+
+
+def _settle(c, sid):
+    """Swap the session's open hold for what this turn really cost (the usage counters' growth since the last settle). When the
+    counters cannot be read, the whole estimate is counted as spent: the daily total errs high, never low."""
+    with _LOCK:
+        r = _RUNS.get(sid) or {}
+        hold = r.pop("hold", None)
+        counted = float(r.get("usd_counted") or 0)
+    if not hold:
+        return
+    total = _usage_usd(c, sid)
+    actual = SESSION_HOLD_USD if total is None else max(0.0, total - counted)
+    if total is not None:
+        with _LOCK:
+            if sid in _RUNS:
+                _RUNS[sid]["usd_counted"] = total
+    arch_cloud.settle(hold, actual)
 
 
 def _plain(x, depth=0):
@@ -75,8 +132,10 @@ def _summary(ev):
 
 
 def start(agent_id, message, environment_id=None, repo_url=None):
-    """Start a session with your agent and send the first message. Runs in the background. -> session id."""
+    """Start a session with your agent and send the first message. Runs in the background. -> session id.
+    The turn's estimate (SESSION_HOLD_USD) is held against the daily cap first; what it really cost is recorded when it ends."""
     c = _client()
+    hold = _hold("This Managed Agent session")
     kw = {"agent": agent_id}
     if environment_id:
         kw["environment_id"] = environment_id

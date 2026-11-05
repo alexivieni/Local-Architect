@@ -462,13 +462,24 @@ def drives(run=_run):
     return out
 
 
-def drive_roles(drs, models=None):
+SLOWEST_USEFUL_MB_S = 2.0      # below this a drive cannot even keep up with copying run records in the background
+
+
+def drive_roles(drs, models=None, speeds=None):
     """What each drive is good for in this app, in plain words. Measured speeds (measure_drive) refine this; the rules: models only on a
-    fixed internal drive; a removable or slow drive is an archive at most; a suspect drive holds nothing that matters."""
+    fixed internal drive; a removable or slow drive is an archive at most; a suspect drive holds nothing that matters. `speeds` maps a
+    mount to its measure_drive() result: a drive that read back different bytes than were written (`ok` False) is failing, and one that
+    writes under SLOWEST_USEFUL_MB_S is too slow to hold anything; both get role "none"."""
     models = os.path.abspath(models or models_dir())
+    speeds = speeds or {}
     for d in drs:
         here = models.lower().startswith(str(d["mount"]).lower())
-        if d.get("suspect"):
+        m = speeds.get(d["mount"]) or {}
+        if m.get("ok") is False:
+            d["role"], d["why"] = "none", "read back different data than was written in the speed test: the drive is failing or not its stated size"
+        elif m.get("write_mb_s") is not None and m["write_mb_s"] < SLOWEST_USEFUL_MB_S:
+            d["role"], d["why"] = "none", f"writes at {m['write_mb_s']} MB/s (measured), too slow to hold anything for this app"
+        elif d.get("suspect"):
             d["role"], d["why"] = "none", "probably a fake-capacity drive: " + d["suspect"]
         elif d.get("removable"):
             d["role"], d["why"] = "archive", "can be unplugged at any time, so only copies of run records and backups go here, never models"

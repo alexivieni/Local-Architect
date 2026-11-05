@@ -1,0 +1,15 @@
+{
+  "total_cap_usd": 2,
+  "plan": [
+    {
+      "name": "feature_review",
+      "files": [
+        ".arch/fleet/notes/review_feature.md"
+      ],
+      "kind": "claude",
+      "brief": "You are the review agent for \"Architect\". This is a read-only task: change no file.\nRead the files the last run changed (its report.md lists them) and everything they call. The change was meant to: the feature asked for in the last run.\nLook first for: acceptance criteria not met, stubs, untested paths. Then: correctness bugs, edge cases (empty input, a missing file, a timeout), anything that turns\n\"could not run\" into a pass or a fail, and anything that breaks the rules in CLAUDE.md.\nEnd with a numbered list. Each item: file and function (line if you can), what goes wrong, the concrete input or state that\ntriggers it, and the smallest fix. Say \"no problems found\" if that is the honest answer; do not pad the list.\n\nShared rules for every agent on this job (several agents work in parallel on DIFFERENT files):\n- Read CLAUDE.md first. Settings: a new setting goes in arch_params.SETTINGS AND arch_core.DEFAULTS (a check compares them).\n- Edit ONLY the files your brief names. Others are being edited by other agents right now.\n- No commits, pushes, deletions, or edits to architect_config.json / hub_data (except a file your brief names).\n- You cannot run commands; the reviewer runs the tests. Write tests that print \"ALL N <NAME> CHECKS PASSED\" like the other suites.\n- Originality: name things in the app's own voice, not after other products' features.\n- End with a short report: what already existed, what you changed (file: function), the test command.",
+      "mode": "plan",
+      "budget_usd": 1.5
+    }
+  ]
+}

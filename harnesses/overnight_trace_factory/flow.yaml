@@ -1,0 +1,56 @@
+# The flow of pack overnight_trace_factory (built from harness.yaml).
+id: "overnight_trace_factory"
+title: "Overnight trace factory"
+kind: "tool_loop"
+produces:
+  - "an answer"
+  - "a tool trajectory in the trace"
+uses_roles:
+  - "architect"
+steps:
+  - id: "look"
+    kind: "tool_loop"
+    title: "Look around and answer"
+    role: "architect"
+    tier: "worker"
+    prompt: "explore/explore"
+    tools:
+      - "ls"
+      - "grep"
+      - "search"
+      - "read"
+      - "outline"
+      - "run_tests"
+      - "memory_read"
+    allow_writes: false
+    max_steps: 8
+    store_text: "answer"
+    budget:
+      tokens: 100000
+      seconds: 780
+  - id: "remember"
+    kind: "tool_loop"
+    title: "Remember one thing worth keeping"
+    role: "architect"
+    tier: "worker"
+    prompt: "explore/remember"
+    tools:
+      - "memory_append"
+    max_steps: 2
+    when: "look.ok"
+    on_fail: "continue"
+    budget:
+      tokens: 20000
+      seconds: 180
+  - id: "post_tests_pass"
+    kind: "code"
+    title: "After: tests_pass"
+    gate: "tests_pass"
+    on_fail: "continue"
+verdict:
+  pass_if: "(look.ok) and post_tests_pass.ok"
+budget:
+  calls: 14
+  tokens: 120000
+  seconds: 900
+blurb: "Unattended, read-only runs that look through a project with tools and answer a question; every run is a tool trajectory judged by code, kept as training data. The project's tests must still pass at the end."

@@ -1,0 +1,8 @@
+{
+  "behavior.seed": 1234,
+  "behavior.network": "offline",
+  "behavior.learn_from_runs": "off",
+  "limits.max_calls": 20,
+  "online.enabled": false,
+  "online.cloud_tier": "off"
+}

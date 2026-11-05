@@ -1285,6 +1285,27 @@ def _run_suites(suite):
             _mod = importlib.import_module("arch_selftest_" + _name)
             _fn = getattr(_mod, "run", None) or getattr(_mod, "main")     # logbook and overseer expose main()
             rc |= (_fn() or 0)
+        # The suites added on 2026-11-04 (docs/release_20261104.md). Some stop with SystemExit/AssertionError on the first failed check
+        # instead of returning 1, so each is guarded: one failing suite is counted as a failure and the rest still run.
+        for _name in ("augment", "broker", "design", "firstvisit", "harness", "hubperf", "iterate", "localagent", "mesh",
+                      "placement", "redact", "routelearn", "templates_extra", "why", "workspace"):
+            try:
+                _mod = importlib.import_module("arch_selftest_" + _name)
+                if _name == "hubperf":                                      # no run(): its checks are backend() + ui()
+                    _mod.backend()
+                    _mod.ui()
+                    print(f"ALL {_mod.N[0]} HUBPERF CHECKS PASSED")
+                    continue
+                # routelearn's run() is a fixture helper that takes arguments; its entry point is main()
+                _fn = getattr(_mod, "main", None) if _name == "routelearn" else (getattr(_mod, "run", None) or getattr(_mod, "main"))
+                rc |= (_fn() or 0)
+            except SystemExit as _e:
+                if _e.code not in (None, 0):
+                    print(f"[x] arch_selftest_{_name}: {_e.code}")
+                    rc |= 1
+            except Exception as _e:
+                print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
+                rc |= 1
         try:
             import arch_hub_check
             rc |= arch_hub_check.run()

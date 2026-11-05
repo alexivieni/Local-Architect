@@ -1,0 +1,10 @@
+{
+  "behavior.tests_first": "on",
+  "behavior.evaluator": "final",
+  "behavior.keep_best_try": true,
+  "behavior.network": "offline",
+  "online.enabled": true,
+  "online.cloud_tier": "plan",
+  "limits.cloud_usd_per_run": 1.5,
+  "limits.cloud_usd_per_day": 5.0
+}

@@ -322,8 +322,10 @@ def _is_cache_hit(call):
 
 
 def near_key(user):
-    """Same task, near enough: whitespace-normalised, case kept, hash of the first 2000 characters."""
-    norm = " ".join(str(user or "").split())[:2000]
+    """Same task, near enough: whitespace-normalised, case kept, hash of the WHOLE user turn.
+    Prompts are prefix-stable (instructions and project context first, the per-task part last), so the head of a turn is shared by
+    every task in a project; keying on it collapsed a role's samples from one project into one. The whole turn carries the task."""
+    norm = " ".join(str(user or "").split())
     return hashlib.sha1(norm.encode("utf-8", "replace")).hexdigest()
 
 
