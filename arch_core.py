@@ -62,7 +62,7 @@ DEFAULTS = {
     "role_hosts": {},              # role -> host name: that role's model calls go to that machine
     "role_overrides": {},          # role -> {think, sampling, num_predict}
     "model_overrides": {},         # model -> {num_ctx, sampling, think, system_prompt: "inline"|"system"}
-    "limits": {"cloud_usd_per_run": 0.5, "num_ctx": 8192, "max_calls": 60, "max_revisions": 3, "request_timeout": 900, "escalate_max_s": 240,
+    "limits": {"cloud_usd_per_run": 0.5, "cloud_usd_per_day": 5.0, "num_ctx": 8192, "max_calls": 60, "max_revisions": 3, "request_timeout": 900, "escalate_max_s": 240,
                "max_files_per_step": 6, "context_chars": 20000, "keep_alive": "30m", "max_file_bytes": 400000,
                "test_timeout": 300, "max_sprints": 5,
                "timeout_mode": "auto",      # auto = first-token/idle/total limits derived from each model's measured speed (request_timeout is the ceiling); fixed = request_timeout for everything
@@ -101,7 +101,9 @@ DEFAULTS = {
     "skills": {"enabled": True, "max": 2, "budget": 4000, "min_score": 1.5},
     "memory": {"prompt_chars": 1800, "top_lines": 12, "max_lines": 400, "prune_after": 5},   # arch_memory.py: what the app has learned about a project, and how much of it rides along in every prompt
     "eval": {"pass_rate_drop": 5.0, "tokens_p50_rise_pct": 25.0, "secs_p95_rise_pct": 40.0},   # arch_eval.py: what counts as a regression when one benchmark run is compared with another   # arch_skills.py: short Markdown notes on how this project does things, loaded only for the tasks they apply to
-    "online": {"enabled": False, "allow_pip": False, "cloud_tier": "off", "cloud_model": "claude:claude-opus-5-5"},   # the ONE switch for anything that leaves this machine on the harness's own behalf (catalog verify, Hugging Face facts, pip repairs). Off = the app behaves identically with no network at all.
+    "online": {"enabled": False, "allow_pip": False, "cloud_tier": "off", "cloud_model": "claude:claude-opus-5-5",
+               "cloud_cache": True, "cloud_cache_ttl": "5m",      # arch_cloud.py: local cache of Claude replies (30 days); Anthropic prompt-cache lifetime 5m | 1h
+               "ultra_worker": "claude:claude-sonnet-5-5", "ultra_skeptic": "claude:claude-haiku-5-5"},   # ultracode helpers; the lead stays on the chosen model   # the ONE switch for anything that leaves this machine on the harness's own behalf (catalog verify, Hugging Face facts, pip repairs). Off = the app behaves identically with no network at all.
     "retrieval": {"mode": "hybrid", "chunk_lines": 60, "max_chunks": 20000},   # arch_index.py: SQLite FTS5 over functions + TF-IDF files, fused; no vectors, no embedding model
     "files": {"extensions": [".py", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".html", ".css", ".json", ".sql", ".md", ".txt",
                              ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".go", ".rs", ".java", ".cs", ".rb", ".php"],
@@ -1209,12 +1211,21 @@ class Engine:
         return self._installed
 
     def model_for(self, role):
+        m = self._model_for(role)
+        if str(m or "").startswith("claude:"):                                   # tell the cloud tier whose call this is (its effort)
+            import arch_cloud
+            arch_cloud.note_role(role)
+        return m
+
+    def _model_for(self, role):
         if self.pins.get(role):
             return self.pins[role]
-        if role != "router" and ((self.cfg.get("online") or {}).get("cloud_tier") == "all"):
+        ct = (self.cfg.get("online") or {}).get("cloud_tier")
+        if role != "router" and ct in ("all", "plan"):
             import arch_cloud
-            if arch_cloud.mode(self.cfg) == "all":                               # Settings > Online > Use Claude = all
-                return arch_cloud.cloud_model(self.cfg)
+            if ct == "all" or role in arch_cloud.PLAN_ROLES:                     # plan = only the thinking roles; the rest stays local
+                if arch_cloud.mode(self.cfg) == ct:                              # Settings > Online > Use Claude = all / plan
+                    return arch_cloud.cloud_model(self.cfg)
         m = (self.cfg["roles"].get(role) or "").strip()
         if m:                                                                     # a model you assigned to this role wins
             return (self.tier_model(m[5:]) or m) if m.startswith("tier:") else m

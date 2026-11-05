@@ -7,7 +7,10 @@ stays standard-library only and never opens a connection off this machine.
 What stays true with it on:
   * code still decides: Claude's reply goes through the same apply/tests/gates as any local reply;
   * a refusal is "could not run" (LLMError), never a pass;
-  * spend is capped per process (`limits.cloud_usd_per_run`), checked BEFORE each request;
+  * spend is capped per process (`limits.cloud_usd_per_run`) and per day across all calls (`limits.cloud_usd_per_day`,
+    kept in data_dir()/cloud_spend.json), both checked BEFORE each request;
+  * a reply Claude already gave to the exact same request is answered from data_dir()/cloud_cache/ for $0 (`online.cloud_cache`,
+    30 days; never during eval or the self-tests). Efficiency only: cached replies are still transport "claude", never training data;
   * the key is never stored by the app: the SDK reads ANTHROPIC_API_KEY (or an `ant auth login` profile) itself;
   * replies are tagged transport "claude", and arch_dataset leaves them out of training data (Anthropic's terms restrict
     using outputs to train competing models).
@@ -51,6 +54,24 @@ def effort_for(text, chosen=None):
     return chosen if chosen in EFFORTS else "high"
 
 
+# Use Claude = plan: Claude does the thinking roles, your local models do everything else (ids from arch_roles.ROLES; the
+# evaluator is the strict judge).
+PLAN_ROLES = ("planner", "architect", "evaluator", "reviewer")
+# Effort for a run's role when nobody picked one (an explicit asked_for effort or 'ultrathink' always wins).
+ROLE_EFFORT = {"planner": "high", "architect": "high", "evaluator": "medium", "reviewer": "medium"}
+ROLE_EFFORT_DEFAULT = "medium"
+
+
+def note_role(role):
+    """Engine.model_for calls this when it hands a role a claude: model, so the very next chat() on this thread knows whose call it
+    is (its effort). Read once and cleared by chat(), so it never leaks into an unrelated call."""
+    _HERE.role = role
+
+
+def role_effort(role):
+    return ROLE_EFFORT.get(role, ROLE_EFFORT_DEFAULT) if role else None
+
+
 def is_cloud(model):
     return str(model or "").startswith(PREFIX)
 
@@ -81,7 +102,7 @@ def allowed(cfg):
     on = (cfg or {}).get("online") or {}
     if not on.get("enabled"):
         return False, "Claude is off: online features are off (Settings > Allow online features)"
-    if (on.get("cloud_tier") or "off") not in ("escalation", "chat", "all") and not getattr(_HERE, "on", False):
+    if (on.get("cloud_tier") or "off") not in ("escalation", "chat", "plan", "all") and not getattr(_HERE, "on", False):
         return False, "Claude is off (Settings > Online > Use Claude)"
     return True, ""
 
@@ -117,11 +138,12 @@ def status(cfg):
     return {"on": ok, "sdk": sdk, "key": key, "ready": ready, "text": say, "mode": mode(cfg), "chat_ready": chat_ready,
             "chat_why": "" if chat_ready else ("turn on Settings > Online > Allow online features" if not on_ else
                         "install the Anthropic SDK (pip install anthropic)" if not sdk else "set ANTHROPIC_API_KEY, then restart the hub"),
-            "model": api_model(chosen_model(cfg)), "spent_usd": round(_SPENT["usd"], 4)}
+            "model": api_model(chosen_model(cfg)), "spent_usd": round(_SPENT["usd"], 4), "spent_today_usd": round(spent_today(), 4),
+            "day_cap_usd": _day_cap(cfg)}
 
 
 def mode(cfg):
-    """off | escalation | chat | all -- and "off" whenever a cloud call is not allowed right now."""
+    """off | escalation | chat | plan | all -- and "off" whenever a cloud call is not allowed right now."""
     return ((cfg or {}).get("online") or {}).get("cloud_tier", "off") if cloud_model(cfg) else "off"
 
 
@@ -132,11 +154,24 @@ ULTRA_LENSES = [
 ]
 
 
-def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-sonnet-5-5", client=None):
+ULTRA_WORKER = "claude:claude-sonnet-5-5"
+ULTRA_SKEPTIC = "claude:claude-haiku-5-5"
+
+
+def _as_cloud(m, default):
+    m = str(m or "").strip() or default
+    return m if is_cloud(m) else PREFIX + m
+
+
+def ultra(model, messages, cfg, effort="high", sink=None, worker=None, client=None, skeptic=None):
     """Ultracode for the app: three Claude subagents work on the same request at once, each from its own angle (solver, critic,
-    alternative), then the chosen model, as lead, reads their notes and writes the one answer. Workers run at medium effort on
-    Sonnet (cheaper); only the lead's answer streams to the chat. -> the lead's reply dict, with usd = the whole team's cost."""
+    alternative), then two skeptics try to refute the solver, then the chosen model, as lead, reads their notes and writes the one
+    answer. Workers run at medium effort on `online.ultra_worker` (Sonnet), skeptics on `online.ultra_skeptic` (Haiku); only the
+    lead's answer streams to the chat. -> the lead's reply dict, with usd = the whole team's cost."""
     import concurrent.futures as cf
+    on = (cfg or {}).get("online") or {}
+    worker = _as_cloud(worker or on.get("ultra_worker"), ULTRA_WORKER)
+    skeptic = _as_cloud(skeptic or on.get("ultra_skeptic"), ULTRA_SKEPTIC)
     notes, usd, calls_all = {}, 0.0, []
 
     def one(lens):
@@ -173,7 +208,7 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
     def refute(i):
         with asked_for(None, "medium"):
             _HERE.label = f"skeptic {i}"
-            return chat(worker, list(messages) + [{"role": "user", "content":
+            return chat(skeptic, list(messages) + [{"role": "user", "content":
                         "A teammate proposed this answer:\n\n" + notes.get("solver", "") + f"\n\nYou are skeptic #{i}. Try to REFUTE it: list concrete "
                         "errors, wrong assumptions or missing steps, each with why. If it is correct, say 'no objections'. Under 150 words."}],
                         {"num_predict": 600}, cfg=cfg, client=client)
@@ -206,9 +241,11 @@ def ultra(model, messages, cfg, effort="high", sink=None, worker="claude:claude-
     return r
 
 
-def cost(model, prompt_tokens, gen_tokens, cache_read=0, cache_write=0):
+def cost(model, prompt_tokens, gen_tokens, cache_read=0, cache_write=0, ttl="5m"):
+    """USD for one call. A cache read costs 0.1x input; a cache write 1.25x input with the 5-minute lifetime, 2x with 1 hour."""
     pin, pout = PRICES.get(api_model(model), PRICES[DEFAULT_MODEL])
-    return ((prompt_tokens or 0) + 0.1 * (cache_read or 0) + 1.25 * (cache_write or 0)) * pin / 1e6 + (gen_tokens or 0) * pout / 1e6
+    wmul = 2.0 if ttl == "1h" else 1.25
+    return ((prompt_tokens or 0) + 0.1 * (cache_read or 0) + wmul * (cache_write or 0)) * pin / 1e6 + (gen_tokens or 0) * pout / 1e6
 
 
 def spent():
@@ -222,14 +259,176 @@ def _cap(cfg):
         return 0.5
 
 
+def _ttl(cfg):
+    """Prompt-cache lifetime on Anthropic's side: "5m" (default) or "1h" (online.cloud_cache_ttl)."""
+    return "1h" if str(((cfg or {}).get("online") or {}).get("cloud_cache_ttl") or "5m").strip() == "1h" else "5m"
+
+
+def _cache_control(ttl):
+    return {"type": "ephemeral", "ttl": "1h"} if ttl == "1h" else {"type": "ephemeral"}
+
+
+# ---- the daily spend cap, across every Claude call on this machine (data_dir()/cloud_spend.json: date -> usd)
+_SPEND_LOCK = _th.Lock()
+
+
+def _spend_file():
+    import os
+    import arch_core
+    return os.path.join(arch_core.data_dir(), "cloud_spend.json")
+
+
+def _today():
+    return time.strftime("%Y-%m-%d")
+
+
+def _read_spend():
+    import json
+    try:
+        with open(_spend_file(), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def spent_today():
+    try:
+        return float(_read_spend().get(_today()) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _add_spend(usd):
+    """Add one call's cost to today's total. Keeps the last 60 days; a file that cannot be written never fails the reply."""
+    import json
+    import os
+    if not usd:
+        return
+    with _SPEND_LOCK:
+        d = _read_spend()
+        try:
+            d[_today()] = round(float(d.get(_today()) or 0.0) + float(usd), 6)
+        except (TypeError, ValueError):
+            d[_today()] = round(float(usd), 6)
+        d = {k: d[k] for k in sorted(d)[-60:]}
+        p = _spend_file()
+        try:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            tmp = p + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(d, f)
+            os.replace(tmp, p)
+        except OSError:
+            pass
+
+
+def _day_cap(cfg):
+    try:
+        return float(((cfg or {}).get("limits") or {}).get("cloud_usd_per_day", 5.0))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+# ---- the local reply cache: the same request to the same model at the same effort is answered once (efficiency, not training data)
+CACHE_MAX_AGE = 30 * 86400
+_PRUNED = {"done": False}
+
+
+def _cache_on(cfg):
+    """Off during eval, the self-tests (unless the cloud suite asks for it on purpose), ARCHITECT_NO_CACHE, and online.cloud_cache = off."""
+    import os
+    if os.environ.get("ARCHITECT_EVAL") == "1" or os.environ.get("ARCHITECT_NO_CACHE") == "1" or _testing():
+        return False
+    if os.environ.get("ARCHITECT_SELFTEST") == "1" and os.environ.get("ARCHITECT_CLOUD_CACHE_TEST") != "1":
+        return False
+    v = ((cfg or {}).get("online") or {}).get("cloud_cache", True)
+    return not (v is False or str(v).strip().lower() in ("off", "false", "0", "no"))
+
+
+def _cache_dir():
+    import os
+    import arch_core
+    return os.path.join(arch_core.data_dir(), "cloud_cache")
+
+
+def cache_key(model, effort, system, messages, fmt):
+    import hashlib
+    import json
+    blob = json.dumps([api_model(model), effort, system or "", messages, fmt], sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode("utf-8", "replace")).hexdigest()
+
+
+def _cache_get(key):
+    import json
+    import os
+    p = os.path.join(_cache_dir(), key + ".json")
+    try:
+        if time.time() - os.path.getmtime(p) > CACHE_MAX_AGE:
+            os.remove(p)
+            return None
+        with open(p, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) and isinstance(d.get("text"), str) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _cache_put(key, entry):
+    import json
+    import os
+    d = _cache_dir()
+    try:
+        os.makedirs(d, exist_ok=True)
+        tmp = os.path.join(d, key + f".{os.getpid()}.{_th.get_ident()}.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(entry, f)
+        os.replace(tmp, os.path.join(d, key + ".json"))
+        if not _PRUNED["done"]:                                     # once per process: drop entries past their age
+            _PRUNED["done"] = True
+            now = time.time()
+            for de in os.scandir(d):
+                try:
+                    if de.name.endswith(".json") and now - de.stat().st_mtime > CACHE_MAX_AGE:
+                        os.remove(de.path)
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
 def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900, fmt=None, on_token=None, cfg=None, client=None):
     """One streamed Messages API call. Same return shape as the local transports. `client` is for tests (a fake SDK client)."""
+    role = getattr(_HERE, "role", None)                              # set by Engine.model_for for this call; read once, even if refused
+    _HERE.role = None
     ok, why = allowed(cfg)
     if not ok:
         raise LLMError(why)
+    eff = getattr(_HERE, "effort", None) or role_effort(role) or "high"   # an explicit choice wins, then the role's, then high
+    system = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
+    plain = [{"role": m["role"], "content": str(m.get("content") or "")} for m in messages if m.get("role") in ("user", "assistant")]
+    use_cache = _cache_on(cfg)
+    ckey = cache_key(model, eff, system, plain, fmt) if use_cache else None
+    hit = _cache_get(ckey) if ckey else None
+    if hit:                                                          # asked before: the same answer, no request, no cost
+        txt = hit["text"]
+        if txt and on_token:
+            on_token(txt)
+        sink = getattr(_HERE, "sink", None)
+        if txt and sink:
+            sink(txt)
+        rec = {"label": (getattr(_HERE, "label", None) or "answer") + " (cached)", "model": api_model(model), "effort": eff, "in": 0,
+               "out": 0, "cached": 0, "cache_write": 0, "local_cache": True, "usd": 0.0, "secs": 0.0,
+               "thinking": (hit.get("thinking") or "")[:4000], "text": txt[:4000]}
+        return {"calls": [rec], "text": txt, "thinking": hit.get("thinking") or "", "gen_tokens": hit.get("gen_tokens") or 0,
+                "prompt_tokens": 0, "cached_tokens": None, "done_reason": hit.get("done_reason") or "stop", "tok_s": None,
+                "prefill_tok_s": None, "load_s": None, "transport": "claude", "usd": 0.0, "cached": True}
     cap = _cap(cfg)
     if _SPENT["usd"] >= cap:
         raise LLMError(f"Claude budget for this run is used up (${_SPENT['usd']:.2f} of ${cap:.2f}; Settings > Claude spend per run)")
+    day_cap, today = _day_cap(cfg), spent_today()
+    if today >= day_cap:
+        raise LLMError(f"Claude's daily spend cap is reached (${today:.2f} of ${day_cap:.2f} today; Settings > Claude spend per day)")
     if client is None:
         try:
             import anthropic
@@ -242,21 +441,20 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
         except (TypeError, ValueError):
             secs = 900.0
         client = anthropic.Anthropic(timeout=max(60.0, secs))
-    system = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
-    msgs = [{"role": m["role"], "content": str(m.get("content") or "")} for m in messages if m.get("role") in ("user", "assistant")]
+    ttl = _ttl(cfg)
+    msgs = [dict(m) for m in plain]
     if msgs and msgs[0]["role"] == "user" and len(msgs[0]["content"]) > 3000:     # the project context: shared by every agent of a team
-        msgs[0] = {"role": "user", "content": [{"type": "text", "text": msgs[0]["content"], "cache_control": {"type": "ephemeral"}}]}
+        msgs[0] = {"role": "user", "content": [{"type": "text", "text": msgs[0]["content"], "cache_control": _cache_control(ttl)}]}
     if not msgs or msgs[0]["role"] != "user":
         msgs.insert(0, {"role": "user", "content": "(continue)"})
     while msgs and msgs[-1]["role"] == "assistant":                  # no prefill on current models
         msgs.pop()
     want = int((options or {}).get("num_predict") or 16000)
-    eff = getattr(_HERE, "effort", None) or "high"
     kw_thinking = {"type": "adaptive", "display": "summarized"}       # a readable summary of Claude's reasoning, shown under "Show work"
     kw = dict(model=api_model(model), thinking=kw_thinking, max_tokens=max(1024, min(want * 2, 64000)) if eff not in ("xhigh", "max") else 64000, messages=msgs,
               output_config={"effort": eff})
     if system:
-        kw["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]   # cached: same prefix next call = ~0.1x price
+        kw["system"] = [{"type": "text", "text": system, "cache_control": _cache_control(ttl)}]   # cached: same prefix next call = ~0.1x price
     if isinstance(fmt, dict):                                        # a JSON schema: structured output
         kw["output_config"] = {"effort": eff, "format": {"type": "json_schema", "schema": fmt}}
     elif fmt == "json":
@@ -267,8 +465,13 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
         try:
             stream_cm = client.messages.stream(**kw)
         except Exception as e:                                       # a schema the API will not take: ask again without it
-            if "format" in kw.get("output_config", {}) and ("400" in str(e) or "invalid_request" in str(e)):
+            bad = "400" in str(e) or "invalid_request" in str(e)
+            if bad and "format" in kw.get("output_config", {}):
                 kw["output_config"] = {"effort": eff}
+                stream_cm = client.messages.stream(**kw)
+            elif bad and ("effort" in str(e) or "thinking" in str(e)):   # a model that does not take effort/adaptive thinking
+                kw.pop("output_config", None)
+                kw.pop("thinking", None)
                 stream_cm = client.messages.stream(**kw)
             else:
                 raise
@@ -305,9 +508,13 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
     u = getattr(final, "usage", None)
     pt, gt = getattr(u, "input_tokens", 0) or 0, getattr(u, "output_tokens", 0) or 0
     cr, cw = getattr(u, "cache_read_input_tokens", 0) or 0, getattr(u, "cache_creation_input_tokens", 0) or 0
-    usd = cost(model, pt, gt, cr, cw)
+    usd = cost(model, pt, gt, cr, cw, ttl)
     _SPENT["usd"] += usd
     _SPENT["calls"] += 1
+    _add_spend(usd)
+    if ckey and stop != "max_tokens" and text:                      # a cut-off reply is never kept
+        _cache_put(ckey, {"t": time.time(), "model": api_model(model), "effort": eff, "text": "".join(text),
+                          "thinking": "".join(thinking)[:20000], "gen_tokens": gt, "done_reason": "stop"})
     secs = max(time.time() - (first or t0), 1e-6)
     rec = {"label": getattr(_HERE, "label", None) or "answer", "model": api_model(model), "effort": eff, "in": pt + cr + cw, "out": gt,
            "cached": cr, "cache_write": cw,
