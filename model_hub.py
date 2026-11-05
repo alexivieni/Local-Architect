@@ -311,15 +311,6 @@ def aggregate(results, model):
     return out
 
 
-def composite(agg, weights):
-    num = den = 0.0
-    for cat, w in weights.items():
-        if w and cat in agg:
-            num += agg[cat]["score"] * w
-            den += w
-    return round(num / den, 1) if den else None
-
-
 # ---------------------------------------------------------------------------------------------
 # Test tasks. Each is small, self-contained and checked by code, not by opinion.
 # ---------------------------------------------------------------------------------------------

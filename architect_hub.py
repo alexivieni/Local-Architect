@@ -281,20 +281,6 @@ mh.ACTIONS.update({
     "portfolio": ["architect.py", "portfolio"], "export_stats": ["arch_training.py", "--stats"], "export": ["arch_training.py"],
     "train_check": ["train_lora.py", "--check"],
 })
-mh.check_deps = lambda: {"pytest": core.has_module("pytest")}
-
-
-def _flatten(d, p=""):
-    out = {}
-    for k, v in d.items():
-        if isinstance(v, dict) and k not in ("roles", "role_overrides", "model_overrides", "tiers"):
-            out.update(_flatten(v, p + k + "."))
-        else:
-            out[p + k] = v
-    return out
-
-
-mh.agent_defaults = lambda: {k: (json.dumps(v) if isinstance(v, (list, dict)) else v) for k, v in _flatten(core.DEFAULTS).items() if not isinstance(v, dict)}
 
 
 def _validated_overrides(raw, valid_ids, existing):

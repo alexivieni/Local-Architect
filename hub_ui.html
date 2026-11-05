@@ -1118,13 +1118,16 @@ button,select,input,textarea,summary{min-height:36px}
 .bp-recipes{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 14px}.bp-desc{font-size:.82rem;color:var(--mute);line-height:1.3}
 
 /* "What's inside" inspector */
-.fi-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);display:grid;place-items:start center;overflow:auto;padding:4vh 12px}
+.fi-overlay{position:fixed;inset:0;z-index:200;background:color-mix(in srgb,var(--bg) 78%,transparent);display:grid;place-items:start center;overflow:auto;padding:4vh 12px}
 .fi-panel{width:min(860px,100%);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;display:grid;gap:12px}
 .fi-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}.fi-facts>div{border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;gap:4px}
 .fi-step{border:1px solid var(--line);border-radius:10px;padding:10px 14px}.fi-step>summary{cursor:pointer;display:flex;align-items:center;gap:10px}
 .fi-n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--acc2);color:var(--acc);font-size:12px;font-weight:700;flex:none}
 .fi-dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:10px 0 4px}.fi-dl dt{color:var(--mute)}.fi-dl dd{margin:0}
 .fi-prompt pre{white-space:pre-wrap;max-height:260px;overflow:auto;background:var(--bg);padding:10px;border-radius:8px;font-size:12.5px}
+
+.fi-custom{border-top:1px solid var(--line);padding-top:10px}.fi-custom>summary{cursor:pointer;font-weight:600;min-height:36px;display:flex;align-items:center}
+.fi-edit{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}.fi-edit .f{min-width:120px}
 /* ===== art direction (docs/art_direction.md): section hues, page glyphs, illustrations, signs of life, the theme picker. Tokens only ===== */
 /* section hue: one colour per place, used for an icon tint and the active marker, nothing else */
 body[data-sec=home],.nav[data-sec=home]{--hue:var(--hue-projects)}
@@ -4115,6 +4118,33 @@ const bpTone=k=>k==="code"?"code":k==="judge"?"judge":"llm";
 const bpNeedsPrompt=k=>((BP.kit&&BP.kit.needs_prompt)||["generate","ask_json","doc","sample_n","cascade","tool_loop"]).includes(k);
 /* ---- "What's inside": a workflow and every step it consists of (instructions, check, inputs, budget, who runs it) ---- */
 const TIER_PLAIN={router:"Fast helper (processor)",worker:"Main helper (graphics card)",heavy:"Expert (graphics card + memory)","":"Whoever usually does this"};
+function fiCustomize(d){
+  const top=d.steps.filter(s=>!s.depth);
+  if(top.length!==d.steps.length)return h("p",{class:"small mute"},"This workflow has nested steps; customize it in Blueprints.");
+  const ed=top.map(s=>({id:s.id,kind:s.kind,title:s.title,tier:s.tier,role:s.role,check:s.kind==="judge"?"":s.check,retries:s.retries||0,
+    prompt:s.prompt_name?(s.prompt_name.includes("/")?s.prompt_name:d.id+"/"+s.prompt_name):"",when:s.when}));
+  const out=h("div",{"aria-live":"polite"});
+  const rows=ed.map((s,i)=>h("div",{class:"fi-edit"},h("b",null,(i+1)+". "),
+    h("label",{class:"f"},"Title",h("input",{type:"text",value:s.title,oninput:e=>s.title=e.target.value})),
+    s.kind==="code"?h("span",{class:"mute small"},"code only"):h("label",{class:"f"},"Who does it",h("select",{onchange:e=>s.tier=e.target.value},
+      ...Object.entries(TIER_PLAIN).map(([v,l])=>h("option",{value:v,selected:(s.tier||"")===v},l)))),
+    h("label",{class:"f"},"Tries",h("input",{type:"number",min:"0",max:"9",value:String((s.retries||0)+1),oninput:e=>s.retries=Math.max(0,(parseInt(e.target.value,10)||1)-1)})),
+    h("label",{class:"f grow"},"Runs only when (blank = always)",h("input",{type:"text",value:s.when||"",oninput:e=>s.when=e.target.value}))));
+  const mine=(d.id+"_mine").slice(0,31);
+  return h("details",{class:"fi-custom"},h("summary",null,"Customize (for engineers): tries, who runs each step, conditions"),
+    ...rows,
+    h("div",{class:"row"},h("span",{class:"grow small mute"},"Saved as a separate workflow, ",h("code",null,mine),"; the original stays as it is."),
+      h("button",{class:"btn",type:"button",onclick:()=>fiSave(d,ed,mine,true,out)},"Check"),
+      h("button",{class:"btn p",type:"button",onclick:()=>fiSave(d,ed,mine,false,out)},"Save as my version")),out);
+}
+async function fiSave(d,ed,id,dry,out){
+  out.innerHTML="";
+  try{const r=await api("/api/arch/flow_save",{id,title:(d.title||d.id)+" (mine)",dry,overwrite:true,steps:ed});
+    out.append(h("div",{class:"note "+(r.ok?"good":"warn")},r.ok?(dry?"Valid: it can be saved.":"Saved as "+id+". It is now in the workflow list."):
+      "Not saved: "+((r.problems||[]).join("; ")||r.error||"the validator refused it")));
+    if(r.ok&&!dry){try{await refresh(true);}catch(_){}}
+  }catch(e){out.append(h("div",{class:"note warn"},e.message));}
+}
 async function showFlowDetail(id){
   if(!id){toast("Pick a workflow first");return;}
   let d; try{d=await api("/api/arch/flow_detail?flow="+encodeURIComponent(id));}catch(e){toast.err(e.message);return;}
@@ -4146,7 +4176,8 @@ async function showFlowDetail(id){
         h("div",null,h("span",{class:"lbl"},"Produces"),h("b",null,(d.produces||[]).join(", ")||"changes to your project"))),
       Object.keys(d.inputs||{}).length?h("p",{class:"small"},h("b",null,"Inputs: "),kv(d.inputs)):null,
       ...steps,
-      h("p",{class:"small mute"},"Source: "+d.file+". Open it in Blueprints to change any of this and save your own version."),
+      h("p",{class:"small mute"},"Source: "+d.file+". Customize below, or open it in Blueprints to add and reorder steps."),
+      fiCustomize(d),
       h("div",{class:"row"},h("span",{class:"grow"}),h("button",{class:"btn p",type:"button",onclick:()=>{close();setMode&&store.get("uiMode")==="simple"&&setMode("advanced");go("blueprints");setTimeout(()=>bpLoad(d.id),300);}},"Open in Blueprints"))));
   document.body.append(ov); document.addEventListener("keydown",esc); ov.querySelector("button").focus();
 }
