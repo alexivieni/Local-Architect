@@ -217,6 +217,20 @@ saved commands, `Esc` stops between steps, `j`/`k` walk the plan.
 - The refactor flow refuses a try whose code is unchanged under the formatting (`code_shape`), and, when the request is about
   duplication, one that leaves functions with the same body (`duplicate_bodies`). Green tests prove nothing changed; not that it was done.
 
+- **Night of 2026-11-05** (each with its own suite, registered in `selftest --suite all`):
+  - `arch_cleanup` + `architect.py cleanup [--yes]`; the hub runs it on exit (`behavior.close_on_exit`). A stray llama-server counts
+    as ours only when its command line points into THIS data folder: a test hub with another ARCHITECT_DATA_DIR must never stop the
+    real servers. Never touches a run whose process holds the job lock.
+  - `server.ollama_gpu = auto`: `Engine._keep_off_card` sends `num_gpu 0` for a model no llama-server serves while our worker holds
+    layers on the card (Ollama had put the heavy MoE 28% on the card; the worker got 9 of 36 layers, 7.96 tok/s vs 55 for qwen3:8b).
+  - `arch_cachestats` (Models > Caches), `arch_cachehygiene` (`caches --prune --yes`, `storage.slot_cache_gb`), slot files named per
+    project path. `arch_replybudget` (`behavior.reply_budget`): learned caps 2 x p95, off in benchmarks and after any recent cut-off.
+  - `arch_triage`: failure families from the checks' words (no model). A "tests" failure means every OTHER check passed.
+  - Test flow: passing tests under another file name are moved to `tests/test_<name>_extra.py` (traced `assist`). Refactor flow:
+    "X and Y should become one" fails a try that keeps both names (`merge_names`, `still_both`).
+  - Hub windows: `.card.modal` must stay `position: fixed` (a later `.card` rule had made every modal open below the page).
+  - Inter is bundled (`static/fonts`, OFL) and served at `/fonts/inter.woff2`; CSP stays `font-src 'self'`.
+
 ## A role you assign wins over a tier
 A YAML step's `tier:` is the default for that work. A model the person assigned to the role by name wins over it (`_pin_tier`), except
 `heavy`, which is an explicit escalation. Before this was fixed, every data-flow step silently overrode the person's role assignments.
