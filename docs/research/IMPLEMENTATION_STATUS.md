@@ -82,7 +82,7 @@ layers across machines. Of the 40 rows below, 21 are **Built**, 17 are **Partial
 | Hypothesis | Status | What exists |
 |---|---|---|
 | H1 Orthogonalization: over-refusal falls, pass rate holds (14B, 32B) | **Not yet** | The pass-rate side runs today (`eval`). There is no refusal suite, and no 14B/32B base-vs-edited pair is installed. |
-| H2 Decoding follows Eq. 6 | **Partial** | Predicted tok/s (`fit_model`) and measured tok/s (`model_stats.json`, `bench_variants`) both exist. No report sets them side by side. |
+| H2 Decoding follows Eq. 6 | **Partial** (first reading) | [H2_decode_speed.md](H2_decode_speed.md): the CPU router matches the RAM bound (15.1 vs 15.4 tok/s); partial offloads land between the bounds; the abliterated 8B ran mostly from RAM (7.96 tok/s, 9 of 36 layers on the card), fixed by `server.ollama_gpu`; n-gram speculation exceeds the per-pass bound. A controlled run is queued. |
 | H3 Swaps warm when Eq. 10 holds | **Partial** | The swap ledger measures each swap's seconds. No study yet. |
 | H4 Feedback beats unbatched sampling | **Partial** | `from_evals` gives p and C per model and task family. No matched-calls comparison yet. |
 | H5 Prompt processing falls by ≈ 1−ρ | **Partial** | ρ and prefill are recorded per call. No report compares them. |
