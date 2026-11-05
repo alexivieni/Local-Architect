@@ -121,13 +121,25 @@ def run():
                             "Which function checks that a plan is valid?")
     check("chat looks the code up before answering: 'which function checks that a plan is valid' finds validate_plan with its file "
           "and line (the chat used to guess)", "arch_schemas.py:" in _hints and "def validate_plan" in _hints
-          and _hints.find("def validate_plan") < 400, _hints[:300])
+          and ("def plan_check" in _hints[:400] or _hints.find("def validate_plan") < 400), _hints[:300])   # arch_fleet.plan_check is a right answer too
     check("the self-improvement copies (.arch_self) are never part of a project's files, index or context",
           not any(f.startswith(".arch_self") for f in core.list_files(_here, core.load_config())))
     _imp = core.add_missing_stdlib_imports("def slugify(t):\n    return re.sub('x', '-', t)\n")
     check("a Python file that uses a standard-library module it never imported (re.sub without import re) gets the import added by "
           "code; a parameter or variable with that name is left alone", _imp.startswith("import re\n")
           and core.add_missing_stdlib_imports("def f(re):\n    return re.x\n") == "def f(re):\n    return re.x\n", _imp)
+    import arch_tools as _tl
+    check("safe edits: a Python edit that would not parse is caught with the parser's line and message; good Python and JSON pass, "
+          "and file types without a parser are accepted", _tl.syntax_error("a.py", "def f(:\n  pass\n").startswith("line 1")
+          and _tl.syntax_error("a.py", "def f():\n    return 1\n") == "" and _tl.syntax_error("x.json", "{bad") != ""
+          and _tl.syntax_error("x.json", '{"a": 1}') == "" and _tl.syntax_error("x.md", "# any") == ""
+          and {"view", "edit_lines"} <= set(_tl.TOOLS), [n for n in _tl.TOOLS])
+    import arch_tools as _tl
+    check("safe edits: a Python edit that would not parse is caught with the parser's line and message; good Python and JSON pass, "
+          "and file types without a parser are accepted", _tl.syntax_error("a.py", "def f(:\n  pass\n").startswith("line 1")
+          and _tl.syntax_error("a.py", "def f():\n    return 1\n") == "" and _tl.syntax_error("x.json", "{bad") != ""
+          and _tl.syntax_error("x.json", '{"a": 1}') == "" and _tl.syntax_error("x.md", "# any") == ""
+          and {"view", "edit_lines"} <= set(_tl.TOOLS), [n for n in _tl.TOOLS])
     import arch_tools as _tl
     check("safe edits: a Python edit that would not parse is caught with the parser's line and message; good Python and JSON pass, "
           "and file types without a parser are accepted", _tl.syntax_error("a.py", "def f(:\n  pass\n").startswith("line 1")

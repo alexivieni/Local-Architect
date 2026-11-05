@@ -9,6 +9,7 @@ Every line it streams (`--output-format stream-json`) is kept, so the page shows
 messages, thinking, every tool call and result, cost and turns. A follow-up continues the same session (`--resume`).
 Permission modes: plan (reads only), acceptEdits (edits files, no other risky tool), default (risky tools are refused in headless
 mode). There is no "bypass" here on purpose.
+Every run is also kept on disk (<data>/cc_runs/<id>.jsonl, one event per line, + <id>.meta.json): `list_runs`, `load_run`.
 """
 import json
 import os
@@ -185,8 +186,119 @@ def _summary(ev):
     return ""
 
 
-def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40, budget=5.0):
-    """Run one Claude Code turn in `root` in the background. -> run id (follow-ups pass the session id as `resume`)."""
+# ---- the run log on disk: <data_dir>/cc_runs/<run id>.jsonl (one event per line, appended as it arrives) + <run id>.meta.json.
+# Memory stays the live source for the page; the disk copy is what survives a hub restart. A disk problem never stops a run.
+RUN_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_DISK = threading.Lock()
+
+
+def runs_dir():
+    return os.path.join(core.data_dir(), "cc_runs")
+
+
+def _run_path(rid, ext):
+    if not RUN_ID_RE.fullmatch(str(rid or "")):
+        raise ValueError(f"not a run id: {str(rid)[:40]!r}")
+    return os.path.join(runs_dir(), str(rid) + ext)
+
+
+def record_event(rid, rec):
+    """Append one event to the run's log. -> True when it reached the disk."""
+    try:
+        path = _run_path(rid, ".jsonl")
+        line = json.dumps(rec, ensure_ascii=False, default=str)
+        with _DISK:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _read_meta(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            meta = json.load(f)
+        return meta if isinstance(meta, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_meta(rid, **fields):
+    """Merge `fields` into the run's meta file (written whole, then swapped in). -> the merged meta ({} when it could not be written)."""
+    try:
+        path = _run_path(rid, ".meta.json")
+        with _DISK:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            meta = _read_meta(path)
+            meta.update(fields)
+            meta["id"] = rid
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=1, ensure_ascii=False, default=str)
+            os.replace(tmp, path)
+        return meta
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def load_run(rid):
+    """One run from disk: its meta plus every event, in order. A torn last line (a crash mid-write) is skipped."""
+    try:
+        meta_path, log_path = _run_path(rid, ".meta.json"), _run_path(rid, ".jsonl")
+    except ValueError as e:
+        return {"error": str(e)}
+    with _DISK:
+        meta = _read_meta(meta_path)
+        events = []
+        try:
+            with open(log_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(ev, dict):
+                        events.append(ev)
+        except OSError:
+            if not meta:
+                return {"error": "no such run"}
+    with _LOCK:
+        live = rid in _RUNS
+    return dict(meta, id=rid, events=events, n=len(events), live=live)
+
+
+def list_runs(limit=50):
+    """The newest runs first (meta only, no events)."""
+    try:
+        names = [n for n in os.listdir(runs_dir()) if n.endswith(".meta.json")]
+    except OSError:
+        return []
+    out = []
+    for n in names:
+        meta = _read_meta(os.path.join(runs_dir(), n))
+        if meta:
+            meta.setdefault("id", n[:-len(".meta.json")])
+            out.append(meta)
+    out.sort(key=lambda m: m.get("started") or 0, reverse=True)
+    return out[:max(0, int(limit))]
+
+
+def _new_run_id():
+    """cc<milliseconds>, moved on by one while taken (a fleet starts many runs in the same millisecond). Call under _LOCK."""
+    ms = int(time.time() * 1000)
+    while f"cc{ms}" in _RUNS or os.path.exists(_run_path(f"cc{ms}", ".meta.json")):
+        ms += 1
+    return f"cc{ms}"
+
+
+def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40, budget=5.0, tag=None):
+    """Run one Claude Code turn in `root` in the background. -> run id (follow-ups pass the session id as `resume`).
+    `tag` is free text kept in the run's meta (a fleet puts its id there)."""
     if not status()["ready"]:
         raise RuntimeError(status()["why"])
     if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -194,14 +306,32 @@ def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40, budg
     if mode not in MODES:
         mode = "plan"
     args = {"prompt": prompt, "mode": mode, "model": model, "resume": resume, "max_turns": int(max_turns), "budget": float(budget)}
-    rid = f"cc{int(time.time() * 1000)}"
     with _LOCK:
-        _RUNS[rid] = {"events": [], "status": "running", "session": resume, "cost": 0.0, "started": time.time(), "error": None, "proc": None}
+        rid = _new_run_id()
+        started = time.time()
+        _RUNS[rid] = {"events": [], "status": "running", "session": resume, "cost": 0.0, "started": started, "error": None, "proc": None}
+    write_meta(rid, prompt=prompt, mode=mode, model=model, budget=args["budget"], max_turns=args["max_turns"], root=os.path.abspath(root),
+               resume=resume, tag=tag, started=started, ended=None, status="running", cost=0.0, turns=None, session=resume,
+               error=None, pid=os.getpid())
     threading.Thread(target=_pump, args=(rid, args, root), daemon=True).start()
     return rid
 
 
 def _pump(rid, args, root):
+    try:
+        _drive(rid, args, root)
+    finally:
+        with _LOCK:
+            r = _RUNS.get(rid) or {}
+            final = {k: r.get(k) for k in ("status", "cost", "turns", "session", "error")}
+            final["n_events"] = len(r.get("events") or [])
+        if final["status"] == "running":                 # the drive ended without saying how (an import failed, say)
+            final["status"] = "error"
+            final["error"] = final["error"] or "the run ended unexpectedly"
+        write_meta(rid, ended=time.time(), **final)
+
+
+def _drive(rid, args, root):
     """Runs Claude Code through the Claude Agent SDK (your API credit covers the Agent SDK; the plain `claude` command is
     'Claude Code' usage, which promotional credit does not cover -- seen 2026-11-04: 'Credit balance is too low')."""
     import asyncio
@@ -220,6 +350,11 @@ def _pump(rid, args, root):
                 r["error"] = error
             if rec and rec.get("text"):
                 r["events"].append(rec)
+        if rec and rec.get("text"):                       # the disk copy, outside the memory lock (the page keeps polling)
+            record_event(rid, rec)
+        if session or cost is not None or turns is not None or error:
+            write_meta(rid, **{k: v for k, v in (("session", session), ("cost", cost), ("turns", turns), ("error", error))
+                               if v is not None and v != ""})
 
     async def go():
         env = {k: v for k, v in _env().items() if k in ("CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY")}
@@ -274,6 +409,11 @@ def stop(rid):
     with _LOCK:
         if rid in _RUNS and _RUNS[rid]["status"] == "running":
             _RUNS[rid]["status"], _RUNS[rid]["error"] = "stopped", "stopped from the page (the current tool call may still finish)"
+            stopped = True
+        else:
+            stopped = False
+    if stopped:
+        write_meta(rid, status="stopped", error="stopped from the page (the current tool call may still finish)")
 
 
 def snapshot(rid, since=0):

@@ -142,6 +142,199 @@ def _pump(c, sid, first_message):
         with _LOCK:
             _RUNS[sid]["status"] = "error"
             _RUNS[sid]["error"] = f"{type(e).__name__}: {str(e)[:400]}"
+    finally:
+        try:
+            _log_finished(sid)
+        except Exception:
+            pass
+
+
+# ---- The night shift: crew runs on a clock -------------------------------------------------------------------------------------------
+import datetime
+import json
+import re
+
+_SLOCK = threading.RLock()
+_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{3,100}$")
+_AT_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+_REPO_RE = re.compile(r"^https://[A-Za-z0-9.\-]+/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+?(\.git)?/?$")
+_REPEATS = ("daily", "once")
+_CREW_SIDS = set()          # sessions the clock started (only these are written to the crew log)
+_SCHED_THREAD = None
+
+
+def _schedule_path():
+    import arch_core as core
+    return os.path.join(core.data_dir(), "crew_schedule.json")
+
+
+def _log_path():
+    import arch_core as core
+    return os.path.join(core.data_dir(), "crew_log.jsonl")
+
+
+def _read_schedule():
+    try:
+        with open(_schedule_path(), "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return [x for x in d if isinstance(x, dict)] if isinstance(d, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _write_schedule(items):
+    p = _schedule_path()
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = f"{p}.{os.getpid()}.{threading.get_ident()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(items, f, indent=1)
+    os.replace(tmp, p)
+
+
+def schedule_add(agent_id, message, at="02:00", repeat="daily", environment_id=None, repo_url=None):
+    """Put a crew run on the clock. -> id. Raises ValueError on a bad input."""
+    if not isinstance(agent_id, str) or not _ID_RE.match(agent_id):
+        raise ValueError("agent id looks wrong (letters, digits, - and _ only)")
+    if not isinstance(message, str) or not message.strip() or len(message) > 8000:
+        raise ValueError("the message must be 1-8000 characters")
+    if not isinstance(at, str) or not _AT_RE.match(at):
+        raise ValueError("time must be HH:MM (24 hours)")
+    if repeat not in _REPEATS:
+        raise ValueError("repeat must be 'daily' or 'once'")
+    if environment_id and (not isinstance(environment_id, str) or not _ID_RE.match(environment_id)):
+        raise ValueError("environment id looks wrong")
+    if repo_url and (not isinstance(repo_url, str) or not _REPO_RE.match(repo_url)):
+        raise ValueError("repository must be an https:// URL like https://github.com/you/project")
+    sid = "crew_" + os.urandom(4).hex()
+    entry = {"id": sid, "agent_id": agent_id, "message": message.strip(), "at": at, "repeat": repeat,
+             "environment_id": environment_id or None, "repo_url": repo_url or None,
+             "last_run": None, "last_session": None, "last_status": None,
+             "created": time.time(), "last_slot": None}
+    with _SLOCK:
+        items = _read_schedule()
+        items.append(entry)
+        _write_schedule(items)
+    return sid
+
+
+def schedule_list():
+    keys = ("id", "agent_id", "message", "at", "repeat", "environment_id", "repo_url", "last_run", "last_session", "last_status")
+    with _SLOCK:
+        return [{k: x.get(k) for k in keys} for x in _read_schedule()]
+
+
+def schedule_remove(sid):
+    """-> True when something was removed."""
+    with _SLOCK:
+        items = _read_schedule()
+        keep = [x for x in items if x.get("id") != sid]
+        if len(keep) == len(items):
+            return False
+        _write_schedule(keep)
+        return True
+
+
+def _latest_slot(at, now):
+    """The most recent moment today-or-yesterday that the clock read `at`, at or before `now`."""
+    h, m = int(at[:2]), int(at[3:])
+    slot = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    return slot if slot <= now else slot - datetime.timedelta(days=1)
+
+
+def tick(now=None, starter=None):
+    """Start every entry whose time has come and that has not run for that slot yet. -> list of started session ids.
+    `now` is a datetime (default: local time); `starter(agent_id, message, environment_id, repo_url) -> session id` is for tests."""
+    if starter is None:
+        if arch_cloud._testing():
+            return []
+        starter = start
+    now = now or datetime.datetime.now()
+    started = []
+    with _SLOCK:
+        items = _read_schedule()
+        keep, changed = [], False
+        for x in items:
+            try:
+                slot = _latest_slot(x["at"], now)
+                key = slot.strftime("%Y-%m-%d %H:%M")
+                created = datetime.datetime.fromtimestamp(x.get("created") or 0)
+            except (KeyError, ValueError, TypeError, OSError):
+                keep.append(x)
+                continue
+            if slot <= created or x.get("last_slot") == key:      # not yet this slot (or added after it) / already ran for it
+                keep.append(x)
+                continue
+            changed = True
+            x["last_slot"], x["last_run"] = key, now.strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                sid = starter(x["agent_id"], x["message"], x.get("environment_id"), x.get("repo_url"))
+            except Exception as e:
+                x["last_session"], x["last_status"] = None, f"could not start: {type(e).__name__}: {str(e)[:200]}"
+                keep.append(x)
+                continue
+            x["last_session"], x["last_status"] = sid, "running"
+            _CREW_SIDS.add(sid)
+            started.append(sid)
+            if x.get("repeat") != "once":
+                keep.append(x)
+        if changed:
+            _write_schedule(keep)
+    return started
+
+
+def _log_finished(sid):
+    """Append the final status and a short summary of the agent's last message to crew_log.jsonl (crew sessions only)."""
+    if sid not in _CREW_SIDS:
+        return
+    with _LOCK:
+        r = _RUNS.get(sid)
+        if not r or r["status"] not in ("idle", "done", "error"):
+            return
+        status, err, agent, started = r["status"], r.get("error"), r.get("agent"), r.get("started")
+        last = next((e.get("text") for e in reversed(r["events"]) if e.get("type") == "agent.message" and e.get("text")), "")
+    line = {"t": time.time(), "session": sid, "agent": agent, "status": status, "started": started,
+            "summary": (err if status == "error" and err else last or "")[:600]}
+    with _SLOCK:
+        p = _log_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(line) + "\n")
+        items = _read_schedule()
+        for x in items:
+            if x.get("last_session") == sid:
+                x["last_status"] = status
+                _write_schedule(items)
+                break
+    _CREW_SIDS.discard(sid)
+
+
+def crew_log(limit=50):
+    """The newest log lines first, for the morning view."""
+    try:
+        with open(_log_path(), "r", encoding="utf-8") as f:
+            rows = [json.loads(s) for s in f if s.strip()]
+    except (OSError, ValueError):
+        return []
+    return rows[-limit:][::-1]
+
+
+def start_scheduler():
+    """One daemon thread calling tick() every 60 s. A second call does nothing."""
+    global _SCHED_THREAD
+    with _SLOCK:
+        if _SCHED_THREAD is not None and _SCHED_THREAD.is_alive():
+            return False
+
+        def loop():
+            while True:
+                try:
+                    tick()
+                except Exception:
+                    pass
+                time.sleep(60)
+        _SCHED_THREAD = threading.Thread(target=loop, name="crew-clock", daemon=True)
+        _SCHED_THREAD.start()
+        return True
 
 
 def snapshot(session_id, since=0):

@@ -352,6 +352,108 @@ def t_edit_lines(e, path="", start=0, end=0, text="", **_):
     return f"changed {path}: lines {a}..{b} replaced by {len(text.splitlines())} line(s)" if r is not False else "nothing was applied"
 
 
+def syntax_error(rel, text):
+    """The parser's complaint about `text` as the file `rel`, or "" when it parses (or the type has no parser here)."""
+    ext = os.path.splitext(rel)[1].lower()
+    try:
+        if ext == ".py":
+            import ast
+            ast.parse(text)
+        elif ext == ".json":
+            import json
+            json.loads(text)
+    except SyntaxError as ex:
+        return f"line {ex.lineno}: {ex.msg}"
+    except ValueError as ex:
+        return str(ex)[:160]
+    return ""
+
+
+@tool("view", "Show about 100 numbered lines of a file around one line. Use it to look closely before an edit.",
+      {"path": {"type": "string"}, "line": {"type": "integer", "description": "the line to centre on (1-based)"},
+       "n": {"type": "integer", "description": "how many lines (default 100, at most 200)"}}, required=("path",))
+def t_view(e, path="", line=1, n=100, **_):
+    n = max(10, min(int(n or 100), 200))
+    a = max(1, int(line or 1) - n // 2)
+    return t_read(e, path=path, start=a, end=a + n - 1)
+
+
+@tool("edit_lines", "Replace lines start..end of a file with new text. The edit is refused if the file would no longer parse "
+      "(Python, JSON), and you get the parser's message instead. Use view first to get the line numbers.",
+      {"path": {"type": "string"}, "start": {"type": "integer"}, "end": {"type": "integer"},
+       "text": {"type": "string", "description": "the new lines (may be more or fewer than replaced)"}},
+      required=("path", "start", "end", "text"), writes=True)
+def t_edit_lines(e, path="", start=0, end=0, text="", **_):
+    try:
+        p = _rel(e, path)
+        old = core.read_text(p, 2_000_000)[0]
+    except (ValueError, OSError) as ex:
+        return f"cannot edit {path}: {ex}"
+    rows = old.splitlines()
+    a, b = int(start or 0), int(end or 0)
+    if a < 1 or b < a - 1 or a > len(rows) + 1:
+        return f"lines {start}..{end} are not in {path} (it has {len(rows)} lines)"
+    new_rows = rows[:a - 1] + (text.splitlines() if text else []) + rows[b:]
+    new = "\n".join(new_rows) + "\n"
+    rel = os.path.relpath(p, e.root).replace("\\", "/")
+    err = syntax_error(rel, new)
+    if err:
+        return f"refused: after this edit {path} would not parse ({err}). Nothing was changed; fix the text and try again."
+    r = e.put_file(rel, new, label="edit_lines")
+    return f"changed {path}: lines {a}..{b} replaced by {len(text.splitlines())} line(s)" if r is not False else "nothing was applied"
+
+
+def syntax_error(rel, text):
+    """The parser's complaint about `text` as the file `rel`, or "" when it parses (or the type has no parser here)."""
+    ext = os.path.splitext(rel)[1].lower()
+    try:
+        if ext == ".py":
+            import ast
+            ast.parse(text)
+        elif ext == ".json":
+            import json
+            json.loads(text)
+    except SyntaxError as ex:
+        return f"line {ex.lineno}: {ex.msg}"
+    except ValueError as ex:
+        return str(ex)[:160]
+    return ""
+
+
+@tool("view", "Show about 100 numbered lines of a file around one line. Use it to look closely before an edit.",
+      {"path": {"type": "string"}, "line": {"type": "integer", "description": "the line to centre on (1-based)"},
+       "n": {"type": "integer", "description": "how many lines (default 100, at most 200)"}}, required=("path",))
+def t_view(e, path="", line=1, n=100, **_):
+    n = max(10, min(int(n or 100), 200))
+    a = max(1, int(line or 1) - n // 2)
+    return t_read(e, path=path, start=a, end=a + n - 1)
+
+
+@tool("edit_lines", "Replace lines start..end of a file with new text. The edit is refused if the file would no longer parse "
+      "(Python, JSON), and you get the parser's message instead. Use view first to get the line numbers.",
+      {"path": {"type": "string"}, "start": {"type": "integer"}, "end": {"type": "integer"},
+       "text": {"type": "string", "description": "the new lines (may be more or fewer than replaced)"}},
+      required=("path", "start", "end", "text"), writes=True)
+def t_edit_lines(e, path="", start=0, end=0, text="", **_):
+    try:
+        p = _rel(e, path)
+        old = core.read_text(p, 2_000_000)[0]
+    except (ValueError, OSError) as ex:
+        return f"cannot edit {path}: {ex}"
+    rows = old.splitlines()
+    a, b = int(start or 0), int(end or 0)
+    if a < 1 or b < a - 1 or a > len(rows) + 1:
+        return f"lines {start}..{end} are not in {path} (it has {len(rows)} lines)"
+    new_rows = rows[:a - 1] + (text.splitlines() if text else []) + rows[b:]
+    new = "\n".join(new_rows) + "\n"
+    rel = os.path.relpath(p, e.root).replace("\\", "/")
+    err = syntax_error(rel, new)
+    if err:
+        return f"refused: after this edit {path} would not parse ({err}). Nothing was changed; fix the text and try again."
+    r = e.put_file(rel, new, label="edit_lines")
+    return f"changed {path}: lines {a}..{b} replaced by {len(text.splitlines())} line(s)" if r is not False else "nothing was applied"
+
+
 def describe(names=None):
     """The tool list for the prompt: one line each, plain words first."""
     out = []

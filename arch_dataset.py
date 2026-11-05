@@ -95,7 +95,7 @@ def read_trace(path):
 
 def read_full(path):
     """One pass over a trace. -> {"calls", "marks", "tools", "escalations", "verdict"}. A broken line is skipped, never fatal."""
-    out = {"calls": {}, "marks": {}, "tools": [], "escalations": [], "verdict": None}
+    out = {"calls": {}, "marks": {}, "tools": [], "escalations": [], "verdict": None, "claude": 0}
     try:
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -106,6 +106,7 @@ def read_full(path):
                 t = j.get("type")
                 if t == "call" and j.get("id") is not None:
                     if j.get("transport") == "claude":          # cloud replies never become training data (provider terms)
+                        out["claude"] += 1
                         continue
                     out["calls"][j["id"]] = j
                 elif t == "mark" and j.get("id") is not None:
@@ -152,8 +153,11 @@ def _turns(call):
 
 # ------------------------------------------------------------------ building the sets
 
-def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task"):
-    """Read every run under these roots. -> {"sft", "dpo", "distill", "traj", "stats"}.
+def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_quality=0.0, dedupe=True):
+    """Read every run under these roots. -> {"sft", "dpo", "distill", "traj", "stats", "report"}.
+
+    `min_quality` (0-1, default 0 = keep all) drops accepted samples scoring below it. `dedupe` keeps only the best-scoring sample per
+    near-identical task (whitespace-normalised, first 2000 characters of the user turn, per role).
 
     `roles` limits which roles are exported. `pairs` controls how strict preference pairs are: "same-task" (the default) needs the two
     tries to share a task, "all" keeps every failed-then-passed pair in one step and labels each with whether the task matched.
@@ -162,6 +166,7 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task"):
     traj = []
     stats = collections.Counter()
     seen_sft, seen_dpo = set(), set()
+    cands = {}              # (role, task key) -> the best accepted sample so far
 
     for root in root_list:
         for run in runs_of(root):
@@ -171,10 +176,17 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task"):
             run_name = os.path.basename(run)
             by_step = collections.defaultdict(list)
 
+            stats["claude"] += full.get("claude", 0)           # cloud replies, dropped while reading
+            escalated_steps = {((e.get("role") or "?"), _step_key(e.get("step"))) for e in full["escalations"]}
+            tries_seen, first_tier = collections.Counter(), {}
+
             for cid in sorted(calls):
                 c = calls[cid]
                 role = c.get("role") or "?"
                 if roles and role not in roles:
+                    continue
+                if _is_cache_hit(c):
+                    stats["cached"] += 1               # a reply reused from the cache was already exported when it was first produced
                     continue
                 m = marks.get(cid)
                 if not m:
@@ -183,10 +195,12 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task"):
                 verdict = m.get("accepted")
                 if verdict is None:
                     stats["unverified"] += 1           # the checks could not run: it teaches nothing in either direction
+                    stats["not_sure"] += 1
                     continue
-                if c.get("cached"):
-                    stats["cached"] += 1               # a reply reused from the cache was already exported when it was first produced
-                    continue
+                skey = (role, _step_key(c.get("label")))
+                try_no = tries_seen[skey]              # how many tries of this step came before this one
+                tries_seen[skey] += 1
+                first_tier.setdefault(skey, c.get("tier") or "worker")
                 sys_t, user = _turns(c)
                 reply = c.get("reply") or ""
                 if not user or not reply:
@@ -200,16 +214,26 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task"):
                     continue
                 tier = c.get("tier") or "worker"
                 rec = {"accepted": bool(verdict), "system": sys_t, "user": user, "reply": reply, "model": c.get("model"),
-                       "tier": tier, "id": cid, "flow": c.get("flow"), "prompt_ref": c.get("prompt_ref") or ""}
-                by_step[(role, _step_key(c.get("label")))].append(rec)
+                       "tier": tier, "id": cid, "flow": c.get("flow"), "prompt_ref": c.get("prompt_ref") or "", "call": c}
+                by_step[skey].append(rec)
 
                 if verdict:
-                    key = hashlib.sha1((user + "\n#\n" + reply).encode("utf-8", "replace")).hexdigest()
-                    if key in seen_sft:
-                        stats["duplicates"] += 1
+                    diff = difficulty(c, reply, try_no + 1, skey in escalated_steps or tier != first_tier[skey])
+                    q = quality_score(c, reply, try_no, max_chars)
+                    if q < min_quality:
+                        stats["low_quality"] += 1
                         continue
-                    seen_sft.add(key)
-                    sft[role].append(_sample(sys_t, user, reply, role, tier, c, run_name, source="accepted"))
+                    row = _sample(sys_t, user, reply, role, tier, c, run_name, source="accepted")
+                    row["meta"].update({"quality": q, "difficulty": diff, "tags": _tags(diff)})
+                    key = (role, near_key(user)) if dedupe else (role, hashlib.sha1((user + "\n#\n" + reply).encode("utf-8", "replace")).hexdigest())
+                    old = cands.get(key)
+                    if old is not None:
+                        stats["duplicates"] += 1       # the same task again: keep the better sample, count the other as dropped
+                        stats["dup"] += 1
+                        if q >= old["meta"]["quality"]:     # a tie goes to the newer one, which has seen more of the project's history
+                            cands[key] = row
+                        continue
+                    cands[key] = row
                 else:
                     stats["rejected"] += 1
 
@@ -251,14 +275,21 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task"):
                 student_failed = any((not t["accepted"]) and t["model"] == esc.get("from_model") for t in tries)
                 if not (teacher and student_failed):
                     continue
-                key = hashlib.sha1(("D" + teacher["user"] + teacher["reply"]).encode("utf-8", "replace")).hexdigest()
+                key = hashlib.sha1(("D" + near_key(teacher["user"]) if dedupe else "D" + teacher["user"] + teacher["reply"]).encode("utf-8", "replace")).hexdigest()
                 if key in seen_sft:
                     stats["duplicates"] += 1
+                    stats["dup"] += 1
+                    continue
+                target = esc.get("from_tier") or "worker"
+                q = quality_score(teacher["call"], teacher["reply"], max(0, len(tries) - 1), max_chars)
+                if q < min_quality:
+                    stats["low_quality"] += 1
                     continue
                 seen_sft.add(key)
-                target = esc.get("from_tier") or "worker"
                 row = _sample(teacher["system"], teacher["user"], teacher["reply"], role, target, {"flow": esc.get("flow"), "model": teacher["model"]},
                               run_name, source="escalation")
+                diff = difficulty(teacher["call"], teacher["reply"], len(tries), True, flow=esc.get("flow"))
+                row["meta"].update({"quality": q, "difficulty": diff, "tags": _tags(diff)})
                 row["meta"]["taught_by"] = esc.get("to_model")
                 row["meta"]["taught_by_tier"] = esc.get("to_tier")
                 row["meta"]["for_tier"] = target
@@ -269,10 +300,97 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task"):
             # ---- tool trajectories: one sample per tool loop, rebuilt from the call id each tool record carries
             traj.extend(_trajectories(full, run_name, roles, max_chars, stats))
 
+    for (role, _k), row in cands.items():
+        sft[role].append(row)
     stats["sft"] = sum(len(v) for v in sft.values())
     stats["dpo"] = sum(len(v) for v in dpo.values())
     stats["traj"] = len(traj)
-    return {"sft": dict(sft), "dpo": dict(dpo), "distill": dict(distill), "traj": traj, "stats": dict(stats)}
+    out = {"sft": dict(sft), "dpo": dict(dpo), "distill": dict(distill), "traj": traj, "stats": dict(stats)}
+    out["report"] = report(out)
+    return out
+
+
+# ------------------------------------------------------------------ quality, difficulty, the report
+
+_BLOCK = re.compile(r"^(?:FILE|EDIT|DEF):\s*(\S+?)(?:::\S+)?\s*$", re.M)
+
+
+def _is_cache_hit(call):
+    """A reply the reply cache gave back (`cached`, transport 'cache', done_reason 'cached'). NOT `cached_exact`: that one only says the
+    server counted its prefix-cache tokens exactly, on a call the model really answered."""
+    return bool(call.get("cached")) or call.get("transport") == "cache" or call.get("done_reason") == "cached"
+
+
+def near_key(user):
+    """Same task, near enough: whitespace-normalised, case kept, hash of the first 2000 characters."""
+    norm = " ".join(str(user or "").split())[:2000]
+    return hashlib.sha1(norm.encode("utf-8", "replace")).hexdigest()
+
+
+def quality_score(call, reply, tries_before=0, max_chars=MAX_CHARS):
+    """0..1 from code-side evidence only: the checks passed (0.4, every exported sample earns it), got there on the first try (0.3, then
+    0.15, 0.05, 0), the reply was not cut off (0.15), and its length is sane (0.15)."""
+    q = 0.4
+    q += (0.3, 0.15, 0.05)[tries_before] if 0 <= tries_before < 3 else 0.0
+    if (call or {}).get("done_reason") != "length":
+        q += 0.15
+    n = len(reply or "")
+    if 20 <= n <= max_chars // 2:
+        q += 0.15
+    elif n > 0:
+        q += 0.05
+    return round(min(1.0, q), 3)
+
+
+def difficulty(call, reply, tries, escalated, flow=None):
+    """What the trace says about how hard this step was: tries needed, a bigger tier involved, files the reply touches, the flow."""
+    files = len(set(_BLOCK.findall(reply or "")))
+    pts = min(max(tries - 1, 0), 2) + (2 if escalated else 0) + (1 if files >= 3 else 0)
+    return {"tries": int(tries), "escalated": bool(escalated), "files": files, "flow": flow or (call or {}).get("flow"),
+            "level": "hard" if pts >= 3 else "medium" if pts >= 1 else "easy"}
+
+
+def _tags(d):
+    t = ["first-try" if d["tries"] <= 1 else "retried", "escalated" if d["escalated"] else "own-tier",
+         "multi-file" if d["files"] >= 2 else "single-file" if d["files"] == 1 else "no-files", "level-" + d["level"]]
+    if d.get("flow"):
+        t.append("flow-" + str(d["flow"]))
+    return t
+
+
+def band(q):
+    return "high" if q >= 0.8 else "mid" if q >= 0.5 else "low"
+
+
+def report(data):
+    """Counts of what was exported and what was dropped and why. A plain dict; `report_text` prints it."""
+    st = data.get("stats") or {}
+    rows = [r for v in (data.get("sft") or {}).values() for r in v] + [r for v in (data.get("distill") or {}).values() for r in v]
+    by = {k: collections.Counter() for k in ("flow", "role", "tier", "quality", "level")}
+    for r in rows:
+        m = r.get("meta") or {}
+        by["flow"][str(m.get("flow") or "?")] += 1
+        by["role"][str(m.get("role") or "?")] += 1
+        by["tier"][str(m.get("tier") or "?")] += 1
+        by["quality"][band(m.get("quality", 0))] += 1
+        by["level"][str((m.get("difficulty") or {}).get("level") or "?")] += 1
+    dropped = {"duplicate": st.get("dup", 0), "not_sure": st.get("not_sure", 0), "claude": st.get("claude", 0),
+               "low_quality": st.get("low_quality", 0), "cached": st.get("cached", 0), "rejected": st.get("rejected", 0),
+               "secrets": st.get("secrets_skipped", 0), "too_long": st.get("too_long", 0)}
+    return {"samples": len(rows), "by_flow": dict(by["flow"]), "by_role": dict(by["role"]), "by_tier": dict(by["tier"]),
+            "by_quality": dict(by["quality"]), "by_level": dict(by["level"]), "dropped": dropped}
+
+
+def report_text(rep):
+    lines = [f"{rep.get('samples', 0)} training samples kept."]
+    for title, key in (("flow", "by_flow"), ("role", "by_role"), ("tier", "by_tier"), ("quality", "by_quality"), ("difficulty", "by_level")):
+        if rep.get(key):
+            lines.append(f"  by {title}: " + ", ".join(f"{k} {n}" for k, n in sorted(rep[key].items())))
+    why = {"duplicate": "same task again (best kept)", "not_sure": "checks could not run", "claude": "cloud replies",
+           "low_quality": "below the quality floor", "cached": "reused from the reply cache", "rejected": "rejected by the checks",
+           "secrets": "looked like a credential", "too_long": "too long to train on"}
+    gone = [f"  dropped {n}: {why[k]}" for k, n in (rep.get("dropped") or {}).items() if n]
+    return "\n".join(lines + gone)
 
 
 def _sample(sys_t, user, reply, role, tier, call, run_name, source="accepted"):
@@ -376,7 +494,10 @@ def write(data, out_dir):
                 pass
 
     roles_seen = set(data.get("sft") or {}) | set(data.get("dpo") or {})
-    summary = {"stats": data["stats"], "files": written, "removed_stale": stale,
+    rep = data.get("report") or report(data)
+    with open(os.path.join(out_dir, "REPORT.txt"), "w", encoding="utf-8") as f:
+        f.write(report_text(rep) + "\n")
+    summary = {"stats": data["stats"], "report": rep, "files": written, "removed_stale": stale,
                "per_role": {r: {"sft": len((data.get("sft") or {}).get(r, [])), "dpo": len((data.get("dpo") or {}).get(r, []))} for r in roles_seen},
                "per_tier": {t: {"sft": len(rows), "dpo": len(dpo_by_tier.get(t, []))} for t, rows in by_tier.items()}}
     with open(os.path.join(out_dir, "summary.json"), "w", encoding="utf-8") as f:
