@@ -156,3 +156,5 @@ H1 partial 2/6. Throughput is ahead of accuracy. Next: `behavior.test_first` A/B
 Shipped this morning: trace fixes (failed eval runs excluded from training, unique kept-run folders), cleanup limited to
 our own servers/models and idle slots, broker advice line per run (`behavior.broker`), spec extractor + test-first
 acceptance tests (`behavior.test_first`, off by default).
+
+H1 (one pass, seed 0): abliterated 8B 7/16 = 43.8%, 56.2 tok/s, 36/36 layers. Remaining seeds/models and the 4Bx4 A/B were stopped (queue was ~15 h).
