@@ -900,8 +900,9 @@ def fix_test_name_collisions(e, note=None):
     word_count change because they put their tests in tests/test_textkit.py next to the project's test_textkit.py).
     -> [(old_rel, new_rel)]"""
     import os as _os
-    created = set(getattr(e, "created", None) or []) | set(getattr(e, "changed_files", None) or [])
-    created = {c.replace("\\", "/") for c in created}
+    # Only files this run CREATED: changed_files are pre-existing files the run edited, and renaming one of those would move the
+    # person's own file (and os.remove below has no undo).
+    created = {str(c).replace("\\", "/") for c in (getattr(e, "created", None) or [])}
     by_name = {}
     for rel in core.list_files(e.root, e.cfg):
         r = rel.replace("\\", "/")

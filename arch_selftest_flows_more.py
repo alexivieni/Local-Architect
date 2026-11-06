@@ -382,6 +382,31 @@ def _small_requests(check):
               F._copied_failure(_cd, "tests/test_k_b.py::test_a", _base) is False and F._copied_failure(_cd, "tests/gone.py::test_a", _base) is False)
         shutil.rmtree(_cd, ignore_errors=True)
 
+        # test-file name clash: a file the run CREATED is renamed (and the run's lists follow); a pre-existing file it only edited is never moved
+        class _CE:
+            def __init__(s, root, created, changed):
+                s.root, s.cfg, s.created, s.changed_files = root, dict(core.DEFAULTS), list(created), list(changed)
+            def put_file(s, rel, text, **k):
+                open(os.path.join(s.root, rel), "w").write(text)
+                return {"status": "applied"}
+            def report(s, x): pass
+            def say(s, x): pass
+        def _clash(created, changed):
+            d = tempfile.mkdtemp()
+            os.makedirs(os.path.join(d, "tests"))
+            open(os.path.join(d, "test_k.py"), "w").write("def test_a(): pass\n")
+            open(os.path.join(d, "tests", "test_k.py"), "w").write("def test_b(): pass\n")
+            ce = _CE(d, created, changed)
+            out = F.fix_test_name_collisions(ce)
+            left = sorted(os.listdir(os.path.join(d, "tests")))
+            shutil.rmtree(d, ignore_errors=True)
+            return out, left, ce.created
+        _o1, _l1, _c1 = _clash(["tests/test_k.py"], [])
+        check("a clashing test file the run created is renamed to _new and the run's file list follows",
+              _o1 == [("tests/test_k.py", "tests/test_k_new.py")] and _l1 == ["test_k_new.py"] and _c1 == ["tests/test_k_new.py"], (_o1, _l1, _c1))
+        _o2, _l2, _ = _clash([], ["tests/test_k.py"])
+        check("a pre-existing test file the run only edited is never renamed or deleted", _o2 == [] and _l2 == ["test_k.py"], (_o2, _l2))
+
         # related tests first, then the whole suite once before the verdict
         os.makedirs(os.path.join(proj, "tests"), exist_ok=True)
         with open(os.path.join(proj, "tests", "test_app.py"), "w", encoding="utf-8") as f:
