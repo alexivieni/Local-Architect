@@ -8,6 +8,7 @@ design/SQL/API/refactor tests, and a run console.
 Same safety model as the base hub: 127.0.0.1 only, per-start token on every change, Host/Origin checks.
 """
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -33,6 +34,111 @@ import arch_templates as templates
 import model_hub as mh
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+# ---- Stale-server guard. A hub that keeps running after the files were updated serves old Python beside a new page (new endpoints 404).
+# The fingerprint is the names, sizes and modification times of the hub's own code (architect_hub.py, model_hub.py, arch_*.py).
+def code_fingerprint():
+    try:
+        names = {"architect_hub.py", "model_hub.py"} | {n for n in os.listdir(HERE) if n.startswith("arch_") and n.endswith(".py")}
+    except OSError:
+        names = {"architect_hub.py", "model_hub.py"}
+    parts = []
+    for n in sorted(names):
+        try:
+            st = os.stat(os.path.join(HERE, n))
+            parts.append(f"{n}:{st.st_mtime_ns}:{st.st_size}")
+        except OSError:
+            parts.append(f"{n}:missing")
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+FP_START = code_fingerprint()
+_FP_NOW = [0.0, FP_START]
+
+
+def version_view():
+    """GET /api/arch/version -> {fingerprint_at_start, fingerprint_now, stale}. 'now' is re-read at most every 3 s."""
+    if time.time() - _FP_NOW[0] > 3:
+        _FP_NOW[0], _FP_NOW[1] = time.time(), code_fingerprint()
+    return {"fingerprint_at_start": FP_START, "fingerprint_now": _FP_NOW[1], "stale": _FP_NOW[1] != FP_START}
+
+
+def restart_command(argv=None, port=None):
+    """The command line that starts this hub again: the same interpreter and arguments; for architect_hub.py the port it really
+    holds, and no browser tab (the open page reloads itself)."""
+    argv = list(sys.argv if argv is None else argv)
+    if argv and argv[0] and not os.path.isabs(argv[0]):
+        # relative to where the hub was STARTED, but the helper runs from this folder: make it absolute (seen live:
+        # "architect/architect_hub.py" was looked up as architect/architect/architect_hub.py and no hub came back)
+        _cand = os.path.abspath(argv[0])
+        argv[0] = _cand if os.path.exists(_cand) else os.path.join(HERE, os.path.basename(argv[0]))
+    cmd = [sys.executable] + argv
+    if os.path.basename(argv[0] if argv else "").lower() == "architect_hub.py":
+        rest, skip = [], False
+        for a in argv[1:]:
+            if skip:
+                skip = False
+            elif a == "--port":
+                skip = True
+            elif a.startswith("--port=") or a == "--no-browser":
+                pass
+            else:
+                rest.append(a)
+        cmd = [sys.executable, argv[0]] + rest + (["--port", str(port)] if port else []) + ["--no-browser"]
+    return cmd
+
+
+def restart_hub(b=None, _exit=True):
+    """POST /api/arch/restart (token-checked by do_POST). The reply goes out first; then a detached helper waits for this process to
+    free the port and starts the same command line, and this process exits (no signals: works the same on Windows).
+    A running job is not killed unless {force: true}."""
+    import subprocess
+    b = b or {}
+    try:
+        busy = bool(mh.JOB.running())
+    except Exception:
+        busy = False
+    if busy and not b.get("force"):
+        return {"ok": False, "why": "A job is still running. Wait for it to finish or stop it, then restart."}
+    cmd = restart_command(port=getattr(mh.Hub, "port", None))
+    port = int(getattr(mh.Hub, "port", 0) or 0)
+    # The helper waits until this process has really let go of the port (not a fixed sleep), then starts the new hub.
+    helper = ("import time,subprocess,sys,json,socket,os\n"
+              "port=int(sys.argv[3]); end=time.time()+30\n"
+              "while port and time.time()<end:\n"
+              "    s=socket.socket()\n"
+              "    try:\n"
+              "        s.bind(('127.0.0.1',port)); s.close(); break\n"
+              "    except OSError:\n"
+              "        s.close(); time.sleep(0.25)\n"
+              "fl=(0x8|0x200|0x01000000) if os.name=='nt' else 0\n"
+              "try:\n"
+              "    subprocess.Popen(json.loads(sys.argv[1]),cwd=sys.argv[2],close_fds=True,creationflags=fl)\n"
+              "except OSError:\n"
+              "    subprocess.Popen(json.loads(sys.argv[1]),cwd=sys.argv[2],close_fds=True,creationflags=fl & ~0x01000000)\n")
+    flags = 0
+    if os.name == "nt":
+        # BREAKAWAY: a launcher may run the hub inside a Windows job that kills everything when the hub exits; the helper
+        # must outlive it or nothing comes back (seen 2026-11-05: Restart left no hub running).
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0x8) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200) | 0x01000000
+    do = []
+
+    def go():
+        args = [sys.executable, "-c", helper, json.dumps(cmd), HERE, str(port)]
+        kw = dict(close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            subprocess.Popen(args, creationflags=flags, **kw)
+        except OSError:                                        # the job forbids breakaway: start it inside the job instead
+            subprocess.Popen(args, creationflags=flags & ~0x01000000, **kw)
+        if _exit:
+            os._exit(0)
+    t = threading.Timer(0.7, go)
+    t.daemon = True
+    if _exit:
+        t.start()
+    do.append(t)
+    return {"ok": True, "restarting": True, "command": cmd}
 _GPU_PLAN = {}            # /api/arch/gpu: the server plan, re-read at most once a minute
 _LIVE_LAST = {}           # the live recorder's newest sample (behavior.record_live), reused by /api/arch/gpu while it is fresh
 LIVE_FRESH_S = 7.0        # the recorder samples every 5 s; older than this and the endpoint measures for itself
@@ -387,6 +493,86 @@ _base_state = mh.build_state
 mh.build_state = build_state
 
 
+VERDICT_WORD = {"pass": "Passed", "fail": "Did not pass", "not_sure": "Could not check", "stopped": "Stopped", "": "No result yet"}
+
+
+def run_verdict(d, st=None):
+    """THE verdict of one run folder, for Recent runs, Review, the run bar and the report card:
+    'pass' | 'fail' | 'not_sure' (could not check) | 'stopped' | '' (nothing recorded yet). Read from the run's own verdict record
+    (trace.jsonl 'verdict', last one wins), else run.json 'verdict'; never guessed from report prose or from missing data.
+    -> {"verdict", "word", "why", "source"}"""
+    v, why, src = "", "", ""
+    try:
+        with open(os.path.join(d, "trace.jsonl"), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if '"verdict"' not in line or '"type"' not in line:
+                    continue
+                try:
+                    j = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(j, dict) and j.get("type") == "verdict":
+                    v, why, src = str(j.get("verdict") or ""), str(j.get("why") or "")[:400], "trace"
+    except OSError:
+        pass
+    st = st if st is not None else _read_json(os.path.join(d, "run.json"))
+    if not src and isinstance(st.get("verdict"), str) and st.get("verdict"):
+        v, src = st["verdict"], "run.json"
+    if src:
+        v = v.lower().replace(" ", "_").replace("-", "_")
+        if v in ("passed", "ok"):
+            v = "pass"
+        elif v in ("failed",):
+            v = "fail"
+        if v not in ("pass", "fail", "stopped"):
+            v = "not_sure"
+        if v != "pass" and str(st.get("status") or "") == "stopped":
+            v = "stopped"
+    elif str(st.get("status") or "") == "stopped":
+        v, src = "stopped", "run.json"
+    return {"verdict": v, "word": VERDICT_WORD.get(v, VERDICT_WORD["not_sure"]), "why": why, "source": src}
+
+
+def _plan_items(raw):
+    """The plan as clean rows [{id, title, role, kind, status}]. A row may arrive as a dict or as the text of one (str(dict));
+    that text is parsed with ast.literal_eval (literals only, never executed). Anything else is shown as its text."""
+    out = []
+    for i, it in enumerate(raw or []):
+        d = it
+        if isinstance(it, str):
+            t = it.strip()
+            d = {"title": t}
+            if t[:1] == "{" and len(t) <= 6000:
+                try:
+                    j = ast.literal_eval(t)
+                    if isinstance(j, dict):
+                        d = j
+                except (ValueError, SyntaxError, MemoryError, RecursionError):
+                    pass
+        if not isinstance(d, dict):
+            d = {"title": str(d)}
+        # A todo row whose title is itself the text of a step dict (seen live: {"title": "{'id': 'plan', 'title': ...}"})
+        _t = d.get("title")
+        if isinstance(_t, str) and _t.strip()[:1] == "{" and len(_t) <= 6000:
+            try:
+                _j = ast.literal_eval(_t.strip())
+                if isinstance(_j, dict):
+                    d = dict(d, **{k: v for k, v in _j.items() if v not in (None, "")})
+            except (ValueError, SyntaxError, MemoryError, RecursionError):
+                pass
+        title = ""
+        for k in ("title", "name", "text", "goal", "id"):
+            if isinstance(d.get(k), (str, int, float)) and str(d.get(k)).strip():
+                title = str(d[k]).strip()
+                break
+        if not title:
+            continue
+        out.append({"id": str(d.get("id") if d.get("id") not in (None, "") else f"s{i}")[:40], "title": title[:160],
+                    "role": str(d.get("role") or d.get("agent") or "")[:40], "kind": str(d.get("kind") or d.get("type") or "")[:24],
+                    "status": str(d.get("status") or "pending")[:12]})
+    return out
+
+
 def run_listing(root):
     d = os.path.join(root, ".arch", "runs")
     out = []
@@ -403,8 +589,13 @@ def run_listing(root):
             tp = os.path.join(d, n, "trace.jsonl")
             if os.path.isfile(tp):
                 calls = sum(1 for l in open(tp, encoding="utf-8", errors="replace") if '"type": "call"' in l)
+            rv_ = run_verdict(os.path.join(d, n))
+            try:
+                ts_ = float(_read_json(os.path.join(d, n, "run.json")).get("started") or 0) or os.path.getmtime(rp)
+            except (OSError, TypeError, ValueError):
+                ts_ = 0
             out.append({"name": n, "flow": (re.search(r"- Flow: `(\w+)`", rep) or [None, ""])[1], "goal": (re.search(r"- Goal: (.*)", rep) or [None, ""])[1][:140],
-                        "calls": calls, "changed": len(re.findall(r"`[^`]+` (?:applied)", rep)),
+                        "verdict": rv_["verdict"], "verdict_word": rv_["word"], "ts": ts_, "calls": calls, "changed": len(re.findall(r"`[^`]+` (?:applied)", rep)),
                         "state": "complete" if re.search(r"complete|fixed|written|passed checks", rep, re.I) and not re.search(r"NOT |FAILED|incomplete|Stopped", rep) else "open",
                         "report": rep[:9000]})
     return out
@@ -1735,7 +1926,14 @@ def review_view(root, run):
     tests = [{"name": str(c["gate"])[:80], "ok": bool(c["ok"]), "text": str(c.get("text") or "")[:300], "step": c.get("step")} for c in checks]
     for t in tests:
         t["test"] = bool(_TESTLIKE.search(t["name"]))
-    verdict = next(({"verdict": r.get("verdict"), "why": str(r.get("why") or "")[:400]} for r in reversed(recs) if r.get("type") == "verdict"), None)
+    rv_ = run_verdict(d, st)
+    verdict = {"verdict": rv_["verdict"], "word": rv_["word"], "why": rv_["why"]} if rv_["source"] else None
+    bad = next((t for t in tests if not t["ok"]), None)
+    first_failure = ""
+    if bad:
+        first_failure = (bad["name"] + (": " + bad["text"].strip().splitlines()[0] if bad["text"].strip() else ""))[:300]
+    elif verdict and verdict["verdict"] in ("fail", "stopped") and verdict["why"]:
+        first_failure = verdict["why"][:300]
     calls = [r for r in recs if r.get("type") == "call"]
     usd = sum(float(c.get("usd") or 0) for c in calls)
     todo = next((r.get("items") for r in reversed(recs) if r.get("type") == "todo"), None) or st.get("todo") or []
@@ -1745,7 +1943,8 @@ def review_view(root, run):
             "files": [files[f] for f in order][:60], "tests": tests[:80],
             "cost": {"usd": round(usd, 4), "calls": len(calls), "secs": round(sum(float(c.get("secs") or 0) for c in calls), 1),
                      "local": usd == 0, "models": sorted({str(c.get("model")) for c in calls if c.get("model")})[:6]},
-            "plan": todo, "accepted": bool(accepted.get("t")), "root": root}
+            "plan": _plan_items(todo), "accepted": bool(accepted.get("t")), "root": root, "first_failure": first_failure,
+            "verdict_word": rv_["word"]}
 
 
 def _attach_hunks(root, d, files):
@@ -2688,7 +2887,16 @@ def _eval_card(path):
     k = sum(1 for r in rs if r.get("verdict") == "pass")
     fl = sum(1 for r in rs if r.get("verdict") == "fail")
     n = k + fl
-    return {"label": d.get("label") or "", "ts": d.get("ts"), "passed": k, "n": n, "not_sure": len(rs) - n,
+    src = ""
+    try:
+        t_ = float(d.get("ts") or 0)
+        if t_:
+            lt = time.localtime(t_)
+            day = "" if time.strftime("%Y%m%d", lt) == time.strftime("%Y%m%d") else time.strftime("on %b %d ", lt)
+            src = f"a {len(rs)}-task check {day}at {time.strftime('%H:%M', lt)}"
+    except (TypeError, ValueError, OverflowError, OSError):
+        pass
+    return {"label": d.get("label") or "", "ts": d.get("ts"), "source": src, "tasks": len(rs), "passed": k, "n": n, "not_sure": len(rs) - n,
             "rate": round(100.0 * k / n, 1) if n else None, "ci": _wilson(k, n) if n else None, "file": os.path.basename(path)}
 
 
@@ -2740,7 +2948,7 @@ def overnight_view():
     per = {k: v for k, v in ds["counts"].items() if k != "(none)"}
     ran = bool(night or ds["total"] or latest)
     return {"ran": ran, "night": night, "samples": {"total": ds["total"], "by_lesson": per, "untagged": ds["counts"].get("(none)", 0)},
-            "basis": basis, "latest": latest, "previous": prev,
+            "basis": basis, "latest": latest, "previous": prev, "too_few": bool(latest and (latest.get("n") or 0) < 5),
             "delta": (round(latest["rate"] - prev["rate"], 1) if latest and prev and latest["rate"] is not None and prev["rate"] is not None else None),
             "fastest": fastest, "running": datanight_state()}
 
@@ -3268,10 +3476,18 @@ class AHandler(mh.Handler):
                 return self._send(200, hooks_view(safe_root((parse_qs(u.query).get("root") or [HERE])[0])))
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
+        if u.path == "/api/arch/version":
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            return self._send(200, version_view())
         if u.path == "/api/arch/usage":
             import arch_usage
-            w = (parse_qs(u.query).get("window") or ["day"])[0]
-            return self._send(200, arch_usage.usage(w if w in ("day", "week") else "day"))
+            q = parse_qs(u.query)
+            w = (q.get("window") or ["day"])[0]
+            extra = [x for x in (q.get("root") or [])[:12] if x and os.path.isdir(os.path.abspath(os.path.expanduser(x)))]
+            for x in extra:
+                arch_usage.remember_root(os.path.abspath(os.path.expanduser(x)))
+            return self._send(200, arch_usage.usage(w if w in ("day", "week") else "day", roots=arch_usage.known_roots(extra)))
         if u.path == "/api/arch/ui/registry":
             return self._send(200, ui_registry())
         if u.path == "/api/arch/lessons":
@@ -3842,6 +4058,12 @@ class AHandler(mh.Handler):
                 for k, v in coerced.items():
                     argv += ["--set", f"{k}={json.dumps(v)}"]
             mh.JOB.start("Architect: " + (goal or "new project")[:60], argv)
+            try:
+                import arch_usage
+                if "--root" in argv:
+                    arch_usage.remember_root(argv[argv.index("--root") + 1])
+            except Exception:
+                pass
             return {"ok": True}
         if path == "/api/arch/serve":
             root = safe_root(b.get("root") or HERE, create_ok=True)
@@ -3958,6 +4180,8 @@ class AHandler(mh.Handler):
             return {"path": arch_bundle.bundle(rd)}
         if path == "/api/arch/plan":
             return plan_save(b)
+        if path == "/api/arch/restart":
+            return restart_hub(b)
         if path == "/api/arch/undo":
             mh.JOB.start("Undo last run", ["architect.py", "undo", "--root", safe_root(b.get("root") or HERE)])
             return {"ok": True}

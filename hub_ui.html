@@ -1597,6 +1597,16 @@ body.sheet-wrap #subtabs,body.sheet-wrap #pageHint{display:none}
 .rv-act textarea{width:100%;margin-top:10px;box-sizing:border-box}
 .rv-k{border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-left:4px;font-size:.75rem;background:var(--soft);color:var(--mute)}
 @media (max-width:768px){.rv-act .btn,.rv-step .btn{min-height:44px}}
+.rv-verdict{display:flex;align-items:center;gap:var(--s2);margin:0;font-size:1.75rem;line-height:1.2;font-weight:700}
+.rv-verdict .ic{width:1.6em;height:1.6em;flex:none}
+.rv-verdict.good{color:var(--good)}.rv-verdict.bad{color:var(--bad)}.rv-verdict.warn{color:var(--warn)}.rv-verdict.info{color:var(--info)}
+.rv-fail{margin:6px 0 0;padding:8px 12px;border-radius:var(--rs);background:var(--badbg);color:var(--bad);font-weight:600;overflow-wrap:anywhere}
+.rv-step{outline-offset:2px}.rv-step:focus-visible{outline:2px solid var(--acc)}
+.rv-step .rv-mv{min-width:36px;min-height:36px;padding:0 8px}
+.rv-role{color:var(--mute)}
+.stale{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--warn);background:var(--warnbg);color:var(--warn);font-weight:600}
+.stale .grow{flex:1;min-width:200px}
+.stale .btn{min-height:44px}
 .ses>summary{cursor:pointer;padding:6px 0;font-weight:600}
 .ctxbar{position:relative;display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--soft);margin:6px 0}
 .ctxseg{display:block;height:100%}.ctxmark{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink)}
@@ -1780,8 +1790,50 @@ async function api(path,body){
 async function _api(path,body){
   const o=body===undefined?{}:{method:"POST",headers:{"Content-Type":"application/json","X-Hub-Token":TOKEN},body:JSON.stringify(body)};
   const r=await fetch(path,o); let j={}; try{j=await r.json();}catch(_){}
-  if(!r.ok) throw new Error(j.error||("HTTP "+r.status)); return j;
+  if(!r.ok){ if(r.status===404&&/^\/api\/arch\//.test(path)&&path.indexOf("/api/arch/version")!==0)staleCheck(); throw new Error(j.error||("HTTP "+r.status)); }
+  return j;
 }
+/* ONE verdict mapping for Recent runs, Review, the run bar and the report card: [tone, word, sentence]. The value comes from the run's own
+   verdict record; a missing value is "No result yet", never a guess. */
+const VERD={pass:["good","Passed","It worked"],fail:["bad","Did not pass","It did not work"],not_sure:["warn","Could not check","Done, but it could not be checked"],
+  stopped:["info","Stopped","It was stopped"],"":["","No result yet","No result yet"]};
+function verd(v){v=String(v==null?"":v).toLowerCase().replace(/[\s-]+/g,"_");if(v==="passed")v="pass";if(v==="failed")v="fail";return VERD[v]||(v?VERD.not_sure:VERD[""]);}
+/* A plan row is {id,title,role,kind,status}; a row that still arrives as the text of a dict is read for its title and role. */
+function planNorm(x,i){
+  if(x&&typeof x==="object")return {id:String(x.id!=null?x.id:"s"+i),title:String(x.title||x.name||x.text||x.id||""),role:String(x.role||x.agent||""),kind:String(x.kind||x.type||""),status:String(x.status||"pending")};
+  const s=String(x==null?"":x),g=k=>{const m=s.match(new RegExp("['\"]"+k+"['\"]\\s*:\\s*['\"]([^'\"]*)['\"]"));return m?m[1]:"";};
+  if(/^\s*\{/.test(s)&&g("title"))return {id:g("id")||"s"+i,title:g("title"),role:g("role"),kind:g("kind")||g("type"),status:g("status")||"pending"};
+  return {id:"s"+i,title:s,role:"",kind:"",status:"pending"};
+}
+/* Stale server: the hub process keeps old Python after an update. Poll /api/arch/version every 60 s while visible; a 404 on any /api/arch/ call checks at once. */
+const STALE={shown:false,busy:false};
+async function staleCheck(){
+  if(STALE.shown||STALE.busy)return; STALE.busy=true;
+  try{const r=await fetch("/api/arch/version"); if(r.status===404)staleBanner(); else if(r.ok){const j=await r.json(); if(j.stale)staleBanner(j.fingerprint_at_start);}}catch(_){}
+  STALE.busy=false;
+}
+function staleBanner(fp){
+  if(STALE.shown)return; STALE.shown=true; STALE.fp=fp||"";
+  const bar=h("div",{id:"staleBar",class:"stale",role:"alert"},h("span",{class:"grow"},"The app was updated - restart the hub"),
+    h("button",{class:"btn p",type:"button",id:"staleBtn",onclick:staleRestart},"Restart"));
+  document.body.insertBefore(bar,document.body.firstChild);
+}
+async function staleRestart(){
+  const b=$("#staleBtn"); if(b){b.disabled=true;b.textContent="Restarting…";}
+  try{
+    const r=await api("/api/arch/restart",{});
+    if(!r.ok){toast.err(r.why||"Could not restart.");if(b){b.disabled=false;b.textContent="Restart";}return;}
+    for(let i=0;i<60;i++){await new Promise(ok=>setTimeout(ok,1000));
+      try{const v=await fetch("/api/arch/version");if(v.ok){const j=await v.json();if(j.fingerprint_at_start!==STALE.fp||!STALE.fp){location.reload();return;}}}catch(_){}}
+    toast.err("The hub did not come back. Close this window and open START_HUB again.");
+  }catch(e){
+    toast.err("This copy of the hub cannot restart itself. Close its window and open START_HUB again.");
+    if(b){b.disabled=false;b.textContent="Restart";}
+  }
+}
+setInterval(()=>{if(document.visibilityState==="visible")staleCheck();},60000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")setTimeout(staleCheck,1500);});
+setTimeout(staleCheck,4000);
 const fmt=(n,d=1)=>n==null?"–":Number(n).toFixed(d);
 const sc=s=>s==null?"s-na":s>=75?"s-hi":s>=45?"s-mid":"s-lo";
 const cell=v=>v==null?h("span",{class:"cell s-na"},"–"):h("span",{class:"cell "+sc(v),style:"font-weight:650"},fmt(v,0));
@@ -1905,7 +1957,7 @@ function buildNav(){
 const ADVANCED=new Set(["score","bench","library","map","monitor","orchestra","components","train"]);
 function showAdvanced(){return store.get("showAdvanced","0")==="1";}
 function greeting(){const hr=new Date().getHours();return (hr<5?"Working late":hr<12?"Good morning":hr<18?"Good afternoon":"Good evening")+". What should we build?";}
-function go(id){id=LEGACY[id]||id;if(!PAGES.some(x=>x[0]===id))id="overview";page=id;buildNav();document.body.classList.toggle("sheet-wrap",id==="overview");document.body.classList.toggle("oneScreen",id==="console");const p=PAGES.find(x=>x[0]===id);$("#pageTitle").textContent=id==="overview"?"Home":(SUBNAME[id]||p[2]);$("#pageSub").textContent=p[3];$("#pageActions").innerHTML="";if(tabOf(id)[0]==="runs")$("#pageActions").append(h("button",{class:"btn",type:"button",title:"Start or stop your project for real",onclick:()=>go("launch")},icon("rocket"),"Start my project"));built={};render();const v=$("#view");v.style.animation="none";void v.offsetWidth;v.style.animation="";if(id==="run")pollJob();pageHint(id);window.scrollTo(0,0);}
+function go(id){id=LEGACY[id]||id;if(!PAGES.some(x=>x[0]===id))id="overview";if(id==="review"){if(typeof RV!=="undefined"){if(RV.pinned)RV.pinned=false;else{RV.run="";RV.note=null;}}}page=id;buildNav();document.body.classList.toggle("sheet-wrap",id==="overview");document.body.classList.toggle("oneScreen",id==="console");const p=PAGES.find(x=>x[0]===id);$("#pageTitle").textContent=id==="overview"?"Home":(SUBNAME[id]||p[2]);$("#pageSub").textContent=p[3];$("#pageActions").innerHTML="";if(tabOf(id)[0]==="runs")$("#pageActions").append(h("button",{class:"btn",type:"button",title:"Start or stop your project for real",onclick:()=>go("launch")},icon("rocket"),"Start my project"));built={};render();const v=$("#view");v.style.animation="none";void v.offsetWidth;v.style.animation="";if(id==="run")pollJob();pageHint(id);window.scrollTo(0,0);}
 let built={};
 /* One look for "working on it", "that failed" and "nothing here yet" on every page. Pages write these as plain sentences
    ("Reading the backlog…", "Could not scan: …", "No runs yet"); this only tags such a sentence with a class so the stylesheet
@@ -1999,7 +2051,7 @@ function simpleDraw(){
   box.append(h("h3",{class:"sp-h"},EV.verdict?"Finished":"Working on it"),
     h("ol",{class:"sp-steps"},...list.map(([t,st])=>h("li",{class:"sp-step "+st},h("span",{class:"sp-ico"+(st==="now"?" shimmer":""),"aria-hidden":"true"},icon(ICO[st])),h("span",null,t),h("span",{class:"sr-only"}," — "+label[st])))));
   if(EV.verdict&&!run._kept){const v=EV.verdict.verdict,files=EV.verdict.files;
-    const head=v==="pass"?"It worked":v==="fail"?"It did not work this time":"Done, but it could not be checked";
+    const head=v==="pass"?"It worked":v==="fail"?"It did not work this time":verd(v)[2];
     const sub=v==="pass"?"Every check passed.":v==="fail"?"Nothing is kept unless you say so.":"Look at the details before keeping it.";
     box.append(h("div",{class:"sp-result "+v},
       h("div",{class:"res-head"},h("span",{class:"res-ico "+v,"aria-hidden":"true"},icon(v==="pass"?"check":v==="fail"?"bolt":"question")),
@@ -2027,8 +2079,8 @@ function runBar(){
       h("button",{class:"btn sm ghost-danger",type:"button",onclick:()=>{if(typeof cStop==="function")cStop();}},"Stop"),
       h("span",{class:"rb-fill shimmer","aria-hidden":"true"}));}
   else{const v=EV.verdict.verdict;b.className="runbar "+v;
-    b.append(h("span",{class:"grow"},h("b",null,"Done: "),v==="pass"?"it worked":v==="fail"?"it did not work":"could not check"),
-      h("button",{class:"btn sm",type:"button",onclick:()=>go("overview")},"Review"),
+    b.append(h("span",{class:"grow"},h("b",null,"Done: "),verd(v)[1].toLowerCase()),
+      h("button",{class:"btn sm",type:"button","aria-label":"Review this run",onclick:()=>{RV.run=EV.verdict.run||"";RV.pinned=!!RV.run;go("review");}},"Review this run"),
       h("button",{class:"btn sm",type:"button","aria-label":"Hide this bar",onclick:()=>{RUNBAR.dismissed=EV.verdict;runBar();}},"×"));}
 }
 /* how long is left (arch_eta): the running job's own progress line, else the queue's */
@@ -2185,7 +2237,7 @@ function qlOptions(flowName){
 }
 
 /* ===== Home: the one goal box (the old Simple page), four stat cards, quick launch and recent activity. ===== */
-const QUICK=[["Fix a bug","Fix this bug: "],["Add a feature","Add this feature, with tests: "],["Review","Review this project and list the three most important problems, with file and line."],["Explain","Explain in plain words what this project does and how its parts fit together."]];
+const QUICK=[["Fix a bug","Fix this bug: "],["Add a feature","Add this feature, with tests: "],["Review my code","Review this project and list the three most important problems, with file and line."],["Explain","Explain in plain words what this project does and how its parts fit together."]];
 /* handoff_home.md: recent folders (store key recentRoots, last 5), middle-ellipsis paths, relative time */
 function recentRoots(){try{const a=JSON.parse(store.get("recentRoots","[]")||"[]");return Array.isArray(a)?a.filter(x=>typeof x==="string"&&x.trim()).slice(0,5):[];}catch(_){return [];}}
 function rememberRoot(p){p=String(p||"").trim();if(!p)return;const a=[p].concat(recentRoots().filter(x=>x!==p)).slice(0,5);store.set("recentRoots",JSON.stringify(a));}
@@ -2261,10 +2313,10 @@ function homeHero(){
       h("p",{class:"note warn",id:"spRootErr",role:"alert",hidden:true}),
       h("p",{class:"small"},h("button",{class:"btn link",type:"button",onclick:()=>go("run")},"Need every option? Open New run"))),
     h("section",{class:"card sp-progress",id:"spProgress",role:"status","aria-live":"polite","aria-label":"Progress",hidden:true}),
-    h("div",{id:"homeNight"}),
     h("h2",{class:"hsec"},"Recent runs"),
     h("div",{id:"homeRecipes"}),
     h("div",{id:"homeFeed",class:"card feed","aria-busy":"true"},h("div",{class:"skeleton",style:"height:56px"})),
+    h("div",{id:"homeNight"}),
     h("details",{class:"card thispc",id:"homePc",open:true},h("summary",{class:"more-sum"},"This computer"),
       h("div",{class:"statrow"},stat("stPass","Tests passed","check","template"),stat("stTok","Words per second","bolt","cost"),stat("stRuns","Runs this week","play","flow"),stat("stGpu","Graphics memory free","chip","model")))];
 }
@@ -2293,10 +2345,9 @@ async function loadHome(){
     if(rs.length&&pc&&pc.open&&!pc.dataset.touched){pc.dataset.auto="1";pc.open=false;}
     if(feed){feed.innerHTML="";if(!rs.length)feed.append(empty());
       const newest=rs.slice().sort((a,b)=>(b.ts||b.started||0)-(a.ts||a.started||0)).slice(0,5);
-      for(const r of newest){const st=r.verdict||r.state||"",tone=/pass|complete/.test(st)?"good":/fail/.test(st)?"bad":"warn";
-        const word=/pass|complete/.test(st)?"worked":/fail/.test(st)?"did not work":st?"could not check":"?";
+      for(const r of newest){const V=verd(r.verdict),tone=V[0]||"",word=V[1];
         feed.append(h("div",{class:"feedrow"},h("span",{class:"ic-box sm",style:"--hue:var(--c-flow)"},icon("play")),h("span",{class:"grow",title:r.goal||r.name||""},r.goal||r.name),
-          h("span",{class:"chip "+tone},word),h("small",{class:"mute"},relTime(r.ts||r.started)),h("button",{class:"btn sm",type:"button",onclick:()=>showReport(r)},"Open"),h("button",{class:"btn sm",type:"button",onclick:()=>{RV.run=r.name||"";built.review=0;go("review");}},"Review")));}}
+          h("span",{class:"chip "+tone},word),h("small",{class:"mute"},relTime(r.ts||r.started)),h("button",{class:"btn sm",type:"button","aria-label":"Open the report of: "+(r.goal||r.name),onclick:()=>showReport(r)},"Open"),h("button",{class:"btn sm",type:"button","aria-label":"Review this run: "+(r.goal||r.name),onclick:()=>{RV.run=r.name||"";RV.pinned=true;go("review");}},"Review this run")));}}
   }catch(e){done();setStat("stRuns","—","could not read runs");if(feed){feed.innerHTML="";feed.append(h("p",{class:"note warn"},"Could not read the runs of this folder. Check the path, then reload."));}}
   loadRecipes();
   loadNight();
@@ -2322,7 +2373,8 @@ async function loadNight(){
       lessons.length?h("div",{class:"row",style:"gap:6px;flex-wrap:wrap"},...lessons.map(([k,v])=>h("span",{class:"chip"},k+" ",h("b",null,String(v))))):
         h("p",{class:"small mute"},s.total?s.total+" samples, none tagged with a lesson yet":"No samples exported yet")),
     h("div",null,h("p",{class:"lbl"},"Pass rate, "+(d.basis||"")),
-      d.latest?h("p",{class:"night-rate"},nightRate(d.latest)):h("p",{class:"small mute"},"No finished test run yet"),
+      d.latest?(d.too_few||(d.latest.n||0)<5?h("p",{class:"night-rate"},"Too few runs to say",h("span",{class:"small mute"}," ("+d.latest.passed+" of "+d.latest.n+" passed)")):h("p",{class:"night-rate"},nightRate(d.latest))):h("p",{class:"small mute"},"No finished test run yet"),
+      d.latest&&d.latest.source?h("p",{class:"small mute"},"From "+d.latest.source):null,
       d.previous?h("p",{class:"small mute"},"Before that: "+nightRate(d.previous)+(d.delta!=null?". "+(d.delta>0?"Up "+fmt(d.delta,1)+" points.":d.delta<0?"Down "+fmt(-d.delta,1)+" points.":"No change."):"")):null,
       d.latest&&d.previous&&d.latest.ci&&d.previous.ci&&(d.latest.ci[0]<=d.previous.ci[1]&&d.previous.ci[0]<=d.latest.ci[1])?h("p",{class:"small mute"},"The ranges overlap, so this is not a clear change."):null),
     h("div",null,h("p",{class:"lbl"},"Fastest worker measured"),
@@ -2570,7 +2622,7 @@ function renderDoing(){
       ul.append(h("li",{class:"now"},icon("dot"),h("span",{},prettyStep(EV.now),
         EV.nowRole?h("span",{class:"mute small"}," · "+EV.nowRole):null)));
     (EV.todo||[]).filter(t=>!EV.steps.some(x=>x.step===t.id)&&t.id!==EV.now&&t.status==="pending")
-      .forEach(t=>ul.append(h("li",{class:"todo",title:"still to come"},icon("dot"),h("span",{},t.title))));
+      .forEach((t,ti)=>{const pn=planNorm(t,ti);ul.append(h("li",{class:"todo",title:"still to come"},icon("dot"),h("span",{},pn.title,pn.role?" · "+pn.role:"")));});
     const total=Math.max(EV.steps.length+(EV.todo||[]).filter(t=>t.status==="pending"&&!EV.steps.some(x=>x.step===t.id)).length+(EV.now&&!EV.steps.some(x=>x.step===EV.now)?1:0),1);
     kids.push(h("div",{class:"sect"},h("p",{class:"lbl","data-n":"01"},"Plan"),
       h("div",{class:"wprog"},h("span",{class:"meter"},h("i",{style:"width:"+Math.round(100*EV.steps.length/total)+"%"})),
@@ -2602,7 +2654,7 @@ function renderDoing(){
   if(EV.verdict){
     const v=EV.verdict.verdict||"";
     kids.push(h("div",{class:"verdictbox "+v},icon(v==="pass"?"check":v==="fail"?"x":"question"),
-      h("span",{class:"grow"},v==="pass"?"Passed every check":v==="fail"?"Did not pass":"Not sure",
+      h("span",{class:"grow"},v==="pass"?"Passed every check":verd(v)[1],
         EV.verdict.why?h("div",{class:"small",style:"font-weight:400;margin-top:3px"},EV.verdict.why):null),
       EV.verdict.run?h("a",{class:"btn sm",target:"_blank",rel:"noopener",title:"Everything this run did, on one page you can keep",
         href:"/api/arch/receipt?run="+encodeURIComponent(EV.verdict.run)+"&root="+encodeURIComponent(run.root||"")},icon("book"),"Receipt"):null));
@@ -3502,9 +3554,10 @@ async function hkUntrust(){try{await api("/api/arch/hooks",{root:run.root||"",ac
 
 /* Usage: a short chip in the top bar, the full figures in Telemetry */
 const US={w:"day",d:null};
+function usageRoots(){const a=recentRoots().slice();if(run.root&&!a.includes(run.root))a.push(run.root);return a.map(x=>"&root="+encodeURIComponent(x)).join("");}
 async function loadUsageChip(){
   const b=$("#usageChip"); if(!b)return;
-  try{const d=await api("/api/arch/usage?window=day");US.d=d;b.textContent=d.headline||"usage";b.hidden=false;b.title="Today: "+(d.headline||"")+". Open the details.";}
+  try{const d=await api("/api/arch/usage?window=day"+usageRoots());US.d=d;b.textContent=d.headline||"usage";b.hidden=false;b.title="Today: "+(d.headline||"")+". Open the details.";}
   catch(_){b.hidden=true;}
 }
 function usageCard(){
@@ -3515,7 +3568,7 @@ function usageCard(){
 }
 async function loadUsageCard(){
   const box=$("#usBody"); if(!box)return;
-  let d; try{d=await api("/api/arch/usage?window="+US.w);}catch(e){box.innerHTML="";put(box,h("p",{class:"note bad",role:"alert"},"Could not read usage: "+e.message));return;}
+  let d; try{d=await api("/api/arch/usage?window="+US.w+usageRoots());}catch(e){box.innerHTML="";put(box,h("p",{class:"note bad",role:"alert"},"Could not read usage: "+e.message));return;}
   const l=d.local||{}, c=d.cache||{}, cl=d.claude||{}, g=d.gpu_hours||{}, n=x=>(x||0).toLocaleString();
   const li=(t)=>h("li",null,t), rate=v=>v==null?"not enough yet":Math.round(v*100)+"%";
   box.innerHTML="";
@@ -4465,7 +4518,7 @@ async function jobBadge(){
   try{
     const j=await api("/api/job?since=1000000000");
     if(j.running){b.hidden=false;b.className="chip info live";b.textContent=j.title||"working";}
-    else if(j.ended&&j.ended>badgeSeen){b.hidden=false;b.className="chip "+(j.code===0?"good":"bad");b.textContent=(j.code===0?"done: ":"stopped: ")+(j.title||"job");}
+    else if(j.ended&&j.ended>badgeSeen&&Date.now()/1000-j.ended<=600){b.hidden=false;b.className="chip "+(j.code===0?"good":"bad");b.textContent=(j.code===0?"done: ":"stopped: ")+(j.title||"job");}
     else b.hidden=true;
     b.onclick=()=>{badgeSeen=j.ended||badgeSeen;b.hidden=true;jobSince=0;go("run");};
   }catch(_){}
@@ -5059,14 +5112,14 @@ function caDraw(){
 /* ---- Benchmarks: every saved `eval` report, live and scripted kept apart. Nothing here starts a run. ---- */
 /* ===== Review after a run: changed files as diff cards, the tests, the verdict, what it cost; Accept / Undo / Retry (keys A / U / R, J / K between files).
    Beside it: the editable plan and the session panel. Everything comes from /api/arch/review, /plan and /session, which read the run's own trace. ===== */
-const RV={run:"",data:null,idx:0,armed:0,plan:null,plan_edit:null,session:null};
-const RV_WORD={pass:["good","Passed"],fail:["bad","Did not pass"],not_sure:["warn","Not sure"]};
+const RV={run:"",data:null,idx:0,armed:0,plan:null,plan_edit:null,session:null,pinned:false,note:null};
+const RV_WORD=VERD;
 function rvQuery(){return "root="+encodeURIComponent(run.root||"")+"&run="+encodeURIComponent(RV.run||"");}
 function costLine(c){c=c||{};const usd=Number(c.usd||0);
   return "$"+(usd?usd.toFixed(2):"0")+" · "+(c.local?"local":"billed")+" · "+(c.calls||0)+" calls · "+Math.round(c.secs||0)+" s";}
 function reviewPage(){
   return [h("div",{class:"rv-grid"},
-    h("div",{class:"rv-main"},h("div",{id:"rvHead"}),h("div",{id:"rvPlan"}),h("div",{id:"rvFiles"}),h("div",{id:"rvTests"}),h("div",{id:"rvAct"})),
+    h("div",{class:"rv-main"},h("div",{id:"rvHead"}),h("div",{id:"rvAct"}),h("div",{id:"rvPlan"}),h("div",{id:"rvFiles"}),h("div",{id:"rvTests"})),
     h("aside",{class:"rv-side","aria-label":"Session"},h("div",{id:"rvSession"})))];
 }
 async function loadReview(){
@@ -5095,13 +5148,15 @@ function rvDraw(){
     put(head,emptyState("console",d.error?"Could not read the run":"Nothing to review yet",d.error||"Finish a run and its changes, tests and result show up here.","Start a run",()=>go("overview")));
     rvSession(se); return;
   }
-  const v=RV_WORD[(d.verdict||{}).verdict]||["info",d.status?String(d.status):"No result yet"];
+  const vk=(d.verdict||{}).verdict||"", v=verd(vk), vIco=vk==="pass"?"check":vk==="fail"?"x":vk==="stopped"?"stop":"question";
   put(head,h("div",{class:"card"},
-    h("div",{class:"row",style:"gap:8px;flex-wrap:wrap;align-items:center"},h("h2",{style:"margin:0"},"Review"),
-      h("span",{class:"chip "+v[0],role:"status"},v[1]),d.flow?h("span",{class:"chip"},d.flow):null,
+    h("h2",{class:"rv-verdict "+v[0],role:"status"},icon(vIco),v[1]),
+    d.first_failure&&vk!=="pass"?h("p",{class:"rv-fail"},d.first_failure):null,
+    h("div",{class:"row",style:"gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px"},h("b",null,"Review"),
+      d.flow?h("span",{class:"chip"},d.flow):null,
       d.accepted?h("span",{class:"chip good"},"Accepted"):null),
     h("p",{class:"sub"},d.goal||"(no goal recorded)"),
-    (d.verdict&&d.verdict.why)?h("p",{class:"note"},d.verdict.why):null,
+    (d.verdict&&d.verdict.why&&d.verdict.why!==d.first_failure)?h("p",{class:"note"},d.verdict.why):null,
     h("p",{class:"sub",id:"rvCost",title:(d.cost.models||[]).join(", ")},costLine(d.cost))));
   rvPlan(pl);
   /* files */
@@ -5122,13 +5177,14 @@ function rvDraw(){
   put(ts,tb);
   /* actions */
   const note=h("textarea",{id:"rvNote",rows:2,"aria-label":"Note for the retry",placeholder:"For a retry: what should it do differently?",
+    value:RV.note!=null?RV.note:(vk!=="pass"&&d.first_failure?"It failed here: "+d.first_failure+" Fix this.":""),oninput:e=>{RV.note=e.target.value;},
     onkeydown:e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();rvRetry();}if(e.key==="Escape")e.target.blur();}});
   const key=k=>h("kbd",{class:"rv-k","aria-hidden":"true"},k);
   put(ac,h("div",{class:"card rv-act"},
     h("div",{class:"row",style:"gap:8px;flex-wrap:wrap"},
       h("button",{class:"btn p",id:"rvAccept",type:"button",onclick:rvAccept,"aria-keyshortcuts":"A"},icon("check"),"Accept ",key("A")),
       h("button",{class:"btn danger",id:"rvUndo",type:"button",onclick:rvUndo,"aria-keyshortcuts":"U"},icon("x"),h("span",{id:"rvUndoT"},"Undo "),key("U")),
-      h("button",{class:"btn",id:"rvRetry",type:"button",onclick:rvRetry,"aria-keyshortcuts":"R"},icon("refresh"),"Retry ",key("R")),
+      h("button",{class:"btn"+(vk!=="pass"?" p":""),id:"rvRetry",type:"button",onclick:rvRetry,"aria-keyshortcuts":"R"},icon("refresh"),"Retry with note ",key("R")),
       d.accepted?h("button",{class:"btn",id:"rvCommit",type:"button",onclick:rvCommit},icon("check"),"Commit to a branch"):null,
       (d.verdict&&d.verdict.verdict!=="pass")?h("button",{class:"btn",id:"rvBundle",type:"button",onclick:rvBundle},icon("layers"),"Make a report bundle"):null),
     h("p",{class:"sr-only",id:"rvLive",role:"status","aria-live":"polite"}),
@@ -5178,20 +5234,27 @@ document.addEventListener("keydown",e=>{
 /* the plan: a checklist. Editable only when the engine reads an override; otherwise read-only with one honest line. */
 function rvPlan(el){
   const p=RV.plan; if(!p||!(p.items||[]).length)return;
-  if(!RV.plan_edit)RV.plan_edit=p.items.map((x,i)=>({id:x.id||("s"+i),title:x.title||String(x),status:x.status==="skipped"?"skipped":"pending",was:x.status}));
+  if(!RV.plan_edit)RV.plan_edit=p.items.map((x,i)=>{const n=planNorm(x,i);return {id:n.id,title:n.title,role:n.role,kind:n.kind,status:n.status==="skipped"?"skipped":"pending",was:n.status};});
   const items=RV.plan_edit, ed=!!p.editable;
   const ul=h("ul",{class:"rv-plan"});
+  const move=(i,d,focusMove)=>{const j=i+d;if(j<0||j>=items.length)return;const it=items.splice(i,1)[0];items.splice(j,0,it);
+    el.innerHTML="";rvPlan(el);const li=el.querySelector('[data-pid="'+it.id+'"]');
+    if(li){const t=focusMove?li:li.querySelector(d<0?".rv-up:not([disabled])":".rv-dn:not([disabled])")||li;t.focus();}
+    announce("Moved to step "+(j+1)+" of "+items.length+": "+it.title);};
   items.forEach((it,i)=>{
     const on=it.status!=="skipped";
     const cb=h("input",{type:"checkbox",checked:on,disabled:!ed,"aria-label":"Do this step: "+it.title,onchange:e=>{it.status=e.target.checked?"pending":"skipped";}});
-    ul.append(h("li",{class:"rv-step"},cb,h("span",{class:"grow"+(on?"":" rv-off")},it.title),
+    ul.append(h("li",{class:"rv-step","data-pid":it.id,tabindex:ed?"0":null,"aria-label":ed?"Step "+(i+1)+": "+it.title+". Alt and Up or Down arrow moves it.":null,
+      onkeydown:ed?(e=>{if(e.altKey&&(e.key==="ArrowUp"||e.key==="ArrowDown")){e.preventDefault();move(i,e.key==="ArrowUp"?-1:1,true);}}):null},
+      cb,h("span",{class:"grow"+(on?"":" rv-off")},it.title,it.role?h("span",{class:"rv-role"}," · "+it.role):null),
+      it.kind?h("span",{class:"chip"},it.kind):null,
       it.was&&it.was!=="pending"?h("span",{class:"chip "+(it.was==="done"?"good":it.was==="failed"?"bad":"")},it.was):null,
-      ed?h("span",{class:"row",style:"gap:4px"},
-        h("button",{class:"btn sm",type:"button","aria-label":"Move up: "+it.title,disabled:i===0,onclick:()=>{items.splice(i-1,0,items.splice(i,1)[0]);rvDraw();}},"↑"),
-        h("button",{class:"btn sm",type:"button","aria-label":"Move down: "+it.title,disabled:i===items.length-1,onclick:()=>{items.splice(i+1,0,items.splice(i,1)[0]);rvDraw();}},"↓")):null));});
+      ed?h("span",{class:"row",style:"gap:4px;flex-wrap:nowrap"},
+        h("button",{class:"btn sm rv-mv rv-up",type:"button","aria-label":"Move up: "+it.title,disabled:i===0,onclick:()=>move(i,-1,false)},"↑"),
+        h("button",{class:"btn sm rv-mv rv-dn",type:"button","aria-label":"Move down: "+it.title,disabled:i===items.length-1,onclick:()=>move(i,1,false)},"↓")):null));});
   const card=h("div",{class:"card"},h("h3",null,"Plan ("+items.length+" steps)"),ul);
-  if(ed){
-    const add=h("input",{type:"text",class:"grow","aria-label":"Add a step",placeholder:"Add a step",onkeydown:e=>{if(e.key==="Enter"&&e.target.value.trim()){items.push({id:"u"+Date.now(),title:e.target.value.trim(),status:"pending"});rvDraw();}}});
+  if(ed){card.append(h("p",{class:"sub"},"Alt+Up and Alt+Down move the step you are on."));
+    const add=h("input",{type:"text",class:"grow","aria-label":"Add a step",placeholder:"Add a step",onkeydown:e=>{if(e.key==="Enter"&&e.target.value.trim()){items.push({id:"u"+Date.now(),title:e.target.value.trim(),status:"pending"});el.innerHTML="";rvPlan(el);}}});
     card.append(h("div",{class:"row",style:"gap:8px"},add),h("div",{class:"row",style:"gap:8px;margin-top:8px"},
       h("button",{class:"btn p",type:"button",onclick:rvPlanRun},icon("play"),"Run this plan")));
   }else card.append(h("p",{class:"sub"},"Edit is not available yet."),learnMore(p.why||"The engine does not read an edited plan yet."));
@@ -5761,7 +5824,7 @@ async function loadRuns(){
   if(!box.querySelector("table")){box.innerHTML="";box.append(h("div",{class:"skeleton",style:"height:54px"}));}
   try{const rs=await api("/api/arch/runs?root="+encodeURIComponent(run.root));box.innerHTML="";
     if(!rs.length){box.textContent="No runs in this folder yet. Describe a change and press Start; each run is listed here with its report.";return;}
-    box.append(h("table",null,h("tbody",null,...rs.map(r=>h("tr",null,h("td",{class:"mono small"},r.name),h("td",null,h("span",{class:"chip acc"},r.flow)),h("td",null,r.goal),h("td",{class:"n"},r.calls+" calls"),h("td",null,h("span",{class:"chip "+(r.state==="complete"?"good":"warn")},r.state)),h("td",null,h("a",{class:"link",onclick:()=>showReport(r)},"report")," · ",h("a",{class:"link",title:"Every try of every step: cost, cache share, checks",onclick:()=>showTrace(r)},"timeline")))))));
+    box.append(h("table",null,h("tbody",null,...rs.map(r=>h("tr",null,h("td",{class:"mono small"},r.name),h("td",null,h("span",{class:"chip acc"},r.flow)),h("td",null,r.goal),h("td",{class:"n"},r.calls+" calls"),h("td",null,h("span",{class:"chip "+verd(r.verdict)[0]},verd(r.verdict)[1])),h("td",null,h("a",{class:"link",onclick:()=>showReport(r)},"report")," · ",h("a",{class:"link",title:"Every try of every step: cost, cache share, checks",onclick:()=>showTrace(r)},"timeline")))))));
   }catch(e){box.textContent=e.message;}
 }
 function showReport(r){const d=h("div",{class:"card modal"},h("div",{class:"row"},h("h2",{class:"grow"},r.name),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),h("pre",{class:"term",style:"height:auto;max-height:70vh"},r.report));document.body.append(d);}

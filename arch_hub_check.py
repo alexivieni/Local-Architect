@@ -395,6 +395,62 @@ def run():
         check("review refuses a run id that climbs out", call("/api/arch/review?root=" + urllib.parse.quote(rvroot) + "&run=..%2Fx").get("HTTP") == 400)
         pv = call("/api/arch/plan?root=" + urllib.parse.quote(rvroot) + "&run=r1")
         check("the plan is read, and says plainly when editing is not available", len(pv.get("items", [])) == 1 and (pv.get("editable") or "not available" in (pv.get("why") or "")), pv)
+        # ---- live-critique fixes: one verdict mapping, a clean plan, a stale-server guard, the page wiring
+        for rid_, recs_, st_ in (("r2", [{"type": "verdict", "verdict": "pass", "why": ""}], {"status": "done", "goal": "g2"}),
+                                 ("r3", [{"type": "verdict", "verdict": "not_sure", "why": "no tests ran"}], {"status": "done", "goal": "g3"}),
+                                 ("r4", [{"type": "call", "id": 1}], {"status": "stopped", "goal": "g4"}),
+                                 ("r5", [{"type": "call", "id": 1}], {"status": "running", "goal": "g5"}),
+                                 ("r6", [{"type": "todo", "items": [str({"id": "plan", "title": "Write the plan", "role": "planner", "kind": "model"}),
+                                                                     {"id": "b", "title": "Build", "role": "coder"}, "plain text step"]},
+                                         {"type": "verdict", "verdict": "fail", "why": "x"}], {"status": "done", "goal": "g6"})):
+            d_ = os.path.join(rvroot, ".arch", "runs", rid_)
+            os.makedirs(d_)
+            with open(os.path.join(d_, "trace.jsonl"), "w", encoding="utf-8") as f_:
+                f_.write("".join(json.dumps(r_) + "\n" for r_ in recs_))
+            with open(os.path.join(d_, "run.json"), "w", encoding="utf-8") as f_:
+                json.dump(st_, f_)
+            with open(os.path.join(d_, "report.md"), "w", encoding="utf-8") as f_:
+                f_.write("- Flow: `bugfix`\n- Goal: " + st_["goal"] + "\n" + ("run is complete and passed checks\n" if rid_ == "r3" else "NOT done\n"))
+        lst_ = {x["name"]: x for x in call("/api/arch/runs?root=" + urllib.parse.quote(rvroot))}
+        rvs_ = {k: (call("/api/arch/review?root=" + urllib.parse.quote(rvroot) + "&run=" + k).get("verdict") or {}).get("verdict", "") for k in lst_}
+        check("Recent runs and Review give every run the same verdict (pass / fail / could not check / stopped / none, from the verdict record)",
+              {k: v["verdict"] for k, v in lst_.items()} == {"r2": "pass", "r3": "not_sure", "r4": "stopped", "r5": "", "r6": "fail"}
+              and all(lst_[k]["verdict"] == rvs_[k] for k in lst_) and lst_["r3"]["verdict_word"] == "Could not check"
+              and lst_["r5"]["verdict_word"] == "No result yet" and all(isinstance(v.get("ts"), (int, float)) for v in lst_.values()), (lst_, rvs_))
+        pl_ = call("/api/arch/review?root=" + urllib.parse.quote(rvroot) + "&run=r6").get("plan")
+        check("plan items are clean rows (title, role, kind), also when they arrive as the text of a dict",
+              pl_ and [p_["title"] for p_ in pl_] == ["Write the plan", "Build", "plain text step"] and pl_[0]["role"] == "planner" and pl_[0]["kind"] == "model"
+              and not any("{" in p_["title"] for p_ in pl_), pl_)
+        rv1_ = call("/api/arch/review?root=" + urllib.parse.quote(rvroot) + "&run=r1")
+        check("review names the first failing check for the outcome line", "tests B" in (rv1_.get("first_failure") or "") and "boom" in rv1_["first_failure"], rv1_.get("first_failure"))
+        check("review with no run named opens the newest run of the project", bool(call("/api/arch/review?root=" + urllib.parse.quote(rvroot)).get("run")))
+        vs_ = call("/api/arch/version")
+        check("the version endpoint says the code is current at start", vs_.get("stale") is False and vs_.get("fingerprint_at_start") == vs_.get("fingerprint_now") and len(vs_.get("fingerprint_at_start", "")) >= 8, vs_)
+        check("restarting the hub needs the token", call("/api/arch/restart", {}, token=False).get("HTTP") in (401, 403))
+        import architect_hub as _ah
+        rc1_ = _ah.restart_command(["C:/x/architect_hub.py", "--port", "8000", "--no-browser", "--foo"], port=8123)
+        rc2_ = _ah.restart_command(["architect.py", "start"], port=8123)
+        check("the restart command is the same command line (the hub's own port, no new tab)",
+              rc1_[1:] == ["C:/x/architect_hub.py", "--foo", "--port", "8123", "--no-browser"] and rc2_[1:] == ["architect.py", "start"], (rc1_, rc2_))
+        _t0_ = time.time() + 5
+        os.utime(os.path.join(hubdir, "arch_usage.py"), (_t0_, _t0_))
+        time.sleep(3.3)
+        vs2_ = call("/api/arch/version")
+        check("after a code file changes, the version endpoint says stale", vs2_.get("stale") is True and vs2_["fingerprint_now"] != vs2_["fingerprint_at_start"], vs2_)
+        check("the page polls the version, shows the restart banner and treats a 404 from /api/arch/ as a reason to check",
+              all(k in html for k in ("function staleCheck(", "The app was updated - restart the hub", "/api/arch/restart", "r.status===404&&/^\\/api\\/arch\\/")) and "setInterval(()=>{if(document.visibilityState===\"visible\")staleCheck();},60000)" in html)
+        check("the page has one verdict mapping and uses it for Recent runs, Review and the run bar",
+              "function verd(" in html and html.count("verd(r.verdict)") >= 2 and "const RV_WORD=VERD" in html and "verd(v)[1].toLowerCase()" in html)
+        check("Home: 'Review my code' chip, 'Review this run' row buttons, Recent runs above Last night, chip hidden after 10 minutes",
+              '["Review my code",' in html and html.count('"Review this run') >= 2 and html.index('h("h2",{class:"hsec"},"Recent runs")') < html.index('h("div",{id:"homeNight"})')
+              and "Date.now()/1000-j.ended<=600" in html)
+        check("Last night shows its source and hides the headline under 5 runs; usage sends the known folders",
+              "Too few runs to say" in html and "d.latest.source" in html and "function usageRoots(" in html and "/api/arch/usage?window=day\"+usageRoots()" in html)
+        check("Review leads with a large verdict, the first failing line and 'Retry with note'; the plan has 36 px controls and Alt+Arrow",
+              "rv-verdict" in html and "d.first_failure" in html and "Retry with note" in html and ".rv-step .rv-mv{min-width:36px;min-height:36px" in html
+              and "e.altKey&&(e.key===\"ArrowUp\"" in html and "planNorm(" in html)
+        us2_ = call("/api/arch/usage?window=day&root=" + urllib.parse.quote(rvroot))
+        check("usage reads the folders the page sends (the project has runs from today)", us2_.get("runs", 0) >= 5 and us2_.get("roots", 0) >= 1, us2_.get("runs"))
         sv_ = call("/api/arch/session?root=" + urllib.parse.quote(rvroot) + "&run=r1")
         check("the session panel splits the context, labels an estimate and lists servers and jobs",
               sv_.get("window") == 8192 and sv_.get("estimated") is True and [x["name"] for x in sv_.get("sections", [])][:1] == ["system prompt"]

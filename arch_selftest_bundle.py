@@ -125,6 +125,25 @@ def run():
         check("usage: a bad window falls back to day; unreadable roots give zeros",
               arch_usage.usage("year", roots=[], fresh=True)["window"] == "day" and arch_usage.usage("day", roots=[], fresh=True)["runs"] == 0)
         check("usage: JSON-serialisable", bool(json.dumps(u)))
+        # known roots: remembered folder + practice project + eval run folders are all read when no roots are given
+        def mkroot_run(base, rid, verdict):
+            rd = os.path.join(base, ".arch", "runs", rid)
+            os.makedirs(rd, exist_ok=True)
+            with open(os.path.join(rd, "trace.jsonl"), "w", encoding="utf-8") as f:
+                f.write(json.dumps(dict(type="call", t=now - 20, model="w:4b", tier="worker", transport="llama", prompt_tokens=10, gen_tokens=5)) + "\n")
+                f.write(json.dumps({"type": "verdict", "t": now - 10, "verdict": verdict}) + "\n")
+        recent = os.path.join(tmp, "recent_proj")
+        practice = os.path.join(data, "practice", "textkit")
+        evalroot = os.path.join(data, "evals", "runs", "train")
+        for b, rid in ((recent, "r1"), (practice, "p1"), (evalroot, "e1")):
+            os.makedirs(b, exist_ok=True)
+            mkroot_run(b, rid, "pass")
+        base = arch_usage.usage("day", fresh=True)["runs"]
+        check("usage: the practice and eval run folders are read with no roots given", base == 2, base)
+        check("usage: a remembered folder is added", arch_usage.remember_root(recent) and arch_usage.usage("day", fresh=True)["runs"] == 3)
+        check("usage: the page's own recent list can be passed in", recent in arch_usage.known_roots([recent, os.path.join(tmp, "nope")])
+              and os.path.join(tmp, "nope") not in arch_usage.known_roots([os.path.join(tmp, "nope")]))
+        check("usage: explicit roots still read only those", arch_usage.usage("day", roots=[recent], fresh=True)["runs"] == 1)
     finally:
         for k, v in old.items():
             if v is None:

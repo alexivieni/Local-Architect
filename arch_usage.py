@@ -30,6 +30,63 @@ def _roots(roots):
         return [os.path.abspath(r) for r in (roots or [])]
 
 
+RECENT_FILE = "recent_roots.json"
+
+
+def remember_root(path):
+    """Keeps a project folder the person worked in (hub_data/recent_roots.json, newest first, 30 kept) so the meter reads it later.
+    Never raises; a folder that does not exist is not kept."""
+    try:
+        p = os.path.abspath(str(path or ""))
+        if not os.path.isdir(p):
+            return False
+        f = os.path.join(_data_dir(), RECENT_FILE)
+        try:
+            with open(f, encoding="utf-8") as fh:
+                cur = [x for x in (json.load(fh) or []) if isinstance(x, str)]
+        except (OSError, ValueError):
+            cur = []
+        if cur and cur[0] == p:
+            return True
+        cur = [p] + [x for x in cur if x != p]
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        with open(f, "w", encoding="utf-8") as fh:
+            json.dump(cur[:30], fh)
+        return True
+    except Exception:
+        return False
+
+
+def known_roots(extra=None):
+    """Every project folder this install knows about: the portfolio, the folders the hub remembered (recent_roots.json) plus the page's
+    own recent list (`extra`), the practice project, and the eval run folders (<data>/evals/runs/train|bench). Only folders that exist."""
+    out, seen = [], set()
+
+    def add(p):
+        try:
+            p = os.path.abspath(str(p))
+        except Exception:
+            return
+        if p not in seen and os.path.isdir(p):
+            seen.add(p)
+            out.append(p)
+    for r in _roots(None):
+        add(r)
+    try:
+        with open(os.path.join(_data_dir(), RECENT_FILE), encoding="utf-8") as fh:
+            for r in json.load(fh) or []:
+                add(r)
+    except (OSError, ValueError, TypeError):
+        pass
+    for r in extra or []:
+        add(r)
+    d = _data_dir()
+    add(os.path.join(d, "practice", "textkit"))
+    for b in ("train", "bench"):
+        add(os.path.join(d, "evals", "runs", b))
+    return out
+
+
 def _scan_traces(roots, cutoff):
     """-> (calls, runs) inside the window. A call = dict of the fields we use; a broken line is skipped. runs = {run folder: verdict}."""
     calls, runs = [], {}
@@ -117,7 +174,7 @@ def compute(window="day", roots=None, now=None):
     window = window if window in WINDOWS else "day"
     secs = WINDOWS[window]
     cutoff = now - secs
-    rs = _roots(roots)
+    rs = _roots(roots) if roots is not None else known_roots()
     calls, runs = _scan_traces(rs, cutoff)
     by_model, by_tier = {}, {}
     exact_hit = exact_total = pre_hit = pre_total = 0
@@ -171,14 +228,19 @@ def compute(window="day", roots=None, now=None):
 
 
 def usage(window="day", roots=None, fresh=False):
-    """Cached (60 s) usage meter. Never raises."""
-    key = (window, tuple(sorted(map(str, roots))) if roots is not None else None, _data_dir())
+    """Cached (60 s) usage meter. roots=None reads every known project (known_roots()); a list reads exactly those. Never raises."""
+    try:
+        rs = _roots(roots) if roots is not None else known_roots()
+    except Exception:
+        rs = []
+    key = (window, tuple(sorted(rs)), _data_dir())
     now = time.time()
     hit = _CACHE.get(key)
     if hit and not fresh and now - hit[0] < TTL:
         return hit[1]
     try:
-        out = compute(window, roots, now)
+        out = compute(window, rs, now)
+        out["roots"] = len(rs)
     except Exception as ex:
         out = {"window": window, "error": f"{type(ex).__name__}: {ex}", "runs": 0, "headline": "usage unavailable"}
     _CACHE[key] = (now, out)
