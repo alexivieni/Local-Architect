@@ -2776,7 +2776,7 @@ async function pollConsole(){
   if(document.hidden){pollConsole._t=setTimeout(pollConsole,4000);return;}
   try{
     const [snap,feed]=await Promise.all([api("/api/arch/chat?root="+encodeURIComponent(run.root||"")),
-                                         api("/api/arch/events?since="+EV.since)]);
+                                         api("/api/arch/events?since="+EV.since+"&epoch="+EV.epoch)]);
     applyEvents(feed);
     renderThread(snap);
     /* redraw the three panels only when something they show can have moved: a new event, a new state, or a rebuilt page
@@ -7147,7 +7147,7 @@ async function fvTick(){
   try{probe=await api("/api/arch/events?since=999999999");}catch(_){}    // a cursor past the end: just "which run, still going?"
   {const s2=fvState(); if(FV.closed||s2.status!=="open"||s2.step!==3){fvDockHide();return;}}   // skipped while we waited: never re-open
   if(probe&&(probe.epoch!==s.epoch||!probe.running)){fvDockHide();fvOpen(4);return;}  // ended, or the hub restarted, or another job replaced it
-  if(page!=="console"){try{applyEvents(await api("/api/arch/events?since="+EV.since));}catch(_){}}
+  if(page!=="console"){try{applyEvents(await api("/api/arch/events?since="+EV.since+"&epoch="+EV.epoch));}catch(_){}}
   if(!FV.dock)return;
   const mine=EV.epoch===s.epoch, g=mine&&EV.gates.length?EV.gates[EV.gates.length-1]:null;
   const parts=mine&&EV.calls?[EV.flow?"workflow "+EV.flow:null,EV.now?"now: "+EV.now:null,EV.nowModel?EV.nowModel:null,EV.calls+" call"+(EV.calls===1?"":"s"),

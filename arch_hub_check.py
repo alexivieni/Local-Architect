@@ -441,6 +441,37 @@ def run():
               _raw("GET", "/api/arch/chat", host="evil.example") == 403 and _raw("GET", "/api/arch/events?since=0", host="evil.example:80") == 403
               and _raw("GET", "/api/arch/events?since=0") == 200)
         check("a negative Content-Length is refused", _raw("POST", "/api/arch/undo", headers={"Content-Length": "-1", "X-Hub-Token": tok, "Content-Type": "application/json"}) == 413)
+        import arch_core as _core0
+
+        import model_hub as _mh0
+        _iso = tempfile.mkdtemp()                       # these two saves write a config: never the person's real one
+        _old_cf, _old_ccf, _old_dd = _mh0.CONFIG_FILE, _core0.CONFIG_FILE, os.environ.get("ARCHITECT_DATA_DIR")
+        _mh0.CONFIG_FILE = _core0.CONFIG_FILE = os.path.join(_iso, "architect_config.json")
+        os.environ["ARCHITECT_DATA_DIR"] = _iso
+        try:
+            open(_mh0.CONFIG_FILE, "w").write("{}")
+            _bad = call("/api/config", {"config": {"behavior": {"network": "wide-open-please"}}})
+            check("Save-this-JSON refuses a value the settings schema does not allow, and changes nothing",
+                  _bad.get("HTTP") == 400 and "behavior.network" in (_bad.get("body") or "") and open(_mh0.CONFIG_FILE).read() == "{}", _bad)
+            _ok = call("/api/config", {"config": {"behavior": {"network": "offline"}, "tiers": {"keep": "me"}}})
+            check("a valid JSON save goes through (unknown keys such as tiers pass), and keeps the previous file as a backup",
+                  _ok.get("ok") is True and (_ok.get("config") or {}).get("tiers") == {"keep": "me"} and os.path.isfile(_ok.get("backup") or ""), _ok)
+            if _ok.get("backup"):
+                try:
+                    os.remove(_ok["backup"])
+                except OSError:
+                    pass
+        finally:
+            _mh0.CONFIG_FILE, _core0.CONFIG_FILE = _old_cf, _old_ccf
+            if _old_dd is None:
+                os.environ.pop("ARCHITECT_DATA_DIR", None)
+            else:
+                os.environ["ARCHITECT_DATA_DIR"] = _old_dd
+            shutil.rmtree(_iso, ignore_errors=True)
+        _j = _mh0.Job()
+        _j.events, _j.ev_dropped, _j.epoch = [{"t": "a"}, {"t": "b"}, {"t": "c"}], 0, 5
+        check("an event cursor from an earlier run (older epoch) is read from 0, so the new run's first events are not dropped",
+              len(_j.event_feed(3, 4)["events"]) == 3 and len(_j.event_feed(3, 5)["events"]) == 0 and len(_j.event_feed(3)["events"]) == 0)
         import architect_hub as _ah0
         _bad_ids = 0
         for _rid in ("..", "."):

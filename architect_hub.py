@@ -11,8 +11,10 @@ import argparse
 import ast
 import hashlib
 import json
+import glob
 import os
 import re
+import shutil
 import sqlite3
 import struct
 import sys
@@ -1984,6 +1986,50 @@ def plan_view(root, run):
             "why": "" if ok else "Edit is not available yet: the engine does not read a plan override (needs Engine.plan_override reading <run>/plan_override.json)."}
 
 
+def save_config_checked(b):
+    """POST /api/config (the Settings page's "Everything as JSON"): every key that is in the settings schema is validated and coerced
+    exactly like a normal settings save; keys the schema does not describe (tiers, roles, model overrides...) pass through as before.
+    The previous file is kept as hub_data/config.backup_<time>.json first (the newest 20), so the save has a real undo.
+    -> {"ok", "config", "backup"}"""
+    cfg = b.get("config")
+    if not isinstance(cfg, dict):
+        raise ValueError("config must be an object")
+    cfg = json.loads(json.dumps(cfg))
+    known = set(params._SETTINGS_BY_PATH) | set(params._RUNOPT_BY_PATH)
+    flat = {}
+
+    def walk(d, pre):
+        for k, v in d.items():
+            p_ = pre + k
+            if isinstance(v, dict) and p_ not in known:
+                walk(v, p_ + ".")
+            elif p_ in known:
+                flat[p_] = v
+    walk(cfg, "")
+    try:
+        coerced = params.validate_settings_patch(flat)
+    except params.ValidationError as e:
+        raise ValueError("Not saved: " + str(e))
+    for p_, v in coerced.items():
+        d = cfg
+        parts = p_.split(".")
+        for part in parts[:-1]:
+            d = d.setdefault(part, {})
+        d[parts[-1]] = v
+    backup = ""
+    if os.path.exists(mh.CONFIG_FILE):
+        d_ = core.data_dir()
+        os.makedirs(d_, exist_ok=True)
+        backup = os.path.join(d_, "config.backup_" + time.strftime("%Y%m%d_%H%M%S") + ".json")
+        shutil.copy2(mh.CONFIG_FILE, backup)
+        for old in sorted(glob.glob(os.path.join(d_, "config.backup_*.json")))[:-20]:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+    return {"ok": True, "config": mh.write_config(cfg), "backup": backup}
+
+
 def plan_save(b):
     """POST /api/arch/plan {root, run, items:[{id,title,status}]}: writes <run>/plan_override.json when the engine reads it."""
     root = safe_root(b.get("root") or HERE)
@@ -3544,7 +3590,11 @@ class AHandler(mh.Handler):
                 since = int((parse_qs(u.query).get("since") or ["0"])[0])
             except ValueError:
                 since = 0
-            return self._send(200, mh.JOB.event_feed(since))
+            try:
+                ep = int(parse_qs(u.query)["epoch"][0]) if "epoch" in parse_qs(u.query) else None
+            except ValueError:
+                ep = None
+            return self._send(200, mh.JOB.event_feed(since, ep))
         if u.path == "/api/arch/events/stream":
             return self._event_stream(parse_qs(u.query))
         if u.path == "/api/arch/blueprint_kit":
@@ -3652,9 +3702,13 @@ class AHandler(mh.Handler):
             return
         import time as _t
         quiet, started = 0, _t.time()
+        stream_epoch = mh.JOB.event_feed(since)["epoch"]
         try:
             while _t.time() - started < 3600:                      # a browser reconnects on its own; this keeps one socket bounded
                 feed = mh.JOB.event_feed(since)
+                if feed["epoch"] != stream_epoch:                  # a new run began while we were connected: send it from its first event
+                    stream_epoch, since = feed["epoch"], 0
+                    feed = mh.JOB.event_feed(0)
                 if feed["events"] or feed["next"] != since:
                     since = feed["next"]
                     self.wfile.write(b"data: " + json.dumps(feed).encode("utf-8") + b"\n\n")
@@ -3669,6 +3723,8 @@ class AHandler(mh.Handler):
             return                                                 # the page navigated away or was closed: nothing to report
 
     def route(self, path, b):
+        if path == "/api/config":
+            return save_config_checked(b)
         if path == "/api/arch/ready":
             argv = ["architect.py", "ready", "--root", safe_root(b.get("root") or HERE, create_ok=True)]
             if b.get("yes"):

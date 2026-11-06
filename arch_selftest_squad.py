@@ -83,6 +83,20 @@ def resume_checks(sq, orch, core, proj, dd, cfg, tmp):
         d_.agent("auditor", "cache me")
         ok(d_.cached == 0 and sq.why_not(False), "--no-cache: no hit, and why_not says so")
         ok(sq.cache_stats(dd)["entries"] >= 1, "cache_stats reports the agent-steps layer")
+        # eviction: old entries, crash leftovers and anything beyond the cap go; fresh ones stay
+        import tempfile as _tf
+        pdd = _tf.mkdtemp()
+        pd = os.path.join(pdd, "orchestration", "cache")
+        os.makedirs(pd)
+        t_now = time.time()
+        for name, age in (("old.json", 40 * 86400), ("fresh1.json", 10), ("fresh2.json", 20), ("fresh3.json", 30), ("crash.json.tmp1_2", 7200), ("recent.json.tmp1_3", 5)):
+            p_ = os.path.join(pd, name)
+            open(p_, "w").write("{}")
+            os.utime(p_, (t_now - age, t_now - age))
+        gone = sq.prune_cache(pdd, days=30, max_entries=2, now=t_now)
+        left = sorted(os.listdir(pd))
+        ok(gone == 3 and left == ["fresh1.json", "fresh2.json", "recent.json.tmp1_3"],
+           f"the step cache drops expired entries, old crash leftovers and entries beyond the cap, keeping the newest ({gone}, {left})")
     finally:
         os.environ["ARCHITECT_NO_CACHE"] = "1"
     ok(sq.Crew(proj, "g", cfg=cfg, data_dir=dd, workflow="x").use_cache is False and "NO_CACHE" in sq.why_not(),

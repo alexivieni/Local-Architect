@@ -1426,6 +1426,25 @@ def ensure(cfg, say=print, wanted=None, watch=False, project=None):
         return {"mode": "ollama", "error": str(e)}
 
 
+def _start_idle():
+    """True when no program is in the middle of starting model servers (the start lock is free). The watchdog must not respawn a tier
+    that start() is still loading: it sees the old, dead pid in the state and would put a second server on the same port."""
+    f = None
+    try:
+        import arch_heavy
+        os.makedirs(server_dir(), exist_ok=True)
+        f = open(os.path.join(server_dir(), "start.lock"), "a+")
+        if arch_heavy._try_lock(f):
+            arch_heavy._unlock(f)
+            return True
+        return False
+    except Exception:
+        return True                      # an unreadable lock must not stop crash recovery for good
+    finally:
+        if f:
+            f.close()
+
+
 def _watchdog(cfg, period=15.0, max_restarts=3, window=600.0):
     if _WATCH.get("thread") and _WATCH["thread"].is_alive():
         _WATCH["stop"] = False
@@ -1447,14 +1466,19 @@ def _watchdog(cfg, period=15.0, max_restarts=3, window=600.0):
                     continue
                 if ((load_state().get("processes") or {}).get(t) or {}).get("pid") != rec.get("pid"):
                     continue                     # stopped on purpose (or started again elsewhere) since this loop read the state
+                if not _start_idle():
+                    continue                     # start() is loading servers right now: look again next round
                 now = time.time()
                 hist[t] = [x for x in hist.get(t, []) if now - x < window]
                 _tel("server.crash", rec, reason="process gone", restarts=rec.get("restarts", 0))
 
                 def keep(rec=rec, t=t):          # into the state as it is NOW: the copy read above may hold tiers stopped since
-                    fresh = load_state()
-                    fresh.setdefault("processes", {})[t] = rec
-                    save_state(fresh)
+                    try:
+                        fresh = load_state()
+                        fresh.setdefault("processes", {})[t] = rec
+                        save_state(fresh)
+                    except OSError as _swx:      # a failed save must not end the watchdog thread
+                        _swallow("server.watchdog_keep", _swx)
                 if len(hist[t]) >= max_restarts:
                     rec["dead"] = f"crashed {max_restarts} times in {int(window / 60)} minutes; not restarted. See {rec.get('log')}"
                     keep()

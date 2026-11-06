@@ -277,6 +277,13 @@ def _slot_io_checks(check, hyg, tmp):
             arch_heavy._unlock(_lf)
         _lf.close()
     check("when another program keeps the start lock, starting servers is refused instead of going on unlocked", _held and _raised, (_held, _raised))
+    _lf2 = open(os.path.join(arch_server.server_dir(), "start.lock"), "a+")
+    _held2 = arch_heavy._try_lock(_lf2)
+    _idle_busy = arch_server._start_idle()
+    if _held2:
+        arch_heavy._unlock(_lf2)
+    _lf2.close()
+    check("the watchdog sees servers being started (lock held) as busy and a free lock as idle", _held2 and _idle_busy is False and arch_server._start_idle() is True, (_held2, _idle_busy))
     _names = set()
     arch_server.save_state({"processes": {}})
     arch_server.save_state({"processes": {}})

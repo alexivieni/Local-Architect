@@ -189,6 +189,46 @@ def _cache_get(dd, key, days=30):
         return None
 
 
+STEP_CACHE_MAX = 2000                  # entries kept; the oldest go first
+_store_count = [0]
+
+
+def prune_cache(dd, days=30, max_entries=STEP_CACHE_MAX, now=None):
+    """Keep the agent-step cache bounded: entries older than `days`, temp files left by a crash (older than an hour), and anything
+    beyond `max_entries` (oldest first) are deleted. -> number of files removed. Never raises."""
+    d = os.path.join(dd, "orchestration", "cache")
+    now = now or time.time()
+    removed, live = 0, []
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return 0
+    for fn in names:
+        p = os.path.join(d, fn)
+        try:
+            age = now - os.path.getmtime(p)
+            if ".tmp" in fn:
+                stale = age > 3600
+            elif fn.endswith(".json"):
+                stale = age > max(1, days) * 86400
+                if not stale:
+                    live.append((os.path.getmtime(p), p))
+            else:
+                continue
+            if stale:
+                os.remove(p)
+                removed += 1
+        except OSError:
+            continue
+    for _, p in sorted(live)[:max(0, len(live) - max_entries)]:
+        try:
+            os.remove(p)
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
 def cache_stats(data_dir=None):
     """The 'agent steps' cache layer: {entries, bytes, path} (for arch_cachestats)."""
     import arch_core as core
@@ -1127,6 +1167,9 @@ class Crew:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(row, f, ensure_ascii=False, default=str)
             os.replace(tmp, os.path.join(d, key + ".json"))
+            _store_count[0] += 1
+            if _store_count[0] % 25 == 1:                 # now and then: the cache must not grow without end
+                prune_cache(self.data_dir)
         except OSError:
             pass
 

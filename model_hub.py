@@ -711,10 +711,12 @@ class Job:
                 self.buf += tail                         # whatever was left was ordinary output, not a finished event
             self.code, self.ended = proc.returncode, time.time()
 
-    def event_feed(self, since=0):
+    def event_feed(self, since=0, epoch=None):
         """-> {"events", "next", "epoch", "running", "dropped"}. `since` is a cursor the caller got back last time; a cursor from an
         older run (a smaller epoch) is treated as 0, so a reconnecting watcher sees the new run from its start rather than nothing."""
         with self.lock:
+            if epoch is not None and int(epoch) != self.epoch:
+                since = 0                                # the cursor belongs to an earlier run: this run's events all start at 0
             first = self.ev_dropped
             start = max(0, int(since or 0) - first)
             return {"events": self.events[start:], "next": first + len(self.events), "epoch": self.epoch,
