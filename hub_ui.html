@@ -5942,10 +5942,14 @@ function scoreboard(){
     S.tests.log.length?h("pre",{class:"term",id:"tlog",style:"height:170px"},S.tests.log.join("\n")):null));
   return out;
 }
-async function startTests(){try{await api("/api/test",{models:[...sel.models],categories:[...sel.cats],think:sel.think});toast("Tests started");clearInterval(startTests.t);startTests.t=setInterval(async()=>{await refresh(true);const tl=$("#tlog");if(tl)tl.scrollTop=tl.scrollHeight;if(S&&!S.tests.running){clearInterval(startTests.t);toast("Tests finished");}},3000);}catch(e){toast.err(e.message,6000);}}
+async function startTests(){try{await api("/api/test",{models:[...sel.models],categories:[...sel.cats],think:sel.think});toast("Tests started");clearInterval(startTests.t);const t0=Date.now();let bad=0;
+    startTests.t=setInterval(async()=>{try{await refresh(true);bad=0;}catch(_){bad++;}
+      const tl=$("#tlog");if(tl)tl.scrollTop=tl.scrollHeight;
+      if(bad>=5||Date.now()-t0>4*3600e3){clearInterval(startTests.t);toast.err(bad>=5?"Lost contact with the hub while the tests ran.":"Stopped watching the tests after 4 hours.",6000);return;}   /* never poll forever */
+      if(S&&!S.tests.running){clearInterval(startTests.t);toast("Tests finished");}},3000);}catch(e){toast.err(e.message,6000);}}
 async function detail(model,cat){
   const r=await api("/api/results");const runs=((r[model]||{}).scores||{})[cat]||[];const last=runs[runs.length-1];
-  const d=h("div",{class:"card modal",style:"inset:12% 10%"},h("div",{class:"row"},h("h2",{class:"grow"},`${model} · ${catName(cat)}`),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),
+  const d=h("div",{class:"card modal",role:"dialog","aria-modal":"true","aria-label":`${model} · ${catName(cat)}`,style:"inset:12% 10%"},h("div",{class:"row"},h("h2",{class:"grow"},`${model} · ${catName(cat)}`),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),
     last?h("table",null,h("thead",null,h("tr",null,h("th",null,"Task"),h("th",{class:"n"},"Score"),h("th",null,"Result"))),h("tbody",null,...(last.detail||[]).map(x=>h("tr",null,h("td",null,x.task),h("td",{class:"n"},cell(x.score)),h("td",{class:"small"},x.note||""))))):h("p",null,"No detail stored."),
     h("p",{class:"small mute"},last?`Run ${new Date(last.t*1000).toLocaleString()} · thinking ${last.think?"allowed":"off"}`:""));
   document.body.append(d);
