@@ -368,6 +368,20 @@ def _small_requests(check):
         c.fails = [arch_progress.fp("a")] * 3
         check("...and 0 turns it off", F.same_failure_stop(e, c) is False)
 
+        # a copy of an already-failing test is excused; a changed copy and a missing file are not
+        _cd = tempfile.mkdtemp()
+        os.makedirs(os.path.join(_cd, "tests"))
+        _src = "def test_a():\n    assert f(1) == 2\n"
+        open(os.path.join(_cd, "test_k.py"), "w").write(_src)
+        open(os.path.join(_cd, "tests", "test_k_new.py"), "w").write(_src)
+        open(os.path.join(_cd, "tests", "test_k_b.py"), "w").write(_src.replace("2", "3"))
+        _base = {"test_k.py::test_a"}
+        check("an exact copy of a test that already failed is not the run's breakage",
+              F._copied_failure(_cd, "tests/test_k_new.py::test_a", _base) is True)
+        check("a copy with a changed body, or a missing file, still counts against the run",
+              F._copied_failure(_cd, "tests/test_k_b.py::test_a", _base) is False and F._copied_failure(_cd, "tests/gone.py::test_a", _base) is False)
+        shutil.rmtree(_cd, ignore_errors=True)
+
         # related tests first, then the whole suite once before the verdict
         os.makedirs(os.path.join(proj, "tests"), exist_ok=True)
         with open(os.path.join(proj, "tests", "test_app.py"), "w", encoding="utf-8") as f:
