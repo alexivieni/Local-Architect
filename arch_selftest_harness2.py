@@ -82,6 +82,39 @@ def run():
         b = rp.focused(Stub(True), goal, fb.replace("1 == 1.5", "2 == 1.5"), [])[1]
         check("prefix-stable: the context is identical while the code is, only the failure tail differs", a == b)
 
+        # ---- 1b. test or code? (the run's own wrong test)
+        wproj = mk("wc", {"wc.py": "def word_count(t):\n    return len(t.split())\n",
+                          "tests/test_wc.py": "import sys, os\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n"
+                                              "from wc import word_count\n\n\ndef test_wc():\n    assert word_count('hello world  test') == 4\n"})
+        pr = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", "tests", "-p", "no:cacheprovider"], cwd=wproj, capture_output=True, text=True)
+        wfb = "FEEDBACK: your last change failed these checks:\n" + pr.stdout
+
+        class TStub(Stub):
+            def __init__(self, on, created=()):
+                super().__init__(on)
+                self.root = wproj
+                self.created, self.changed_files = list(created), []
+
+        st = TStub(True, ["tests/test_wc.py"])
+        out = rp.focused(st, "word_count counts words", wfb, ["tests/test_wc.py"])
+        check("test_or_code: the only failure is in a test this run created -> the prompt names the actual value and asks test-or-code",
+              out and "TEST OR CODE" in out[0] and "assert 3 == 4" in out[0] and "ONLY that side" in out[0], out and out[0][-700:])
+        with open(os.path.join(wproj, "tests", "test_wc.py"), "w", encoding="utf-8", newline="\n") as f:      # the fake decides: the TEST was wrong
+            f.write("import sys, os\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n"
+                    "from wc import word_count\n\n\ndef test_wc():\n    assert word_count('hello world  test') == 3\n")
+        check("...the decision is recorded in the trace as repair/test_or_code/test",
+              rp.record_decision(st, ["tests/test_wc.py"]) == "test" and any(r.get("mode") == "test_or_code" and r.get("decision") == "test" for r in st.traced)
+              and any(r.get("mode") == "test_or_code" and "tests" in r for r in st.traced), st.traced)
+        pr2 = subprocess.run([sys.executable, "-m", "pytest", "-q", "tests", "-p", "no:cacheprovider"], cwd=wproj, capture_output=True, text=True)
+        check("...and fixing the test side makes the run pass", pr2.returncode == 0, pr2.stdout[-300:])
+        check("a failing test the run did NOT write keeps the normal repair prompt",
+              "TEST OR CODE" not in (rp.focused(TStub(True, []), "g", wfb, [])[0]))
+        check("a failure in project code (not only tests) is not test_or_code", rp.test_or_code(st, fb, ["calc.py"]) is None)
+        st2 = TStub(True, ["tests/test_wc.py"])
+        rp.focused(st2, "g", wfb, ["tests/test_wc.py"])
+        check("a code-side change is recorded as decision=code", rp.record_decision(st2, ["wc.py"]) == "code" and st2.traced[-1]["decision"] == "code")
+        check("with behavior.repair_focus off there is no test_or_code step", rp.focused(TStub(False, ["tests/test_wc.py"]), "g", wfb, []) is None)
+
         # ---- 2. diff records
         d = core.unified("a\nb\nc\n", "a\nB\nc\nd\n", "x.txt")
         rec = core.diff_record("x.txt", d, True)

@@ -363,6 +363,15 @@ def _repair_focus(e, goal, feedback, changed):
         return None
 
 
+def _repair_decision(e, applied):
+    """arch_repair test-or-code mode: record which side the model changed (trace). Never raises."""
+    try:
+        import arch_repair
+        arch_repair.record_decision(e, applied)
+    except Exception as _swx:
+        _swallow("flows._repair_decision", _swx)
+
+
 def _checkpoint(e, tag, res):
     """behavior.checkpoints (arch_checkpoint): commit this attempt's applied files to refs/architect/<run>/<tag>. Never raises."""
     try:
@@ -1286,17 +1295,34 @@ def one_new_symbol(e, goal):
 
 def same_failure_stop(e, coach):
     """behavior.same_failure_stop = N (0 = off): the last N tries of a fix loop ended in the identical failure signature
-    (arch_progress fingerprints) -> stop instead of trying a fifth time the same thing. Says so in the report."""
+    (arch_progress fingerprints) -> stop instead of trying a fifth time the same thing. Says so in the report, with the repeated
+    failure line, and keeps both on the run (e.same_failure) so the verdict record can show them in Review."""
     try:
         n = int(e.cfg["behavior"].get("same_failure_stop", 2) or 0)
         f = coach.fails
         if n < 2 or len(f) < n or len(set(f[-n:])) != 1 or not f[-1]:
             return False
+        line = _repeated_failure_line(coach)
         e.say(f"[i] the same failure {n} tries in a row: stopping this step instead of repeating")
-        e.report(f"- Stopped: the identical failure came back {n} times in a row (behavior.same_failure_stop)")
+        e.report(f"- Stopped: the identical failure came back {n} times in a row (behavior.same_failure_stop)"
+                 + (f"; repeated failure: {line}" if line else ""))
+        e.same_failure = {"reason": f"the identical failure came back {n} times in a row (behavior.same_failure_stop)", "line": line, "tries": n}
         return True
     except Exception:
         return False
+
+
+def _repeated_failure_line(coach):
+    """The one line of the last failing output that names the failure (FAILED ..., E  assert ..., XError ...). Never raises."""
+    try:
+        txt = str(getattr(coach, "last_out", "") or "")
+        for pat in (r"^FAILED .*$", r"^E {2,}(?:Assertion|assert ).*$", r"^\w*(?:Error|Exception).*$", r"^E {2,}\S.*$"):
+            m = re.search(pat, txt, re.M)
+            if m:
+                return m.group(0).strip()[:240]
+        return (txt.strip().splitlines() or [""])[0][:240]
+    except Exception:
+        return ""
 
 
 def interface_lines(goal, planned=None, cap=20, dropped=None, root=None):
@@ -1664,6 +1690,7 @@ class BuildFlow(Flow):
                     return {"ok": False, "files": all_files, "stopped": True}
                 best.note(res)
                 applied = [x["rel"] for x in res if x["status"] in ("applied", "identical")]
+                _repair_decision(e, applied)
                 changed = sorted(set(changed + applied))
                 if e.review == "dry":
                     e.mark(r["id"], False, "dry run")
@@ -1966,6 +1993,7 @@ class BugfixFlow(Flow):
                 return {"ok": True, "dry": True}
             best.note(res)
             changed = [x["rel"] for x in res if x["status"] in ("applied", "identical")]
+            _repair_decision(e, changed)
             if not changed:
                 feedback = "FEEDBACK: nothing could be applied:\n" + "\n".join(f"- {x['rel']}: {x['msg']}" for x in res) + "\n\n"
                 e.mark(r["id"], False, feedback)
@@ -2322,7 +2350,8 @@ def run_flow(e, flow_id, params=None):
     verdict = "not_sure" if out.get("unsure") else ("pass" if out.get("ok") else "fail")
     try:                                                  # the run's own conclusion, as a record: the live view shows it without parsing prose
         e._trace(dict({"recipe": rid} if rid else {}, type="verdict", t=time.time(), flow=flow_id, verdict=verdict,
-                  why=str(out.get("error") or out.get("why") or "")[:400], meter=dict(e.meter)))
+                  why=str(out.get("error") or out.get("why") or "")[:400], meter=dict(e.meter),
+                  **({"same_failure": e.same_failure} if verdict != "pass" and getattr(e, "same_failure", None) else {})))
         import arch_hooks
         arch_hooks.fire(e, "after_verdict", files=sorted(set(e.changed_files) | set(e.created)), verdict=verdict)
     except Exception as _swx:

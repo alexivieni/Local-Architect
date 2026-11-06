@@ -210,6 +210,27 @@ def _leftovers(check, home):
             F.FLOWS.pop("_lo", None)
         tr = [json.loads(l) for l in open(os.path.join(e.run_dir, "trace.jsonl"), encoding="utf-8") if l.strip()]
         vd = [r for r in tr if r.get("type") == "verdict"]
+        import arch_progress as _ap
+
+        class Fl2:
+            id, steps = "x2", None
+
+            def run(self, e_, p):
+                co = _ap.Coach(e_, "generator")
+                for i in range(2):
+                    co.observe("r%d" % i, "FAILED tests/test_wc.py::test_wc - assert 3 == 4\nE   assert 3 == 4")
+                F.same_failure_stop(e_, co)
+                return {"ok": False, "error": "still failing"}
+        F.FLOWS["_sf"] = Fl2()
+        try:
+            F.run_flow(e, "_sf", {})
+        finally:
+            F.FLOWS.pop("_sf", None)
+        tr = [json.loads(l) for l in open(os.path.join(e.run_dir, "trace.jsonl"), encoding="utf-8") if l.strip()]
+        vd2 = [r for r in tr if r.get("type") == "verdict" and r.get("flow") == "_sf"]
+        check("same_failure_stop writes its reason and the repeated failure line to the verdict record (and the report)",
+              vd2 and (vd2[-1].get("same_failure") or {}).get("line", "").startswith("FAILED tests/test_wc.py") and "identical failure" in vd2[-1]["same_failure"]["reason"]
+              and any("repeated failure: FAILED tests/test_wc.py" in str(x) for x in e.report_lines), (vd2, e.report_lines[-3:], getattr(e, "same_failure", None)))
         check("a recipe id is written to run.json and the verdict record", e.state.get("recipe") == "fix-bug" and vd and vd[-1].get("recipe") == "fix-bug", (e.state.get("recipe"), vd))
 
         # overlapped checks: identical verdict and results

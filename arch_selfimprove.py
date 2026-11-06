@@ -121,6 +121,12 @@ def changes(base, cand):
             "modified": sorted(r for r in b & c if sha(os.path.join(base, r)) != sha(os.path.join(cand, r)))}
 
 
+# "mini": a small, representative, fast baseline (a few suites, about a minute) for the self-improve pipeline's OWN self-test, which would
+# otherwise run the whole core self-test inside every copy. Real self-improve keeps the configured suite (core / all / full).
+MINI_SUITES = ("fake", "learn", "ci", "index")
+_MINI_CODE = ("import sys, importlib\nrc = 0\nfor n in %r:\n    rc |= int(bool(importlib.import_module('arch_selftest_' + n).run()))\nsys.exit(rc)\n")
+
+
 def _selftest(root, suite, timeout):
     """Run `architect.py selftest` inside `root` in a network-restricted subprocess with throwaway home/data dirs.
     -> (passed_all: bool, checks_run: int, tail: str)"""
@@ -130,8 +136,12 @@ def _selftest(root, suite, timeout):
         env.update(ARCHITECT_HOME=tmp, ARCHITECT_DATA_DIR=os.path.join(tmp, "data"), AGENT_NET_MODE="offline", AGENT_NET_TOOLS="allow", PYTHONDONTWRITEBYTECODE="1")
         env.pop("OLLAMA_HOST", None)
         try:
-            r = subprocess.run([sys.executable, os.path.join(root, "architect.py"), "selftest", "--suite", suite], cwd=root, capture_output=True,
-                               text=True, timeout=timeout, env=env)
+            if suite == "mini":
+                env["ARCHITECT_SELFTEST"] = "1"
+                cmd = [sys.executable, "-c", _MINI_CODE % (MINI_SUITES,)]
+            else:
+                cmd = [sys.executable, os.path.join(root, "architect.py"), "selftest", "--suite", suite]
+            r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=timeout, env=env)
         except subprocess.TimeoutExpired:
             return False, 0, f"self-test timed out after {timeout}s"
         out = r.stdout + r.stderr
@@ -210,12 +220,12 @@ def gate(base, cand, suite="all", baseline=None, allow_safety=False, timeout=240
     if not add(f"it runs at least as many checks as the current install ({n} vs {base_n}): tests cannot be deleted to pass", n >= base_n, f"{n} < {base_n}"):
         return done(n)
     say("  running the quick eval (oracle fake) on the candidate and comparing it with the install...")
-    ev = eval_gate(base, cand, timeout, say)
+    ev = eval_gate(base, cand, timeout, say, flows=MINI_EVAL_FLOWS if suite == "mini" else None)
     add("no eval regression (pass rate, tokens, latency per flow against the install's own quick eval)", ev["ok"], "; ".join(ev.get("regressions") or [ev.get("error", "")])[:300])
     return done(n)
 
 
-def _eval_fake(root, timeout):
+def _eval_fake(root, timeout, flows=None):
     """`architect.py eval --fake --quick --json` inside `root`, network-restricted, throwaway home. -> report dict or {"error"}."""
     tmp = tempfile.mkdtemp(prefix="arch_evalgate_")
     try:
@@ -223,7 +233,7 @@ def _eval_fake(root, timeout):
         env.update(ARCHITECT_HOME=tmp, ARCHITECT_DATA_DIR=os.path.join(tmp, "data"), AGENT_NET_MODE="offline", AGENT_NET_TOOLS="allow", PYTHONDONTWRITEBYTECODE="1")
         env.pop("OLLAMA_HOST", None)
         try:
-            r = subprocess.run([sys.executable, os.path.join(root, "architect.py"), "eval", "--fake", "--quick", "--json", "--label", "gate"], cwd=root,
+            r = subprocess.run([sys.executable, os.path.join(root, "architect.py"), "eval", "--fake", "--quick", "--json", "--label", "gate"] + (["--flow", flows] if flows else []), cwd=root,
                                capture_output=True, text=True, timeout=timeout, env=env)
         except subprocess.TimeoutExpired:
             return {"error": f"eval timed out after {timeout}s"}
@@ -236,13 +246,20 @@ def _eval_fake(root, timeout):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def eval_gate(base, cand, timeout=900, say=print):
+MINI_EVAL_FLOWS = "route"        # the mini suite's eval: the routing tasks only (the full eval is two whole oracle runs)
+_BASE_EVAL = {}                  # (install contents, flows) -> the install's own eval report: it is unchanged between two gates
+
+
+def eval_gate(base, cand, timeout=900, say=print, flows=None):
     """The install's quick eval vs the candidate's, both on the oracle fake. -> {"ok", "regressions", "base", "cand"} (or "error")."""
     import arch_eval
-    b = _eval_fake(base, timeout)
+    key = (hashlib.sha256(json.dumps(manifest_hashes(base), sort_keys=True).encode()).hexdigest()[:16], flows)
+    b = _BASE_EVAL.get(key) or _eval_fake(base, timeout, flows)
+    if "error" not in b:
+        _BASE_EVAL[key] = b
     if "error" in b:
         return {"ok": False, "error": "baseline eval failed: " + b["error"]}
-    c = _eval_fake(cand, timeout)
+    c = _eval_fake(cand, timeout, flows)
     if "error" in c:
         return {"ok": False, "error": "candidate eval failed: " + c["error"]}
     cmp_ = arch_eval.compare(b, c, latency=False)          # oracle seconds measure the machine's load, not the candidate

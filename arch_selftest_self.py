@@ -61,13 +61,13 @@ def run():
               os.path.isfile(os.path.join(cand, "architect.py")) and not os.path.exists(os.path.join(cand, "hub_data"))
               and not os.path.exists(os.path.join(cand, "architect_config.json")))
         check("an untouched candidate has no changes", not any(si.changes(base, cand).values()))
-        g = si.gate(base, cand, suite="core", baseline=1, say=quiet)
+        g = si.gate(base, cand, suite="mini", baseline=1, say=quiet)
         check("the gate refuses a candidate that changed nothing", not g["ok"] and g["gates"][0]["name"].startswith("the candidate differs"))
 
         # protected files: by default only the generated manifests; the guard/gate only when you ask for it
         with open(os.path.join(cand, "netguard.py"), "a") as f:
             f.write("\n# a change to the guard\n")
-        g = si.gate(base, cand, suite="core", baseline=1, say=quiet, timeout=5)
+        g = si.gate(base, cand, suite="mini", baseline=1, say=quiet, timeout=5)
         check("by default the harness may edit its own network guard: the gate goes on to the real checks instead of refusing",
               g["gates"][0]["ok"] and g["gates"][0]["name"].startswith("protected files") and len(g["gates"]) > 1, g["gates"][:2])
         import arch_core as _c
@@ -76,7 +76,7 @@ def run():
         _orig = si.protected_now
         si.protected_now = lambda cfg=None: _orig(_cfg)
         try:
-            g = si.gate(base, cand, suite="core", baseline=1, say=quiet, timeout=5)
+            g = si.gate(base, cand, suite="mini", baseline=1, say=quiet, timeout=5)
             check("with behavior.self_protect = guard, editing the network guard is refused before anything runs",
                   not g["ok"] and g["checks"] is None and "netguard.py" in g["gates"][-1]["detail"], g["gates"])
         finally:
@@ -86,14 +86,14 @@ def run():
 
         # compile
         open(os.path.join(cand, "arch_broken.py"), "w").write("def x(:\n")
-        g = si.gate(base, cand, suite="core", baseline=1, say=quiet)
+        g = si.gate(base, cand, suite="mini", baseline=1, say=quiet)
         check("a file that does not compile fails the compile gate and stops there",
               not g["ok"] and g["gates"][-1]["name"].startswith("every changed Python file") and len(g["gates"]) == 2, g["gates"])
         os.remove(os.path.join(cand, "arch_broken.py"))
 
         # fake code
         open(os.path.join(cand, "arch_stub.py"), "w").write("def feature():\n    pass\n")
-        g = si.gate(base, cand, suite="core", baseline=1, say=quiet)
+        g = si.gate(base, cand, suite="mini", baseline=1, say=quiet)
         check("a new stub function fails the fake-code gate before the (slow) self-test runs",
               not g["ok"] and "fake code" in g["gates"][-1]["name"] and g["checks"] is None, g["gates"])
         os.remove(os.path.join(cand, "arch_stub.py"))
@@ -101,14 +101,14 @@ def run():
         # a benign addition passes; the check-count gate is real
         open(os.path.join(cand, "arch_extra.py"), "w").write(GOOD_NEW)
         t0 = time.time()
-        n_base = si.baseline_checks(base, "core", say=quiet)
+        n_base = si.baseline_checks(base, "mini", say=quiet)
         t1 = time.time()
-        n_again = si.baseline_checks(base, "core", say=quiet)
+        n_again = si.baseline_checks(base, "mini", say=quiet)
         check("the baseline counts the checks of the current install and is cached", n_base >= 100 and n_again == n_base and (time.time() - t1) < 1.0, (n_base, n_again, round(time.time() - t1, 2)))
-        g = si.gate(base, cand, suite="core", baseline=n_base + 1000, say=quiet)
+        g = si.gate(base, cand, suite="mini", baseline=n_base + 1000, say=quiet)
         check("a candidate that runs fewer checks than the install is refused even though they all pass",
               not g["ok"] and g["checks"] == n_base and "at least as many checks" in g["gates"][-1]["name"], g["gates"])
-        g = si.gate(base, cand, suite="core", baseline=n_base, say=quiet)
+        g = si.gate(base, cand, suite="mini", baseline=n_base, say=quiet)
         check("a benign, real addition passes every gate", g["ok"] and all(x["ok"] for x in g["gates"]) and len(g["gates"]) >= 6 and g["changed"]["added"] == ["arch_extra.py"], g["gates"])
 
         # promote needs a pass and a confirm
@@ -129,7 +129,7 @@ def run():
         orig_tune = open(os.path.join(base, "arch_tune.py"), encoding="utf-8").read()
         with open(os.path.join(cand, "arch_tune.py"), "a", encoding="utf-8") as f:
             f.write(GOOD_TEST_NOTE)
-        g2 = si.gate(base, cand, suite="core", baseline=n_base, say=quiet)
+        g2 = si.gate(base, cand, suite="mini", baseline=n_base, say=quiet)
         check("a modification plus an addition passes the gates", g2["ok"] and g2["changed"]["modified"] == ["arch_tune.py"], g2["gates"])
         out = si.promote(base, cand, g2, "test goal", confirm=True, say=quiet)
         check("promotion copies the files and the install still verifies against its new manifest",
@@ -152,12 +152,12 @@ def run():
         def lazy_worker(c, goal, flow, review):
             open(os.path.join(c, "arch_lazy.py"), "w").write("def todo():\n    pass\n")
             return 0
-        out = si.improve("add triple", base=base, suite="core", yes=True, say=quiet, runner=good_worker, baseline=n_base)
+        out = si.improve("add triple", base=base, suite="mini", yes=True, say=quiet, runner=good_worker, baseline=n_base)
         check("improve: a good worker's change is gated and promoted", out["ok"] and os.path.isfile(os.path.join(base, "arch_extra2.py")), out)
-        out = si.improve("add a lazy stub", base=base, suite="core", yes=True, say=quiet, runner=lazy_worker, baseline=n_base)
+        out = si.improve("add a lazy stub", base=base, suite="mini", yes=True, say=quiet, runner=lazy_worker, baseline=n_base)
         check("improve: a lazy worker is rejected even with --yes, and the install is untouched",
               (not out["ok"]) and not os.path.exists(os.path.join(base, "arch_lazy.py")) and si.history()[-1]["event"] == "rejected")
-        out = si.improve("no-op", base=base, suite="core", yes=True, say=quiet, runner=lambda *a: 0, baseline=n_base)
+        out = si.improve("no-op", base=base, suite="mini", yes=True, say=quiet, runner=lambda *a: 0, baseline=n_base)
         check("improve: a worker that changes nothing is not 'promoted'", not out["ok"])
         check("rollback after improve restores the previous state", si.rollback(base, say=quiet)["ok"] and not os.path.exists(os.path.join(base, "arch_extra2.py")) and si.verify(base)["ok"])
     finally:

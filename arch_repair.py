@@ -91,6 +91,65 @@ def functions_under_test(root, text, is_test=None, limit=FUNC_CHARS):
     return out
 
 
+_TEST_PATH = re.compile(r"(^|/)(tests?/|test_[^/]*$|[^/]*_test\.py$)")
+_FAILED_NODE = re.compile(r"^(?:FAILED|ERROR)\s+([\w./\-]+\.py)", re.M)
+
+
+def _norm(p):
+    p = str(p).replace("\\", "/")
+    while p.startswith("./"):
+        p = p[2:]
+    return p
+
+
+def failing_test_files(text):
+    """The test files named by pytest's FAILED/ERROR lines (else by its `file.py:N:` locations), normalised. -> [rel]"""
+    fs = _FAILED_NODE.findall(text or "") or [f for f, _ in _PYTEST_LOC.findall(text or "")]
+    out = []
+    for f in fs:
+        f = _norm(f)
+        if f not in out:
+            out.append(f)
+    return out
+
+
+def actual_lines(text, cap=900):
+    """pytest's assertion-rewrite lines (`E  assert 3 == 4`, `E  +  where 3 = f(...)`): the expectation and the ACTUAL value."""
+    lines = [m.strip() for m in re.findall(r"^E {2,}(.*)$", text or "", re.M) if m.strip()]
+    return "\n".join(lines)[:cap]
+
+
+def test_or_code(e, feedback, changed=()):
+    """Every failing test file is one THIS run created or edited -> the expectation itself may be what is wrong. -> info dict or None."""
+    fails = failing_test_files(feedback)
+    if not fails or not all(_TEST_PATH.search(f) for f in fails):
+        return None
+    mine = {_norm(x) for x in list(changed or ()) + list(getattr(e, "changed_files", None) or []) + list(getattr(e, "created", None) or [])}
+    if not all(f in mine for f in fails):
+        return None
+    ev = actual_lines(feedback)
+    if "assert" not in ev.lower():
+        return None
+    return {"tests": fails, "evidence": ev}
+
+
+def record_decision(e, applied):
+    """After a test_or_code try: which side did the model change? (trace: type repair, mode test_or_code, decision test|code|both|none)"""
+    info = getattr(e, "_repair_toc", None)
+    if not info:
+        return None
+    e._repair_toc = None
+    ap = [_norm(x) for x in (applied or [])]
+    t = [x for x in ap if x in info["tests"]]
+    c = [x for x in ap if x not in info["tests"]]
+    dec = "none" if not ap else "both" if (t and c) else "test" if t else "code"
+    try:
+        e._trace({"type": "repair", "t": __import__("time").time(), "mode": "test_or_code", "decision": dec, "tests": info["tests"], "applied": ap[:8]})
+    except Exception:
+        pass
+    return dec
+
+
 def focused(e, goal, feedback, changed=()):
     """-> (feedback_short, context) for a retry, or None to leave the normal prompt alone."""
     if not enabled(e.cfg):
@@ -98,6 +157,8 @@ def focused(e, goal, feedback, changed=()):
     tail = failure_tail(feedback)
     if not tail:
         return None
+    toc = test_or_code(e, feedback, changed)
+    e._repair_toc = toc
     funcs = functions_under_test(e.root, feedback)
     if not funcs and changed:                         # no frames into project code: the outline of what the last try changed
         import arch_core as core
@@ -109,9 +170,15 @@ def focused(e, goal, feedback, changed=()):
     ctx = "\n\n".join(parts)
     head = (feedback.strip().splitlines() or ["FEEDBACK: this still fails:"])[0][:240]
     short = f"{head}\n{tail}\n\n"
+    if toc:
+        short += ("TEST OR CODE? The only failing tests (" + ", ".join(toc["tests"][:4]) + ") are ones YOU wrote or edited in this run. Failing assertion "
+                  "and the ACTUAL value:\n" + toc["evidence"] + "\nDecide which side is wrong: the test's expected value (does it match what the request "
+                  "says? recount it by hand) or the code. State your decision in one line, then fix ONLY that side. Do not bend correct code toward "
+                  "a wrong expectation, and do not loosen a correct test.\n\n")
     try:
         e._trace({"type": "repair", "t": __import__("time").time(), "functions": [f"{r}:{n}" for r, n, _ in funcs],
-                  "tail_chars": len(tail), "context_chars": len(ctx)})
+                  "tail_chars": len(tail), "context_chars": len(ctx),
+                  **({"mode": "test_or_code", "tests": toc["tests"]} if toc else {})})
     except Exception:
         pass
     return short, ctx

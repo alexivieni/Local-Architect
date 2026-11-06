@@ -136,6 +136,7 @@ class Coach:
             state = "progress"
         self.replies.append(r)
         self.fails.append(f)
+        self.last_out = str(failure or "")[-4000:]            # the text behind the last fingerprint (the same-failure stop quotes it)
         self.files |= set(changed or [])
         self.stalled = 0 if state == "progress" else self.stalled + 1
         return state
