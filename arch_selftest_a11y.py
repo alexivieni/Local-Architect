@@ -35,6 +35,25 @@ def run():
           and 'for:"spRoot"},"Project folder' in ui and 'id:"spRoot",role:"combobox"' in ui)
     check("starter recipes are real buttons in a labelled group",
           'role:"group","aria-labelledby":"spTryL"' in ui and 'id:"spTryL"},"Try:"' in ui and 'class:"sp-recipe",type:"button"' in ui)
+    # 2026-11-05 evening: the sleep-time path (data night, train the worker, morning card) must be clear, large and announced
+    icon_only = re.findall(r'h\("button",\{[^{}]*class:"btn (?:p|pri)(?: [a-z-]+)*"[^{}]*\},icon\("[a-z-]+"\)\)', ui)
+    check("no primary button is icon-only: every one carries a visible text label", not icon_only)
+    check("primary actions are at least 44 px tall, the data night buttons 48 px",
+          ".btn.p,.btn.danger.dn-big{min-height:44px}" in ui and ".dn-big{min-height:48px" in ui)
+    check("Start data night and Stop safely are real, labelled buttons; Stop safely shows only while it runs and focus moves to it on start",
+          'id:"dnStart",type:"button"' in ui and 'id:"dnStop",type:"button",hidden:true' in ui and 'const s=$("#dnStop"); if(s)s.focus();' in ui and "Stopping after this task..." in ui)
+    check("data night state changes are announced (started, stopping, finished) through live regions, not colour alone",
+          'id:"dnLive",role:"status","aria-live":"assertive"' in ui and "Data night started." in ui and "Stopping safely." in ui and "Data night finished." in ui
+          and 'class:"dn-preview",role:"status","aria-live":"polite"' in ui and 'class:"dn-run",id:"dnRun",role:"status","aria-live":"polite"' in ui)
+    check("every data night field has a visible label; the switches have text; the time is a real time input",
+          'dnField("End time"' in ui and 'dnField("Worker model"' in ui and "Teacher model on" in ui and "Curriculum on" in ui and 'id:"dnUntil",type:"time"' in ui)
+    check("Train the worker says why it is disabled in visible text tied to the button (aria-describedby), announced politely",
+          '"aria-describedby":"twWhy"' in ui and 'id:"twWhy",role:"status","aria-live":"polite"' in ui)
+    check("the morning card is a labelled section; the lessons table has a caption, column scopes and a keyboard-reachable labelled region",
+          'class:"card night","aria-labelledby":"nightT"' in ui and 'h("caption",{class:"sr-only"}' in ui and '{scope:"col"}' in ui
+          and 'role:"region","aria-label":"Lessons table",tabindex:"0"' in ui)
+    check("Settings: Advanced is a native details/summary (keyboard and screen reader operable) at least 44 px tall",
+          'h("summary",{class:"more-sum"},"Advanced:' in ui and "details.adv>summary{min-height:44px" in ui)
     n = sum(results)
     print(f"\n  {'ALL ' + str(n) + ' A11Y CHECKS PASSED' if n == len(results) else str(len(results) - n) + ' of ' + str(len(results)) + ' A11Y CHECKS FAILED'}")
     return n == len(results)

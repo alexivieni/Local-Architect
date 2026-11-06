@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import ThreadingHTTPServer
 
@@ -191,10 +192,11 @@ def run():
               isinstance(adv.get("count"), int) and isinstance(adv.get("proposals"), list) and {"high", "medium", "low"} <= set(adv.get("by_severity", {})), adv)
 
         # ---- five tabs over the pages, plus the Get-ready / tune / fake-code / self-improve endpoints
-        tabs_src = re.search(r"const SIDEBAR=\[(.*?)\n\];", html, re.S)
-        tab_pages = [re.findall(r'"([a-z]+)"', grp) for grp in re.findall(r'\["[a-z]+","[^"]*","[A-Za-z &]+",\[([^\]]*)\]\]', tabs_src.group(1))] if tabs_src else []
-        groups = re.findall(r'\["(Work|Models|System)",\[', tabs_src.group(1)) if tabs_src else []
-        page_ids = re.findall(r'\["([a-z]+)","[^"]*","[^"]*","[^"]*"\]', re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", html, re.S).group(1))
+        import arch_uireg
+        reg = arch_uireg.load(os.path.join(HERE, "hub_ui.html"))
+        tab_pages = [p["pages"] for p in reg["places"]]
+        groups = [s["section"] for s in reg["sidebar"]]
+        page_ids = list(reg["page_ids"])
         flat = [x for g in tab_pages for x in g]
         check("the sidebar groups places under Work, Models and System and every page is reachable from exactly one of them",
               groups == ["Work", "Models", "System"] and len(tab_pages) >= 8 and sorted(flat) == sorted(page_ids) and len(set(flat)) == len(flat), (groups, tab_pages, page_ids))
@@ -205,7 +207,8 @@ def run():
               all(isinstance(d.get("available"), bool) for d in (sa, sw, sy)) and isinstance(sa.get("agents"), list)
               and isinstance(sw.get("workflows"), list) and isinstance(sy.get("jobs"), list), (sa, sw, sy))
         if sa.get("available"):
-            check("the squad agents endpoint lists the 18 agents of arch_squad (17 + si-planner) (a dict of definitions, read by .values())", len(sa.get("agents") or []) == 18, len(sa.get("agents") or []))
+            import arch_squad as _sq
+            check("the squad agents endpoint lists every agent of arch_squad (a dict of definitions, read by .values())", len(sa.get("agents") or []) == len(_sq.list_agents()) >= 18, len(sa.get("agents") or []))
             check("squad workflows carry phases with a kind", all(all(isinstance(p, dict) and p.get("kind") for p in w["phases"]) for w in sw.get("workflows") or []), sw)
         check("no sidebar place has more than 5 sub-tabs (Models included), and Agent teams has at most 5",
               all(len(g) <= 5 for g in tab_pages) and any(set(g) >= {"agents", "fleet"} and len(g) <= 5 for g in tab_pages), tab_pages)
@@ -222,6 +225,105 @@ def run():
               call("/api/arch/plugins/trust", {"name": "x"}).get("HTTP") == 400 and call("/api/arch/plugins/enable", {"name": "../x"}).get("HTTP") == 400
               and call("/api/arch/plugins/install", {"path": os.path.join(work, "nope")}).get("HTTP") == 400
               and call("/api/arch/plugins/enable", {"name": "x"}, token=False).get("HTTP") in (401, 403))
+        # ---- plugin commands in the slash palette and on the Plugins page
+        pdir = os.path.join(work, "plug_cmd")
+        os.makedirs(os.path.join(pdir, "commands"), exist_ok=True)
+        with open(os.path.join(pdir, "plugin.json"), "w", encoding="utf-8") as f:
+            json.dump({"name": "cmdcheck", "version": "1.0.0", "description": "One command for the hub check."}, f)
+        with open(os.path.join(pdir, "commands", "hello.md"), "w", encoding="utf-8") as f:
+            f.write("---" + chr(10) + "description: Say hello to a file" + chr(10) + "args: a file path" + chr(10) + "---" + chr(10) + "Explain {args} in two sentences." + chr(10))
+        inst = call("/api/arch/plugins/install", {"path": pdir})
+        cm0 = call("/api/arch/commands")
+        check("a disabled plugin's commands are NOT in the slash list", inst.get("HTTP") is None and not any(c.get("name") == "hello" for c in cm0.get("commands", [])), (inst, cm0))
+        pl2 = call("/api/arch/plugins")
+        mine = next((x for x in pl2.get("plugins", []) if x["name"] == "cmdcheck"), {})
+        check("the Plugins list carries each plugin's commands (name, description, args) even while disabled",
+              any(c["name"] == "hello" and "hello" in c["description"].lower() and c["args_hint"] == "a file path" and c["needs_args"] for c in mine.get("command_info", [])), mine)
+        call("/api/arch/plugins/enable", {"name": "cmdcheck"})
+        cm1 = call("/api/arch/commands")
+        got = next((c for c in cm1.get("commands", []) if c.get("plugin") == "cmdcheck"), {})
+        check("an enabled plugin's command is listed with name, description, arguments and its plugin",
+              got.get("name") == "hello" and got.get("args_hint") == "a file path" and got.get("needs_args") is True and "hello" in got.get("description", "").lower(), cm1)
+        check("shipped commands are still listed beside it", any(c.get("name") == "review" for c in cm1.get("commands", [])) or len(cm1.get("commands", [])) > 1, len(cm1.get("commands", [])))
+        check("the slash palette shows the plugin colour, arguments and plugin name; the Plugins page lists commands per plugin",
+              "plHue(c.plugin)" in html and "c.args_hint" in html and "p.command_info" in html and "function plHue" in html)
+        call("/api/arch/plugins/remove", {"name": "cmdcheck"})
+        # ---- presets: what changes before applying, apply, undo
+        rv = call("/api/arch/rpresets")
+        ids = [p["id"] for p in rv.get("presets", [])]
+        check("presets answer Fast, Balanced, Quality and Battery, each with its list of changes",
+              rv.get("available") and {"fast", "balanced", "quality", "battery"} <= set(ids) and all(isinstance(p["changes"], list) for p in rv["presets"]), rv)
+        fast0 = next((p for p in rv.get("presets", []) if p["id"] == "fast"), {"changes": []})
+        ap = call("/api/arch/rpreset", {"name": "fast"})
+        rv2 = call("/api/arch/rpresets")
+        fast1 = next((p for p in rv2.get("presets", []) if p["id"] == "fast"), {})
+        check("applying a preset puts it in force, leaves nothing to change, and offers Undo",
+              ap.get("ok") and fast0["changes"] and fast1.get("active") is True and "fast" in (rv2.get("undo") or "").lower(), (ap, rv2.get("undo")))
+        un = call("/api/arch/rpreset", {"undo": True})
+        rv3 = call("/api/arch/rpresets")
+        check("Undo puts the previous settings back", un.get("ok") and next((p for p in rv3["presets"] if p["id"] == "fast"), {}).get("active") is False, un)
+        check("an unknown preset or a call without the token is refused",
+              call("/api/arch/rpreset", {"name": "nope"}).get("HTTP") == 400 and call("/api/arch/rpreset", {"name": "fast"}, token=False).get("HTTP") in (401, 403))
+        check("Presets are in the top bar and in Settings, with the changes shown first and an Undo",
+              'id="presetBtn"' in html and "function rpresetCard" in html and "out.push(rpresetCard())" in html and "Applying " in html and '"Undo: "' in html)
+        # ---- ETA, effective settings, data night
+        et = call("/api/arch/eta?preview=1&until=06:30&max=20")
+        check("the ETA endpoint answers the queue, the running job and a data-night preview with a line",
+              isinstance(et.get("queue"), dict) and "job" in et and "left" in et.get("preview", {}).get("line", "") + " left" and et["preview"].get("line"), et)
+        check("a bad end time in the preview is refused", call("/api/arch/eta?preview=1&until=99:99").get("HTTP") == 400)
+        check("the ETA shows in the run bar, the Console strip and Runs > Queue",
+              "rb-eta" in html and 'id:"cEta"' in html and 'id:"qEta"' in html)
+        ef = call("/api/arch/effective?role=planner")
+        check("effective settings answer per role with value and layer for each key; a bad role is refused",
+              ef.get("role") == "planner" and ef.get("keys") and all({"value", "layer"} <= set(v) for v in ef["keys"].values()) and len(ef.get("roles", [])) > 5
+              and call("/api/arch/effective?role=zzz").get("HTTP") == 400, ef)
+        check("Settings has the Effective settings page with a role picker", "function effectivePage" in html and 'id:"effRole"' in html)
+        dn = call("/api/arch/datanight", {"until": "6pm"})
+        check("a data night with a bad end time or model name is refused before anything starts",
+              dn.get("HTTP") == 400 and call("/api/arch/datanight", {"worker": "bad name;rm"}).get("HTTP") == 400)
+        check("the data night card (worker, end time, ETA preview, local-only note) is in Runs > Queue",
+              "...dataNightCard()];" in html and "Claude is never used" in html and "dnPreview" in html and 'id:"dnWorker"' in html)
+        # ---- 2026-11-05 evening: registry endpoint, lessons, overnight card, one-click data night, train the worker, Settings order
+        rg = call("/api/arch/ui/registry")
+        check("GET /api/arch/ui/registry serves the places, pages (id, icon, label, description), the old-id map and the page functions",
+              len(rg.get("places", [])) >= 8 and len(rg.get("pages", [])) >= 30 and all({"id", "icon", "label", "description"} <= set(p) for p in rg["pages"])
+              and rg.get("legacy", {}).get("simple") == "overview" and "lessons" in rg.get("page_ids", []) and "lessonsPage" in rg.get("page_functions", [])
+              and all(f"{p['id']}" for p in rg["places"]), list(rg)[:8])
+        ls = call("/api/arch/lessons")
+        check("GET /api/arch/lessons returns every lesson with its enforced-by and checked-by targets marked present or missing",
+              ls.get("available") and len(ls.get("lessons", [])) >= 5 and all({"enforced_by", "checked_by", "trains_via", "samples", "evidence"} <= set(x) for x in ls["lessons"])
+              and all(isinstance(t.get("ok"), bool) for x in ls["lessons"] for t in x["enforced_by"]), ls.get("why"))
+        on = call("/api/arch/overnight")
+        check("GET /api/arch/overnight answers with ran, samples, basis and the running state (an empty state on a fresh data folder)",
+              isinstance(on.get("ran"), bool) and {"by_lesson", "total"} <= set(on.get("samples", {})) and isinstance(on.get("running"), dict), on)
+        dv = call("/api/arch/datanight")
+        check("GET /api/arch/datanight gives the running state and the plain defaults (end time 07:00, curriculum on)",
+              dv.get("state", {}).get("running") is False and dv.get("defaults", {}).get("until") == "07:00" and dv["defaults"].get("curriculum") is True, dv)
+        stp = call("/api/arch/datanight/stop", {})
+        stop_file = os.path.join(os.environ.get("ARCHITECT_DATA_DIR") or os.path.join(hubdir, "hub_data"), "STOP")
+        check("Stop safely writes the STOP file (and a call without the token is refused)",
+              stp.get("ok") and os.path.exists(stop_file) and call("/api/arch/datanight/stop", {}, token=False).get("HTTP") in (401, 403))
+        try:
+            os.remove(stop_file)
+        except OSError:
+            pass
+        tw = call("/api/arch/trainworker")
+        check("Train the worker is disabled with a reason while there are too few samples, and a start is then refused",
+              tw.get("samples", -1) >= 0 and (tw.get("can_dry") or tw.get("why_dry")) and (tw.get("can_real") or tw.get("why_real"))
+              and (tw.get("can_dry") or call("/api/arch/trainworker", {}).get("HTTP") == 400), tw)
+        check("the Data night card has one big Start data night, a Stop safely, End time default 07:00, Teacher and Curriculum switches, and live announcements",
+              all(s in html for s in ('"Start data night"', '"Stop safely"', 'value:"07:00"', 'id:"dnTeacher"', 'id:"dnCur"', 'id:"dnLive"', '"Train the worker"', 'id:"twWhy"')))
+        check("Home has the Last night report card with an empty state, Wilson ranges and the fastest worker",
+              all(s in html for s in ('id:"homeNight"', "async function loadNight", "95% range", "Fastest worker measured", "Set up a data night")))
+        check("Settings: Presets first, no second Quick presets card, everything else under a closed Advanced section",
+              html.index("out.push(rpresetCard())") < html.index('id:"setAdv"') and "Quick presets" not in html and "function presetsCard" not in html
+              and 'open:store.get("setAdvOpen","0")==="1"' in html)
+        check("the Lessons page is in Help and is a labelled table with present / missing marks in words",
+              "function lessonsPage" in html and '"/api/arch/lessons"' in html and '" (present)"' in html and "Samples so far" in html)
+        check("Effective settings names each layer in plain words",
+              "const EFF_WORDS=" in html and "Your own role setting" in html and "The job's built-in profile" in html)
+        check("a recipe's Use this starts the run with the recipe id and Review opens by itself when it finishes",
+              "recipe:r.id" in html and "function recipeReviewTick" in html and 'go("review")' in html)
         tsum, tev = call("/api/arch/telemetry/summary?window=600"), call("/api/arch/telemetry/events?kinds=llm.call,BAD%20KIND")
         check("telemetry summary and events answer available + their shape, never a crash",
               isinstance(tsum.get("available"), bool) and tsum.get("window") == 600 and isinstance(tev.get("available"), bool) and isinstance(tev.get("events"), list), (tsum, tev))
@@ -264,6 +366,113 @@ def run():
               call("/api/arch/squad/run", {"workflow": (sw.get("workflows") or [{"name": "x"}])[0]["name"], "goal": "g", "owns": ["../../etc"]}).get("HTTP") == 400
               and call("/api/arch/squad/run", {"workflow": (sw.get("workflows") or [{"name": "x"}])[0]["name"], "goal": "g", "slots": 99}).get("HTTP") == 400)
         check("a crew run needs the token", call("/api/arch/squad/run", {"workflow": "x", "goal": "g"}, token=False).get("HTTP") in (401, 403))
+        # ---- Review / plan / session / recipes (read from a synthetic run; a missing record leaves its part empty)
+        rc_ = call("/api/arch/recipes")
+        check("recipes answer available + a list, and fill needs the token and a real recipe",
+              isinstance(rc_.get("available"), bool) and isinstance(rc_.get("recipes"), list)
+              and call("/api/arch/recipes/fill", {"recipe": "x"}, token=False).get("HTTP") in (401, 403)
+              and call("/api/arch/recipes/fill", {"recipe": "../x"}).get("HTTP") == 400, rc_)
+        if rc_.get("available") and rc_.get("recipes"):
+            fl_ = call("/api/arch/recipes/fill", {"recipe": rc_["recipes"][0]["id"], "root": hubdir, "params": {}})
+            check("a recipe fill returns a goal, a flow and what the project lacks", bool(fl_.get("goal")) and bool(fl_.get("flow")) and isinstance(fl_.get("missing_text"), list), fl_)
+        rvroot = os.path.join(work, "rvproj")
+        rd = os.path.join(rvroot, ".arch", "runs", "r1")
+        os.makedirs(rd)
+        with open(os.path.join(rd, "trace.jsonl"), "w", encoding="utf-8") as f_:
+            for rec in ({"type": "diff", "file": "a.py", "added": 2, "removed": 1, "hunks": [], "diff": "@@ -1 +1,2 @@\n-x\n+y\n+z\n"},
+                        {"type": "call", "id": 1, "num_ctx": 8192, "prompt_tokens": 1000, "gen_tokens": 100, "secs": 3.0, "model": "m",
+                         "messages": [{"role": "system", "content": "s" * 400}, {"role": "user", "content": "u" * 800}]},
+                        {"type": "check", "gate": "pytest", "ok": True}, {"type": "check", "gate": "tests B", "ok": False, "text": "boom"},
+                        {"type": "verdict", "verdict": "fail", "why": "tests"}, {"type": "diff", "garbage": 1}, {"type": "todo", "items": [{"id": "1", "title": "do it", "status": "pending"}]}):
+                f_.write(json.dumps(rec) + "\n")
+            f_.write("not json\n")
+        with open(os.path.join(rd, "run.json"), "w", encoding="utf-8") as f_:
+            json.dump({"goal": "fix it", "flow": "bugfix", "status": "done"}, f_)
+        rv = call("/api/arch/review?root=" + urllib.parse.quote(rvroot) + "&run=r1")
+        check("review lists files with diffs, tests with pass/fail, the verdict and a local cost",
+              [x["file"] for x in rv.get("files", [])] == ["a.py"] and rv["files"][0]["added"] == 2 and [t["ok"] for t in rv.get("tests", [])] == [True, False]
+              and (rv.get("verdict") or {}).get("verdict") == "fail" and rv["cost"]["local"] is True and rv["cost"]["calls"] == 1 and len(rv.get("plan", [])) == 1, rv)
+        check("review refuses a run id that climbs out", call("/api/arch/review?root=" + urllib.parse.quote(rvroot) + "&run=..%2Fx").get("HTTP") == 400)
+        pv = call("/api/arch/plan?root=" + urllib.parse.quote(rvroot) + "&run=r1")
+        check("the plan is read, and says plainly when editing is not available", len(pv.get("items", [])) == 1 and (pv.get("editable") or "not available" in (pv.get("why") or "")), pv)
+        sv_ = call("/api/arch/session?root=" + urllib.parse.quote(rvroot) + "&run=r1")
+        check("the session panel splits the context, labels an estimate and lists servers and jobs",
+              sv_.get("window") == 8192 and sv_.get("estimated") is True and [x["name"] for x in sv_.get("sections", [])][:1] == ["system prompt"]
+              and isinstance(sv_.get("servers"), list) and isinstance(sv_.get("jobs"), list) and sv_["changes"]["added"] == 2, sv_)
+        check("accepting and saving a plan need the token",
+              call("/api/arch/review/accept", {"root": rvroot, "run": "r1"}, token=False).get("HTTP") in (401, 403)
+              and call("/api/arch/plan", {"root": rvroot, "run": "r1", "items": []}).get("HTTP") == 400)
+        ok_ = call("/api/arch/review/accept", {"root": rvroot, "run": "r1"})
+        check("accepting marks the run and changes no file", ok_.get("ok") is True and os.path.isfile(os.path.join(rd, "accepted.json")), ok_)
+        check("the Review page, plan card, session panel, queue board and recipe cards are in the hub page",
+              all(k in open(os.path.join(HERE, "hub_ui.html"), encoding="utf-8").read() for k in ("function reviewPage()", "function rvPlan(", "function rvSession(", "function queueBoard(", "function loadRecipes(", "function tplContract(")))
+        # ---- Per-hunk Keep / Drop, background jobs, hooks, usage, bundle, git commit, onboarding
+        rd2 = os.path.join(rvroot, ".arch", "runs", "r2")
+        os.makedirs(os.path.join(rd2, "backup"))
+        pre_ = "".join(f"line{i}\r\n" for i in range(40))
+        post_ = pre_.replace("line3\r\n", "LINE3\r\n").replace("line30\r\n", "LINE30\r\nextra\r\n")
+        with open(os.path.join(rd2, "backup", "b.txt"), "wb") as f_:
+            f_.write(pre_.encode())
+        with open(os.path.join(rvroot, "b.txt"), "wb") as f_:
+            f_.write(post_.encode())
+        with open(os.path.join(rvroot, "c.txt"), "w", encoding="utf-8") as f_:
+            f_.write("no copy from before\n")
+        with open(os.path.join(rd2, "trace.jsonl"), "w", encoding="utf-8") as f_:
+            for fn_ in ("b.txt", "c.txt"):
+                f_.write(json.dumps({"type": "diff", "file": fn_, "added": 1, "removed": 1, "diff": "@@ -1 +1 @@\n-a\n+b\n"}) + "\n")
+        with open(os.path.join(rd2, "run.json"), "w", encoding="utf-8") as f_:
+            json.dump({"goal": "g", "flow": "build", "status": "done"}, f_)
+        q2 = "root=" + urllib.parse.quote(rvroot) + "&run=r2"
+        rv2 = call("/api/arch/review?" + q2)
+        fb = {x["file"]: x for x in rv2.get("files", [])}
+        check("review splits a file with a pre-run copy into hunks and says why another cannot be split",
+              fb.get("b.txt", {}).get("splittable") is True and len(fb["b.txt"].get("hunks", [])) == 2 and all(h_["kept"] for h_ in fb["b.txt"]["hunks"])
+              and fb.get("c.txt", {}).get("splittable") is False and "before the run" in fb["c.txt"].get("split_why", ""), rv2)
+        hk0 = {"root": rvroot, "run": "r2", "file": "b.txt", "keep": [0]}
+        check("Keep / Drop needs the token and refuses a bad hunk number, a path that climbs out and a file with no pre-run copy",
+              call("/api/arch/review/hunks", hk0, token=False).get("HTTP") in (401, 403)
+              and call("/api/arch/review/hunks", dict(hk0, keep=[9])).get("HTTP") == 400
+              and call("/api/arch/review/hunks", dict(hk0, file="../x")).get("HTTP") == 400
+              and call("/api/arch/review/hunks", dict(hk0, file="c.txt")).get("supported") is False)
+        r_h = call("/api/arch/review/hunks", hk0)
+        cur_ = open(os.path.join(rvroot, "b.txt"), "rb").read().decode()
+        check("dropping a hunk rebuilds the file from the pre-run copy plus the kept hunks, line endings kept",
+              r_h.get("ok") is True and "LINE3\r\n" in cur_ and "LINE30" not in cur_ and "line30\r\n" in cur_ and "\n" not in cur_.replace("\r\n", ""), r_h)
+        r_h2 = call("/api/arch/review/hunks", dict(hk0, keep=[0, 1]))
+        check("keeping every hunk again restores the run's own result exactly",
+              open(os.path.join(rvroot, "b.txt"), "rb").read().decode() == post_ and r_h2.get("kept") == 2)
+        bj = call("/api/arch/bgjobs")
+        check("background jobs answer a list and stopping needs the token and a real job",
+              isinstance(bj.get("jobs"), list) and call("/api/arch/bgjobs/stop", {"id": "hub"}, token=False).get("HTTP") in (401, 403)
+              and call("/api/arch/bgjobs/stop", {"id": "../x"}).get("HTTP") == 400, bj)
+        hq = "?root=" + urllib.parse.quote(rvroot)
+        hv = call("/api/arch/hooks" + hq)
+        check("hooks lists the points and both files", len(hv.get("points", [])) == 5 and "project" in hv and "machine" in hv, hv)
+        hook_ = {"on": "after_apply", "run": "echo hi", "blocking": True}
+        check("adding or trusting a hook needs the token and an explicit confirm",
+              call("/api/arch/hooks", {"root": rvroot, "action": "add", "scope": "project", "hook": hook_, "confirm": True}, token=False).get("HTTP") in (401, 403)
+              and call("/api/arch/hooks", {"root": rvroot, "action": "add", "scope": "project", "hook": hook_}).get("HTTP") == 400
+              and call("/api/arch/hooks", {"root": rvroot, "action": "add", "scope": "project", "hook": dict(hook_, on="nope"), "confirm": True}).get("HTTP") == 400)
+        ha = call("/api/arch/hooks", {"root": rvroot, "action": "add", "scope": "project", "hook": hook_, "confirm": True})
+        check("a new project hook waits for trust, trusting runs it, and removing takes the yes back",
+              ha.get("ok") is True and ha["view"]["project"]["hooks"][0]["run"] == "echo hi" and ha["view"]["project"]["trusted"] is False
+              and call("/api/arch/hooks", {"root": rvroot, "action": "trust", "scope": "project", "confirm": True})["view"]["project"]["trusted"] is True
+              and call("/api/arch/hooks", {"root": rvroot, "action": "remove", "scope": "project", "index": 0})["view"]["project"]["hooks"] == [], ha)
+        us = call("/api/arch/usage?window=week")
+        check("usage answers a headline and the figures", isinstance(us.get("headline"), str) and "local" in us and us.get("window") == "week", us)
+        bz = call("/api/arch/bundle", {"root": rvroot, "run": "r1"})
+        check("a report bundle is made for a run, refuses a bad run id and needs the token",
+              os.path.exists(str(bz.get("path") or "")) and call("/api/arch/bundle", {"root": rvroot, "run": "../x"}).get("HTTP") == 400
+              and call("/api/arch/bundle", {"root": rvroot, "run": "r1"}, token=False).get("HTTP") in (401, 403), bz)
+        gc = call("/api/arch/git/commit", {"root": rvroot, "run": "r2"})
+        check("the commit button answers in plain words when this is not a git project, and needs the token",
+              gc.get("ok") is False and bool(gc.get("why")) and bool(gc.get("todo")) and call("/api/arch/git/commit", {"root": rvroot, "run": "r2"}, token=False).get("HTTP") in (401, 403), gc)
+        ob = call("/api/arch/onboard", {"root": rvroot})
+        check("set up this project reads the project and offers a draft; accept needs the token",
+              ob.get("ok") is True and "draft" in ob and call("/api/arch/onboard", {"root": rvroot, "accept": True}, token=False).get("HTTP") in (401, 403), ob)
+        check("the hub page has the Keep/Drop buttons, the jobs panel, the Hooks page, the usage chip, the commit and bundle buttons and the setup card",
+              all(k in html for k in ("function rvHunkBox(", "function bgJobsCard(", "function hooksPage(", "id=\"usageChip\"", "function rvCommit(", "function rvBundle(", "function setupProject(",
+                                      "function usageCard(", "aria-pressed", "\"hooks\",\"bolt\",\"Hooks\"")))
         check("select apply refuses a bad job or model name", call("/api/arch/select/apply", {"job": "Bad Job!", "model": "m"}).get("HTTP") == 400
               and call("/api/arch/select/apply", {"job": "coding", "model": "x; rm -rf /"}).get("HTTP") == 400)
         check("select apply, undo and screen need the token", all(call(p_, {"job": "coding", "model": "m"}, token=False).get("HTTP") in (401, 403)

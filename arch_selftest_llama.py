@@ -139,7 +139,7 @@ def run():
                                      "processes": [{"tier": "worker", "name": "big:4b", "gguf": "D:/m/big.gguf", "resident": True},
                                                    {"tier": "router", "name": "r:1b", "resident": True}]}
         S.status = lambda c: {"processes": []}
-        S.start = lambda c, tiers=None, say=None: started.append(sorted(tiers)) or {"processes": []}
+        S.start = lambda c, tiers=None, say=None, **kw: started.append(sorted(tiers)) or {"processes": []}
         try:
             S.ensure({}, say=lambda *a: None, wanted={"fake:7b"})
             S.ensure({}, say=lambda *a: None, wanted={"big:4b"})
@@ -261,6 +261,15 @@ def run():
               w16[w16.index("-t") + 1] == "4", w16)
         check("plan(): the RAM prompt cache is capped by the machine (1 GB per server on 16 GB, 2 GB on 32 GB; llama-server's own default is 8 GB)",
               w16[w16.index("--cache-ram") + 1] == "1024" and w32[w32.index("--cache-ram") + 1] == "2048", (w16, w32))
+        xcaps = dict(fake_caps, flags=fake_caps["flags"] + ["-b", "-tb", "--mlock", "--no-mmap"])
+        for pl_, nm_ in ((S.plan(cfg, dict(hw6, cpu_perf_cores=4, cpu_cores=12), caps_=xcaps), "present"),
+                         (S.plan(cfg, dict(hw6, cpu_perf_cores=4, cpu_cores=12), caps_=fake_caps), "absent")):
+            wa = tier_args(pl_, "worker")
+            ok_ = (("-b" in wa and wa[wa.index("-b") + 1] == "2048" and "-tb" in wa and wa[wa.index("-tb") + 1] == "12" and wa[wa.index("-t") + 1] == "4")
+                   if nm_ == "present" else not any(f in wa for f in ("-b", "-tb", "--mlock", "--no-mmap")))
+            check(f"plan(): batch -b, batch threads -tb (all logical cores; -t stays the performance cores) are given only when the build lists them ({nm_})", ok_, wa)
+        check("plan(): --mlock / --no-mmap are never given to a tier that is not a split mixture-of-experts one (auto)",
+              not any(f in tier_args(S.plan(cfg, dict(hw6, cpu_perf_cores=4, ram_free_gb=20), caps_=xcaps), "worker") for f in ("--mlock", "--no-mmap")))
         tight = S.plan(cfg, dict(hw6, cpu_perf_cores=4, ram_gb=16.0, ram_free_gb=1.0), caps_=cram_caps)
         check("plan(): when the models kept loaded need more RAM than is really free, it says so in plain words (it used to assume a fixed 6 GB "
               "for Windows and apps; 9.3 GB was measured in use with no model loaded)",

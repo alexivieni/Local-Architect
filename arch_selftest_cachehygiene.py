@@ -83,6 +83,7 @@ def run():
         srv = _slot_io_checks(check, hyg, tmp)
         _reply_cap_checks(check)
         _settings_checks(check, core)
+        _retention_checks(check, hyg, core, tmp)
     finally:
         if srv:
             srv.shutdown()
@@ -266,6 +267,104 @@ def _reply_cap_checks(check):
     check("reply cache: limits() reads the settings, 0 = off", arch_cache.limits({"cache": {"max_rows": 0, "max_days": 7}}) == (0, 7)
           and arch_cache.limits(None) == (arch_cache.MAX_ROWS, arch_cache.MAX_DAYS))
     arch_cache.clear()
+
+
+def _retention_checks(check, hyg, core, tmp):
+    import json
+    import sqlite3
+    import subprocess
+    _reset(hyg)
+    data = os.environ["ARCHITECT_DATA_DIR"]
+    day = 86400
+    old, new = day * 200, day * 5
+    ci_old = _mk(os.path.join(data, "ci", "20260101_000000.json"), 50, old)
+    ci_new = _mk(os.path.join(data, "ci", "20261101_000000.json"), 50, new)
+    run_old = _mk(os.path.join(data, "ci_run2.log"), 70, old)
+    td_old = _mk(os.path.join(data, "orchestration", "test_data", "20260101_0000", "x.json"), 30, old)
+    td_new = _mk(os.path.join(data, "orchestration", "test_data", "20261101_0000", "y.json"), 30, new)
+    orch_real = _mk(os.path.join(data, "orchestration", "20260101_real.json"), 30, old)
+    tel1 = _mk(os.path.join(data, "telemetry", "events.jsonl.1"), 40, old)
+    # protected things, all old
+    ledger = _mk(os.path.join(data, "ledger.json"), 10, old)
+    ds = _mk(os.path.join(data, "datasets", "sft.jsonl"), 10, old)
+    bak = _mk(os.path.join(data, "config.backup_x.json"), 10, old)
+    ev = _mk(os.path.join(data, "evals", "runs", "train", "r.json"), 10, old)
+    cfgf = _mk(os.path.join(data, "architect_config.json"), 10, old)
+    now = time.time()
+    ev_path = os.path.join(data, "telemetry", "events.jsonl")
+    with open(ev_path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"t": now - old, "kind": "a"}) + "\n")
+        fh.write(json.dumps({"t": now - old, "kind": "b"}) + "\n")
+        fh.write(json.dumps({"t": now - new, "kind": "c"}) + "\n")
+    os.utime(ev_path, (now - 3600, now - 3600))
+    c = sqlite3.connect(os.path.join(data, "logbook.db"))
+    c.execute("create table tasks(id text primary key, source text, title text, kind text, started real, cost real, status text, turns integer, model text, by_claude integer, tools text, origin text)")
+    c.execute("create table steps(task_id text, n integer, kind text, tool text, text text)")
+    c.execute("create table logbook_fts(task_id text, body text)")
+    for tid, st in (("old1", now - old), ("old2", now - old), ("new1", now - new)):
+        c.execute("insert into tasks(id, started) values(?,?)", (tid, st))
+        c.execute("insert into steps values(?,?,?,?,?)", (tid, 1, "k", "t", "x"))
+        c.execute("insert into logbook_fts values(?,?)", (tid, "body"))
+    c.commit()
+    c.close()
+    # a project with an old and a new checkpoint ref
+    proj = os.path.join(tmp, "projects", "ckproj")
+    os.makedirs(proj, exist_ok=True)
+    have_git = True
+    try:
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        subprocess.run(["git", "init", "-q"], cwd=proj, env=env, check=True, capture_output=True)
+        open(os.path.join(proj, "f.txt"), "w").write("x")
+        subprocess.run(["git", "add", "f.txt"], cwd=proj, env=env, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "n"], cwd=proj, env=env, check=True, capture_output=True)
+        subprocess.run(["git", "update-ref", "refs/architect/newrun/1", "HEAD"], cwd=proj, env=env, check=True, capture_output=True)
+        oldenv = dict(env, GIT_COMMITTER_DATE=str(int(now - old)) + " +0000", GIT_AUTHOR_DATE=str(int(now - old)) + " +0000")
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "o"], cwd=proj, env=oldenv, check=True, capture_output=True)
+        subprocess.run(["git", "update-ref", "refs/architect/oldrun/1", "HEAD"], cwd=proj, env=oldenv, check=True, capture_output=True)
+    except (OSError, subprocess.CalledProcessError):
+        have_git = False
+    cfg = {"storage": {"retention_days": 90}}
+    plan = hyg.retention_plan(cfg, roots=[proj], now=now)
+    files = {os.path.normcase(i["file"]) for i in plan["items"] if i["kind"] == "file"}
+    nc = os.path.normcase
+    check("retention: old CI logs, ci_run logs, test_data and the rolled telemetry are planned",
+          {nc(ci_old), nc(run_old), nc(td_old), nc(tel1)} <= files, files)
+    check("retention: recent ones are kept", nc(ci_new) not in files and nc(td_new) not in files)
+    check("retention: orchestration records outside test_data are not touched", nc(orch_real) not in files)
+    check("retention: ledger, datasets, settings, eval buckets, backups never planned",
+          not ({nc(ledger), nc(ds), nc(bak), nc(ev), nc(cfgf)} & files))
+    kinds = {i["kind"]: i for i in plan["items"]}
+    check("retention: 2 old telemetry lines and 2 old logbook tasks counted", kinds.get("lines", {}).get("count") == 2 and kinds.get("rows", {}).get("count") == 2, kinds)
+    if have_git:
+        check("retention: only the old checkpoint ref is planned", kinds.get("refs", {}).get("refs") == ["refs/architect/oldrun/1"], kinds.get("refs"))
+    check("retention: backups are listed, not planned", any(nc(b["file"]) == nc(bak) for b in plan["backups"]) and nc(bak) not in files)
+    check("retention: the report mentions it and says nothing was deleted without --yes",
+          any("storage.retention_days" in ln for ln in hyg.report_lines([], dict(hyg.plan_prune(cfg, inv=[], roots=[proj], now=now)), None)))
+    full = hyg.plan_prune(cfg, inv=[], roots=[proj], now=now)
+    res = hyg.prune(full, yes=False, cfg=cfg)
+    check("retention: a dry run deletes nothing", os.path.isfile(ci_old) and res["dry_run"])
+    res = hyg.prune(full, yes=True, cfg=cfg)
+    check("retention: --yes removes the planned files", not any(os.path.exists(p) for p in (ci_old, run_old, td_old, tel1)), res)
+    check("retention: recent files and protected data survive",
+          all(os.path.exists(p) for p in (ci_new, td_new, orch_real, ledger, ds, bak, ev, cfgf)))
+    check("retention: the emptied dated test_data folder is gone, the live one stays",
+          not os.path.isdir(os.path.dirname(td_old)) and os.path.isdir(os.path.dirname(td_new)))
+    left = [json.loads(x)["kind"] for x in open(ev_path, encoding="utf-8")]
+    check("retention: telemetry keeps only the recent event", left == ["c"], left)
+    c = sqlite3.connect(os.path.join(data, "logbook.db"))
+    ids = sorted(r[0] for r in c.execute("select id from tasks"))
+    st = c.execute("select count(*) from steps").fetchone()[0]
+    fts = c.execute("select count(*) from logbook_fts").fetchone()[0]
+    c.close()
+    check("retention: old logbook tasks, their steps and index rows are gone", ids == ["new1"] and st == 1 and fts == 1, (ids, st, fts))
+    if have_git:
+        p = subprocess.run(["git", "for-each-ref", "--format=%(refname)", "refs/architect/"], cwd=proj, capture_output=True)
+        check("retention: the old checkpoint ref is deleted, the new one kept", p.stdout.decode().split() == ["refs/architect/newrun/1"], p.stdout)
+    check("retention: a path outside the allow-list is refused", hyg.retention_allowed(ledger) != "" and hyg.retention_allowed(os.path.join(data, "x.txt")) != "")
+    zero = hyg.retention_plan({"storage": {"retention_days": 0}}, roots=[proj], now=now)
+    check("retention: 0 days keeps everything", zero["items"] == [])
+    check("retention: storage.retention_days is a setting with a default of 90",
+          core.DEFAULTS["storage"].get("retention_days") == 90)
 
 
 def _settings_checks(check, core):

@@ -182,7 +182,8 @@ def run():
         check("the dialog is announced as a modal dialog", 'class:"fv",role:"dialog","aria-modal":"true"' in ui)
         check("the result is read back from the run's own events (right after a reload too)", '/api/arch/events?since=0' in ui and "fvLoadResult" in ui)
         check("not sure is its own outcome on the result, never a pass or a fail", "not_sure:[\"unsure\"" in ui)
-        pages = set(re.findall(r'\["([a-z]+)","[^"]*","[^"]+","', ui.split("const NAV_GROUPS=[", 1)[1].split("];", 1)[0]))
+        import arch_uireg
+        pages = set(arch_uireg.load(os.path.join(HERE, "hub_ui.html"))["page_ids"])
         hints = re.findall(r"^  ([a-z]+):\[\"", ui.split("const HINTS={", 1)[1].split("};", 1)[0], re.M)
         check("there is a page note for every major page", {"overview", "console", "tiers", "agents", "fleet", "monitor", "map", "queue", "settings", "doctor"} <= set(hints), str(hints))
         bad = [x for x in hints if x not in pages]

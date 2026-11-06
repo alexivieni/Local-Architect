@@ -136,7 +136,7 @@ def run():
         # ---- catalog.render writes the same files and refuses to overwrite
         d = os.path.join(tmp, "render_check")
         written = C.render("terminal_game", d, {"name": "Night Shift"})
-        same = len(written) == len(rendered["terminal_game"]) and os.path.isfile(os.path.join(d, "night_shift", "engine.py"))
+        same = len(written) == len(rendered["terminal_game"]) + 1 and os.path.isfile(os.path.join(d, "CONTRACT.json")) and os.path.isfile(os.path.join(d, "night_shift", "engine.py"))
         try:
             C.render("terminal_game", d, {"name": "Night Shift"})
             refused = False

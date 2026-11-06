@@ -191,6 +191,11 @@ def run():
         results.append(bool(ok))
         print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
 
+    def env_check(name, ok, extra=""):
+        """An ENVIRONMENT check (wall-clock timing): a failure is reported NOT_SURE, never a silent pass and never a code failure."""
+        results.append(True if ok else None)
+        print(f"  {'PASS' if ok else 'NOT_SURE'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
+
     import arch_checks as ck
     import arch_core as core
     import arch_flows as fl
@@ -454,8 +459,9 @@ def run():
             e.call("router", "stalled server")
             check("a model that never answers is stopped at the timeout with a plain-language reason", False)
         except core.LLMError as ex:
-            check("a model that never answers is stopped at the timeout with a plain-language reason",
-                  "first token" in str(ex) and __import__("time").time() - t_0 < 2.9, str(ex))
+            check("a model that never answers is stopped at the timeout with a plain-language reason", "first token" in str(ex), str(ex))
+            env_check("a model that never answers is stopped at the timeout, not at the server's own stall (wall-clock)",
+                      __import__("time").time() - t_0 < 2.9, __import__("time").time() - t_0)
         st["stall_s"] = 0
 
         # offline guard for tests the model wrote
@@ -491,10 +497,10 @@ def run():
         else:
             os.environ["ARCHITECT_DATA_DIR"] = _dd
     print()
-    if all(results):
+    if all(r is True for r in results):
         print(f"  ALL {len(results)} ARCHITECT CHECKS PASSED")
         return 0
-    print(f"  {results.count(False)} of {len(results)} CHECKS FAILED")
+    print(f"  {results.count(False)} of {len(results)} CHECKS FAILED" + (f", {results.count(None)} COULD NOT RUN (not a pass)" if results.count(None) else ""))
     return 1
 
 

@@ -156,6 +156,244 @@ def resume_checks(sq, orch, core, proj, dd, cfg, tmp):
     ok("kit-auditor" not in sq.list_agents(), "no plugin module -> no plugin agents")
 
 
+def principles_checks(sq, proj, dd, cfg, tmp):
+    """docs/PRINCIPLES.md: digests, code steps, tiers, verifier-last shape, fresh context, lessons."""
+    import arch_lessons
+    import arch_roleprofile as rp
+    # 1. summaries, not transcripts
+    big = {"summary": "S" * 3000, "changed": [f"f{i}.py" for i in range(40)], "evidence": "E" * 4000,
+           "findings": [{"file": f"a{i}.py", "line": i, "problem": "P" * 300} for i in range(8)]}
+    dg = sq.digest(big)
+    raw, shown = len(json.dumps(big)), len(json.dumps(dg))
+    ok(shown <= sq.DIGEST_CHARS and raw > 8000 and "changed" in dg and dg.get("findings_n") == 8,
+       f"digest: {raw} chars -> {shown}, keeps the file list and the finding count", dg)
+    small = {"verdict": "pass", "evidence": "ok"}
+    ok(sq.digest(small) is small and sq.digest(None) is None and len(sq.digest("x" * 5000)) <= sq.DIGEST_CHARS,
+       "digest: a small result passes unchanged; text is cut")
+    ok(len(json.dumps(sq.digest([big, big, big, big]))) <= sq.DIGEST_CHARS, "digest: a list of results fits too")
+    crew = sq.Crew(proj, "g", cfg=cfg, data_dir=dd, say=sq._quiet)
+    crew.agent("verifier", "verify", context=big)
+    crew.close()
+    rec = crew.records[0]
+    cc = rec.get("context_chars") or {}
+    ok(cc.get("raw") == raw and cc.get("shown", 10 ** 9) <= sq.DIGEST_CHARS and "SSSSSSSSSS" not in (rec.get("brief") or ""),
+       f"agent: the brief carries the digest ({cc.get('raw')} -> {cc.get('shown')} chars, ~{(cc.get('raw', 0) - cc.get('shown', 0)) // 4} tokens saved)", cc)
+    off = sq.Crew(proj, "g", cfg=dict(cfg, squad=dict(cfg.get("squad") or {}, digest="off")), data_dir=dd, say=sq._quiet)
+    off.agent("verifier", "verify", context=big)
+    off.close()
+    ok(off.records[0]["context_chars"]["shown"] == raw, "squad.digest = off passes the full result")
+    # 2. code over agents
+    sd = os.path.join(tmp, "suites")
+    os.makedirs(sd)
+    for n, body in (("ok_suite.py", "import os\nassert os.environ['ARCHITECT_HOME']\nprint('2 passed, 0 failed')\n"),
+                    ("bad_suite.py", "print('1 failed')\nraise SystemExit(1)\n"),
+                    ("slow_suite.py", "import time\ntime.sleep(30)\n")):
+        with open(os.path.join(sd, n), "w", encoding="utf-8") as f:
+            f.write(body)
+    r = sq.run_suites(sd, ["ok_suite.py", "bad_suite.py", "../x.py", "missing.py", "ok_suite.py"], jobs=4, timeout=60)
+    rc = [x["rc"] for x in r["results"]]
+    ok(rc == [0, 1, None, None, 0] and r["verdict"] == "fail" and r["passed"] == 2,
+       "run_suites: parallel, order kept, escapes and missing files refused, own ARCHITECT_HOME", r)
+    ok(sq.run_suites(sd, ["slow_suite.py"], timeout=1)["results"][0]["rc"] == -1, "run_suites: a timeout is a failure")
+    a, b = os.path.join(tmp, "ds_a"), os.path.join(tmp, "ds_b")
+    os.makedirs(a)
+    os.makedirs(b)
+    for top, body in ((a, "x = 1\r\ny = 2\r\nz = 3\r\n"), (b, "x = 1\ny = 2\nz = 4\nw = 5\n")):
+        with open(os.path.join(top, "m.py"), "w", newline="") as f:
+            f.write(body)
+    for top, body in ((a, "q = 1\r\n"), (b, "q = 1\n")):
+        with open(os.path.join(top, "same.py"), "w", newline="") as f:
+            f.write(body)
+    ds = sq.diff_stats(b, base=a)
+    ok(ds.get("changed_files") == 1 and ds["added"] == 2 and ds["removed"] == 1,
+       "diff_stats: line endings ignored (CRLF vs LF is not a change)", ds)
+    ok("error" in sq.diff_stats(b, base=os.path.join(tmp, "nope")), "diff_stats: a missing base is reported")
+    W = {"name": "codesteps", "phases": [
+        {"title": "Count", "id": "c", "code": "count_json", "with": {"path": "d.json", "key": "items"}},
+        {"title": "Valid", "code": "validate_json", "with": {"path": "d.json", "schema": {"type": "object", "required": ["items"]}}}]}
+    with open(os.path.join(a, "d.json"), "w") as f:
+        json.dump({"items": [1, 2, 3]}, f)
+    ok(not sq.validate_workflow(W), "workflow: code phases with `with:` validate", sq.validate_workflow(W))
+    v, c = sq.run_workflow(W, a, "g", cfg=cfg, data_dir=dd, use_cache=False)
+    ok((c.final or {}).get("valid") is True, "workflow: validate_json runs in code", c.final)
+    ok(sq._code_count_json(None, {"root": a}, {"path": "d.json", "key": "items"})["count"] == 3
+       and sq._code_count_json([1, 2], {}, {})["count"] == 2
+       and sq._code_count_json(None, {"root": a}, {"path": "../d.json"})["count"] is None,
+       "count_json: counts in code; a path outside the project is refused")
+    ok(set(sq.CODE_STEPS) >= {"run_suites", "diff_stats", "dedupe_findings", "count_json", "validate_json"}, "CODE_STEPS has the lead's steps")
+    # 3. tiers by job; a model the person set wins
+    shipped = [n for n in sq.list_agents() if not n.startswith("learned-") and ":" not in n]
+    wrong = [(n, sq.load_agent(n)["model"], rp.agent_tier(n)) for n in shipped if sq.load_agent(n)["model"] != rp.agent_tier(n)]
+    ok(shipped and not wrong, "tiers: every shipped agent's model matches its job (mechanical router, build worker, design/verify heavy)", wrong)
+
+    class _E:
+        cfg = {"roles": {"evaluator": "mine:7b"}}
+
+        def tier_model(self, t):
+            return "tier-" + t
+    E = _E()
+    ok(sq.local_model(E, sq.load_agent("verifier")) == "mine:7b", "tiers: a model the person assigned to the role beats the tier default")
+    ok(sq.local_model(E, dict(sq.load_agent("verifier"), model="qwen3:8b")) == "qwen3:8b", "tiers: an explicit model id is kept")
+    # 4. owned files + adversarial verify
+    bad = {}
+    for n in sq.list_workflows():
+        pr = sq.shape_problems(sq.load_workflow(n))
+        if pr:
+            bad[n] = pr
+    ok(not bad, "shape: every shipped workflow that can write ends with read-only verifiers", bad)
+    ok(sq.shape_problems({"name": "x", "phases": [{"title": "B", "agent": "coder", "owns": "a.py"}]}) != [], "shape: a writer as the last phase is flagged")
+    ok(sq.shape_problems({"name": "x", "phases": [{"title": "B", "agent": "coder", "owns": "a.py"}, {"title": "V", "agent": "verifier"}]}) == [],
+       "shape: writer then verifier is fine")
+    try:
+        sq.Crew(proj, "g", cfg=cfg, data_dir=dd, say=sq._quiet).parallel([
+            {"agent": "coder", "task": "t", "owns": "a.py"}, {"agent": "coder", "task": "t", "owns": "a.py"}])
+        ok(False, "ownership clash refused before running")
+    except sq.OwnershipClash:
+        ok(True, "ownership clash refused before running")
+    # 5. fresh context per task
+    m1 = "MARKER-RUN-ONE-7391"
+    c1 = sq.Crew(proj, "g", cfg=cfg, data_dir=dd, say=sq._quiet)
+    c1.agent("verifier", "verify " + m1, context={"verdict": "pass", "evidence": m1})
+    c1.close()
+    c2 = sq.Crew(proj, "g", cfg=cfg, data_dir=dd, say=sq._quiet)
+    c2.agent("verifier", "verify again")
+    c2.agent("auditor", "audit", context={"summary": "x"})
+    c2.close()
+    ok(c1.run_id != c2.run_id and all(m1 not in (r.get("brief") or "") for r in c2.records),
+       "fresh: a second run's briefs hold nothing of the first run")
+    ok("context_chars" not in c2.records[1], "fresh: an agent with context: fresh is shown no previous result")
+    d_ = sq.load_agent("summarizer")
+    ok(rp.context_chars("summarizer") == 8192 and sq.context_cap({}, d_) == min(d_["context"]["max_chars"], 8192)
+       and sq.context_cap({"squad": {"role_context": "off"}}, d_) == d_["context"]["max_chars"],
+       "context budget: capped to half the role's window; squad.role_context = off lifts it")
+    ok(rp.context_chars("router") == 4096 and rp.context_chars("generator") is None
+       and rp.context_chars("x", {"role_profiles": {"x": {"ctx_max": 1000}}}) == 2000,
+       "context budget: router 4096 chars, no window = no cap, the person's profile wins")
+    # 6. lessons
+    ls = arch_lessons.load()
+    ids = {x["id"] for x in ls}
+    ok(len(ls) >= 14 and {"wiring", "repair_focus", "contract_first", "edge_cases"} <= ids, f"lessons: {len(ls)} entries incl. the curriculum tags")
+    ok(not arch_lessons.check(ls), "lessons: every enforced_by / checked_by target exists", arch_lessons.check(ls))
+    broken = [dict(ls[0], enforced_by=["py:arch_squad.no_such_thing"], id="b1"), dict(ls[0], id="b2", status="done"), {"id": "b3"}]
+    ok(len(arch_lessons.check(broken)) >= 3 and "| id |" in arch_lessons.table(ls),
+       "lessons: a missing target, bad status or missing field is reported; the table prints")
+    doc = open(os.path.join(HERE, "docs", "PRINCIPLES.md"), encoding="utf-8").read()
+    ok(all(f"| {i} |" in doc for i in ids), "docs/PRINCIPLES.md lists every lesson")
+
+
+def harness_checks(sq, proj, dd, cfg, tmp):
+    """Claude-Code parity: the .md agent format, the Workflow tool's primitives, the local profiles."""
+    fold = os.path.join(tmp, "mdagents")
+    os.makedirs(fold)
+
+    def put(name, text):
+        with open(os.path.join(fold, name), "w", encoding="utf-8") as f:
+            f.write(text)
+    put("cc-style.md", "---\nname: cc-style\ndescription: Use when you need a read-only look at the code\ntools: Read, Grep, Glob\nmodel: inherit\n"
+                       "effort: low\ncolor: blue\n---\nYou are a careful reader. Never edit.\n")
+    d = sq.load_agent(os.path.join(fold, "cc-style.md"))
+    ok(d["model"] == "worker" and d["effort"] == "low" and d["writes"] is False and d["system"].strip().startswith("You are a careful"),
+       "md: Claude-style frontmatter loads (model inherit -> worker tier, body = system prompt)", d)
+    ok(d["tools"] == ["read", "view", "outline", "grep", "search", "ls"] and d["output"] == "text" and d["budget"]
+       and d["context"]["policy"] == "fresh", "md: Read/Grep/Glob map to local tools; defaults for output, budget, context", d["tools"])
+    put("cc-writer.md", "---\nname: cc-writer\ndescription: edits files\ntools: Read, Edit, Bash\nmodel: worker\n---\nYou edit what you own.\n")
+    w_ = sq.load_agent(os.path.join(fold, "cc-writer.md"))
+    ok(w_["writes"] is True and "apply" in w_["tools"] and "run_tests" in w_["tools"], "md: Edit/Bash imply writes and run_tests")
+    for bad_name, txt in (("m1", "model: claude:opus"), ("m2", "model: opus"), ("m3", "tools: Read, WebFetch"), ("m4", "effort: max"),
+                          ("m5", "tools: Read, Edit\nwrites: false")):
+        put(bad_name + ".md", f"---\nname: {bad_name}\ndescription: x\n{txt}\n---\nbody\n")
+        try:
+            sq.load_agent(os.path.join(fold, bad_name + ".md"))
+            ok(False, f"md refuses: {txt}")
+        except ValueError:
+            ok(True, f"md refuses: {txt}")
+    put("nofm.md", "no frontmatter here\n")
+    try:
+        sq.load_agent(os.path.join(fold, "nofm.md"))
+        ok(False, "md without frontmatter is refused")
+    except ValueError:
+        ok(True, "md without frontmatter is refused")
+    put("dup.md", "---\nname: dup\ndescription: from md\ntools: Read\n---\nmd body\n")
+    put("dup.yaml", "name: dup\ndescription: from yaml\nmodel: worker\nsystem: y\ntask: t\ntools: [read]\nbudget: {calls: 3}\n")
+    lst = sq.list_agents(folder=fold)
+    ok(lst["dup"]["description"] == "from md" and [k for k in lst if k == "dup"] == ["dup"], "a .md and a .yaml of one name register once (md wins)")
+    ok(not [f for f in os.listdir(sq.AGENTS_DIR) if f.endswith(".yaml")], "the shipped agents are all .md")
+    shipped = [x for x in sq.list_agents().values() if "problems" not in x]
+    ok(all(sq._plain(sq._norm(sq.parse_agent_md(sq.dump_md(x)))) == sq._plain(x) for x in shipped),
+       "every shipped agent survives dump_md -> parse_agent_md unchanged")
+    sq.save_agent("saved-md", dict(sq._plain(sq.load_agent("reviewer")), name="saved-md"), folder=fold, fmt="md")
+    ok(sq.load_agent(os.path.join(fold, "saved-md.md"))["name"] == "saved-md", "save_agent(fmt='md') writes a loadable .md")
+
+    want = ["planner", "architect", "spec-writer", "interface-designer", "coder", "test-author", "debugger", "refactorer", "reviewer",
+            "security-reviewer", "perf-tuner", "ui-builder", "ux-reviewer", "docs-writer", "explainer", "summarizer", "router",
+            "data-engineer", "sql-author", "release-manager", "incident-responder", "dependency-auditor", "migration-planner",
+            "harness-engineer", "app-scaffolder"]
+    allag = sq.list_agents()
+    ok(set(want) <= set(allag) and all("problems" not in allag[n] for n in want), "all 25 profiles exist and validate",
+       [n for n in want if n not in allag or "problems" in allag[n]])
+    ok(all((allag[n]["model"] in sq.TIERS or ":" in allag[n]["model"]) and not allag[n]["model"].startswith("claude:") for n in want),
+       "every profile runs on a local tier or model")
+    ok(all(len(allag[n]["description"]) > 30 and len(allag[n]["system"]) > 80 for n in want), "every profile has a when-to-use and a prompt")
+    writers = {n for n in want if allag[n]["writes"]}
+    ok(writers == {"coder", "test-author", "refactorer", "docs-writer", "ui-builder", "data-engineer", "sql-author", "harness-engineer",
+                   "app-scaffolder"}, "exactly the building profiles write; the rest are read-only", sorted(writers))
+    ok(all(not any(sq._tools()[t]["writes"] for t in allag[n]["tools"]) for n in want if n not in writers), "read-only profiles carry no write tool")
+
+    def crew(**kw):
+        return sq.Crew(proj, "g", cfg=cfg, data_dir=dd, **kw)
+    c = crew(slots=4, workflow="sem")
+    t0 = time.time()
+    res = c.parallel([lambda: (time.sleep(0.3), "slow")[1], lambda: "fast", lambda: 1 / 0])
+    ok(res == ["slow", "fast", None] and time.time() - t0 >= 0.29, "parallel: a barrier (returns after the slowest), a throwing thunk is None", res)
+    seen = []
+
+    def s1(p, i):
+        if i == "bad":
+            raise ValueError("x")
+        return p + "1"
+    out = c.pipeline(["a", "bad", "c"], s1, lambda p, i: seen.append(i) or p + "2")
+    ok(out == ["a12", None, "c12"] and "bad" not in seen, "pipeline: a throwing stage drops that item, the others finish", out)
+    with c.phase("Outer"):
+        c.agent("auditor", "in outer")
+    c.agent("auditor", "after")
+    ok(c.records[-2]["phase"] == "Outer" and c.records[-1]["phase"] is None, "phase(): groups agents, restored on exit",
+       [r["phase"] for r in c.records])
+    c.log("narrator line")
+    sq._CURRENT[0] = c
+    sq.log("module level")
+    jl = [json.loads(x) for x in open(os.path.join(c.dir, "journal.jsonl"), encoding="utf-8")]
+    ok([e["text"] for e in jl if e["type"] == "log"] == ["narrator line", "module level"], "log(): narrator lines in the journal")
+    b = sq.Budget({"calls": 2, "tokens": 100})
+    ok(b.total == {"calls": 2, "tokens": 100} and b.status()["total"] == b.total and b.remaining()["calls"] == 2 and not b.exhausted(),
+       "budget: total / spent / remaining")
+    b.charge(calls=2)
+    ok(b.exhausted() and b.status()["spent"]["calls"] == 2 and b.remaining()["calls"] == 0, "budget: exhausted after the charge")
+    cb = crew(slots=1, workflow="semb", budget={"calls": 1})
+    sq._CURRENT[0] = cb
+    ok(sq.budget() is cb.budget, "budget(): the current run's object")
+    outs = cb.parallel([{"agent": "auditor", "task": f"look {i}", "label": f"b{i}"} for i in range(3)])
+    ok(outs == [None, None, None] and sum(1 for r in cb.records if r["verdict"] == "budget") >= 2 and cb.budget_hit,
+       "budget: with one slot, agents queued behind a spent budget refuse", [r["verdict"] for r in cb.records])
+    try:
+        cb.agent("auditor", "again")
+        ok(False, "budget: an exhausted run refuses a new agent")
+    except sq.CrewBudgetExhausted:
+        ok(True, "budget: an exhausted run refuses a new agent")
+    r1 = crew(workflow="semr", use_cache=False)
+    v1 = r1.agent("auditor", "same prompt")
+    r2 = sq.Crew(proj, "g", cfg=cfg, data_dir=dd, workflow="semr", use_cache=False, resume_from=r1.run_id)
+    v2 = r2.agent("auditor", "same prompt")
+    v3 = r2.agent("auditor", "other prompt")
+    ok(v1 == v2 and r2.records[0].get("replayed") and r2.records[0]["totals"]["calls"] == 0, "resume: same prompt+opts replays instantly, 0 calls")
+    ok(not r2.records[1].get("replayed") and r2.records[1]["totals"]["calls"] > 0 and v3 is not None, "resume: a changed prompt runs again")
+
+    wfs = sq.list_workflows()
+    ok(all(not wfs[k].get("problems") for k in ("harness_change", "app_start")), "harness_change and app_start validate")
+    for name in ("harness_change", "app_start"):
+        v, cw = sq.run_workflow(name, proj, "add a mul(a, b) function to app.py", vars={"owns": "app.py"}, cfg=cfg, data_dir=dd, slots=2)
+        ok(v == "pass", f"fake end-to-end: {name} -> {v}", [(r["label"], r["verdict"], r["why"]) for r in cw.records if r["verdict"] != "ok"])
+
+
 def run():
     N[0] = N[1] = 0
     tmp = tempfile.mkdtemp(prefix="squad_st_")
@@ -413,6 +651,9 @@ def run():
 
         # ---- resume, step cache, workflow budget, log lines, inputs/returns, plugin dirs
         resume_checks(sq, orch, core, proj, dd, cfg, tmp)
+
+        harness_checks(sq, proj, dd, cfg, tmp)
+        principles_checks(sq, proj, dd, cfg, tmp)
 
         # ---- the CLI
         import architect

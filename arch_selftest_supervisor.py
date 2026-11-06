@@ -147,6 +147,41 @@ def run():
               sv.verdict_of(rd) == ("not_sure", "no test command", "bugfix"), sv.verdict_of(rd))
         check("a run that left no record says so instead of guessing", sv.verdict_of(None)[0] == "")
         check("the newest run since a task started is the one that is read", sv._newest_run(proj, 0) == rd)
+
+        # ---- a CPU-only task runs alongside a GPU task; never two GPU tasks
+        import threading
+        import time as _t
+        sv.clear(("done", "cancelled", "dead"))
+        for s_ in ("pending", "running", "failed", "not_sure"):
+            for r_ in sv.listing([s_]):
+                sv._finish(r_["id"], "done")
+        g1, g2 = sv.add("gpu one", proj, "build", max_attempts=1), sv.add("gpu two", proj, "build", max_attempts=1)
+        c1, c2 = sv.add("index it", proj, "index"), sv.add("scan it", proj, "scan")
+        check("a task's resource comes from its flow", sv.get(g1)["needs"] == "gpu" and sv.get(c1)["needs"] == "cpu")
+        check("claiming by resource never hands out the other kind", sv.claim("cpu")["id"] == c1 and sv.claim("gpu")["id"] == g1)
+        sv._finish(c1, "done")
+        sv._finish(g1, "done")
+        live, peak, kinds_at_once, mu = {"gpu": 0, "cpu": 0}, {"gpu": 0}, [0], threading.Lock()
+
+        def slow(job, say):
+            k = job["needs"]
+            with mu:
+                live[k] += 1
+                peak["gpu"] = max(peak["gpu"], live["gpu"])
+                if live["gpu"] and live["cpu"]:
+                    kinds_at_once[0] += 1
+            _t.sleep(0.4)
+            with mu:
+                live[k] -= 1
+            return {"verdict": "pass", "why": "", "run_id": "", "flow": job["flow"], "code": 0}
+        t0 = _t.time()
+        out = sv.supervise(hours=1, max_tasks=10, say=quiet, runner=slow, cfg=cfg)
+        wall = _t.time() - t0
+        ran = sorted(d["id"] for d in out["ran"])
+        check("both lanes ran every waiting task", ran == sorted([g2, c2]), ran)
+        check("the CPU-only task ran while the GPU task did", kinds_at_once[0] >= 1 and wall < 0.75, (kinds_at_once, wall))
+        check("never more than one GPU task at a time", peak["gpu"] <= 1, peak)
+        check("with only one kind waiting it is the plain sequential queue", not sv._both_kinds_waiting())
     finally:
         try:
             sv.stop(False)

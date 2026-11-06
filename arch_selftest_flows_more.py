@@ -107,6 +107,7 @@ def run():
         _settings_are_real(check, home)
         _interface_contract(check, home)
         _live_failure_fixes(check, home)
+        _leftovers(check, home)
 
         # ---- every new flow exists, validates and has a gate pair registered
         for fid in ("harden", "types", "a11y", "document", "migrate", "deps"):
@@ -171,6 +172,134 @@ def run():
     return 0 if n == len(results) else 1
 
 
+def _leftovers(check, home):
+    """plan_override, call sections, recipe id, overlapped checks, template contract merge."""
+    import json
+    import arch_core as core
+    import arch_flows as F
+    proj = tempfile.mkdtemp(prefix="arch_lo_")
+    try:
+        e = core.Engine(proj, "build", "g", review="auto", say=lambda *a, **k: None)
+        e.todo_set([{"id": "a", "title": "A"}, {"id": "b", "title": "B"}])
+        check("no plan_override.json: nothing skipped, nothing added", e.plan_override() == {"skipped": set(), "added": []})
+        with open(os.path.join(e.run_dir, "plan_override.json"), "w", encoding="utf-8") as f:
+            json.dump({"items": [{"id": "a", "status": "pending"}, {"id": "b", "status": "skipped"}, {"id": "c", "title": "New", "status": "pending"}]}, f)
+        o = e.plan_override()
+        st = {it["id"]: it["status"] for it in e.state["todo"]}
+        check("plan_override skips the skipped item and appends the added one", o["skipped"] == {"b"} and o["added"] == ["c"] and st == {"a": "pending", "b": "skipped", "c": "pending"}, (o, st))
+        check("plan_override is idempotent (nothing added twice)", e.plan_override()["added"] == [] and len(e.state["todo"]) == 3)
+        with open(os.path.join(e.run_dir, "plan_override.json"), "w") as f:
+            f.write("{bad")
+        check("a broken plan_override.json is ignored", e.plan_override()["skipped"] == set())
+
+        sec = e._ctx_sections([{"role": "system", "content": "x" * 400}, {"role": "user", "content": "=== app.py ===\n" + "y" * 800 + "\n## Memory\n" + "m" * 400 + "\nfix it"}], 4.0)
+        check("call sections: system/project_files/memory/conversation in tokens, labelled est",
+              sec and sec["est"] and 95 <= sec["system_prompt"] <= 110 and sec["project_files"] >= 200 and sec["memory"] >= 100 and set(sec) >= {"skills", "tools", "conversation"}, sec)
+
+        e.state["recipe"] = None
+        F.core = core
+        # recipe id reaches run.json and the verdict record
+        class Fl:
+            id, steps = "x", None
+            def run(self, e_, p):
+                return {"ok": True}
+        F.FLOWS["_lo"] = Fl()
+        try:
+            F.run_flow(e, "_lo", {"recipe": "fix-bug"})
+        finally:
+            F.FLOWS.pop("_lo", None)
+        tr = [json.loads(l) for l in open(os.path.join(e.run_dir, "trace.jsonl"), encoding="utf-8") if l.strip()]
+        vd = [r for r in tr if r.get("type") == "verdict"]
+        check("a recipe id is written to run.json and the verdict record", e.state.get("recipe") == "fix-bug" and vd and vd[-1].get("recipe") == "fix-bug", (e.state.get("recipe"), vd))
+
+        # overlapped checks: identical verdict and results
+        with open(os.path.join(proj, "m.py"), "w", encoding="utf-8") as f:
+            f.write("import nosuchmodule_xyz\n\n\ndef f():\n    pass\n")
+        e.changed_files = ["m.py"]
+        outs = []
+        for mode in ("on", "off"):
+            e.cfg["behavior"]["overlap_checks"] = mode
+            e._test_cache = {}
+            r = F.verify(e, ["m.py"], run_tests=True)
+            outs.append((r["ok"], r["text"], [(x["name"], x["ok"]) for x in r["results"]]))
+        check("verify gives identical verdicts with overlap_checks on and off", outs[0] == outs[1], outs)
+
+        # template contract merged into the interface contract
+        with open(os.path.join(proj, "CONTRACT.json"), "w", encoding="utf-8") as f:
+            json.dump({"modules": [{"module": "pkgx", "public": [{"name": "run_it", "kind": "function", "signature": "(a, b) -> int"}]}]}, f)
+        c = F.interface_contract("make it faster", proj)
+        c2 = F.interface_contract("Use `from pkgx import run_it`", proj)
+        check("CONTRACT.json joins the interface contract (request entries not repeated)",
+              ("pkgx", "run_it") in c["imports"] and c2["imports"].count(("pkgx", "run_it")) == 1 and F.interface_contract("make it faster")["imports"] == [], (c, c2))
+    finally:
+        shutil.rmtree(proj, ignore_errors=True)
+
+    _small_requests(check)
+    import arch_plugins
+    import arch_commands
+    d = tempfile.mkdtemp(prefix="arch_pl_")
+    try:
+        os.makedirs(os.path.join(d, "agents"))
+        with open(os.path.join(d, "agents", "scout.md"), "w", encoding="utf-8") as f:
+            f.write("---\nname: scout\ndescription: looks around\ntools: Read, Grep\n---\nYou read code and report.\n")
+        c = arch_plugins.contents(d)
+        check("a plugin's agents/*.md agent is validated and listed", "scout" in c["agents"] and not c["problems"], c)
+        r = arch_commands.parse("---\ndescription: d\nargs: [what to cover]\n---\nDo standup for {args}\n", "x/standup.md", "shipped")
+        r2 = arch_commands.parse("---\ndescription: d\nargs: a file\n---\nFix {args}\n", "x/fix.md", "shipped")
+        check("an args hint in [brackets] is optional; a plain one still needs args", r and not r["needs_args"] and r2 and r2["needs_args"])
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _small_requests(check):
+    """skip_planner_small, related-tests-first-then-full, same_failure_stop."""
+    import arch_core as core
+    import arch_flows as F
+    proj = tempfile.mkdtemp(prefix="arch_sm_")
+    try:
+        with open(os.path.join(proj, "app.py"), "w", encoding="utf-8") as f:
+            f.write("def f():\n    return 1\n")
+        e = core.Engine(proj, "build", "g", review="auto", say=lambda *a, **k: None, persist=False)
+        check("one existing file + a change: planner skipped", F.single_file_change(e, "fix the off by one in app.py") is True)
+        check("...a file that does not exist, two files, or no change asked: planner kept",
+              not F.single_file_change(e, "fix the bug in missing.py") and not F.single_file_change(e, "fix app.py and util.py")
+              and not F.single_file_change(e, "what is app.py") and not F.single_file_change(e, "build a new app, add app.py"))
+        e.cfg["behavior"]["skip_planner_small"] = "off"
+        check("skip_planner_small = off keeps the planner", not F.single_file_change(e, "fix the off by one in app.py"))
+
+        import arch_progress
+
+        class C:
+            fails = []
+        c = C()
+        e.cfg["behavior"]["same_failure_stop"] = 2
+        c.fails = [arch_progress.fp("E assert 1 == 2"), arch_progress.fp("E assert 1 == 2")]
+        check("same_failure_stop: the identical failure twice stops the loop", F.same_failure_stop(e, c) is True)
+        c.fails = [arch_progress.fp("E assert 1 == 2"), arch_progress.fp("NameError: x")]
+        check("...a different failure does not", F.same_failure_stop(e, c) is False)
+        e.cfg["behavior"]["same_failure_stop"] = 0
+        c.fails = [arch_progress.fp("a")] * 3
+        check("...and 0 turns it off", F.same_failure_stop(e, c) is False)
+
+        # related tests first, then the whole suite once before the verdict
+        os.makedirs(os.path.join(proj, "tests"), exist_ok=True)
+        with open(os.path.join(proj, "tests", "test_app.py"), "w", encoding="utf-8") as f:
+            f.write("from app import f\n\n\ndef test_f():\n    assert f() == 1\n")
+        e.cfg["behavior"]["fast_tests"] = "on"
+        e.changed_files = ["app.py"]
+        calls = []
+        real = core.run_tests
+        core.run_tests = lambda root, cfg, targets=None: (calls.append(targets), ("pass", ""))[1]
+        try:
+            e._test_cache = {}
+            F.verify(e, ["app.py"], run_tests=True)
+        finally:
+            core.run_tests = real
+        check("verify runs the related tests first, then the whole suite once", len(calls) == 2 and calls[0] and calls[1] is None, calls)
+    finally:
+        shutil.rmtree(proj, ignore_errors=True)
+
+
 def _interface_contract(check, home):
     """The two shapes of failure the live benchmark actually produced: a constructor missing an argument the request named, and a
     function the request imports from a package that never exported it."""
@@ -221,10 +350,15 @@ def _settings_are_real(check, home):
     base = {"summary": {"flows": {"build": {"pass_rate": 80.0, "tokens_p50": 1000, "secs_p95": 60}}}}
     cand = {"summary": {"flows": {"build": {"pass_rate": 77.0, "tokens_p50": 1000, "secs_p95": 60}}}}
     check("by default a 3-point drop is within the regression allowance", arch_eval.compare(base, cand)["ok"] is True)
-    mh.CONFIG_FILE = core.CONFIG_FILE
-    mh.write_config({"eval": {"pass_rate_drop": 2.0}})
-    check("setting the allowance to 2 points makes the same drop a regression", arch_eval.compare(base, cand)["ok"] is False)
-    mh.write_config({})
+    _real_home = core.HOME
+    core.set_home(os.path.join(home, "cfg_home"))          # NEVER the install's real settings: the earlier set_home was undone in the finally above
+    try:
+        mh.CONFIG_FILE = core.CONFIG_FILE
+        mh.write_config({"eval": {"pass_rate_drop": 2.0}})
+        check("setting the allowance to 2 points makes the same drop a regression", arch_eval.compare(base, cand)["ok"] is False)
+        mh.write_config({})
+    finally:
+        core.set_home(_real_home)
 
     root = os.path.join(home, "memproj")
     os.makedirs(root)

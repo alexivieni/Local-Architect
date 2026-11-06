@@ -156,6 +156,22 @@ def run():
               and todo6.get("a") == "done" and todo6.get("b") in ("done", "failed")
               and any(r.get("type") == "todo" for r in trace6), (st6, todo6))
 
+        # ---- plan override: the person skips a step / adds an item while the flow runs
+        trace7 = []
+        e7 = eng()
+        e7._trace = lambda rec: trace7.append(rec)
+        os.makedirs(e7.run_dir, exist_ok=True)
+        with open(os.path.join(e7.run_dir, "plan_override.json"), "w", encoding="utf-8") as f_:
+            json.dump({"items": [{"id": "a", "status": "skipped"}, {"id": "extra", "title": "Extra item", "status": "pending"}]}, f_)
+        f7 = df.DataFlow({"id": "t7", "title": "t", "steps": [{"id": "a", "kind": "code", "gate": "scope_files", "title": "Step A"},
+                                                             {"id": "b", "kind": "code", "gate": "scope_files", "title": "Step B"}],
+                          "verdict": {"pass_if": "b.ok"}})
+        f7.run(e7, {})
+        todo7 = {t["id"]: t["status"] for t in e7.state.get("todo") or []}
+        st7 = {r.get("step"): r for r in trace7 if r.get("type") == "step"}
+        check("plan override: a step the person skipped is not run, a step they left is, and an added item is marked, not left pending",
+              "a" not in st7 and todo7.get("a") == "skipped" and "kind" in st7.get("b", {}) and todo7.get("extra") == "skipped", (st7, todo7))
+
         # ---- foreach
         seen = []
         fe = df.DataFlow({"id": "t4", "title": "t", "steps": [{"id": "loop", "kind": "foreach", "over": "plan_doc", "key": "sprints",
@@ -295,6 +311,29 @@ def run():
         check("every tool call is traced with its arguments and result", [(t["tool"], t["ok"]) for t in recs if t["type"] == "tool"] == [("ls", True), ("read", True), ("read", True)], [t for t in recs if t["type"] == "tool"])
         check("the same call twice is answered with the same text plus a nudge to do something different, instead of looping",
               any("already made this exact call" in t["result"] for t in recs if t["type"] == "tool"), [t["result"][-60:] for t in recs if t["type"] == "tool"])
+
+        # ---- the role profile's tool allow-list is live in the tool loop; an empty list means NONE
+        def _loop_with(role, tools, script, allow_writes=True):
+            eng = core.Engine(tp, "explore", "q", core.deep_merge(core.load_config(tp), {"behavior": {"role_profiles": "on"}, "roles": {r_: "fake:7b" for r_ in arch_roles.ROLES}}), review="auto", say=quiet)
+            seen_schemas, queue = [], list(script)
+            eng.ask_json = lambda r, u, schema=None: (seen_schemas.append(schema) or ({"id": 0}, queue.pop(0) if queue else {"final": "done"}))
+            eng.mark = lambda *a, **k: None
+            fl = df.DataFlow({"id": "explore", "title": "t", "steps": [{"id": "look", "kind": "tool_loop", "role": role, "prompt": "explore",
+                                                                        "tools": tools, "allow_writes": allow_writes, "max_steps": 4, "store_text": "answer"}],
+                              "verdict": {"pass_if": "look.ok"}})
+            fl.run(eng, {})
+            return [json.loads(x) for x in open(os.path.join(eng.run_dir, "trace.jsonl"), encoding="utf-8") if '"tool"' in x], seen_schemas
+        tt, sch = _loop_with("architect", ["ls", "apply"], [{"tool": "apply", "args": {"blocks": "FILE: x.py"}}, {"final": "ok"}])
+        check("a tool the role profile does not allow is refused in the tool loop (and is not even offered in the schema)",
+              [(t["tool"], t["ok"]) for t in tt if t["type"] == "tool"] == [("apply", False)] and "apply" not in sch[0]["properties"]["tool"]["enum"], (tt, sch[:1]))
+        tt, sch = _loop_with("router", ["ls", "read"], [{"tool": "ls", "args": {}}, {"final": "ok"}])
+        check("an empty profile tool list means no tools: the call is refused and the schema holds only the final answer",
+              [(t["tool"], t["ok"]) for t in tt if t["type"] == "tool"] == [("ls", False)] and "tool" not in sch[0]["properties"], (tt, sch[:1]))
+
+        # ---- an absent value is safe to test membership on, to iterate and to measure (it used to loop forever)
+        check("'x' in <absent> is False at once, iterating it is empty, len is 0 (a `when: \"'document' in goal\"` with no goal must not hang)",
+              df.evaluate("'document' in goal", {}) is False and df.evaluate("len(goal)", {}) == 0 and df.evaluate("'a' not in nothing_here", {}) is True
+              and list(df.NOTHING) == [] and "x" not in df.NOTHING)
 
         # ---- registration honours the setting
         reg = {}

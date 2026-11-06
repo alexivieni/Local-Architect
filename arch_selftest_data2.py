@@ -297,6 +297,19 @@ def run():
                       {"template": "t2", "family": "f", "tags": ["training"]}, {"template": "t3", "family": "f", "tags": []}]
         check("template_overlap finds a template in both training and bench", ds.template_overlap(fake_tasks) == ["f:t1"], ds.template_overlap(fake_tasks))
         real_overlap = ds.template_overlap()
+        fam_tasks = []
+        for fname in ("distributed", "harness"):
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "evals", "families"))
+            try:
+                import importlib
+                fam_mod = importlib.import_module(fname)
+            finally:
+                sys.path.pop(0)
+            fam_tasks += [dict(t, family=fname) for t in fam_mod.all_tasks()]
+        fam_overlap = ds.template_overlap(fam_tasks)
+        check("distributed and harness hold out whole templates: zero template overlap between training and bench",
+              not fam_overlap and any("holdout" in t["tags"] for t in fam_tasks) and any("holdout" not in t["tags"] for t in fam_tasks), fam_overlap[:5])
+        check("the real task set reports no overlap for distributed/harness", not [k for k in real_overlap if k.startswith(("distributed:", "harness:"))], real_overlap[:5])
         print(f"  INFO  holdout-by-template on the real families: {len(real_overlap)} template(s) in both training and bench"
               + (": " + ", ".join(real_overlap[:20]) if real_overlap else ""))
 

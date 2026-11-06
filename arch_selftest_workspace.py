@@ -290,10 +290,11 @@ def main():
 
     # ---- the page
     html = open(os.path.join(HERE, "hub_ui.html"), encoding="utf-8").read()
-    tabs = re.search(r"const TABS=\[(.*?)\];", html, re.S).group(1)
+    import arch_uireg
+    reg = arch_uireg.load(os.path.join(HERE, "hub_ui.html"))
     for pid in ("fleet", "monitor", "map", "library", "logbook"):
         check(f"the {pid} page sits in exactly one of the four places and has a nav entry and a name",
-              len(re.findall(r'"%s"' % pid, tabs)) == 1 and re.search(r'\["%s","[^"]*","[^"]*","[^"]*"\]' % pid, html) and re.search(r"\b%s:\"" % pid, html))
+              sum(p["pages"].count(pid) for p in reg["places"]) == 1 and pid in reg["page_ids"] and re.search(r"\b%s:\"" % pid, html))
     blocks = re.findall(r"<script>(.*?)</script>", html, re.S)
     ws = next((b for b in blocks if "function fleetPage()" in b), "")
     check("the workspace lives in its own script block, after the main one", ws and blocks.index(ws) > 0 and "function render()" not in ws)

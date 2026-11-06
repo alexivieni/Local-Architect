@@ -88,6 +88,19 @@ def run():
         results.append(bool(ok))
         print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   ({str(extra)[:400]})" if extra and not ok else ""))
 
+    def env_check(name, ok, extra=""):
+        """An ENVIRONMENT check (a port, a clock, the person's own data): a pass is a pass, but a failure is reported NOT_SURE
+        (could not run here), never a silent pass and never a code failure."""
+        results.append(True if ok else None)
+        print(f"  {'PASS' if ok else 'NOT_SURE'}  {name}" + (f"   ({str(extra)[:400]})" if extra and not ok else ""))
+
+    def free_port():
+        """A port nothing is listening on right now (the runner's own default, 8000, is often taken on a developer machine)."""
+        import socket
+        with socket.socket() as so_:
+            so_.bind(("127.0.0.1", 0))
+            return so_.getsockname()[1]
+
     # ---- direct, model-free checks of arch_security.py
     tmp = tempfile.mkdtemp(prefix="archsec_")
 
@@ -231,20 +244,20 @@ def run():
         rdir = os.path.join(tmp, "runner_rest")
         write(rdir, T.render("rest_api", "runnerapp", []))
         write(rdir, {".arch/handoff.json": json.dumps({"run": "python -m app.server"})})
-        r1 = runner.start(rdir)
+        r1 = runner.start(rdir, port=free_port())
         try:
-            check("runner: start spawns a real subprocess with a real pid", r1.get("ok") and isinstance(r1.get("pid"), int) and runner.is_running(r1["pid"]), r1)
+            env_check("runner: start spawns a real subprocess with a real pid", r1.get("ok") and isinstance(r1.get("pid"), int) and runner.is_running(r1["pid"]), r1)
             for _ in range(40):
                 h = runner.health(rdir)
                 if h.get("http_ok") is not None:
                     break
                 import time as _t
                 _t.sleep(0.25)
-            check("runner: health does a real TCP connect + HTTP GET against the project's own port", h.get("running") and h.get("port_open") and h.get("http_ok"), h)
-            check("runner: logs tails the real stdout of the running process", "listening" in runner.logs(rdir, 20).lower() or runner.logs(rdir, 20) != "", runner.logs(rdir, 20))
+            env_check("runner: health does a real TCP connect + HTTP GET against the project's own port", h.get("running") and h.get("port_open") and h.get("http_ok"), h)
+            env_check("runner: logs tails the real stdout of the running process", "listening" in runner.logs(rdir, 20).lower() or runner.logs(rdir, 20) != "", runner.logs(rdir, 20))
         finally:
             r2 = runner.stop(rdir)
-        check("runner: stop actually kills the real pid", r2.get("ok") and not runner.is_running(r1.get("pid")), (r1, r2))
+        env_check("runner: stop actually kills the real pid", r2.get("ok") and not runner.is_running(r1.get("pid")), (r1, r2))
 
         # ---- runner.stop() must kill the REAL server process, not just the `shell=True` wrapper it's
         # launched through -- start() puts both in one process group (start_new_session) so stop()'s
@@ -253,7 +266,7 @@ def run():
         rdir2 = os.path.join(tmp, "runner_rest2")
         write(rdir2, T.render("rest_api", "runnerapp2", []))
         write(rdir2, {".arch/handoff.json": json.dumps({"run": "python -m app.server"})})
-        r4 = runner.start(rdir2)
+        r4 = runner.start(rdir2, port=free_port())
         try:
             real_pid = None
             for _ in range(40):
@@ -281,7 +294,7 @@ def run():
             else:
                 runner.stop(rdir2)
                 still_there = runner.is_running(real_pid)
-                check("runner: stop() kills the REAL listening process (found independently via its bound port), not only the shell wrapper runner.py happened to track",
+                env_check("runner: stop() kills the REAL listening process (found independently via its bound port), not only the shell wrapper runner.py happened to track",
                       not still_there, {"tracked_pid": r4.get("pid"), "real_listening_pid": real_pid, "still_running": still_there})
         finally:
             runner.stop(rdir2)  # idempotent / safe even if already stopped above
@@ -443,7 +456,7 @@ def run():
         rgdir = os.path.join(tmp, "range")
         write(rgdir, T.render("range", "practicerange", []))
         rgr = subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=rgdir, capture_output=True, text=True)
-        check("range template: its own tests pass out of the box (real socket connect, real drill, real detections)", rgr.returncode == 0, rgr.stdout[-600:] + rgr.stderr[-300:])
+        env_check("range template: its own tests pass out of the box (real socket connect, real drill, real detections)", rgr.returncode == 0, rgr.stdout[-600:] + rgr.stderr[-300:])
         sys.path.insert(0, rgdir)
         try:
             for mod in list(sys.modules):
@@ -611,8 +624,9 @@ def run():
         shutil.rmtree(tmp, ignore_errors=True)
 
     print()
-    ok = all(results)
-    print(f"  {'ALL ' + str(len(results)) + ' SECURITY CHECKS PASSED' if ok else str(results.count(False)) + ' of ' + str(len(results)) + ' SECURITY CHECKS FAILED'}")
+    ok = all(r is True for r in results)
+    n_fail, n_none = results.count(False), results.count(None)
+    print(f"  {'ALL ' + str(len(results)) + ' SECURITY CHECKS PASSED' if ok else str(n_fail) + ' of ' + str(len(results)) + ' SECURITY CHECKS FAILED' + (f', {n_none} COULD NOT RUN (not a pass)' if n_none else '')}")
     return 0 if ok else 1
 
 

@@ -20,7 +20,7 @@ def run():
     stopped, calls = [], []
     try:
         s.load_state = lambda: {"processes": {"worker": {"url": "http://127.0.0.1:1", "name": "w"}, "router": {"url": "http://127.0.0.1:2", "name": "r"}}}
-        s.stop = lambda tiers=None, say=None: stopped.extend(tiers or [])
+        s.stop = lambda tiers=None, say=None, **kw: stopped.extend(tiers or [])
         busy = {"http://127.0.0.1:1/slots-busy": False, "http://127.0.0.1:2/slots-busy": True}
 
         def http(url, data=None):

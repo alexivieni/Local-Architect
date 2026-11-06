@@ -125,6 +125,52 @@ def run():
             check("a bad profile value is refused", False)
         except ValueError:
             check("a bad profile value is refused", True)
+        # --- tune-role (fake) through the CLI, apply-best needs --yes and is undoable
+        import subprocess
+        envx = dict(os.environ, ARCHITECT_DATA_DIR=os.environ["ARCHITECT_DATA_DIR"], ARCHITECT_NO_CACHE="1")
+        here = os.path.dirname(os.path.abspath(__file__))
+        mh.write_config({})
+        r1 = subprocess.run([sys.executable, os.path.join(here, "architect.py"), "tune-role", "debugger", "--try", "temperature=0,0.3", "--try", "thinking=on,off", "--n", "4", "--fake", "--json"],
+                            capture_output=True, text=True, env=envx, timeout=120)
+        try:
+            j1 = json.loads(r1.stdout)
+        except ValueError:
+            j1 = {}
+        check("architect.py tune-role --fake runs 4 variants and names a best", r1.returncode == 0 and len(j1.get("rows", [])) == 4 and j1.get("best") and not j1.get("applied"), r1.stdout[-300:] + r1.stderr[-300:])
+        check("tune-role without --yes writes nothing", "debugger" not in (mh.read_config().get("role_profiles") or {}))
+        r2 = subprocess.run([sys.executable, os.path.join(here, "architect.py"), "tune-role", "debugger", "--try", "temperature=0,0.3", "--fake", "--apply-best", "--yes", "--json"],
+                            capture_output=True, text=True, env=envx, timeout=120)
+        check("tune-role --apply-best --yes writes the winner to the role profile", r2.returncode == 0 and "temperature" in (mh.read_config().get("role_profiles") or {}).get("debugger", {}), r2.stdout[-200:])
+        rp.undo()
+        check("...and role-profile undo removes it", "debugger" not in (mh.read_config().get("role_profiles") or {}))
+        check("tune-role refuses an unknown role and a key it cannot vary",
+              subprocess.run([sys.executable, os.path.join(here, "architect.py"), "tune-role", "nope", "--try", "temperature=0", "--fake"], capture_output=True, text=True, env=envx, timeout=60).returncode == 2
+              and subprocess.run([sys.executable, os.path.join(here, "architect.py"), "tune-role", "debugger", "--try", "tools=ls", "--fake"], capture_output=True, text=True, env=envx, timeout=60).returncode == 2)
+        # --- specialist roles are whole: role entry, tier, fallback, job, shipped profile, prior
+        spec = ["spec_writer", "interface_designer", "test_author", "debugger", "refactorer", "perf_tuner", "migration_planner", "dependency_auditor",
+                "ui_builder", "ux_reviewer", "data_engineer", "sql_author", "release_manager", "incident_responder", "explainer", "summarizer"]
+        import arch_jobs
+        check("the 16 specialist roles are complete (ROLES, tier, FALLBACK, job, shipped profile, prior score)",
+              all(r in arch_roles.ROLES and arch_roles.ROLES[r]["group"] in ("Core", "Builders", "Quality", "Security", "Infra") and arch_roles.ROLES[r]["tier"] == "worker"
+                  and r in arch_roles.FALLBACK and arch_jobs.job_of(r) and r in rp.shipped()
+                  and 0 < arch_roles._prior(r, {"name": "x:8b", "know": {"kind": "coder"}}) < 100 for r in spec))
+        check("every fallback names a real role", all(f in arch_roles.ROLES for v in arch_roles.FALLBACK.values() for f in v))
+        check("every shipped profile validates", all(rp.validate_profile({k: v for k, v in pr.items()}) is not None for pr in rp.shipped().values()))
+        # --- recommend
+        flows = ("build", "bugfix", "feature", "refactor", "test", "review", "secure", "optimize", "hunt", "design", "docs")
+        recs = [rp.recommend(f) for f in flows]
+        check("recommend: every flow has ordered steps with role, tier, thinking, reason and an evidence tag",
+              all(r["steps"] and all(st["role"] in arch_roles.ROLES and st["evidence"] in rp.EVIDENCE and st["reason"] and st["thinking"] in ("on", "off")
+                                     and st["tier"] in ("router", "worker", "heavy") and arch_jobs.job_of(st["role"]) == st["job"] for st in r["steps"]) for r in recs))
+        check("recommend: thinking on for plan/review, off for edits (build)", {st["role"]: st["thinking"] for st in rp.recommend("build")["steps"]}
+              == {"planner": "on", "interface_designer": "on", "generator": "off", "tester": "off", "reviewer": "on"})
+        try:
+            rp.recommend("nope")
+            check("recommend: unknown flow raises", False)
+        except KeyError:
+            check("recommend: unknown flow raises", True)
+        r3 = subprocess.run([sys.executable, os.path.join(here, "architect.py"), "recommend", "bugfix"], capture_output=True, text=True, env=envx, timeout=60)
+        check("architect.py recommend FLOW prints the steps with evidence tags", r3.returncode == 0 and "debugger" in r3.stdout and "[measured-here]" in r3.stdout, r3.stdout[-200:])
     finally:
         core.stream_chat = real_sc
         core.set_home(old_home)

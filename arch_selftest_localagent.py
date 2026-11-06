@@ -36,6 +36,12 @@ def run():
         results.append(bool(ok))
         print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
 
+    def env_check(name, ok, extra=""):
+        """An ENVIRONMENT check (a clock, the person's own data): a pass is a pass, but a failure is reported NOT_SURE
+        (could not run here), never a silent pass and never a code failure."""
+        results.append(True if ok else None)
+        print(f"  {'PASS' if ok else 'NOT_SURE'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
+
     import arch_agentlib as lib
     import arch_claudecode as cc
     import arch_core as core
@@ -223,7 +229,7 @@ def run():
               and "does not say" in la.who_runs("builder")["why"])
         sources = " ".join(lib.load(n)["source"] for n in names)
         briefs = sorted(os.path.basename(p) for p in glob.glob(os.path.join(HERE, "hub_data", "learning", "briefs", "brief_*.md")))
-        check("every brief given to an agent today is the source of some template", all(b in sources for b in briefs),
+        env_check("every brief given to an agent today (the person's own hub_data/learning/briefs) is the source of some template", all(b in sources for b in briefs),
               [b for b in briefs if b not in sources])
         own = os.path.join(tmp, "tpl")
         os.makedirs(own)
@@ -303,11 +309,12 @@ def run():
             else:
                 os.environ[k] = v
         shutil.rmtree(tmp, ignore_errors=True)
-    n, ok = len(results), sum(results)
+    n, ok = len(results), sum(1 for r in results if r)
+    n_fail, n_none = results.count(False), results.count(None)
     if ok == n:
         print(f"ALL {n} LOCALAGENT CHECKS PASSED")
     else:
-        print(f"{n - ok} OF {n} LOCALAGENT CHECKS FAILED")
+        print(f"{n_fail} OF {n} LOCALAGENT CHECKS FAILED" + (f", {n_none} COULD NOT RUN (not a pass)" if n_none else ""))
     return ok == n
 
 

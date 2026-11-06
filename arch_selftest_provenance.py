@@ -372,7 +372,7 @@ def run():
             en.call("reviewer", f"slot question for {goal}")
             en.finish(True)
             return [s for s in slots if s[0] == "save"]
-        arch_server.slot_io = lambda action, cfg_, project, tier="worker": slots.append((action, project)) or True
+        arch_server.slot_io = lambda action, cfg_, project, tier="worker", **kw: slots.append((action, project)) or True
         try:
             os.environ["ARCHITECT_EVAL"] = "1"
             in_eval = one_run("an eval task")

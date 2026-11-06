@@ -101,6 +101,62 @@ def run():
         lg = sw.lint(e=E(good, server_plan=sp_ok))
         check("lint: a clean config gives no errors", not [x for x in lg if x["level"] == "error"], lg)
 
+        # ---- cache / load lint checks
+        cc = {x["rule"]: x for x in sw.cache_checks(e=E())}
+        check("cache_checks: one row per cache/load feature, each with why, evidence tier, verify and fix",
+              set(cc) == set(sw.CACHE_RULES) and all(x["why"] and x["evidence"][:3] in ("[M]", "[B]", "[E]", "[C]") and x["verify"] and x["fix"] and x["state"] in ("on", "off") for x in cc.values()), sorted(cc))
+        check("cache_checks: every row says whether the feature is on", all(("ON" in x["msg"]) == (x["state"] == "on") for x in cc.values()))
+        check("cache_checks: defaults (cache_reuse 256, stable_context, tool_cache) are on; prewarm is opt-in/off",
+              cc["cache_reuse"]["state"] == "on" and cc["cache_stable_context"]["state"] == "on" and cc["cache_tool_cache"]["state"] == "on" and cc["cache_prewarm"]["state"] == "off")
+        check("cache_checks: verify names the verify_machine --gpu step for server features", "verify_machine.py --gpu" in cc["cache_reuse"]["verify"])
+        bad = dict(cfg, server=dict(cfg["server"], cache_reuse=0, slot_persist="off", mlock="off", ollama_keep_alive="30m", ubatch=32, heavy_beside="off"),
+                   behavior={"stable_context": False, "tool_cache": "off"}, squad={"digest": "off"})
+        cb = {x["rule"]: x for x in sw.cache_checks(e=E(bad))}
+        check("cache_checks: turned-off features are reported off",
+              all(cb[r]["state"] == "off" for r in ("cache_reuse", "cache_slot_persist", "load_mode", "cache_ollama_keep_alive", "cache_batch", "cache_heavy_beside",
+                                                    "cache_stable_context", "cache_tool_cache", "cache_squad_prefix")), {r: x["state"] for r, x in cb.items()})
+        lb = sw.lint(e=E(bad))
+        check("lint: includes the off cache features with evidence and verify", any(x["rule"] == "cache_reuse" and x["evidence"] and x["verify"] for x in lb))
+        check("lint: no cache finding for a feature that is on", not any(x["rule"] == "cache_tool_cache" for x in lf))
+        check("lint_text prints evidence and verify", "verify:" in sw.lint_text(lb))
+        check("lint(cache=False) keeps the old findings only", not any(x["rule"].startswith("cache_") for x in sw.lint(e=E(bad), cache=False)))
+
+        # ---- per-call swap
+        wfs = {"w.yaml": {"phases": [{"agent": "planner"}, {"agent": "coder"}, {"panel": "verifier", "n": 3}, {"parallel": [{"agent": "auditor"}, {"agent": "auditor"}]}]}}
+        check("agent_runs: counts phases, parallel lists and panels", sw.agent_runs(wfs["w.yaml"]) == {"planner": 1, "coder": 1, "verifier": 3, "auditor": 2})
+        heavy_of = lambda a: "heavy" if a in ("planner", "verifier") else "worker"
+        check("heavy_repeat_agents: only a heavy agent that runs more than once", sw.heavy_repeat_agents(wfs, heavy_of) == {"verifier": (3, "w.yaml")})
+        pc = {x["rule"]: x for x in sw.cache_checks(e=E(), workflows=wfs, model_of=heavy_of)}
+        check("per_call_swap: flagged while heavy is not resident beside the worker", pc["per_call_swap"]["state"] == "off" and "verifier runs 3x" in pc["per_call_swap"]["msg"], pc["per_call_swap"])
+        sp_res = dict(sp, processes=[dict(x, resident=True) for x in sp["processes"]])
+        pc2 = {x["rule"]: x for x in sw.cache_checks(e=E(server_plan=sp_res), workflows=wfs, model_of=heavy_of)}
+        check("per_call_swap: fine when heavy is resident beside the worker", pc2["per_call_swap"]["state"] == "on")
+        pc3 = {x["rule"]: x for x in sw.cache_checks(e=E(), workflows=wfs, model_of=lambda a: "worker")}
+        check("per_call_swap: fine when the repeating agent is on the worker", pc3["per_call_swap"]["state"] == "on")
+        real = sw.heavy_repeat_agents()
+        check("shipped agents: the verifier is on the worker, so no shipped workflow repeats a heavy agent", "verifier" not in real and sw._agent_model("verifier") == "worker" and sw._agent_model("planner") == "heavy", real)
+        import arch_roleprofile as rp
+        check("roleprofile: verifier -> worker, planner stays heavy", rp.agent_tier("verifier") == "worker" and rp.agent_tier("planner") == "heavy")
+
+        # ---- swap advisor on new downloads
+        NEW = {"name": "new:8b", "size_gb": 4.9, "eff_b": 8.0, "quant": "Q4_K_M", "caps": ["completion"], "moe": False,
+               "arch": {"arch": "qwen3", "layers": 36, "kv_heavy": 8, "kv_heads": 8, "head_dim": 128, "params_b": 8.0}}
+        built = []
+        r0 = sw.on_new_models(e=E(facts=FACTS + [NEW]), installed=["fit:8b", "new:8b"], have_passport=lambda n: n != "new:8b",
+                              build_passports=lambda names: built.extend(names) or {}, identify=lambda n: {"family": "qwen3", "line": "qwen3", "modifiers": [], "matched_by": "test"})
+        rec = r0["suggestions"][0] if r0["suggestions"] else {}
+        check("on_new_models: only the model without a passport is new, and its passport is built", r0["new"] == ["new:8b"] and built == ["new:8b"], r0["new"])
+        check("on_new_models: identifies the family and plans every job", rec.get("family") == "qwen3" and {j["job"] for j in rec["jobs"]} == set(arch_jobs.JOBS), rec.get("jobs"))
+        check("on_new_models: writes a suggestion record and applies nothing", rec.get("applied") is False and os.path.exists(sw._suggestions_path())
+              and mh.read_config()["tiers"]["worker"] == "fit:8b")
+        lines = [json.loads(x) for x in open(sw._suggestions_path(), encoding="utf-8")]
+        check("on_new_models: the record on disk matches", lines[-1]["model"] == "new:8b" and lines[-1]["applied"] is False)
+        check("on_new_models: suggestions point at swap --trial, never --apply", all("--trial" in x and "--apply" not in x for x in rec["next"]) and "Nothing was changed" in r0["text"])
+        r1 = sw.on_new_models(e=E(), installed=["fit:8b"], have_passport=lambda n: True, write=False)
+        check("on_new_models: nothing new -> nothing written", r1["new"] == [] and r1["suggestions"] == [])
+        r2 = sw.on_new_models(e=E(), installed=["ghost:1b"], have_passport=lambda n: False, build_passports=lambda names: {}, write=False)
+        check("on_new_models: a model whose passport cannot be built is reported, not guessed", r2["suggestions"][0]["jobs"] == [] and "no usable passport" in r2["suggestions"][0]["note"])
+
         # ---- trial (fake)
         tasks = [{"id": f"t{i}", "family": "build"} for i in range(5)]
         tr = sw.trial("worker", "fit:8b", fake=True, cfg=cfg, tasks=tasks, facts=FACTS,

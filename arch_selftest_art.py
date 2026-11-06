@@ -145,11 +145,11 @@ def run():
     sym_bodies = re.findall(r'<symbol id="i-[a-z0-9-]+"[^>]*>(.*?)</symbol>', html, re.S)
     first = re.search(r'<script>\r?\n"use strict";', html)
     js = html[first.start() if first else 0:].replace("\r\n", "\n")
-    nav_src = re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", js, re.S).group(1)
-    # PAGE_ICON is derived from the registered pages: id -> icon
-    page_icon = dict(re.findall(r'\["([a-z]+)","([\w-]+)","[^"]*","[^"]*"\]', nav_src))
-    tabs = re.findall(r'\["(\w+)","([\w-]+)","[^"]+",\[', (re.search(r"const SIDEBAR=\[(.*?)\n\];", js, re.S) or re.search(r"const TABS=\[(.*?)\];", js, re.S)).group(1))
-    pages = re.findall(r'\["([a-z]+)","[^"]*","[^"]*","[^"]*"\]', re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", js, re.S).group(1)) + ["components"]
+    import arch_uireg                      # the page registry read once from hub_ui.html (also GET /api/arch/ui/registry)
+    reg = arch_uireg.load(os.path.join(HERE, "hub_ui.html"))
+    page_icon = dict(reg["page_icon"])     # PAGE_ICON is derived from the registered pages: id -> icon
+    tabs = [(p["id"], p["icon"]) for p in reg["places"]]
+    pages = list(reg["page_ids"]) + ["components"]
     head_icons = re.findall(r',"([\w-]+)"\]', re.search(r"const HEAD_ICON=\[(.*?)\];", js, re.S).group(1)) if "const HEAD_ICON=[" in js else []
     check("one grid and one stroke: every symbol is 24 x 24 and draws with the inherited stroke (no colours, no stroke widths of its own)",
           all(v == "0 0 24 24" for v in symbols.values()) and not any(HEX.search(b) or "stroke-width" in b or re.search(r'stroke="(?!none")', b) for b in sym_bodies))

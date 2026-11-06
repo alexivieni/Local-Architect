@@ -197,11 +197,10 @@ def run():
         check("the Council toggle explains itself: several agents debate, skeptics challenge, one lead rules",
               "skeptics" in html and "one lead" in html and "title:COUNCIL_TIP" in html)
         # 2026-11-05: the places live in SIDEBAR ([section, [[place, icon, label, [sub-tab page ids]]]]); TABS is derived from it.
-        side_src = re.search(r"const SIDEBAR=\[(.*?)\n\];", html, re.S)
-        places = re.findall(r'\["([a-z]+)","[^"]*","[^"]*",\[([^\]]*)\]\]', side_src.group(1)) if side_src else []
-        tab_pages = {pl: re.findall(r'"([a-z]+)"', g) for pl, g in places}
-        nav = re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", html, re.S)
-        page_ids = re.findall(r'\["([a-z]+)","[^"]*","[^"]*","[^"]*"\]', nav.group(1)) if nav else []
+        import arch_uireg                  # the registry parsed once (GET /api/arch/ui/registry serves the same): no regex over TABS/SIDEBAR here
+        reg = arch_uireg.load(os.path.join(HERE, "hub_ui.html"))
+        tab_pages = dict(reg["place_pages"])
+        page_ids = list(reg["page_ids"])
         flat = [x for g in tab_pages.values() for x in g]
         check("Blueprints is a page in the Workflows place, and every page is still reachable from exactly one place",
               "blueprints" in page_ids and "blueprints" in tab_pages.get("workflows", []) and sorted(flat) == sorted(page_ids)

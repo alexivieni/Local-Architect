@@ -86,14 +86,17 @@ def run():
     check("the page's code is one block in hub_ui.html", bool(block) and "function cachesPage(){" in block and "async function loadCaches(" in block)
 
     # ---- the place, the icon, the drawing
-    tabs = re.search(r"const SIDEBAR=\[(.*?)\n\];", html, re.S).group(1)
+    import arch_uireg
+    reg = arch_uireg.load(os.path.join(HERE, "hub_ui.html"))
+    cp = next((p for p in reg["places"] if p["id"] == "cachesp"), {})
     check("Caches is its own place in the Models group, reachable from exactly one place",
-          '["cachesp","db","Caches",["caches"]]' in tabs and tabs.count('"caches"') == 1)
-    nav = re.search(r"const NAV_GROUPS=\[(.*?)\];\s*const PAGES", html, re.S).group(1)
+          cp.get("icon") == "db" and cp.get("label") == "Caches" and cp.get("pages") == ["caches"]
+          and sum(p["pages"].count("caches") for p in reg["places"]) == 1)
+    cpage = next((p for p in reg["pages"] if p["id"] == "caches"), None)
     check("it has a navigation entry with a plain description, and a page title",
-          re.search(r'\["caches","[a-z0-9-]+","Caches","[^"]+"\]', nav) is not None)
+          bool(cpage) and cpage["label"] == "Caches" and bool(cpage["description"]))
     symbols = set(re.findall(r'<symbol id="i-([a-z0-9-]+)"', html))
-    icon = re.search(r'\["caches","([a-z0-9-]+)"', nav)
+    icon = re.match(r"(.*)", cpage["icon"]) if cpage else None
     art = re.search(r'\bcaches:"([\w-]+)"', html[html.find("const PAGE_ART="):html.find("const SEC_ART=")])
     check("it has its own icon from the sprite and the Models drawing", bool(icon) and icon.group(1) in symbols and bool(art) and art.group(1) == "models",
           (icon and icon.group(1), art and art.group(1)))

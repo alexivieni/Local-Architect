@@ -239,7 +239,7 @@ def run():
             return True
         check("settings: every new setting is in arch_params.SETTINGS and in arch_core.DEFAULTS, with the asked-for defaults",
               all(p in paths and in_defaults(p) for p in new) and core.DEFAULTS["online"]["cloud_cache"] is True
-              and core.DEFAULTS["online"]["cloud_cache_ttl"] == "5m" and core.DEFAULTS["limits"]["cloud_usd_per_day"] == 5.0
+              and core.DEFAULTS["online"]["cloud_cache_ttl"] == "auto" and core.DEFAULTS["limits"]["cloud_usd_per_day"] == 5.0
               and core.DEFAULTS["online"]["ultra_skeptic"] == "claude:claude-haiku-5-5", [p for p in new if p not in paths or not in_defaults(p)])
     finally:
         reset()
