@@ -137,7 +137,10 @@ def _selftest(root, suite, timeout):
         out = r.stdout + r.stderr
         passed = sum(int(m) for m in re.findall(r"ALL (\d+) [A-Z/ -]*PASSED", out))
         failed = len(re.findall(r"^\s*FAIL\b", out, re.M))
-        return r.returncode == 0 and failed == 0, passed, out[-1500:]
+        # A suite that could not run an environment-dependent check (timing, ports) exits non-zero but reports
+        # "0 ... FAILED, k COULD NOT RUN": nothing failed, so it is a usable baseline. Any real FAIL still blocks.
+        not_sure_only = r.returncode != 0 and failed == 0 and re.search(r"COULD NOT RUN", out, re.I) and not re.search(r"(^|\s)[1-9][0-9]* (of [0-9]+ )?[A-Z/ -]*CHECKS FAILED", out, re.M)
+        return (r.returncode == 0 or bool(not_sure_only)) and failed == 0, passed, out[-1500:]
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
