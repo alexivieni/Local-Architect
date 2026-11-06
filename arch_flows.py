@@ -384,6 +384,35 @@ def _checkpoint(e, tag, res):
         _swallow("flows._checkpoint", _swx)
 
 
+def _test_src(root, node):
+    """Source of the test function a pytest node id names (file::name), normalised by ast; None when unreadable."""
+    import ast as _ast
+    f, _, name = node.partition("::")
+    name = name.split("::")[-1].split("[")[0]
+    try:
+        tree = _ast.parse(open(os.path.join(root, f), encoding="utf-8").read())
+    except Exception:
+        return None
+    for n in _ast.walk(tree):
+        if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and n.name == name:
+            return _ast.dump(n)
+    return None
+
+
+def _copied_failure(root, node, base):
+    """A failing test in a file the run wrote that is an exact copy (same name, same body) of a test that was ALREADY failing before
+    the run: the copy is not the run's breakage (seen live 2026-11-06: the 8B copied the project's failing test_repeated_spaces into
+    its own test file). Anything not identical stays the run's own."""
+    name = node.split("::")[-1]
+    src = None
+    for b in base:
+        if b != node and b.split("::")[-1] == name:
+            src = src or _test_src(root, node)
+            if src is not None and src == _test_src(root, b):
+                return True
+    return False
+
+
 def _vs_baseline(e, tests, targets=None):
     """The run started with failing tests (e._test_baseline, recorded before any edit). A failing result passes when every failing node
     was already failing AND lives in a file the run did not touch; a pre-existing failure in a file the run edited is the run's own.
@@ -398,7 +427,7 @@ def _vs_baseline(e, tests, targets=None):
         if st != "fail":
             return tests, ""
         mine = {str(x).replace("\\", "/") for x in (set(e.changed_files) | set(e.created))}
-        bad = sorted(n for n in now if n not in base or n.split("::")[0] in mine)
+        bad = sorted(n for n in now if (n not in base or n.split("::")[0] in mine) and not _copied_failure(e.root, n, base))
         if bad:
             return ("fail", log), ""
         old = sorted(now)
