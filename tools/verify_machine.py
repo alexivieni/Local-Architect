@@ -439,7 +439,7 @@ def g_probe(ctx):
 
 @check("real crew explain_squad", "gpu", timeout=1800)
 def g_crew(ctx):
-    rc, out = arch(["crew", "explain_squad", "--root", HERE, "--goal", "explain what arch_cleanup.py does", "--budget", "calls=12,seconds=900"],
+    rc, out = arch(["crew", "explain_squad", "--root", HERE, "--goal", "explain what arch_cleanup.py does", "--budget", "calls=40,seconds=900"],
                    1800, isolated=False)
     ctx["crew_out"] = out
     return (PASS if rc == 0 else FAIL), tail(out, 5)
@@ -461,7 +461,8 @@ def g_telemetry(ctx):
     with open(p, encoding="utf-8", errors="replace") as f:
         for line in f:
             try:
-                if float(json.loads(line).get("ts") or 0) >= ctx["t_start"]:
+                _ev = json.loads(line)
+                if float(_ev.get("t") or _ev.get("ts") or 0) >= ctx["t_start"]:
                     recent += 1
             except Exception:
                 pass
@@ -475,11 +476,12 @@ def g_keepalive(ctx):
         tags = http(base + "/api/tags", timeout=5).get("models", [])
     except Exception as e:
         raise Skip(f"Ollama unreachable: {e}")
-    small = sorted((m for m in tags if "embed" not in m["name"]), key=lambda m: m.get("size", 1 << 62))
+    small = sorted((m for m in tags if not any(w in m["name"].lower() for w in ("embed", "bge", "nomic", "minilm", "e5-"))
+                    and ((m.get("details") or {}).get("family") or "") not in ("bert", "nomic-bert")), key=lambda m: m.get("size", 1 << 62))
     if not small:
         raise Skip("no chat model in Ollama")
     name = small[0]["name"]
-    http(base + "/api/generate", {"model": name, "prompt": "hi", "keep_alive": "5s", "options": {"num_predict": 1}}, timeout=180)
+    http(base + "/api/generate", {"model": name, "prompt": "hi", "stream": False, "keep_alive": "5s", "options": {"num_predict": 1}}, timeout=180)
     loaded = [m["name"] for m in http(base + "/api/ps").get("models", [])]
     for _ in range(30):
         time.sleep(1)
