@@ -1203,6 +1203,16 @@ class Crew:
         try:
             for i in range(d["max_steps"]):
                 last = i == d["max_steps"] - 1
+                if turns and (self.cfg.get("compact") or {}).get("enabled", True):   # long tool loops: older steps become a digest
+                    try:
+                        import arch_compact
+                        _cc = self.cfg.get("compact") or {}
+                        turns, _ci = arch_compact.compact_turns(turns, arch_compact.window_tokens(self.cfg, d.get("role"), e),
+                                                                pct=int(_cc.get("pct", 80)), keep_tail=int(_cc.get("keep_tail", 4)))
+                        if _ci.get("compacted"):
+                            arch_compact.record(e, _ci)
+                    except Exception:
+                        pass                         # compaction is an optimisation: never break the loop
                 user = (base + "\n\nTOOLS (reply with {\"tool\": name, \"args\": {...}} or {\"final\": \"...\"}):\n" + tool_text +
                         ("\n\nWHAT YOU HAVE DONE SO FAR:\n" + "\n".join(turns[-6:]) if turns else "") +
                         ("\n\nTHIS IS YOUR LAST STEP: answer now with {\"final\": \"...\"}." if last else ""))
