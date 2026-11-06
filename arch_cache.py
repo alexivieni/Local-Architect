@@ -178,6 +178,11 @@ def get(k, cfg=None):
             c.commit()
             return None
         now = time.time()
+        _mx_days = limits(cfg)[1]
+        if _mx_days and row[8] and now - float(row[8]) > _mx_days * 86400:     # past its age limit: a miss now, not after the next sweep
+            _bump(c, "misses")
+            c.commit()
+            return None
         c.execute("update responses set hits = hits + 1, used = ? where k = ?", (now, k))
         _bump(c, "hits")
         _bump(c, "tokens_saved", float(row[3] or 0) + float(row[4] or 0))

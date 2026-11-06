@@ -5224,7 +5224,7 @@ async function rvAccept(){try{await api("/api/arch/review/accept",{root:run.root
 async function rvUndo(){
   const t=$("#rvUndoT");
   if(!RV.armed||Date.now()-RV.armed>5000){RV.armed=Date.now();if(t)t.textContent="Undo the whole run? Press again ";toast("Press Undo again to put every file back.",4000,"warn");return;}
-  RV.armed=0;try{await api("/api/arch/undo",{root:run.root||""});toast("Undoing the run. Watch the Console.");go("console");}catch(e){toast.err(e.message);}
+  RV.armed=0;try{await api("/api/arch/undo",{root:run.root||"",run:RV.run||""});toast("Undoing the run. Watch the Console.");go("console");}catch(e){toast.err(e.message);}
 }
 async function rvRetry(){
   const n=(($("#rvNote")||{}).value||"").trim(), d=RV.data||{};
@@ -5233,7 +5233,7 @@ async function rvRetry(){
   catch(e){toast.err(e.message);}
 }
 document.addEventListener("keydown",e=>{
-  if(page!=="review"||e.ctrlKey||e.metaKey||e.altKey)return;
+  if(page!=="review"||e.ctrlKey||e.metaKey||e.altKey||e.repeat||document.querySelector("dialog[open]"))return;   /* a held key must not confirm Undo */
   const a=document.activeElement; if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
   const k=e.key.toLowerCase();
   if(k==="a"){e.preventDefault();rvAccept();}else if(k==="u"){e.preventDefault();rvUndo();}

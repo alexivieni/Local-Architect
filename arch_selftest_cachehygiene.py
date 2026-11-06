@@ -236,21 +236,39 @@ def _slot_io_checks(check, hyg, tmp):
     olds = [_mk(os.path.join(w, f"old{i}.bin"), 1000, 3600 * (5 - i)) for i in range(4)]
     proj = os.path.join(tmp, "projects", "shop")
     cfg = {"storage": {"slot_cache_gb": 3000 / hyg.GB}}
+    fpn = lambda p_: hyg.slot_name(p_)[:-4] + "-" + arch_server.model_fp("worker") + ".bin"     # saved prompt memory is tied to the model that wrote it
     ok = arch_server.slot_io("save", cfg, proj)
-    saved = os.path.join(w, hyg.slot_name(proj))
-    check("slot_io save by full path writes the path-hashed name", ok and os.path.isfile(saved) and FakeSlots.state["calls"][-1] == ("save", hyg.slot_name(proj)),
+    saved = os.path.join(w, fpn(proj))
+    check("slot_io save by full path writes the path-hashed, model-fingerprinted name", ok and os.path.isfile(saved) and FakeSlots.state["calls"][-1] == ("save", fpn(proj)),
           FakeSlots.state["calls"])
     left = sorted(os.path.basename(p) for p in olds if os.path.isfile(p))
     check("slot_io save applies the cap: the two oldest others evicted (5000 -> 3000 bytes), the newer ones and the just-saved one kept",
           left == ["old2.bin", "old3.bin"] and os.path.isfile(saved), left)
     legacy = _mk(os.path.join(w, "legacyproj.bin"), 10, 7200)
+    n_calls = len(FakeSlots.state["calls"])
     ok = arch_server.slot_io("restore", cfg, os.path.join(tmp, "x", "legacyproj"))
-    check("slot_io restore falls back to an old base-name file", ok and FakeSlots.state["calls"][-1] == ("restore", "legacyproj.bin"))
-    check("a restore marks the file as used (least recently USED)", time.time() - os.path.getmtime(legacy) < 60)
+    check("slot_io restore never loads an old file with no model fingerprint (it may belong to another model)", ok is False and len(FakeSlots.state["calls"]) == n_calls)
+    mine = _mk(os.path.join(w, fpn(os.path.join(tmp, "x", "kept"))), 10, 7200)
+    ok = arch_server.slot_io("restore", cfg, os.path.join(tmp, "x", "kept"))
+    check("slot_io restore of this model's file works", ok and FakeSlots.state["calls"][-1] == ("restore", os.path.basename(mine)))
+    check("a restore marks the file as used (least recently USED)", time.time() - os.path.getmtime(mine) < 60)
     check("slot_io restore of a project with no file asks nothing", arch_server.slot_io("restore", cfg, os.path.join(tmp, "nope")) is False
           and FakeSlots.state["calls"][-1][1] != "nope.bin")
-    check("a bare name (older callers) still saves under the old name",
-          arch_server.slot_io("save", {"storage": {"slot_cache_gb": 0}}, "plain") and os.path.isfile(os.path.join(w, "plain.bin")))
+    check("a bare name (older callers) saves under its old name plus the model fingerprint",
+          arch_server.slot_io("save", {"storage": {"slot_cache_gb": 0}}, "plain") and os.path.isfile(os.path.join(w, "plain-" + arch_server.model_fp("worker") + ".bin")))
+    # a pid that a record says we launched as one program, now held by another program (Windows recycles pids), is not our server
+    with open(arch_server.state_path(), "w", encoding="utf-8") as fh:
+        json.dump({"processes": {"worker": {"pid": os.getpid(), "port": 1, "image": "llama-server.exe"}}}, fh)
+    if sys.platform.startswith("win"):
+        check("a recorded server pid now held by a different program is not alive (never killed by mistake)", arch_server._alive(os.getpid()) is False and arch_server._alive(os.getpid(), owner=True) is True)
+    # an expired cache row is a miss at once, not after the next sweep
+    import arch_cache
+    ck_ = "e" * 64
+    ccfg = {"cache": {"max_days": 1}}
+    arch_cache.put(ck_, "m", "reply", tokens_in=1, tokens_out=1, secs=1, tier="worker", cfg=ccfg)
+    fresh_ = bool(arch_cache.get(ck_, ccfg))
+    cn_ = arch_cache._open(); cn_.execute("update responses set created=? where k=?", (time.time() - 3 * 86400, ck_)); cn_.commit(); cn_.close()
+    check("a cache row past its age limit is not served", fresh_ and arch_cache.get(ck_, ccfg) is None)
     os.remove(arch_server.state_path())
     return srv
 

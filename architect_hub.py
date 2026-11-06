@@ -1828,7 +1828,7 @@ def squad_run(b):
 
 # ---- Review screen, editable plan and session panel. All of it is read from the run's own files (.arch/runs/<id>/trace.jsonl, run.json);
 # a record or module that is missing leaves its part empty, never an error.
-_RUN_RE = re.compile(r"[A-Za-z0-9._-]{1,80}")
+_RUN_RE = re.compile(r"(?!\.+$)[A-Za-z0-9._-]{1,80}")          # never "." or "..": that resolves to .arch itself
 _TESTLIKE = re.compile(r"test|pytest|unittest|spec|contract|smoke|syntax|compile|lint|build", re.I)
 
 
@@ -3072,6 +3072,8 @@ def trainworker_start(b):
 class AHandler(mh.Handler):
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path.startswith("/api/") and not self._host_ok():      # DNS rebinding: every API read answers only to the loopback names
+            return self._send(403, {"error": "bad host"})
         if u.path == "/api/arch/runs":
             if not self._host_ok():
                 return self._send(403, {"error": "bad host"})
@@ -4183,7 +4185,10 @@ class AHandler(mh.Handler):
         if path == "/api/arch/restart":
             return restart_hub(b)
         if path == "/api/arch/undo":
-            mh.JOB.start("Undo last run", ["architect.py", "undo", "--root", safe_root(b.get("root") or HERE)])
+            _ur = str(b.get("run") or "").strip()                      # the run the Review page shows, not just the newest one
+            if _ur and not _RUN_RE.fullmatch(_ur):
+                raise ValueError("that is not a run id")
+            mh.JOB.start("Undo run " + (_ur or "(latest)"), ["architect.py", "undo", "--root", safe_root(b.get("root") or HERE)] + (["--run", _ur] if _ur else []))
             return {"ok": True}
         if path == "/api/arch/flow_save":
             return save_blueprint(b)

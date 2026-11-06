@@ -236,6 +236,14 @@ def cmd_route(args):
 def cmd_undo(args):
     root = os.path.abspath(args.root or os.getcwd())
     run = core.latest_run(root)
+    want = str(getattr(args, "run", "") or "").strip()
+    if want:
+        import re as _re
+        cand = os.path.join(root, ".arch", "runs", want)
+        if not _re.fullmatch(r"(?!\.+$)[A-Za-z0-9._-]{1,80}", want) or not os.path.isdir(cand):
+            print("No such run:", want)
+            return 1
+        run = cand
     if not run:
         print("No runs found in", root)
         return 1
@@ -1633,7 +1641,8 @@ def main(argv=None):
     fl_ = sub.add_parser("flows", help="the workflows and the checks inside them; --validate checks every flows/*.yaml")
     fl_.add_argument("--validate", action="store_true")
     sub.add_parser("templates")
-    sub.add_parser("undo", parents=[common])
+    _pu = sub.add_parser("undo", parents=[common])
+    _pu.add_argument("--run", default="", help="undo this run id (default: the newest run)")
     sub.add_parser("portfolio")
     sub.add_parser("show-config", parents=[common])
     sv = sub.add_parser("serve", help="start/stop/health-check/tail-logs for a project's own run command (real subprocess, real port)")

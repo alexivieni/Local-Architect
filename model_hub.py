@@ -949,7 +949,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, {"error": "bad token: reload the page"})
         try:
             n = int(self.headers.get("Content-Length") or 0)
-            if n > 2_000_000:
+            if n < 0 or n > 2_000_000:                  # a negative length would read until the peer hangs up
                 return self._send(413, {"error": "too large"})
             body = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
             return self._send(200, self.route(self.path, body))

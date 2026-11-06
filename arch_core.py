@@ -2017,7 +2017,9 @@ class Engine:
         self._provenance(model, host=cur["name"] if cur["host"] else None)   # the model that actually answered (a fallback can differ)
         # the host-unreachable fallback can swap the model underneath (that reply answers a different question); a reply cut off at its
         # limit depends on a server window (llama-server's -c) that is not part of the key, so it is never replayed
-        if ck and model == ck_model and r.get("done_reason") != "length":
+        # only a reply the server says it FINISHED ("stop"): a stream that died mid-reply (server restart, tier stepped aside) ends with
+        # done_reason None, and caching that would replay a truncated answer for 30 days
+        if ck and model == ck_model and r.get("done_reason") == "stop":
             try:
                 import arch_cache
                 arch_cache.put(ck, model, text, tokens_in=int(r["prompt_tokens"] or 0), tokens_out=int(r["gen_tokens"] or 0),

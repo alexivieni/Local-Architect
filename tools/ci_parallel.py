@@ -54,6 +54,8 @@ def run(name, timeout):
             rc = p.returncode
         except subprocess.TimeoutExpired:
             p.kill()
+            arch_sandbox.close(job)                     # kill the grandchildren first: they hold the pipe open and communicate() would wait for them
+            job = None
             out, rc = (p.communicate()[0] or "") + " timed out", None
         out = out or ""
     finally:

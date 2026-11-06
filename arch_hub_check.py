@@ -427,6 +427,28 @@ def run():
         vs_ = call("/api/arch/version")
         check("the version endpoint says the code is current at start", vs_.get("stale") is False and vs_.get("fingerprint_at_start") == vs_.get("fingerprint_now") and len(vs_.get("fingerprint_at_start", "")) >= 8, vs_)
         check("restarting the hub needs the token", call("/api/arch/restart", {}, token=False).get("HTTP") in (401, 403))
+        import http.client as _hc
+        def _raw(method, path, host=None, headers=None):
+            c_ = _hc.HTTPConnection("127.0.0.1", port, timeout=10)
+            c_.putrequest(method, path, skip_host=True)
+            c_.putheader("Host", host or f"127.0.0.1:{port}")
+            for k_, v_ in (headers or {}).items():
+                c_.putheader(k_, v_)
+            c_.endheaders()
+            r_ = c_.getresponse(); code_ = r_.status; r_.read(); c_.close()
+            return code_
+        check("a GET API route answers only to a loopback Host (DNS rebinding)",
+              _raw("GET", "/api/arch/chat", host="evil.example") == 403 and _raw("GET", "/api/arch/events?since=0", host="evil.example:80") == 403
+              and _raw("GET", "/api/arch/events?since=0") == 200)
+        check("a negative Content-Length is refused", _raw("POST", "/api/arch/undo", headers={"Content-Length": "-1", "X-Hub-Token": tok, "Content-Type": "application/json"}) == 413)
+        import architect_hub as _ah0
+        _bad_ids = 0
+        for _rid in ("..", "."):
+            try:
+                _ah0._run_dir_of(os.getcwd(), _rid)
+            except ValueError:
+                _bad_ids += 1
+        check("a run id of '.' or '..' is not a run id (it would resolve to .arch itself)", _bad_ids == 2)
         import architect_hub as _ah
         rc1_ = _ah.restart_command(["C:/x/architect_hub.py", "--port", "8000", "--no-browser", "--foo"], port=8123)
         rc2_ = _ah.restart_command(["architect.py", "start"], port=8123)

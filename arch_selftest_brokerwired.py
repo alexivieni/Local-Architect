@@ -91,10 +91,11 @@ def run():
         said.clear()
         ocfg = core.deep_merge(rcfg, {"behavior": {"broker": "off"}})
         e2 = core.Engine(proj, "build", "make a thing", ocfg, review="auto", say=lambda m, *_a, **_k: said.append(str(m)))
+        _n0 = (open(os.path.join(e2.run_dir, "trace.jsonl"), encoding="utf-8").read().count('"broker"') if os.path.isfile(os.path.join(e2.run_dir, "trace.jsonl")) else 0)   # two engines in one second share a run folder
         r = F.broker_advice(e2, "build")
         t2 = os.path.join(e2.run_dir, "trace.jsonl")
         check("off: no line, no trace record", r is None and not any(s.startswith("Measured:") for s in said)
-              and not (os.path.isfile(t2) and '"broker"' in open(t2, encoding="utf-8").read()))
+              and (open(t2, encoding="utf-8").read().count('"broker"') if os.path.isfile(t2) else 0) == _n0)
     finally:
         for k, v in old_env.items():
             if v is None:

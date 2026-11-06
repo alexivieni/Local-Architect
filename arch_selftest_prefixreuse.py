@@ -157,7 +157,7 @@ def run():
         try:
             import arch_cachehygiene as hyg
             proj = tempfile.mkdtemp(prefix="slotp_", dir=home)
-            name = hyg.slot_name(os.path.abspath(proj))
+            name = hyg.slot_name(os.path.abspath(proj))[:-4] + "-" + arch_server.model_fp("worker") + ".bin"     # tied to the serving model
             sdir = os.path.join(arch_server.server_dir(), "slots", "worker")
             os.makedirs(sdir, exist_ok=True)
             open(os.path.join(sdir, name), "wb").close()                # the saved prefix of the previous run here

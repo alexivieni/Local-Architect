@@ -790,16 +790,53 @@ def health(url, timeout=2.0):
         return False
 
 
-def _alive(pid):
+def _img(proc):
+    """The executable name a process was launched under, as tasklist prints it (lower case)."""
+    try:
+        a = proc.args
+        return os.path.basename(a[0] if isinstance(a, (list, tuple)) else str(a).split()[0]).lower()
+    except Exception:
+        return ""
+
+
+def _recorded_image(pid):
+    try:
+        for rec in (load_state().get("processes") or {}).values():
+            if rec.get("pid") == pid:
+                return str(rec.get("image") or "").lower()
+    except Exception:
+        pass
+    return ""
+
+
+def _alive(pid, owner=False):
+    """Is `pid` a live process? For a server record (owner=False) on Windows it must also still BE the executable we launched under that pid: a pid saved in
+    server.json survives a reboot, Windows recycles pids, and `_kill` would otherwise take down whatever now holds that number
+    (and its whole tree). A tasklist that is merely slow counts as alive: a duplicate server on the same port is worse than a late
+    restart. owner=True = any process (the pid of a run that holds a record)."""
     if not pid:
         return False
     try:
         if sys.platform.startswith("win"):
-            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, timeout=5)
-            return str(pid) in r.stdout
+            r = None
+            for t in (5, 20):
+                try:
+                    r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, timeout=t)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            if r is None:
+                return True
+            line = next((l for l in r.stdout.splitlines() if re.search(rf"\b{int(pid)}\b", l)), "")
+            if not line:
+                return False
+            if owner:
+                return True
+            want = _recorded_image(pid)               # what we launched under this pid; none recorded (older record) = trust the pid
+            return (not want) or line.split()[0].lower() == want
         os.kill(pid, 0)
         return True
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, ValueError):
         return False
 
 
@@ -965,7 +1002,7 @@ def _start_procs(cfg, want, st, say, wait):
             continue
         say(f"[server] {p['tier']}: starting {p['name']} on port {p['port']}; {p['why']}")
         rec = {k: p[k] for k in ("tier", "name", "gguf", "port", "ctx", "ngl", "kv", "draft", "args", "size_gb", "resident")}
-        rec.update(pid=proc.pid, started=time.time(), url=url, log=log_path, restarts=cur.get("restarts", 0))
+        rec.update(pid=proc.pid, image=_img(proc), started=time.time(), url=url, log=log_path, restarts=cur.get("restarts", 0))
         if p.get("priority") or p.get("affinity"):
             rec.update(priority=p.get("priority"), affinity=p.get("affinity"))
         st["processes"][p["tier"]] = rec
@@ -980,7 +1017,7 @@ def _start_procs(cfg, want, st, say, wait):
                 time.sleep(3.0)
                 off = _log_size(log_path)
                 proc = _spawn(p, log_path)
-                rec.update(pid=proc.pid, started=time.time())
+                rec.update(pid=proc.pid, image=_img(proc), started=time.time())
                 save_state(st)
                 ok = wait_health(url, seconds=240, proc=proc)
                 if ok and _gpu_lost(log_path, off):
@@ -1128,6 +1165,21 @@ def serving(model, cfg=None):
     return None
 
 
+def model_fp(tier="worker"):
+    """A short fingerprint of what a tier is serving right now: the model file (path, size, time) and the window/cache type. Saved
+    prompt memory (a KV file) is only valid for the exact model, quant and cache layout that wrote it; restoring one into a different
+    model loads another network's attention state and the server then reuses it for any matching prefix."""
+    try:
+        import hashlib
+        rec = (load_state().get("processes") or {}).get(tier) or {}
+        g = rec.get("gguf") or ""
+        st = os.stat(g) if g and os.path.isfile(g) else None
+        raw = "|".join(str(x) for x in (g, st.st_size if st else "", int(st.st_mtime) if st else "", rec.get("ctx"), rec.get("kv"), rec.get("parallel")))
+        return hashlib.sha1(raw.encode("utf-8", "replace")).hexdigest()[:8]
+    except Exception:
+        return "nofp"
+
+
 def slot_io(action, cfg, project, tier="worker", slot=0):
     """Save or restore the worker's prompt memory for one project (llama-server --slot-save-path): reopening a project then skips
     re-reading its context. Best effort: any failure (older build, slot busy, file missing) is silently nothing. -> True/False.
@@ -1143,11 +1195,9 @@ def slot_io(action, cfg, project, tier="worker", slot=0):
             return False
         sdir = os.path.join(server_dir(), "slots", tier)
         name = hyg.slot_name(project)
+        name = name[:-4] + "-" + model_fp(tier) + ".bin"           # a file written by another model/quant/window is never restored (it is just not found)
         if action == "restore" and not os.path.isfile(os.path.join(sdir, name)):
-            old = hyg.legacy_slot_name(project)
-            if old == name or not os.path.isfile(os.path.join(sdir, old)):
-                return False
-            name = old
+            return False
         req = urllib.request.Request(sv["url"].rstrip("/") + f"/slots/{max(0, int(slot or 0))}?action={action}", data=json.dumps({"filename": name}).encode(),
                                      headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=20) as r:
@@ -1260,7 +1310,7 @@ def step_aside(tiers, model, names, owner=None, run=None, say=print):
 
 
 def _orphaned(a):
-    return not (a.get("owner") and _alive(a["owner"]))
+    return not (a.get("owner") and _alive(a["owner"], owner=True))
 
 
 def come_back(cfg, say=print, owner=None, run=None, wait_s=15.0):
@@ -1373,7 +1423,7 @@ def _watchdog(cfg, period=15.0, max_restarts=3, window=600.0):
                     lp = rec.get("log") or os.path.join(server_dir(), f"{t}.log")
                     off = _log_size(lp)
                     proc = _spawn(rec, lp)
-                    rec.update(pid=proc.pid, started=now, restarts=rec.get("restarts", 0) + 1)
+                    rec.update(pid=proc.pid, image=_img(proc), started=now, restarts=rec.get("restarts", 0) + 1)
                     keep()
                     _tel("server.restart", rec, reason="watchdog", restarts=rec["restarts"])
                     if rec.get("ngl") and wait_health(rec.get("url") or "", seconds=120, proc=proc) and _gpu_lost(lp, off):
@@ -1381,7 +1431,7 @@ def _watchdog(cfg, period=15.0, max_restarts=3, window=600.0):
                         time.sleep(5.0)
                         off = _log_size(lp)
                         proc = _spawn(rec, lp)
-                        rec.update(pid=proc.pid, started=time.time())
+                        rec.update(pid=proc.pid, image=_img(proc), started=time.time())
                         rec["on_cpu"] = bool(wait_health(rec.get("url") or "", seconds=120, proc=proc) and _gpu_lost(lp, off))
                         keep()
                 except OSError as e:
@@ -1739,9 +1789,9 @@ def _prewarm_list(srv):
         return []
 
 
-def role_slot_name(role, system_text, project=None):
+def role_slot_name(role, system_text, project=None, tier="worker"):
     import hashlib
-    h = hashlib.sha1((system_text + "|" + (os.path.abspath(project) if project else "")).encode("utf-8", "replace")).hexdigest()[:10]
+    h = hashlib.sha1((system_text + "|" + (os.path.abspath(project) if project else "") + "|" + model_fp(tier)).encode("utf-8", "replace")).hexdigest()[:10]
     return f"role_{re.sub(r'[^A-Za-z0-9_]', '_', role)[:30]}_{h}.bin"
 
 
