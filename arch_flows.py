@@ -375,6 +375,38 @@ def _checkpoint(e, tag, res):
         _swallow("flows._checkpoint", _swx)
 
 
+def _vs_baseline(e, tests, targets=None):
+    """The run started with failing tests (e._test_baseline, recorded before any edit). A failing result passes when every failing node
+    was already failing AND lives in a file the run did not touch; a pre-existing failure in a file the run edited is the run's own.
+    -> (tests, note): the same result, or ("pass", log) with a note. Anything unclear keeps the failure."""
+    base = getattr(e, "_test_baseline", None)
+    if tests[0] != "fail" or not base:
+        return tests, ""
+    try:
+        st, log, now = core.test_failures(e.root, e.cfg, targets)
+        if st == "pass":
+            return ("pass", log), ""
+        if st != "fail":
+            return tests, ""
+        mine = {str(x).replace("\\", "/") for x in (set(e.changed_files) | set(e.created))}
+        bad = sorted(n for n in now if n not in base or n.split("::")[0] in mine)
+        if bad:
+            return ("fail", log), ""
+        old = sorted(now)
+        note = f"{len(old)} test{'s were' if len(old) != 1 else ' was'} already failing before this run and still fail: " + ", ".join(old[:6])
+        return ("pass", log), note
+    except Exception as _bx:
+        _swallow("flows.baseline", _bx)
+        return tests, ""
+
+
+def _baseline_note(e, note):
+    if note and getattr(e, "_baseline_noted", "") != note:
+        e._baseline_noted = note
+        e.say("[i] " + note)
+        e.report("- " + note)
+
+
 def verify(e, files, run_tests=True, targets=None):
     """Code checks on the given files plus the project's tests. -> dict(ok, text, results, tests).
 
@@ -418,6 +450,8 @@ def verify(e, files, run_tests=True, targets=None):
         fast = related_tests(e, files) if (targets is None and e.cfg["behavior"].get("fast_tests", "on") == "on") else None
         if fast:                                                          # the tests for the changed files first: a failure comes back in seconds
             quick = core.run_tests(e.root, e.cfg, fast)
+            quick, _bn = _vs_baseline(e, quick, fast)
+            _baseline_note(e, _bn)
             if quick[0] == "fail":
                 results.append(ck.R("project tests pass", False, f"(related tests first: {', '.join(fast)})\n" + quick[1][-1400:]))
                 _join_checks()
@@ -434,10 +468,12 @@ def verify(e, files, run_tests=True, targets=None):
             tests = core.run_tests(e.root, e.cfg, targets)
             if tests[0] in ("pass", "fail"):
                 cache[key] = tests
+        tests, _bn = _vs_baseline(e, tests, targets)
+        _baseline_note(e, _bn)
         if tests[0] == "fail":
             results.append(ck.R("project tests pass", False, tests[1][-1400:]))
         elif tests[0] == "pass":
-            results.append(ck.R("project tests pass", True))
+            results.append(ck.R("project tests pass", True, _bn))
     try:                                   # the project's own hooks run here, so a blocking one fails the step exactly like a failing test
         import arch_hooks
         hk = arch_hooks.fire(e, "after_apply", files=files, step=e.step_name())
@@ -1206,10 +1242,46 @@ def single_file_change(e, goal):
         if e.cfg["behavior"].get("skip_planner_small", "on") != "on":
             return False
         named = named_files(goal)
-        return (len(named) == 1 and os.path.isfile(os.path.join(e.root, named[0])) and bool(_CHANGE_VERB.search(goal or ""))
-                and not _NEW_THING.search(goal or ""))
+        if (len(named) == 1 and os.path.isfile(os.path.join(e.root, named[0])) and bool(_CHANGE_VERB.search(goal or ""))
+                and not _NEW_THING.search(goal or "")):
+            return True
+        return bool(one_new_symbol(e, goal))
     except Exception:
         return False
+
+
+_SYM_ADD = re.compile(r"\b(?:add|implement|write|create|introduce)\s+(?:an?\s+|the\s+)?(?:new\s+)?(?:(function|class|method)\s+)?"
+                      r"(`[^`\n]{1,80}`|[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?(?:\([^()\n]*\))?)", re.I)
+
+
+def one_new_symbol(e, goal):
+    """The request asks for ONE new function/class/method (backticked, `function name(...)`, or a snake_case/CamelCase name after
+    add/implement) in a project whose only source module exists already -> that module's path, else None. The plan would be one sprint."""
+    g = goal or ""
+    if len(g) > 400 or _NEW_THING.search(g) or len(named_files(g)) > 1:
+        return None
+    cands = set()
+    for m in _SYM_ADD.finditer(g):
+        kind, raw = (m.group(1) or "").lower(), m.group(2)
+        tick = raw.startswith("`")
+        name = re.sub(r"\(.*$", "", raw.strip("`").strip()).strip()
+        if not re.match(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?$", name) or name.lower() in ("tests", "test", "unit", "pytest"):
+            continue
+        if tick or kind or "(" in raw or "_" in name or re.match(r"^[A-Z][a-z]+[A-Z]", name):
+            cands.add(name)
+    for span in _SPAN.findall(g):                                       # every other backticked call/name counts as a second symbol
+        nm = re.sub(r"\(.*$", "", span.strip()).strip()
+        if re.match(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?$", nm) and ("(" in span or "_" in nm):
+            cands.add(nm)
+    if len(cands) != 1:
+        return None
+    src =[f for f in core.list_files(e.root, e.cfg) if f.endswith(".py") and not f.startswith(("tests/", ".arch/", "hub_data/"))
+           and not os.path.basename(f).startswith("test_") and not os.path.basename(f).endswith("_test.py")
+           and os.path.basename(f) not in ("__init__.py", "__main__.py", "conftest.py", "setup.py")]
+    if len(src) != 1:
+        return None
+    e._single_module = [src[0]]
+    return src[0]
 
 
 def same_failure_stop(e, coach):
@@ -1428,6 +1500,11 @@ class BuildFlow(Flow):
         doms = params.get("domains") or detect_domains(e, goal)
         ho = handoff_text(e)
         files0 = core.list_files(e.root, e.cfg)
+        if files0 and not (params.get("resume") or {}).get("plan") and getattr(e, "_test_baseline", None) is None and not getattr(e, "_baseline_taken", False):
+            e._baseline_taken = True                                    # BEFORE any edit: which tests already fail (verify judges against it)
+            e._test_baseline = core.test_baseline(e.root, e.cfg)
+            if e._test_baseline:
+                e.report(f"- {len(e._test_baseline)} test(s) already fail before this run: " + ", ".join(sorted(e._test_baseline)[:6]))
         ctx = ho + (e.context(goal, 9000, always=[x for x in ("docs/spec.md",) if os.path.isfile(os.path.join(e.root, x))]) if files0 else "(empty project)")
         rs = params.get("resume") or {}
         hit = {"hit": False}
@@ -1458,7 +1535,7 @@ class BuildFlow(Flow):
         sprints = [s for s in sprints if isinstance(s, dict)][:6] if isinstance(sprints, list) else []
         named = named_files(goal)                                       # files the request names outright: they WILL be checked for
         if not sprints:                                                 # checked AFTER filtering: a list of plain strings used to leave zero
-            sprints = [{"name": "implementation", "kind": "mixed", "goal": goal, "files": list(named),   # sprints, so nothing was built at all
+            sprints = [{"name": "implementation", "kind": "mixed", "goal": goal, "files": list(named) or list(getattr(e, "_single_module", None) or []),   # sprints, so nothing was built at all
                         "acceptance": [{"id": "A1", "text": "the goal works and the tests pass"}]}]
             e.say("[i] planner gave no usable sprint list; running one sprint")
         if (not rs.get("plan") and self.plan_prompt is None and e.cfg["behavior"].get("merge_small_plans", True)

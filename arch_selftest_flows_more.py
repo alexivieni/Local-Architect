@@ -235,6 +235,7 @@ def _leftovers(check, home):
         shutil.rmtree(proj, ignore_errors=True)
 
     _small_requests(check)
+    _baseline_tests(check)
     import arch_plugins
     import arch_commands
     d = tempfile.mkdtemp(prefix="arch_pl_")
@@ -249,6 +250,71 @@ def _leftovers(check, home):
         check("an args hint in [brackets] is optional; a plain one still needs args", r and not r["needs_args"] and r2 and r2["needs_args"])
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+def _baseline_tests(check):
+    """A project with one test that already fails: judged against the baseline, and a new-symbol request skips the planner."""
+    import arch_core as core
+    import arch_flows as F
+    proj = tempfile.mkdtemp(prefix="arch_bl_")
+    try:
+        os.makedirs(os.path.join(proj, "tests"))
+        with open(os.path.join(proj, "kit.py"), "w", encoding="utf-8") as f:
+            f.write("def one():\n    return 1\n\n\ndef two():\n    return 2\n")
+        with open(os.path.join(proj, "tests", "test_old.py"), "w", encoding="utf-8") as f:
+            f.write("from kit import one, two\n\n\ndef test_one():\n    assert one() == 1\n\n\ndef test_bad():\n    assert two() == 3\n")
+        e = core.Engine(proj, "build", "g", review="auto", say=lambda *a, **k: None, persist=False)
+        e.cfg["behavior"]["fast_tests"] = "off"
+        e.cfg["tests"]["command"] = ""
+        base = core.test_baseline(proj, e.cfg)
+        check("baseline records the one failing test", base == {"tests/test_old.py::test_bad"}, base)
+        e._test_baseline = base
+
+        def ver():
+            e._test_cache = {}
+            return F.verify(e, ["kit.py"], run_tests=True)
+
+        def tests_ok(v):
+            return all(r["ok"] for r in v["results"] if r["name"] == "project tests pass") and any(r["name"] == "project tests pass" for r in v["results"])
+        e.changed_files = ["kit.py"]
+        with open(os.path.join(proj, "kit.py"), "a", encoding="utf-8") as f:
+            f.write("\n\ndef three():\n    return 3\n")
+        check("an unrelated build passes beside the old failure", tests_ok(ver()))
+        with open(os.path.join(proj, "tests", "test_new.py"), "w", encoding="utf-8") as f:
+            f.write("from kit import three\n\n\ndef test_three():\n    assert three() == 3\n")
+        e.created = ["tests/test_new.py"]
+        check("...and a new passing test too", tests_ok(ver()))
+        with open(os.path.join(proj, "tests", "test_new.py"), "a", encoding="utf-8") as f:
+            f.write("\n\ndef test_three_bad():\n    assert three() == 4\n")
+        check("a new failing test fails", not tests_ok(ver()))
+        with open(os.path.join(proj, "tests", "test_new.py"), "w", encoding="utf-8") as f:
+            f.write("from kit import three\n\n\ndef test_three():\n    assert three() == 3\n")
+        with open(os.path.join(proj, "kit.py"), "w", encoding="utf-8") as f:
+            f.write("def one():\n    return 0\n\n\ndef two():\n    return 2\n\n\ndef three():\n    return 3\n")
+        check("breaking a test that passed before fails", not tests_ok(ver()))
+        with open(os.path.join(proj, "kit.py"), "w", encoding="utf-8") as f:
+            f.write("def one():\n    return 1\n\n\ndef two():\n    return 2\n\n\ndef three():\n    return 3\n")
+        check("restored: passes again", tests_ok(ver()))
+        e.changed_files = ["kit.py", "tests/test_old.py"]
+        check("editing the file with the old failure makes it the run's own", not tests_ok(ver()))
+        e.changed_files = ["kit.py"]
+        e._test_baseline = None
+        check("no baseline: today's behaviour (the old failure fails the run)", not tests_ok(ver()))
+        e.cfg["tests"]["command"] = "py -c pass"
+        check("a custom test command: no baseline taken", core.test_baseline(proj, e.cfg) is None)
+
+        e.cfg["behavior"]["skip_planner_small"] = "on"
+        ok = lambda g: F.single_file_change(e, g)
+        check("one new function in a one-module project skips the planner",
+              ok("add `word_count(text)` to kit") and ok("add word_count with tests") and ok("implement a function slug(text) returning a str")
+              and ok("add a class Counter"))
+        check("...two symbols, a new project, or no symbol keep the planner",
+              not ok("add `a(x)` and `b(x)`") and not ok("build a new app with `a(x)`") and not ok("add tests") and not ok("add logging"))
+        with open(os.path.join(proj, "other.py"), "w", encoding="utf-8") as f:
+            f.write("X = 1\n")
+        check("...a project with two source modules keeps the planner", not ok("add `word_count(text)`"))
+    finally:
+        shutil.rmtree(proj, ignore_errors=True)
 
 
 def _small_requests(check):

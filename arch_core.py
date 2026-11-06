@@ -1088,6 +1088,36 @@ def run_tests(root, cfg, targets=None):
     return ("pass" if rc == 0 else "fail"), out
 
 
+_FAILED_NODE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+?)(?:\s+-\s.*)?\s*$", re.M)
+
+
+def test_failures(root, cfg, targets=None):
+    """The failing test node ids, for judging a run against what already failed before it (pytest only).
+    -> (status, log, set_of_node_ids); status "pass" | "fail" | "none" | "unknown" (custom test command, no pytest, or a failure
+    whose nodes could not be read: the caller then keeps today's all-or-nothing behaviour). No -x: every failure is listed."""
+    if cfg["tests"].get("command") or not has_module("pytest"):
+        return "unknown", "", set()
+    set_net(cfg)
+    cmd = [sys.executable, "-m", "pytest", "-q", "-rfE", "--tb=short", "-p", "no:cacheprovider"] + list(targets or [])
+    rc, out = run_cmd(cmd, root, cfg["limits"]["test_timeout"], True)
+    if rc == 5:
+        return "none", out, set()
+    if rc == 0:
+        return "pass", out, set()
+    nodes = {m.group(1).replace("\\", "/") for m in _FAILED_NODE.finditer(out)}
+    return ("fail", out, nodes) if nodes else ("unknown", out, set())
+
+
+def test_baseline(root, cfg):
+    """Before a run edits anything: the set of test node ids that already fail. None when there is nothing to remember (no tests, all
+    pass, or the runner cannot say) -- verify then judges the whole suite as before."""
+    try:
+        st, _log, nodes = test_failures(root, cfg)
+        return nodes if st == "fail" and nodes else None
+    except Exception:
+        return None
+
+
 # ----------------------------------------------------------------------------------------------
 # Engine: one run of one flow
 # ----------------------------------------------------------------------------------------------
