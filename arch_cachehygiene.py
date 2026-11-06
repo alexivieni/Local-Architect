@@ -366,7 +366,8 @@ def plan_prune(cfg=None, inv=None, roots=None, now=None):
     for o in (by.get("cloud") or {}).get("orphans", []):
         add("cloud", o, o["why"])
     return {"items": items, "bytes": sum(i["bytes"] for i in items),
-            "reply_rows": int((by.get("replies") or {}).get("rows_to_drop") or 0), "kept": kept, "slot_bytes_after": remaining}
+            "reply_rows": int((by.get("replies") or {}).get("rows_to_drop") or 0), "kept": kept, "slot_bytes_after": remaining,
+            "retention": retention_plan(cfg, roots=roots, now=now)}
 
 
 # ------------------------------------------------------------------------------------------------ deleting
@@ -422,9 +423,17 @@ def _delete(path, why, action):
 def prune(plan, yes=False, cfg=None):
     """Apply a plan from `plan_prune`. Without yes=True nothing is deleted. -> {deleted: [{file, bytes, why}], refused: [{file, why}],
     freed, reply_rows, dry_run}"""
-    out = {"deleted": [], "refused": [], "freed": 0, "reply_rows": 0, "dry_run": not yes}
+    out = {"deleted": [], "refused": [], "freed": 0, "reply_rows": 0, "dry_run": not yes, "retention_done": []}
     if not yes:
         return out
+    for it in ((plan or {}).get("retention") or {}).get("items") or []:
+        n, bad = _retention_apply(it)
+        if n is None:
+            out["refused"].append({"file": it.get("file") or it.get("root") or "", "why": bad})
+        else:
+            out["retention_done"].append({"store": it["store"], "kind": it["kind"], "file": it.get("file") or it.get("root"), "bytes": n,
+                                          "count": it.get("count")})
+            out["freed"] += n
     prot, _ = protected_slots()
     for it in (plan or {}).get("items") or []:
         p = it.get("file") or ""
@@ -478,6 +487,285 @@ def enforce_slot_cap(cfg=None, keep=None, now=None):
     return gone
 
 
+# ------------------------------------------------------------------------------------------------ retention (storage.retention_days)
+# Old LOGS and scratch records only. Never: training datasets, the ledger, settings (architect_config.json, config.*), backups (listed, never
+# removed here), the model files, any project's source. Every removal is checked against the explicit allow-list in `retention_allowed`.
+RETENTION_DEFAULT = 90
+BACKUP_PATTERNS = ("config.backup", "config.good", "config.before", "ledger.backup", "ledger.json.bak", ".bak", "port.undo")
+
+
+def retention_days(cfg=None):
+    v = ((_cfg(cfg).get("storage") or {}).get("retention_days", RETENTION_DEFAULT))
+    try:
+        return max(0, int(v))
+    except (TypeError, ValueError):
+        return RETENTION_DEFAULT
+
+
+def _ci_dir():
+    return os.path.join(core.data_dir(), "ci")
+
+
+def _orch_test_dir():
+    return os.path.join(core.data_dir(), "orchestration", "test_data")
+
+
+def _tel_dir():
+    return os.path.join(core.data_dir(), "telemetry")
+
+
+def retention_allowed(path):
+    """-> '' when `path` is a file retention may remove, else the reason it is refused."""
+    try:
+        rp = os.path.normcase(os.path.realpath(path))
+    except (OSError, ValueError):
+        return "cannot resolve the path"
+    data = os.path.normcase(os.path.realpath(core.data_dir()))
+    name = os.path.basename(rp)
+    if rp.endswith(MODEL_SUFFIXES):
+        return "a model file is never deleted here"
+    if os.path.isdir(path):
+        return "a folder is never deleted"
+    if any(p in rp for p in (os.sep + "datasets" + os.sep, os.sep + "evals" + os.sep)) or name.startswith(("ledger", "architect_config")) \
+            or any(b in name for b in BACKUP_PATTERNS):
+        return "training data, the ledger, settings and backups are never removed"
+
+    def inside(d):
+        d = os.path.normcase(os.path.realpath(d))
+        try:
+            return os.path.commonpath([rp, d]) == d and rp != d
+        except ValueError:
+            return False
+    if inside(_ci_dir()) and name.endswith((".json", ".log")):
+        return ""
+    if inside(_orch_test_dir()):
+        return ""
+    if os.path.dirname(rp) == data and name.startswith("ci_run") and name.endswith(".log"):
+        return ""
+    if os.path.dirname(rp) == os.path.normcase(os.path.realpath(_tel_dir())) and name == "events.jsonl.1":
+        return ""
+    return "not one of the log/scratch locations retention covers"
+
+
+def _old_files(top, cutoff, suffixes=None):
+    return [f for f in _files(top, suffixes) if f["mtime"] < cutoff]
+
+
+def _logbook_old(cutoff):
+    db = os.path.join(core.data_dir(), "logbook.db")
+    if not os.path.isfile(db):
+        return 0
+    try:
+        c = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2.0)
+        try:
+            return int(c.execute("select count(*) from tasks where started is not null and started > 0 and started < ?", (cutoff,)).fetchone()[0])
+        finally:
+            c.close()
+    except sqlite3.Error:
+        return 0
+
+
+def _telemetry_old_lines(cutoff):
+    p = os.path.join(_tel_dir(), "events.jsonl")
+    n = 0
+    try:
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    t = float(json.loads(line).get("t") or 0)
+                except (ValueError, AttributeError, TypeError):
+                    continue
+                if 0 < t < cutoff:
+                    n += 1
+    except OSError:
+        return 0
+    return n
+
+
+def _ckpt_roots(roots):
+    out = []
+    for r in sorted(roots):
+        if os.path.isdir(os.path.join(r, ".arch", "ckpt")) or os.path.isdir(os.path.join(r, ".git")):
+            out.append(r)
+    return out
+
+
+def _ref_env(root):
+    gd = os.path.join(root, ".arch", "ckpt", "git")
+    if os.path.isdir(gd):
+        return {"GIT_DIR": gd}
+    return {} if os.path.isdir(os.path.join(root, ".git")) else None
+
+
+def _old_refs(root, cutoff):
+    """-> [refname] under refs/architect/ whose commit is older than cutoff. Reads only; never creates a shadow repo."""
+    try:
+        import arch_checkpoint as ck
+        env = _ref_env(root)
+        if env is None:
+            return []
+        p = ck._run(["for-each-ref", "--format=%(refname) %(committerdate:unix)", "refs/architect/"], env, root, check=False)
+        out = []
+        for ln in p.stdout.decode("utf-8", "replace").splitlines():
+            ref, _, ts = ln.partition(" ")
+            if ts.strip().isdigit() and int(ts) < cutoff:
+                out.append(ref)
+        return out
+    except Exception as e:
+        core._tel_swallow("cachehygiene._old_refs", e)
+        return []
+
+
+def list_backups():
+    """Backups in the data folder (config.backup*/good*, ledger backups, *.bak*): listed for the person, never removed."""
+    out = []
+    try:
+        for fn in sorted(os.listdir(core.data_dir())):
+            p = os.path.join(core.data_dir(), fn)
+            if os.path.isfile(p) and any(b in fn for b in BACKUP_PATTERNS):
+                out.append({"file": p, "bytes": os.path.getsize(p), "mtime": os.path.getmtime(p)})
+    except OSError:
+        pass
+    return out
+
+
+def retention_plan(cfg=None, roots=None, now=None):
+    """What `storage.retention_days` would remove. Reads only. -> {days, items: [{store, kind: file|lines|rows|refs, ...}], bytes, backups}.
+    kinds: file {file, bytes}; lines {file, count} (events.jsonl lines older than the cutoff); rows {count} (logbook tasks and their steps);
+    refs {root, refs: [..], count} (git refs/architect/* checkpoints of a project)."""
+    cfg = _cfg(cfg)
+    now = now or time.time()
+    days = retention_days(cfg)
+    out = {"days": days, "items": [], "bytes": 0, "backups": list_backups()}
+    if not days:
+        return out
+    cutoff = now - days * 86400
+    why = f"older than {days} days (storage.retention_days)"
+    for store, top, suf in (("ci", _ci_dir(), (".json", ".log")), ("orchestration_test_data", _orch_test_dir(), None)):
+        for f in _old_files(top, cutoff, suf):
+            out["items"].append({"store": store, "kind": "file", "file": f["file"], "bytes": f["bytes"], "why": why})
+    try:
+        for fn in os.listdir(core.data_dir()):
+            p = os.path.join(core.data_dir(), fn)
+            if fn.startswith("ci_run") and fn.endswith(".log") and os.path.isfile(p) and os.path.getmtime(p) < cutoff:
+                out["items"].append({"store": "ci", "kind": "file", "file": p, "bytes": os.path.getsize(p), "why": why})
+    except OSError:
+        pass
+    old = os.path.join(_tel_dir(), "events.jsonl.1")
+    if os.path.isfile(old) and os.path.getmtime(old) < cutoff:
+        out["items"].append({"store": "telemetry", "kind": "file", "file": old, "bytes": os.path.getsize(old), "why": why})
+    n = _telemetry_old_lines(cutoff)
+    if n:
+        out["items"].append({"store": "telemetry", "kind": "lines", "file": os.path.join(_tel_dir(), "events.jsonl"), "count": n, "bytes": 0,
+                             "cutoff": cutoff, "why": f"{n} events {why}"})
+    n = _logbook_old(cutoff)
+    if n:
+        out["items"].append({"store": "logbook", "kind": "rows", "file": os.path.join(core.data_dir(), "logbook.db"), "count": n, "bytes": 0,
+                             "cutoff": cutoff, "why": f"{n} logged tasks (with their steps) {why}"})
+    roots = known_roots() if roots is None else {os.path.abspath(r) for r in roots}
+    for r in _ckpt_roots(roots):
+        refs = _old_refs(r, cutoff)
+        if refs:
+            out["items"].append({"store": "checkpoints", "kind": "refs", "root": r, "refs": refs, "count": len(refs), "bytes": 0,
+                                 "why": f"{len(refs)} checkpoint refs in {r} {why}"})
+    out["bytes"] = sum(i.get("bytes") or 0 for i in out["items"])
+    return out
+
+
+def _retention_apply(item):
+    """-> (freed_bytes or None, reason_if_refused)"""
+    k = item.get("kind")
+    if k == "file":
+        p = item.get("file") or ""
+        bad = retention_allowed(p)
+        if bad:
+            _log("refused", p, 0, bad)
+            return None, bad
+        try:
+            n = os.path.getsize(p)
+            os.remove(p)
+        except FileNotFoundError:
+            return 0, ""
+        except OSError as e:
+            _log("failed", p, 0, f"retention ({e.__class__.__name__})")
+            return None, f"could not delete: {e}"
+        _log("retention", p, n, item.get("why") or "")
+        try:                                              # an emptied dated folder under test_data goes too (folders only, and only when empty)
+            d = os.path.dirname(p)
+            if os.path.normcase(os.path.realpath(d)).startswith(os.path.normcase(os.path.realpath(_orch_test_dir())) + os.sep):
+                os.rmdir(d)
+        except OSError:
+            pass                                          # intentional: a folder that still holds files stays
+        return n, ""
+    if k == "lines":
+        p, cutoff = item.get("file") or "", float(item.get("cutoff") or 0)
+        if os.path.normcase(os.path.realpath(p)) != os.path.normcase(os.path.realpath(os.path.join(_tel_dir(), "events.jsonl"))) or not cutoff:
+            return None, "not the telemetry stream"
+        if time.time() - os.path.getmtime(p) < 60:
+            return None, "the stream is being written now; try again in a minute"
+        tmp, kept, dropped = p + ".trim", 0, 0
+        try:
+            with open(p, encoding="utf-8", errors="replace") as src, open(tmp, "w", encoding="utf-8", newline="") as dst:
+                for line in src:
+                    try:
+                        t = float(json.loads(line).get("t") or 0)
+                    except (ValueError, AttributeError, TypeError):
+                        t = 0
+                    if 0 < t < cutoff:
+                        dropped += 1
+                    else:
+                        dst.write(line)
+                        kept += 1
+            os.replace(tmp, p)
+        except OSError as e:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass                                      # intentional: no temp file to clean
+            return None, f"could not rewrite: {e}"
+        _log("retention-lines", p, 0, f"{dropped} events dropped, {kept} kept")
+        return 0, ""
+    if k == "rows":
+        p, cutoff = item.get("file") or "", float(item.get("cutoff") or 0)
+        if os.path.basename(p) != "logbook.db" or not cutoff:
+            return None, "not the logbook"
+        ids = []
+        try:
+            c = sqlite3.connect(p, timeout=10)
+            try:
+                ids = [r[0] for r in c.execute("select id from tasks where started is not null and started > 0 and started < ?", (cutoff,))]
+                for i in range(0, len(ids), 500):
+                    chunk = ids[i:i + 500]
+                    q = ",".join("?" * len(chunk))
+                    c.execute(f"delete from steps where task_id in ({q})", chunk)
+                    c.execute(f"delete from logbook_fts where task_id in ({q})", chunk)
+                    c.execute(f"delete from tasks where id in ({q})", chunk)
+                c.commit()
+            finally:
+                c.close()
+        except sqlite3.Error as e:
+            return None, f"logbook: {e}"
+        _log("retention-rows", p, 0, f"{len(ids)} tasks")
+        return 0, ""
+    if k == "refs":
+        root = item.get("root") or ""
+        try:
+            import arch_checkpoint as ck
+            env = _ref_env(root)
+            if env is None:
+                return None, "no checkpoint store there"
+            done = 0
+            for ref in item.get("refs") or []:
+                if str(ref).startswith("refs/architect/") and ck._run(["update-ref", "-d", ref], env, root, check=False).returncode == 0:
+                    done += 1
+            _log("retention-refs", root, 0, f"{done} refs")
+            return 0, ""
+        except Exception as e:
+            core._tel_swallow("cachehygiene._retention_apply.refs", e)
+            return None, f"checkpoints: {type(e).__name__}"
+    return None, "unknown retention item"
+
+
 # ------------------------------------------------------------------------------------------------ plain words
 def _gb(n):
     n = int(n or 0)
@@ -516,7 +804,8 @@ def report_lines(inv, plan, result=None):
         elif s["id"] == "lookup":
             L.append("      grown by the worker server itself; reported only")
     L.append("")
-    if not plan["items"] and not plan["reply_rows"]:
+    ret = plan.get("retention") or {}
+    if not plan["items"] and not plan["reply_rows"] and not ret.get("items"):
         L.append("Nothing to remove.")
     else:
         L.append(f"Would remove {len(plan['items'])} file(s), {_gb(plan['bytes'])}"
@@ -527,10 +816,21 @@ def report_lines(inv, plan, result=None):
         if sl:
             L.append(f"Saved prompt memory afterwards: {_gb(plan.get('slot_bytes_after'))}"
                      + (f" (limit {_gb(sl['cap_bytes'])})" if sl.get("cap_bytes") else ""))
+    if ret.get("days"):
+        L.append("")
+        L.append(f"Logs and old records past storage.retention_days ({ret['days']} days):" + ("" if ret.get("items") else " none"))
+        for it in ret.get("items") or []:
+            what = os.path.basename(it.get("file") or it.get("root") or "")
+            L.append(f"  - [{it['store']}] {what}  " + (f"{it['count']} {it['kind']}" if it.get("count") else _gb(it.get("bytes"))) + f"  {it['why']}")
+    elif ret:
+        L.append("")
+        L.append("storage.retention_days is 0: old logs are kept.")
+    for b in ret.get("backups") or []:
+        L.append(f"  backup (listed only, never removed): {os.path.basename(b['file'])}  {_gb(b['bytes'])}  {_day(b['mtime'])}")
     for k in plan.get("kept") or []:
         L.append(f"  kept: {os.path.basename(k['file'])} -- {k['why']}")
     if result is None:
-        if plan["items"] or plan["reply_rows"]:
+        if plan["items"] or plan["reply_rows"] or ret.get("items"):
             L.append("")
             L.append("Nothing was deleted. To remove exactly this list: python architect.py caches --prune --yes")
     elif result.get("dry_run"):
@@ -538,7 +838,8 @@ def report_lines(inv, plan, result=None):
         L.append("Nothing was deleted (add --yes to remove exactly this list).")
     else:
         L.append("")
-        L.append(f"Removed {len(result['deleted'])} file(s), freed {_gb(result['freed'])}"
+        L.append(f"Removed {len(result['deleted']) + len([r for r in result.get('retention_done') or [] if r['kind'] == 'file'])} file(s), freed {_gb(result['freed'])}"
+                 + (f"; applied {len(result['retention_done'])} retention item(s)" if result.get("retention_done") else "")
                  + (f"; dropped {result['reply_rows']} reply-cache rows" if result.get("reply_rows") else "")
                  + f". Each deletion is in {log_path()}.")
         for r in result.get("refused") or []:

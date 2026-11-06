@@ -19,16 +19,16 @@ import arch_core as core
 # calls the generator ~8 times (sprints x revisions); tests ~3; a fix ~4 (hunt, patch, retry); review ~3 judges; the rest ~1-2.
 JOBS = {
     "route":    {"roles": ["router"], "families": ["route"], "prior_calls": 1},
-    "plan":     {"roles": ["planner", "architect"], "families": ["planjson", "design"], "prior_calls": 2},
-    "code":     {"roles": ["generator", "generator_ui", "generator_sql", "fullstack", "accessibility_engineer", "migration_engineer"],
+    "plan":     {"roles": ["planner", "architect", "spec_writer", "interface_designer", "migration_planner"], "families": ["planjson", "design"], "prior_calls": 2},
+    "code":     {"roles": ["generator", "generator_ui", "generator_sql", "fullstack", "accessibility_engineer", "migration_engineer", "ui_builder", "data_engineer", "sql_author"],
                  "families": ["build", "feature", "e2e"], "prior_calls": 8},
-    "test":     {"roles": ["tester"], "families": ["test"], "prior_calls": 3},
-    "fix":      {"roles": ["bug_hunter", "optimizer", "reliability_engineer", "type_engineer"], "families": ["bugfix", "hunt", "refactor"], "prior_calls": 4},
-    "review":   {"roles": ["reviewer", "evaluator", "architect_dev"], "families": ["review"], "prior_calls": 3},
+    "test":     {"roles": ["tester", "test_author"], "families": ["test"], "prior_calls": 3},
+    "fix":      {"roles": ["bug_hunter", "optimizer", "reliability_engineer", "type_engineer", "debugger", "refactorer", "perf_tuner"], "families": ["bugfix", "hunt", "refactor"], "prior_calls": 4},
+    "review":   {"roles": ["reviewer", "evaluator", "architect_dev", "ux_reviewer"], "families": ["review"], "prior_calls": 3},
     "security": {"roles": ["security_engineer", "red_team", "blue_team", "pentester", "ioc_analyst"], "families": ["secure", "refusal"], "prior_calls": 2},
-    "infra":    {"roles": ["network_engineer", "ml_engineer", "config_engineer", "ci_engineer", "protocol_engineer", "iot_dev", "dependency_engineer"],
+    "infra":    {"roles": ["network_engineer", "ml_engineer", "config_engineer", "ci_engineer", "protocol_engineer", "iot_dev", "dependency_engineer", "dependency_auditor", "release_manager", "incident_responder"],
                  "families": ["cicd", "config", "network", "distributed"], "prior_calls": 2},
-    "docs":     {"roles": ["docs_writer"], "families": [], "prior_calls": 1},       # no docs eval family exists yet: never measured, never suggested
+    "docs":     {"roles": ["docs_writer", "explainer", "summarizer"], "families": [], "prior_calls": 1},       # no docs eval family exists yet: never measured, never suggested
 }
 LOW_VOLUME = 2.5          # calls per run at or below which a slower, better model is usually worth it (said in why(), not enforced)
 

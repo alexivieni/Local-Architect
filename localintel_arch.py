@@ -4,6 +4,9 @@ The Architect (arch_*.py, architect.py) is a generic harness. This module makes 
 editing any harness file except one tagged import block at the end of arch_flows.py (apply_localintel_layer.py
 adds or removes it, so a newer harness drops in cleanly).
 
+Nothing is patched at import. The layer is an explicit opt-in: setting localintel.enabled = true (or ARCH_LOCALINTEL=1) makes
+the Engine call install() when it is built. Without it this module is inert (its CLI below still works).
+
 Everything here switches on only for a project that IS LocalIntel (run.py + localintel/areas.py + localintel/
 __init__.py exist). For any other app in the portfolio the wrappers pass straight through.
 
@@ -983,7 +986,19 @@ def install():
         fl.FLOWS["checkup"] = CheckupFlow()
 
 
-install()
+def opted_in(cfg=None):
+    """The only ways the layer is switched on: setting localintel.enabled = true, or the environment variable ARCH_LOCALINTEL=1.
+    Importing this module patches nothing; the Engine asks this once at construction (arch_core.Engine.__init__)."""
+    if str(os.environ.get("ARCH_LOCALINTEL", "")).strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    return bool(((cfg or {}).get("localintel") or {}).get("enabled"))
+
+
+def install_if_enabled(cfg=None):
+    if opted_in(cfg):
+        install()
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------------------------------------

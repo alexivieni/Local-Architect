@@ -23,6 +23,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 
 import arch_core as core
@@ -59,6 +60,16 @@ ENVIRONMENTAL = _re.compile(r"not reachable|connection refused|no connection cou
 def environmental(why):
     """True when a failure is about the machine (server down, model missing, out of memory), not about how the task was tackled."""
     return bool(ENVIRONMENTAL.search(why or ""))
+
+# What a task keeps busy. Every model flow needs the GPU; a few jobs are CPU only (indexing, scanning, running a project's tests) and can
+# run beside a GPU task. Still one GPU task at a time (the heavy lock).
+CPU_FLOWS = ("index", "scan", "lint", "tests-only")
+
+
+def infer_needs(flow):
+    return "cpu" if (flow or "").strip().lower() in CPU_FLOWS else "gpu"
+
+
 STATES = ("pending", "running", "done", "failed", "not_sure", "dead", "cancelled")
 
 SCHEMA = """
@@ -97,6 +108,12 @@ def _open():
     c = sqlite3.connect(db_path(), timeout=5.0)
     c.row_factory = sqlite3.Row
     c.executescript(SCHEMA)
+    if not any(r[1] == "needs" for r in c.execute("pragma table_info(jobs)")):        # a queue made before resources existed
+        try:
+            c.execute("alter table jobs add column needs text default 'gpu'")
+            c.commit()
+        except sqlite3.OperationalError:
+            pass                                                                       # another process added it first
     return c
 
 
@@ -121,18 +138,19 @@ def stopped():
 
 # ---------------------------------------------------------------- the queue
 
-def add(goal, root, flow="", minutes=10, max_attempts=3, priority=0, parent=None, tried=None, note=""):
-    """Put a task on the queue. -> its id."""
+def add(goal, root, flow="", minutes=10, max_attempts=3, priority=0, parent=None, tried=None, note="", needs=""):
+    """Put a task on the queue. -> its id. needs = 'gpu' or 'cpu' (default: from the flow)."""
+    needs = needs if needs in ("gpu", "cpu") else infer_needs(flow)
     goal = " ".join(str(goal or "").split())
     if not goal:
         raise ValueError("say what the task is")
     root = os.path.abspath(root or os.getcwd())
     c = _open()
     try:
-        cur = c.execute("insert into jobs(goal, root, flow, minutes, max_attempts, priority, parent, tried, note, created) "
-                        "values(?,?,?,?,?,?,?,?,?,?)",
+        cur = c.execute("insert into jobs(goal, root, flow, minutes, max_attempts, priority, parent, tried, note, created, needs) "
+                        "values(?,?,?,?,?,?,?,?,?,?,?)",
                         (goal[:2000], root, (flow or "").strip().lower(), float(minutes or 10), int(max_attempts or 3),
-                         int(priority or 0), parent, json.dumps(list(tried or [])), note[:1600], time.time()))
+                         int(priority or 0), parent, json.dumps(list(tried or [])), note[:1600], time.time(), needs))
         c.commit()
         return cur.lastrowid
     finally:
@@ -191,13 +209,14 @@ def clear(states=("done", "cancelled", "dead")):
         c.close()
 
 
-def claim():
-    """Take the next pending task (highest priority, then oldest). Marked running in the same transaction, so two supervisors
-    can never take the same task."""
+def claim(needs=None):
+    """Take the next pending task (highest priority, then oldest), optionally only one that needs 'gpu' or 'cpu'. Marked running in the
+    same transaction, so two supervisors (or two lanes) can never take the same task."""
     c = _open()
     try:
         c.execute("begin immediate")
-        r = c.execute("select * from jobs where state='pending' order by priority desc, id asc limit 1").fetchone()
+        r = c.execute("select * from jobs where state='pending'" + (" and coalesce(needs,'gpu')=?" if needs else "")
+                      + " order by priority desc, id asc limit 1", (needs,) if needs else ()).fetchone()
         if not r:
             c.execute("commit")
             return None
@@ -351,8 +370,10 @@ def _subprocess_runner(job, say):
             "code": code}
 
 
-def run_one(say=print, runner=None, cfg=None):
-    """Take one task off the queue and see it through. -> a summary dict, or None when there is nothing to do or no room to do it."""
+def run_one(say=print, runner=None, cfg=None, needs=None, lane=False):
+    """Take one task off the queue and see it through. -> a summary dict, or None when there is nothing to do or no room to do it.
+    needs: only a 'gpu' or 'cpu' task. lane=True (parallel mode): a GPU task holds the heavy lock while it runs, so only one runs at a time
+    even across supervisors; a CPU task does not wait for it."""
     cfg = cfg or core.load_config()
     if stopped():
         say("[supervisor] the STOP file is present, so nothing new is started. Remove it (or run `supervise --resume`) to continue.")
@@ -361,13 +382,18 @@ def run_one(say=print, runner=None, cfg=None):
     if room:
         say(f"[supervisor] not starting anything: {room}.")
         return None
-    job = claim()
+    job = claim(needs)
     if not job:
         return None
     say(f"\n[supervisor] task {job['id']}: {job['goal'][:90]}" + (f"  (flow {job['flow']})" if job["flow"] else "  (the router picks the flow)"))
     t0 = time.time()
     try:
-        res = (runner or _subprocess_runner)(job, say)
+        if lane and (job.get("needs") or "gpu") == "gpu":
+            import arch_heavy
+            with arch_heavy.one_at_a_time("supervisor gpu task %s" % job["id"], cfg, say=say):
+                res = (runner or _subprocess_runner)(job, say)
+        else:
+            res = (runner or _subprocess_runner)(job, say)
     except Exception as ex:                                   # one broken task must never stop the queue
         res = {"verdict": "fail", "why": f"{type(ex).__name__}: {ex}"[:300], "run_id": "", "flow": job.get("flow") or "", "code": -1}
     secs = round(time.time() - t0, 1)
@@ -417,6 +443,15 @@ def run_one(say=print, runner=None, cfg=None):
     return out
 
 
+def _both_kinds_waiting():
+    c = _open()
+    try:
+        kinds = {r[0] or "gpu" for r in c.execute("select distinct needs from jobs where state='pending'")}
+        return {"gpu", "cpu"} <= kinds
+    finally:
+        c.close()
+
+
 def supervise(hours=1.0, max_tasks=20, say=print, runner=None, cfg=None):
     """Work through the queue until it is empty, the time is up, the daily budget runs out, or someone presses stop."""
     cfg = cfg or core.load_config()
@@ -426,13 +461,42 @@ def supervise(hours=1.0, max_tasks=20, say=print, runner=None, cfg=None):
     t_end = time.time() + float(hours) * 3600
     done = []
     say(f"[supervisor] {counts()['pending']} task(s) waiting; working for up to {hours} h or {max_tasks} task(s)")
-    while len(done) < max_tasks and time.time() < t_end:
-        r = run_one(say=say, runner=runner, cfg=cfg)
-        if r is None:
-            break
-        done.append(r)
-        if r.get("environmental"):
-            break
+    sv_cfg = cfg.get("supervisor") or {}
+    parallel = bool(sv_cfg.get("parallel_cpu", True)) and _both_kinds_waiting()
+    lock = threading.Lock()
+    halt = threading.Event()
+
+    def lane_loop(needs, lane):
+        while not halt.is_set() and time.time() < t_end:
+            with lock:
+                if len(done) + inflight[0] >= max_tasks:
+                    return
+                inflight[0] += 1
+            try:
+                r = run_one(say=say, runner=runner, cfg=cfg, needs=needs, lane=lane)
+            finally:
+                with lock:
+                    inflight[0] -= 1
+            if r is None:
+                return
+            with lock:
+                done.append(r)
+            if r.get("environmental"):
+                halt.set()
+                return
+            e = eta()
+            if e.get("left"):
+                say(f"[supervisor] queue: {e['line']}  ({e['source']})")
+
+    inflight = [0]
+    if parallel:
+        say("[supervisor] GPU and CPU-only tasks are both waiting: the CPU-only ones run alongside (one GPU task at a time)")
+        cpu = threading.Thread(target=lane_loop, args=("cpu", True), name="supervisor-cpu", daemon=True)
+        cpu.start()
+        lane_loop("gpu", True)
+        cpu.join()
+    else:
+        lane_loop(None, False)
     c = counts()
     env_stop = next((d for d in done if d.get("environmental")), None)
     why = ("stopped by the STOP file" if stopped() else
@@ -440,7 +504,23 @@ def supervise(hours=1.0, max_tasks=20, say=print, runner=None, cfg=None):
            ("time is up" if time.time() >= t_end else "task limit reached" if len(done) >= max_tasks else "the queue is empty"))
     say(f"[supervisor] finished: {sum(1 for d in done if d['verdict'] == 'pass')} passed, "
         f"{sum(1 for d in done if d['verdict'] != 'pass')} did not, {c['pending']} still waiting -- {why}")
+    if done:
+        try:
+            import arch_notify
+            arch_notify.notify("Architect: queue finished", f"{sum(1 for d in done if d['verdict'] == 'pass')} of {len(done)} passed; "
+                               f"{c['pending']} still waiting ({why})", cfg)
+        except Exception:
+            pass
     return {"ran": done, "counts": c, "why": why, "spent_today": spent_today()}
+
+
+def eta(jobs=None):
+    """How long the queue has left, from measured seconds per task (arch_eta). -> {line, done, total, left, secs_lo/mid/hi, ends_hm, source}."""
+    try:
+        import arch_eta
+        return arch_eta.queue_eta(jobs)
+    except Exception as ex:
+        return {"line": "", "left": 0, "source": f"no estimate: {type(ex).__name__}"}
 
 
 def stop(on=True):

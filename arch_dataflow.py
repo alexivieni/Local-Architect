@@ -99,6 +99,15 @@ class _Nothing:
     def __bool__(self):
         return False
 
+    def __contains__(self, item):          # without these, `'x' in NOTHING` walks __getitem__(0), (1), ... forever
+        return False
+
+    def __iter__(self):
+        return iter(())
+
+    def __len__(self):
+        return 0
+
     def __eq__(self, other):
         return other is None or isinstance(other, _Nothing)
 
@@ -839,14 +848,20 @@ class DataFlow:
         allowed = step.get("tools") or list(arch_tools.TOOLS)
         if not step.get("allow_writes", True):
             allowed = [t for t in allowed if not arch_tools.TOOLS[t]["writes"]]
+        import arch_roleprofile as _rp
+        allowed, _removed = _rp.tool_allow(e.cfg, role, allowed)       # the role profile's allow-list (off = unchanged)
+        if _removed:
+            e.say(f"    [tools] role profile removed: {', '.join(_removed)}")
         token = self._pin_tier(e, role, step.get("tier"))
         tpl = load_prompt(flow_id, step["prompt"], e)
         max_steps = int(step.get("max_steps", 8))
-        schema = arch_tools.schema(allowed)
+        # An EMPTY list means "no tools" here; arch_tools.schema/call read an empty list as "all", so it is handled before them.
+        schema = (arch_tools.schema(allowed) if allowed else
+                  {"type": "object", "properties": {"final": {"type": "string"}}, "required": ["final"]})
         turns, used, answer, transcript, seen_calls = [], [], None, [], set()
         try:
             extra = {k: (render(v, ctx) if isinstance(v, str) else v) for k, v in (step.get("vars") or {}).items()}
-            extra["tools"] = arch_tools.describe(allowed)
+            extra["tools"] = arch_tools.describe(allowed) if allowed else "(no tools: answer from what you were shown)"
             extra["max_steps"] = max_steps
             if "{context}" in tpl:
                 extra["context"] = self._context(e, ctx, step)
@@ -866,7 +881,11 @@ class DataFlow:
                     break
                 name, args = str(j.get("tool") or ""), j.get("args") or {}
                 sig = name + json.dumps(args, sort_keys=True, default=str)
-                out, ok = arch_tools.call(e, name, args, allowed)
+                if not allowed:
+                    out, ok = f"'{name}' is not allowed: the {role} role has no tools in this step. Answer with {{\"final\": \"...\"}}.", False
+                else:
+                    ok_, why = _rp.check_tool(e.cfg, role, name, args)
+                    out, ok = (arch_tools.call(e, name, args, allowed) if ok_ else (why, False))
                 if sig in seen_calls:                              # the same call gets the same answer: say so rather than let it loop
                     out += ("\n\nYou have already made this exact call and this is the same answer. Do something different: another tool, or the "
                             "same tool with different arguments. If you have enough to answer, answer.")
@@ -933,8 +952,18 @@ class DataFlow:
         done_before, outs_before = set(res.get("steps_done") or []), res.get("step_outputs") or {}
         steps_done, step_outputs = [], {}
         try:
+            step_ids = {s_["id"] for s_ in doc["steps"]}
             for step in doc["steps"]:
                 sid = step["id"]
+                try:                                      # the person's edits to the plan, read before every step
+                    ov = e.plan_override()
+                    skip |= ov["skipped"]
+                    for aid in ov["added"]:               # an item the person added is not a step of this flow: say so, do not leave it pending
+                        if aid not in step_ids:
+                            e.todo_mark(aid, "skipped")
+                            e.say(f"[plan] added item {aid!r} is not a step of the {self.id} flow; marked skipped")
+                except Exception:
+                    pass
                 if sid in done_before and isinstance(outs_before.get(sid), dict):
                     # resumed run: this step passed before the interruption, and its files are already on disk
                     ctx["steps"][sid] = ctx[sid] = dict(outs_before[sid])

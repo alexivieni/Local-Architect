@@ -39,6 +39,15 @@ _WATCH = {}
 
 
 # ------------------------------------------------------------------------------------------------------------ paths and state
+def _swallow(where, ex):
+    """Record a fault a caller deliberately swallows (arch_telemetry.swallow, rate-limited). Never raises."""
+    try:
+        import arch_telemetry
+        arch_telemetry.swallow(where, ex)
+    except Exception:                      # intentional: the recorder itself must never break the caller
+        pass
+
+
 def state_path():
     return os.path.join(core.data_dir(), "server.json")
 
@@ -522,6 +531,7 @@ def plan(cfg=None, hw=None, caps_=None):
             arch = _arch_for(rm["gguf"])
         ctx = int(srv.get("ctx") or (tiers.get(tier) or {}).get("ctx") or prof.get("ctx") or 8192)
         ngl_pref = (tiers.get(tier) or {}).get("ngl")
+        kv_t = kv                                                                  # this tier's cache type (heavy may differ: server.kv_heavy)
         slots = max(1, int(srv.get("parallel") or 1)) if tier == "worker" else 1      # decided BEFORE the fit math: every slot pays for the window again
         split, ram_part, beside, moe = None, 0.0, None, None
         if tier == "router" and (tiers.get(tier) or {}).get("cpu", prof.get("router_cpu", True)):
@@ -571,9 +581,14 @@ def plan(cfg=None, hw=None, caps_=None):
             if can_beside and fast and not heavy_every_run:   # fast lane: the card and the memory bus belong to the worker alone
                 fast_did.append("the heavy model no longer stays loaded beside the worker; it starts only when a step escalates to it")
             elif can_beside:
-                b = _moe_split(rm["size"], arch, dict(hw, vram_gb=vt - float(wp["est_gpu_gb"] or 0)), ctx, kv, desktop_gb=desk)
+                kh = srv.get("kv_heavy", "auto") or "auto"
+                kv_b = "q4_0" if kh == "auto" else (kv if kh == "inherit" else kh)     # beside the worker the MoE's cache is the one to squeeze
+                b = _moe_split(rm["size"], arch, dict(hw, vram_gb=vt - float(wp["est_gpu_gb"] or 0)), ctx, kv_b, desktop_gb=desk)
                 if b and b[2] + resident_ram <= ram_gb - RAM_RESERVE_GB:
                     beside = split = b
+                    kv_t = kv_b
+                    if kv_b != kv:
+                        notes.append(f"heavy: its memory for the conversation uses {kv_b} (instead of {kv}) so the planner fits beside the worker.")
                     ncmoe, est, ram_part = b
                     ngl = int(arch.get("layers") or ngl)
                     why = (f"stays loaded beside the worker: experts of {ncmoe} of {ngl} layers in RAM (about {est} GB on the card, "
@@ -586,8 +601,11 @@ def plan(cfg=None, hw=None, caps_=None):
         # gets the full window (the fit math above already pays for it `slots` times).
         par = slots if "--parallel" in flags else 1
         ngl_arg = int(arch.get("layers") or ngl) + 1 if (full or split) else ngl    # the output layer too (llama.cpp counts it as layer n+1)
-        t_tier = max(1, threads // 2) if (tier == "router" and ngl == 0) else threads
+        t_tier = threads                                      # decode threads = performance cores (E-cores slow every step of a CPU-bound tier)
         args = [binary, "--host", "127.0.0.1", "--port", str(port0 + i), "-m", rm["gguf"], "-c", str(ctx * par), "-ngl", str(ngl_arg), "--alias", tier, "-t", str(t_tier)]
+        tb = next((f for f in ("-tb", "--threads-batch") if f in flags), None)
+        if tb:                                                # the prompt-reading batch can use every logical core
+            args += [tb, str(max(threads, int(hw.get("cpu_cores") or threads)))]
         cram = "--cache-ram" if "--cache-ram" in flags else ("-cram" if "-cram" in flags else None)
         cache_mib = 0
         if cram:
@@ -621,16 +639,36 @@ def plan(cfg=None, hw=None, caps_=None):
             args += ["--reasoning-format", "auto"]
         if srv.get("flash_attn", True) and ("--flash-attn" in flags or "-fa" in flags) and ngl > 0:
             args += ["-fa", "on"] if cp.get("fa_mode") == "value" else ["-fa"]
-            if kv != "f16":                                       # only the spellings this build advertises: that is the whole point of reading --help
+            if kv_t != "f16":                                     # only the spellings this build advertises: that is the whole point of reading --help
                 if "--cache-type-k" in flags:
-                    args += ["--cache-type-k", kv]
+                    args += ["--cache-type-k", kv_t]
                 if "--cache-type-v" in flags:
-                    args += ["--cache-type-v", kv]
+                    args += ["--cache-type-v", kv_t]
         if "--parallel" in flags:
             args += ["--parallel", str(par)]
+        cr = _cache_reuse(srv)
+        if cr and tier != "router" and "--cache-reuse" in flags:
+            # Chunk-level KV reuse: when an edit shifts the middle of a prompt, the unchanged chunks (>= N tokens) after it are shifted
+            # in the cache instead of re-read. Only where this build lists the flag (read from its own --help / caps.json).
+            args += ["--cache-reuse", str(cr)]
+            notes.append(f"{tier}: chunk-level cache reuse is on (--cache-reuse {cr}): unchanged blocks of a prompt after a changed part are not re-read.")
+        bb = next((f for f in ("--batch-size", "-b") if f in flags), None)
+        if bb:
+            args += [bb, str(int(srv.get("batch") or 2048))]
         ub = "--ubatch-size" if "--ubatch-size" in flags else ("-ub" if "-ub" in flags else None)
         if ub:
             args += [ub, str(int(srv.get("ubatch") or 256))]
+        is_moe = bool(split and split[0] > 0)
+        ml, nm = srv.get("mlock", "auto") or "auto", srv.get("no_mmap", "auto") or "auto"
+        want_ml = ml == "on" or (ml == "auto" and tier == "heavy" and is_moe and float(hw.get("ram_free_gb") or 0) >= 8)
+        want_nm = nm == "on" or (nm == "auto" and is_moe)
+        if "--mlock" in flags or "--no-mmap" in flags:
+            if want_ml and "--mlock" in flags:
+                args.append("--mlock")                        # keeps the model in RAM so Windows never pages the experts out
+            if want_nm and "--no-mmap" in flags:
+                args.append("--no-mmap")                      # loads the experts into RAM once instead of faulting them in from disk
+        elif "--load-mode" in flags and (want_ml or want_nm):  # newer builds fold both into one switch
+            args += ["--load-mode", ("mlock" if want_nm else "mmap+mlock") if want_ml else "none"]
         if srv.get("slots", True) and "--slot-save-path" in flags and tier != "router":
             sd = os.path.join(server_dir(), "slots", tier)         # the prefill for this tier's long, unchanging prompt start, kept on disk
             try:
@@ -660,6 +698,10 @@ def plan(cfg=None, hw=None, caps_=None):
         if (srv.get("ngram", "auto") != "off" or fast) and tier == "worker" and not draft:
             # Guessing the next few tokens from the prompt itself. A code edit repeats most of its input, so this is free speed with no
             # second model and no extra graphics memory -- but only where the build offers it, and never beside a real draft model.
+            _sl = _static_lookup_arg(srv, flags)
+            if _sl:
+                args += ["--lookup-cache-static", _sl]
+                notes.append("worker: the project's static n-gram lookup cache is given to the worker (--lookup-cache-static).")
             if "--lookup-cache-dynamic" in flags:
                 try:
                     os.makedirs(os.path.join(server_dir(), "lookup"), exist_ok=True)
@@ -693,7 +735,7 @@ def plan(cfg=None, hw=None, caps_=None):
             d_used = draft["name"]
         for extra in (tiers.get(tier) or {}).get("extra_args") or []:
             args.append(str(extra))
-        procs.append({"tier": tier, "name": rm["name"], "gguf": rm["gguf"], "size_gb": round(rm["size"] / GB, 2), "port": port0 + i, "ctx": ctx, "ngl": ngl, "kv": kv,
+        procs.append({"tier": tier, "name": rm["name"], "gguf": rm["gguf"], "size_gb": round(rm["size"] / GB, 2), "port": port0 + i, "ctx": ctx, "ngl": ngl, "kv": kv_t,
                       "draft": d_used, "args": args, "why": why, "resident": tier != "heavy" or bool(beside), "arch": arch, "est_gpu_gb": est, "full_gpu": full,
                       "moe_cpu_layers": split[0] if split else 0, "ram_gb": round(ram_part, 2)})
         if fast and tier == "worker":
@@ -807,7 +849,7 @@ def wait_health(url, seconds=180, say=None, proc=None):
     return False
 
 
-def start(cfg=None, hw=None, tiers=None, say=print, wait=True, watch=True, heavy=False):
+def start(cfg=None, hw=None, tiers=None, say=print, wait=True, watch=True, heavy=False, project=None):
     """Start the resident tiers (router, worker; heavy only when asked). -> state dict. Idempotent: a healthy process is left alone."""
     cfg = cfg or core.load_config()
     pl = plan(cfg, hw)
@@ -831,6 +873,14 @@ def start(cfg=None, hw=None, tiers=None, say=print, wait=True, watch=True, heavy
     save_state(st)
     if watch:
         _watchdog(cfg)
+    if wait and project:
+        try:
+            gg = next((p["gguf"] for p in want if p["tier"] == "worker"), None)
+            refresh_static_lookup(cfg, project, gguf=gg, say=say)      # used at the NEXT worker start (the args are fixed at launch)
+            if any(p["tier"] == "worker" for p in want) and (st["processes"].get("worker") or {}).get("healthy", True):
+                prewarm_roles(cfg, project=project, say=say)
+        except Exception as _swx:
+            _swallow("server.start", _swx)
     return st
 
 
@@ -890,8 +940,8 @@ def _start_procs(cfg, want, st, say, wait):
                 keep = ({m for m in (cfg.get("roles") or {}).values() if m} | {m for m in (cfg.get("tiers") or {}).values() if m}) - serving
             if loaded - keep:
                 arch_ollama.free_gpu(keep, say=say)
-        except Exception:
-            pass
+        except Exception as _swx:
+            _swallow("server._start_procs", _swx)
     for p in want:
         url = f"http://127.0.0.1:{p['port']}"
         cur = st["processes"].get(p["tier"]) or {}
@@ -976,8 +1026,8 @@ def _tel(kind, rec, **extra):
         f.update(_placement(rec))
         f.update(extra)
         arch_telemetry.emit(kind, **f)
-    except Exception:
-        pass
+    except Exception as _swx:
+        _swallow("server._tel", _swx)
 
 
 def _kill(pid):
@@ -1109,8 +1159,8 @@ def slot_io(action, cfg, project, tier="worker", slot=0):
                     os.utime(path, None)              # least-recently-USED: a restore counts as a use
                 else:
                     hyg.enforce_slot_cap(cfg, keep=path)
-            except Exception:
-                pass
+            except Exception as _swx:
+                _swallow("server.slot_io", _swx)
         return ok
     except Exception:
         return False
@@ -1232,8 +1282,8 @@ def come_back(cfg, say=print, owner=None, run=None, wait_s=15.0):
             if not {m.get("name") for m in (arch_ollama.status(timeout=2).get("loaded") or [])} & set(bigs):
                 break
             time.sleep(0.5)
-    except Exception:
-        pass
+    except Exception as _swx:
+        _swallow("server.come_back", _swx)
     st = load_state()
     for t in mine:
         (st.get("aside") or {}).pop(t, None)
@@ -1257,7 +1307,7 @@ def models():
     return out
 
 
-def ensure(cfg, say=print, wanted=None, watch=False):
+def ensure(cfg, say=print, wanted=None, watch=False, project=None):
     """Before a run: start the planned resident tiers if llama-server is configured and not up. Never raises; falls back to Ollama.
     `wanted` = the models the run will actually call (None = not known): a tier none of them uses is not started. Seen live: the scripted
     benchmark, whose roles all point at a fake model, started the real router and worker and left 3.7 GB of graphics memory held idle."""
@@ -1278,7 +1328,7 @@ def ensure(cfg, say=print, wanted=None, watch=False):
         need = [p["tier"] for p in pl["processes"] if p["resident"] and p["tier"] not in up
                 and (wanted is None or names(p) & set(wanted))]
         if need:
-            return start(cfg, tiers=need, say=say)
+            return start(cfg, tiers=need, say=say, project=project)
         return st
     except Exception as e:                                   # the server layer must never stop a run
         say(f"[server] {type(e).__name__}: {e}; using Ollama for this run")
@@ -1298,8 +1348,8 @@ def _watchdog(cfg, period=15.0, max_restarts=3, window=600.0):
             try:
                 if any(_orphaned(a) for a in (load_state().get("aside") or {}).values()):
                     come_back(core.load_config(), say=lambda m: None)
-            except Exception:
-                pass
+            except Exception as _swx:
+                _swallow("server.loop", _swx)
             st = load_state()
             for t, rec in list((st.get("processes") or {}).items()):
                 if rec.get("pid") and _alive(rec["pid"]):
@@ -1532,15 +1582,15 @@ def idle_sweep(cfg, now=None, say=lambda m: None, http=None):
                 try:
                     import arch_ollama
                     arch_ollama.tel_unload(m.get("name"), trigger="idle", loaded=m)
-                except Exception:
-                    pass
+                except Exception as _swx:
+                    _swallow("server.idle_sweep", _swx)
                 _IDLE["seen"].pop(key, None)
                 freed.append(f"Ollama copy of {m.get('name')} ({int((m.get('size') or 0) / 1e9)} GB)")
         loaded = {"ollama:" + str(m.get("name")) for m in ps.get("models") or []}
         for k in [k for k in _IDLE["seen"] if k.startswith("ollama:") and k not in loaded]:
             _IDLE["seen"].pop(k, None)
-    except Exception:
-        pass
+    except Exception as _swx:
+        _swallow("server.idle_sweep", _swx)
     for f in freed:
         say(f"[idle] freed {f} after {mins:g} idle minutes; it starts again when a task needs it")
     return freed
@@ -1556,9 +1606,204 @@ def start_idle_sweeper(load_cfg, period=60.0, say=lambda m: None):
         while True:
             try:
                 idle_sweep(load_cfg(), say=say)
-            except Exception:
-                pass
+            except Exception as _swx:
+                _swallow("server.loop", _swx)
             time.sleep(period)
     _IDLE["thread"] = threading.Thread(target=loop, name="idle-sweeper", daemon=True)
     _IDLE["thread"].start()
     return _IDLE["thread"]
+
+
+# ------------------------------------------------------------------------------------------------ cache extras (2026-11-05)
+def _cache_reuse(srv):
+    """server.cache_reuse: tokens a reusable chunk must have (0 = off). Default 256."""
+    try:
+        return max(0, int(srv.get("cache_reuse", 256) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _tele(kind, **f):
+    try:
+        import arch_telemetry
+        arch_telemetry.emit(kind, **f)
+    except Exception as _swx:
+        _swallow("server._tele", _swx)
+
+
+def _lookup_dir():
+    return os.path.join(server_dir(), "lookup")
+
+
+def _static_ptr():
+    return os.path.join(_lookup_dir(), "static.json")
+
+
+def _static_lookup_arg(srv, flags):
+    """The static lookup file to hand the worker: only when server.static_lookup is on, the build lists --lookup-cache-static, and a
+    file was built (refresh_static_lookup). Else None."""
+    try:
+        if str(srv.get("static_lookup", "off")) == "off" or "--lookup-cache-static" not in flags:
+            return None
+        path = core.load_json(_static_ptr()).get("path")
+        return path if path and os.path.isfile(path) else None
+    except Exception:
+        return None
+
+
+_SRC_EXT = (".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".c", ".h", ".cpp", ".cs", ".rb", ".php", ".kt", ".swift", ".md", ".json", ".toml", ".yml", ".yaml", ".html", ".css", ".sql", ".sh")
+_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".architect", ".idea", ".vscode", "target"}
+
+
+def tree_signature(project, max_files=2000):
+    """-> (signature, [paths]) of the project's source files: changes when a file is added, removed, resized or touched."""
+    import hashlib
+    files = []
+    for dp, dn, fn in os.walk(project):
+        dn[:] = sorted(d for d in dn if d not in _SKIP_DIRS and not d.startswith("."))
+        for f in sorted(fn):
+            if f.lower().endswith(_SRC_EXT):
+                files.append(os.path.join(dp, f))
+                if len(files) >= max_files:
+                    break
+        if len(files) >= max_files:
+            break
+    h = hashlib.sha1()
+    for f in files:
+        try:
+            st = os.stat(f)
+            h.update(f"{os.path.relpath(f, project)}|{st.st_size}|{int(st.st_mtime)}\n".encode("utf-8", "replace"))
+        except OSError:
+            pass
+    return h.hexdigest()[:16], files
+
+
+def refresh_static_lookup(cfg, project, gguf=None, say=print, runner=None, max_kb=512):
+    """Build the project's static n-gram lookup cache (llama.cpp `llama-lookup-create`, passed to the worker as --lookup-cache-static)
+    and refresh it only when the source tree changed. Needs: server.static_lookup != off, a build whose --help lists
+    --lookup-cache-static, and the llama-lookup-create tool beside llama-server. NOT_SURE: whether every release ships that tool and
+    reads -f text the way used here; a missing tool or a failed run is silently nothing (the worker then simply has no static cache).
+    -> path or None. `runner(cmd)` is injectable for tests."""
+    try:
+        srv = (cfg or {}).get("server") or {}
+        if str(srv.get("static_lookup", "off")) == "off" or not project or os.environ.get("ARCHITECT_EVAL") == "1":
+            return None
+        binary = resolve_binary(cfg)
+        if not binary or "--lookup-cache-static" not in set(caps(binary).get("flags") or []):
+            return None
+        sig, files = tree_signature(project)
+        ptr = core.load_json(_static_ptr())
+        if ptr.get("sig") == sig and ptr.get("project") == project and os.path.isfile(ptr.get("path") or ""):
+            return ptr["path"]
+        exe = os.path.join(os.path.dirname(binary), "llama-lookup-create" + (".exe" if sys.platform.startswith("win") else ""))
+        if runner is None and not os.path.isfile(exe):
+            _tele("server.static_lookup", ok=False, why="llama-lookup-create not found")
+            return None
+        os.makedirs(_lookup_dir(), exist_ok=True)
+        txt, out = os.path.join(_lookup_dir(), "project.txt"), os.path.join(_lookup_dir(), "project.static.bin")
+        buf, n = [], 0
+        for f in files:
+            try:
+                with open(f, encoding="utf-8", errors="replace") as fh:
+                    t = fh.read()
+            except OSError:
+                continue
+            buf.append(t)
+            n += len(t)
+            if n > max_kb * 1024:
+                break
+        with open(txt, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(buf))
+        cmd = [exe, "-m", gguf or "", "-f", txt, "-lcs", out]
+        if runner:
+            runner(cmd)
+        else:
+            subprocess.run(cmd, capture_output=True, timeout=300)
+        ok = os.path.isfile(out)
+        if ok:
+            with open(_static_ptr(), "w", encoding="utf-8") as fh:
+                json.dump({"path": out, "sig": sig, "project": project, "files": len(files), "ts": time.time()}, fh)
+            say(f"[server] static n-gram lookup cache built from {len(files)} source files (used at the next worker start)")
+        _tele("server.static_lookup", ok=ok, files=len(files), sig=sig)
+        return out if ok else None
+    except Exception:
+        return None
+
+
+def _prewarm_list(srv):
+    try:
+        import arch_roles
+        want = srv.get("prewarm_roles") or ["generator", "reviewer", "planner"]
+        return [r for r in want if r in arch_roles.ROLES][:max(0, int(srv.get("prewarm_max", 3) or 0))]
+    except Exception:
+        return []
+
+
+def role_slot_name(role, system_text, project=None):
+    import hashlib
+    h = hashlib.sha1((system_text + "|" + (os.path.abspath(project) if project else "")).encode("utf-8", "replace")).hexdigest()[:10]
+    return f"role_{re.sub(r'[^A-Za-z0-9_]', '_', role)[:30]}_{h}.bin"
+
+
+def _post(url, body, timeout=120):
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        r.read()
+        return r.status == 200
+
+
+def prewarm_roles(cfg, project=None, say=print, url=None, header="", force=False):
+    """After the worker is healthy: for each of a few roles, run the role's fixed system prompt (+ `header`, a stable project
+    header, when known) through slot 0 with one output token and save that slot to disk (slot save path), so the role's first real
+    call restores it (restore_role) instead of reading the prompt again. Off unless server.prewarm = on; capped by
+    server.prewarm_max roles and server.prewarm_gb of disk; skipped in eval (ARCHITECT_EVAL=1) unless force. Best effort, never
+    raises, never touches a busy server. -> list of roles warmed."""
+    done = []
+    try:
+        srv = (cfg or {}).get("server") or {}
+        if not force and (str(srv.get("prewarm", "off")) != "on" or os.environ.get("ARCHITECT_EVAL") == "1" or os.environ.get("ARCHITECT_NO_CACHE")):
+            return done
+        sv = {"url": url} if url else serving("tier:worker", cfg)
+        if not sv or busy(sv["url"]):
+            return done
+        import arch_roles
+        sdir = os.path.join(server_dir(), "slots", "worker")
+        os.makedirs(sdir, exist_ok=True)
+        cap = float(srv.get("prewarm_gb", 1.0) or 0) * (1 << 30)
+        for role in _prewarm_list(srv):
+            used = sum(os.path.getsize(os.path.join(sdir, f)) for f in os.listdir(sdir) if f.startswith("role_") and f.endswith(".bin"))
+            if used >= cap:
+                _tele("server.prewarm", role=role, ok=False, why="disk cap")
+                break
+            sysm = arch_roles.system_prompt(role, header or "")
+            name = role_slot_name(role, sysm, project)
+            if os.path.isfile(os.path.join(sdir, name)):
+                continue
+            t0 = time.time()
+            ok = _post(sv["url"].rstrip("/") + "/v1/chat/completions",
+                       {"model": "worker", "messages": [{"role": "system", "content": sysm}, {"role": "user", "content": "."}],
+                        "max_tokens": 1, "temperature": 0, "stream": False, "cache_prompt": True, "id_slot": 0})
+            ok = ok and _post(sv["url"].rstrip("/") + "/slots/0?action=save", {"filename": name}, timeout=30)
+            _tele("server.prewarm", role=role, ok=bool(ok), seconds=round(time.time() - t0, 2), file=name)
+            if ok:
+                done.append(role)
+    except Exception as _swx:
+        _swallow("server.prewarm_roles", _swx)
+    if done:
+        say("[server] pre-warmed " + ", ".join(done))
+    return done
+
+
+def restore_role(cfg, role, project=None, header="", slot=0, url=None):
+    """Restore the saved start of `role`'s fixed prompt into `slot` before its first call. True when restored. Never raises."""
+    try:
+        import arch_roles
+        sv = {"url": url} if url else serving("tier:worker", cfg)
+        name = role_slot_name(role, arch_roles.system_prompt(role, header or ""), project)
+        if not sv or not os.path.isfile(os.path.join(server_dir(), "slots", "worker", name)) or busy(sv["url"]):
+            return False
+        ok = _post(sv["url"].rstrip("/") + f"/slots/{max(0, int(slot or 0))}?action=restore", {"filename": name}, timeout=30)
+        _tele("server.prewarm_restore", role=role, ok=bool(ok))
+        return bool(ok)
+    except Exception:
+        return False

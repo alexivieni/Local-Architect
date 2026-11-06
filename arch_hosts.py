@@ -323,6 +323,62 @@ def rank_hosts(role, cfg=None, live=False, down=(), get=None, first=False):
     return sorted(out, key=lambda c: (order[c["healthy"]], -c["tok_s"], c["latency_ms"] if c["latency_ms"] is not None else 1e9))
 
 
+# ------------------------------------------------------------------------------------------------ CPU work on another machine
+CPU_KINDS = ("tests", "index", "lint", "scan")      # the only kinds ever sent
+CPU_MAX_BYTES = 2_000_000                           # more than this to ship and it just runs here
+CPU_PATH = "/arch/cpu"
+
+
+def cpu_host(cfg):
+    """The machine the person routed CPU work to (role_hosts['cpu'] = name), or None."""
+    name = (cfg.get("role_hosts") or {}).get("cpu")
+    return name if name and name in hosts_of(cfg) else None
+
+
+def _post(url, body, timeout, token=None):
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if token:                                        # arch_cpuworker.py refuses CPU work without it
+        headers["X-Arch-Token"] = token
+    req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def run_cpu(kind, payload, local, cfg=None, post=None, get=None, timeout=600):
+    """Run CPU work (tests / indexing / lint / scan) on the machine routed for 'cpu', else here.
+    payload: {"argv": [...], "files": {rel: text}} -- everything the remote needs is shipped in it; local(payload) -> {"ok","code","out"} is the
+    same work done on this computer. A machine that is not added, down, slow, answering garbage or refusing falls back to local(payload): the
+    run never fails because a second machine is off. -> that dict plus "where" ('local' or the host name) and "fallback" (why, or None)."""
+    cfg = _cfg(cfg)
+    name = cpu_host(cfg)
+    if kind not in CPU_KINDS:
+        raise ValueError(f"unknown CPU work '{kind}'")
+
+    def here(why):
+        res = dict(local(payload))
+        res["where"], res["fallback"] = "local", why
+        return res
+    if not name:
+        return here(None)
+    if len(json.dumps(payload, default=str)) > CPU_MAX_BYTES:
+        return here("too much to send")
+    url = _url_of(cfg, name)
+    h = _live_health(name, cfg, get)
+    if not h["ok"]:
+        return here(f"{name} is down ({h['error']})")
+    try:
+        tok = str((cfg.get("cpu_worker") or {}).get("token") or os.environ.get("ARCHITECT_CPU_TOKEN") or "")
+        send = post or (lambda u, b, t: _post(u, b, t, token=tok))
+        r = send(url + CPU_PATH, {"kind": kind, **payload}, timeout)
+        if not isinstance(r, dict) or "ok" not in r or "out" not in r:
+            raise ValueError("unexpected answer")
+    except Exception as e:                           # refused, timed out, not an Architect worker, garbage: do it here
+        why = str(getattr(e, "reason", e))[:80]
+        _LIVE[(name, url)] = {"name": name, "url": url, "ok": False, "ms": 0, "error": f"CPU work failed ({why})", "models": None, "ts": time.time()}
+        return here(f"{name} failed the work ({why})")
+    return {"ok": bool(r["ok"]), "code": r.get("code"), "out": str(r.get("out"))[-8000:], "where": name, "fallback": None}
+
+
 def _ago(ts):
     if not ts:
         return "never"

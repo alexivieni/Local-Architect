@@ -10,7 +10,7 @@ Where they live (first found wins a name clash, so a shipped plugin can never be
 A plugin folder:
   plugin.json   {"name", "version", "description", "requires": {"architect": ">=13", "tiers": [...]},
                  "provides": {...informational...}, "settings_defaults": {...}}
-  agents/*.yaml  workflows/*.yaml  skills/*.md  commands/*.md  hooks.json
+  agents/*.md|*.yaml  workflows/*.yaml  skills/*.md  commands/*.md  hooks.json
 
 State: <data_dir>/plugins.json  {name: {enabled, trusted_fingerprint, source, installed_at}}.
 
@@ -189,13 +189,13 @@ def contents(folder):
     except Exception as e:                                           # pragma: no cover - those ship with the install
         arch_ci = arch_squad = None
         out["problems"].append(f"agents/workflows not checked: {e}")
-    for p in _files(folder, "agents", ".yaml"):
+    for p in _files(folder, "agents", ".yaml") + _files(folder, "agents", ".md"):
         rel = os.path.relpath(p, folder)
         if arch_squad is None:
             continue
         try:
-            d = arch_ci.load_yaml(_read_text(p))
-            probs = arch_squad.validate(d)
+            d = arch_squad.load_agent(p)                 # .md (Claude Code format) and .yaml alike; ValueError lists the problems
+            probs = []
         except Exception as e:
             probs = [str(e)]
             d = {}

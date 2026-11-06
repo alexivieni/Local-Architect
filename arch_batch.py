@@ -90,6 +90,36 @@ def submit(items, client=None, cfg=None):
     return bid
 
 
+def wanted(cfg, urgent=False):
+    """True when a non-urgent Claude job may go through a batch at half price: opt-in (online.batch_jobs = on), online features on
+    (arch_cloud.allowed) and an API key present. An urgent job never waits for a batch."""
+    try:
+        import arch_cloud
+        c = _cfg(cfg)
+        o = c.get("online") or {}
+        return (not urgent and str(o.get("batch_jobs", "off")) == "on" and bool(o.get("enabled"))
+                and bool(os.environ.get("ANTHROPIC_API_KEY")) and arch_cloud.allowed(c)[0])
+    except Exception:
+        return False
+
+
+def route(items, cfg=None, urgent=False, client=None):
+    """Overnight audits and eval reports: -> {"via": "batch", "id"} when wanted() (half price, results via poll), else
+    {"via": "now"} and the caller runs them as usual. Never raises: a refused or failed submit falls back to {"via": "now"}."""
+    if not wanted(cfg, urgent):
+        return {"via": "now"}
+    try:
+        bid = submit(items, client=client, cfg=cfg)
+        try:
+            import arch_telemetry
+            arch_telemetry.emit("batch.routed", items=len(items), id=bid)
+        except Exception:
+            pass
+        return {"via": "batch", "id": bid}
+    except Exception as e:
+        return {"via": "now", "why": str(e)[:200]}
+
+
 def _text(message):
     parts = []
     for blk in (getattr(message, "content", None) or []):

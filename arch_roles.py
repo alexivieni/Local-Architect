@@ -273,11 +273,123 @@ ROLES = {
         "system": "You audit dependencies. Report imports that are not installed, packages that are declared but never imported, versions that are "
                   "not pinned, and anything known to be risky. Prefer the standard library. Never add a dependency to fix a problem you can avoid.",
     },
+    "spec_writer": {
+        "title": "Spec writer", "icon": "S", "group": "Core",
+        "blurb": "Turns a loose request into a short spec: what it does, inputs and outputs, edge cases and acceptance checks.",
+        "needs": {"design_doc": 40, "reasoning": 30, "format": 30}, "think": True, "sampling": {"temperature": 0.3},
+        "uses": ["design", "build"], "latency": "can be slow",
+        "system": "You write specifications. List what must be true when the work is done: inputs, outputs, error cases, limits and a check for each. Do not choose a design and do not write code. Mark anything the request does not settle as an open question instead of guessing.",
+    },
+    "interface_designer": {
+        "title": "Interface designer", "icon": "I", "group": "Core",
+        "blurb": "Fixes the public names, arguments, return values and errors of a module before any code is written.",
+        "needs": {"api_design": 40, "design_doc": 25, "reasoning": 20, "format": 15}, "think": True, "sampling": {"temperature": 0.3},
+        "uses": ["design", "build"], "latency": "can be slow",
+        "system": "You design interfaces. List every public function, class and command with exact argument names, types, return value and the errors it raises. Keep the surface small. The request's own names always win over yours. Do not write the bodies.",
+    },
+    "test_author": {
+        "title": "Test author", "icon": "T", "group": "Quality",
+        "blurb": "Writes the tests for a spec before or beside the code: one clear reason to fail per test, edge cases and error paths.",
+        "needs": {"testing": 40, "backend_feature": 20, "reasoning": 20, "format": 20}, "think": False, "sampling": {"temperature": 0.2},
+        "uses": ["test", "feature"], "latency": "medium",
+        "system": "You write tests from a spec or an interface, not from the implementation. One behaviour per test, boundaries and invalid input included. Never weaken or delete an existing assertion. Tests go in test files only.",
+    },
+    "debugger": {
+        "title": "Debugger", "icon": "G", "group": "Quality",
+        "blurb": "Finds the cause of one failure from its error, the failing test and the code, then makes the smallest fix.",
+        "needs": {"backend_fix": 35, "reasoning": 35, "bughunt": 15, "format": 15}, "think": True, "sampling": {"temperature": 0.2},
+        "uses": ["bugfix"], "latency": "can be slow",
+        "system": "You debug. Start from the failure text: name the line that raises, then trace back to the first wrong value. State the cause in one sentence before you change anything. Make the smallest change that fixes it; never edit the tests that judge the fix.",
+    },
+    "refactorer": {
+        "title": "Refactorer", "icon": "F", "group": "Quality",
+        "blurb": "Restructures code without changing what it does: removes duplication, splits long functions, renames clearly.",
+        "needs": {"refactor": 45, "backend_fix": 25, "reasoning": 15, "format": 15}, "think": False, "sampling": {"temperature": 0.15},
+        "uses": ["refactor"], "latency": "medium",
+        "system": "You refactor. Behaviour must not change and the tests must still pass. Change one thing at a time, keep public names unless told otherwise, and send whole definitions (DEF blocks) rather than rewriting files.",
+    },
+    "perf_tuner": {
+        "title": "Performance tuner", "icon": "P", "group": "Quality",
+        "blurb": "Speeds up code that has been measured to be slow: algorithm, data structure, query or cache, one change at a time.",
+        "needs": {"optimize": 45, "reasoning": 25, "refactor": 15, "sql": 15}, "think": True, "sampling": {"temperature": 0.2},
+        "uses": ["optimize"], "latency": "can be slow",
+        "system": "You tune performance from a measurement you were given. Name the hot spot, choose the algorithmic or data-structure change over micro-tweaks, change one thing, keep behaviour identical. Say what the benchmark must show afterwards.",
+    },
+    "migration_planner": {
+        "title": "Migration planner", "icon": "M", "group": "Infra",
+        "blurb": "Plans a move between versions, libraries or schemas: the order of steps, what can break, how to roll back.",
+        "needs": {"design_doc": 30, "refactor": 25, "reasoning": 30, "format": 15}, "think": True, "sampling": {"temperature": 0.3},
+        "uses": ["migrate", "design"], "latency": "can be slow",
+        "system": "You plan migrations. List the steps in the order they can be done and checked, what each step can break, how to tell it worked and how to undo it. Separate what you saw in the code from what you assume. Do not write the migration itself.",
+    },
+    "dependency_auditor": {
+        "title": "Dependency auditor", "icon": "A", "group": "Infra",
+        "blurb": "Reads what a project imports and declares and reports the missing, unused, unpinned and risky ones.",
+        "needs": {"configfix": 40, "security": 30, "reasoning": 20, "format": 10}, "think": False, "sampling": {"temperature": 0.1},
+        "uses": ["deps"], "latency": "medium",
+        "system": "You audit dependencies from the manifest and the imports you were shown. Report each finding with the file and the name. Never invent a version or a vulnerability you were not shown; say what you could not check.",
+    },
+    "ui_builder": {
+        "title": "UI builder", "icon": "U", "group": "Builders",
+        "blurb": "Builds one screen or component: semantic HTML, focus and labels, responsive CSS, no dependencies unless asked.",
+        "needs": {"ui": 65, "format": 25, "speed": 10}, "think": False, "sampling": {"temperature": 0.3},
+        "uses": ["build"], "latency": "medium",
+        "system": "You build interface. Use semantic elements, labels on every field, visible focus, sufficient contrast and a layout that works on a phone. No framework or CDN unless the request names one.",
+    },
+    "ux_reviewer": {
+        "title": "UX reviewer", "icon": "X", "group": "Quality",
+        "blurb": "Reads an interface for what a person would trip on: unclear labels, missing states, dead ends, keyboard and screen-reader gaps.",
+        "needs": {"ui": 40, "reasoning": 30, "format": 30}, "think": True, "sampling": {"temperature": 0.2},
+        "uses": ["review", "a11y"], "latency": "can be slow",
+        "system": "You review interfaces as a first-time user would. For each problem say where it is, what the person sees, and the smallest change. Check empty, loading, error and long-text states. Advice only; do not rewrite the page.",
+    },
+    "data_engineer": {
+        "title": "Data engineer", "icon": "E", "group": "Builders",
+        "blurb": "Builds the data side: ingest, transform and load scripts, schemas and checks that fail loudly on bad rows.",
+        "needs": {"sql": 35, "backend_feature": 30, "reasoning": 20, "format": 15}, "think": False, "sampling": {"temperature": 0.15},
+        "uses": ["build"], "latency": "medium",
+        "system": "You build data pipelines. Validate rows where they enter, reject or report bad ones rather than dropping them silently, make every step re-runnable, and keep schema and code in agreement.",
+    },
+    "sql_author": {
+        "title": "SQL author", "icon": "Q", "group": "Builders",
+        "blurb": "Writes one query or migration at a time and checks it on fixture data.",
+        "needs": {"sql": 65, "backend_feature": 15, "format": 20}, "think": False, "sampling": {"temperature": 0.1},
+        "uses": ["build", "refactor"], "latency": "medium",
+        "system": "You write SQL. Be explicit: named columns, join conditions, keys and constraints, parameter placeholders instead of string building. A migration must be re-runnable or versioned. State the dialect you assumed.",
+    },
+    "release_manager": {
+        "title": "Release manager", "icon": "L", "group": "Infra",
+        "blurb": "Prepares a release: version, changelog from what changed, checks to run, and how to roll back.",
+        "needs": {"configfix": 30, "design_doc": 30, "reasoning": 25, "format": 15}, "think": False, "sampling": {"temperature": 0.2},
+        "uses": ["cicd", "document"], "latency": "medium",
+        "system": "You prepare releases from the changes you were shown. Write the changelog from the diff, never from memory; list the checks that must be green, the version bump and why, and the rollback step. Do not tag or publish anything yourself.",
+    },
+    "incident_responder": {
+        "title": "Incident responder", "icon": "N", "group": "Infra",
+        "blurb": "Works an outage from logs and the last change: timeline, likely cause, the safe first action, and what to check next.",
+        "needs": {"reasoning": 40, "detection": 20, "secreview": 15, "format": 25}, "think": True, "sampling": {"temperature": 0.2},
+        "uses": ["secure", "bugfix"], "latency": "can be slow",
+        "system": "You respond to incidents from the evidence given (logs, the last change, the alert). Give a timeline, the most likely cause with what supports it, the lowest-risk first action and what would prove you wrong. Never invent log lines; say what is missing.",
+    },
+    "explainer": {
+        "title": "Explainer", "icon": "?", "group": "Quality",
+        "blurb": "Explains code or a result in plain words for someone who did not write it. Talks only; changes nothing.",
+        "needs": {"design_doc": 35, "reasoning": 35, "format": 30}, "think": False, "sampling": {"temperature": 0.3},
+        "uses": ["document"], "latency": "fast",
+        "system": "You explain what the code does in plain sentences: purpose first, then the steps, then what could surprise a reader. Say only what you saw in the code you were shown and name the file and function.",
+    },
+    "summarizer": {
+        "title": "Summarizer", "icon": "Z", "group": "Quality",
+        "blurb": "Condenses a long log, diff or document into the few lines that matter, keeping names and numbers exact.",
+        "needs": {"design_doc": 30, "format": 40, "reasoning": 30}, "think": False, "sampling": {"temperature": 0.1},
+        "uses": ["document"], "latency": "fast",
+        "system": "You summarize. Keep file names, numbers and error text exactly as written. Put the outcome first, then the three facts that matter most. Do not add anything the source does not say.",
+    },
 }
 
 # Which model TIER a role runs on when no model is assigned to it directly (Settings > Tiers fills the tiers; see arch_server / profiles).
 # router: the tiny classifier. worker: every coding role. Thinking roles stay on the worker and escalate to heavy through the cascade.
-TIER_OF = {"router": "router"}
+TIER_OF = {"router": "router", "spec_writer": "worker", "interface_designer": "worker", "test_author": "worker", "debugger": "worker", "refactorer": "worker", "perf_tuner": "worker", "migration_planner": "worker", "dependency_auditor": "worker", "ui_builder": "worker", "ux_reviewer": "worker", "data_engineer": "worker", "sql_author": "worker", "release_manager": "worker", "incident_responder": "worker", "explainer": "worker", "summarizer": "worker"}
 for _r in ROLES:
     ROLES[_r].setdefault("tier", TIER_OF.get(_r, "worker"))
 
@@ -294,7 +406,23 @@ FALLBACK = {"architect_dev": ["generator"], "docs_writer": ["reviewer", "generat
             "ioc_analyst": ["blue_team", "security_engineer"],
             "network_engineer": ["security_engineer", "generator"], "ml_engineer": ["generator", "reviewer"],
             "config_engineer": ["security_engineer", "generator"], "ci_engineer": ["config_engineer", "generator"],
-            "protocol_engineer": ["network_engineer", "generator"], "iot_dev": ["protocol_engineer", "network_engineer", "generator"]}
+            "protocol_engineer": ["network_engineer", "generator"], "iot_dev": ["protocol_engineer", "network_engineer", "generator"],
+            "spec_writer": ["planner", "architect", "generator"],
+            "interface_designer": ["architect", "planner", "generator"],
+            "test_author": ["tester", "generator"],
+            "debugger": ["bug_hunter", "reviewer", "generator"],
+            "refactorer": ["migration_engineer", "generator"],
+            "perf_tuner": ["optimizer", "reviewer", "generator"],
+            "migration_planner": ["architect", "planner", "generator"],
+            "dependency_auditor": ["dependency_engineer", "config_engineer", "reviewer"],
+            "ui_builder": ["generator_ui", "generator"],
+            "ux_reviewer": ["reviewer", "generator_ui", "evaluator"],
+            "data_engineer": ["generator_sql", "generator"],
+            "sql_author": ["generator_sql", "generator"],
+            "release_manager": ["ci_engineer", "docs_writer", "reviewer"],
+            "incident_responder": ["blue_team", "reviewer", "generator"],
+            "explainer": ["docs_writer", "reviewer", "generator"],
+            "summarizer": ["docs_writer", "explainer", "generator"]}
 
 
 def system_prompt(role, extra=""):
@@ -324,6 +452,19 @@ def params_b(name_or_text):
     m = re.search(r"(\d+(?:\.\d+)?)\s*[bB]\b", name_or_text or "")
     return float(m.group(1)) if m else None
 
+# _prior rows for the specialist roles: planning/review roles lean on reasoning models, edit roles on coder models.
+_SPECIALIST_PRIOR = {
+    "coder":     {"spec_writer": 46, "interface_designer": 48, "test_author": 58, "debugger": 56, "refactorer": 58, "perf_tuner": 54, "migration_planner": 46,
+                  "dependency_auditor": 52, "ui_builder": 52, "ux_reviewer": 48, "data_engineer": 56, "sql_author": 58, "release_manager": 50,
+                  "incident_responder": 48, "explainer": 52, "summarizer": 52},
+    "reasoning": {"spec_writer": 64, "interface_designer": 62, "test_author": 52, "debugger": 64, "refactorer": 52, "perf_tuner": 62, "migration_planner": 64,
+                  "dependency_auditor": 54, "ui_builder": 48, "ux_reviewer": 60, "data_engineer": 50, "sql_author": 50, "release_manager": 56,
+                  "incident_responder": 64, "explainer": 58, "summarizer": 56},
+    "general":   {"spec_writer": 55, "interface_designer": 52, "test_author": 50, "debugger": 50, "refactorer": 50, "perf_tuner": 50, "migration_planner": 54,
+                  "dependency_auditor": 48, "ui_builder": 52, "ux_reviewer": 52, "data_engineer": 48, "sql_author": 48, "release_manager": 52,
+                  "incident_responder": 50, "explainer": 56, "summarizer": 56},
+}
+
 
 def _prior(role, model):
     """A labelled GUESS for a model with no measurements, from its family and size. Low confidence."""
@@ -334,6 +475,7 @@ def _prior(role, model):
                           "security_engineer": 58, "red_team": 62, "blue_team": 58, "pentester": 58, "ioc_analyst": 54, "network_engineer": 56, "ml_engineer": 58, "config_engineer": 50, "ci_engineer": 50, "protocol_engineer": 56, "iot_dev": 54},
             "general": {"generator": 50, "generator_ui": 52, "generator_sql": 48, "planner": 55, "architect": 55, "evaluator": 52, "reviewer": 50, "router": 55, "fullstack": 50, "tester": 50, "optimizer": 50, "bug_hunter": 50,
                         "security_engineer": 48, "red_team": 46, "blue_team": 46, "pentester": 44, "ioc_analyst": 46, "network_engineer": 48, "ml_engineer": 46, "config_engineer": 50, "ci_engineer": 50, "protocol_engineer": 48, "iot_dev": 46}}[kind if kind in ("coder", "reasoning") else "general"].get(role, 52 if kind == "coder" else 50)
+    base = _SPECIALIST_PRIOR[kind if kind in ("coder", "reasoning") else "general"].get(role, base)
     p = params_b(model.get("params") or model["name"]) or 7
     return base + max(-8, min(10, 4 * math.log2(max(p, 0.5) / 7)))
 

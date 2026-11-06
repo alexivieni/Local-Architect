@@ -296,6 +296,58 @@ def _turns(call):
 
 # ------------------------------------------------------------------ building the sets
 
+def _lesson(et):
+    """The curriculum lesson of a kept eval run ("lesson:<id>" in its tags), or ""."""
+    for t in (et or {}).get("tags") or ():
+        if str(t).startswith("lesson:"):
+            return str(t)[7:]
+    return ""
+
+
+def _failed_by_task(root_list):
+    """Task id -> the prompts the worker saw in kept TRAIN runs of that task whose hidden checks did NOT pass: [{role, user, model, tier, run}].
+    The student half of a task-level distillation pair. Bench paths and unreadable eval_task.json files are skipped (fail closed)."""
+    out = collections.defaultdict(list)
+    for root in root_list:
+        if is_bench(root) or _is_bench_path(root):
+            continue
+        for run in runs_of(root):
+            if _is_bench_path(run):
+                continue
+            try:
+                with open(os.path.join(run, "eval_task.json"), encoding="utf-8") as f:
+                    et = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if not isinstance(et, dict) or et.get("bucket") != "train" or et.get("verdict") != "fail":
+                continue
+            full = read_full(os.path.join(run, "trace.jsonl"))
+            if full.get("claude"):
+                continue
+            for c in full["calls"].values():
+                mdl = str(c.get("model") or "")
+                if not mdl or mdl.startswith(("fake:", "claude:")) or _is_cache_hit(c):
+                    continue
+                _s, user = _turns(c)
+                user, _f = strip_format_ref(user, mdl, None)
+                if user:
+                    out[et.get("id")].append({"role": c.get("role") or "?", "user": user, "model": mdl, "tier": c.get("tier") or "worker",
+                                              "run": os.path.basename(run)})
+    return out
+
+
+def _is_teacher_run(et, model):
+    """A kept passing run counts as a teacher's when its label says so (tools/train_traces.py --curriculum labels the heavy retry
+    "teacher") or its model is the configured heavy tier's."""
+    if str((et or {}).get("label") or "").startswith("teacher"):
+        return True
+    try:
+        h = configured_tiers().get("heavy")
+    except Exception:
+        h = None
+    return bool(h) and base_matches(model, h) if h else False
+
+
 def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_quality=0.0, dedupe=True):
     """Read every run under these roots. -> {"sft", "dpo", "distill", "traj", "stats", "report"}.
 
@@ -312,6 +364,7 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
     cands = {}              # (role, task key) -> the best accepted sample so far
 
     claude_ids = _claude_run_ids()
+    failed_prompts = _failed_by_task(root_list)
     try:
         import arch_ledger
         ledger_examples = arch_ledger.load().get("_examples") or []
@@ -348,6 +401,7 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                     stats["eval_not_passed_accepted_marks"] += sum(
                         1 for m in read_full(os.path.join(run, "trace.jsonl"))["marks"].values() if m.get("accepted") is True)
                     continue
+            lesson = _lesson(et)
             full = read_full(os.path.join(run, "trace.jsonl"))
             calls, marks = full["calls"], full["marks"]
             run_name = os.path.basename(run)
@@ -429,6 +483,8 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                         continue
                     row = _sample(sys_t, user, reply, role, tier, c, run_name, source="accepted")
                     row["meta"].update({"quality": q, "difficulty": diff, "tags": _tags(diff)})
+                    if lesson:
+                        row["meta"]["lesson"] = lesson
                     if thinking:
                         row["meta"]["thinking"] = thinking[:4000]
                     key = (role, near_key(user)) if dedupe else (role, hashlib.sha1((user + "\n#\n" + reply).encode("utf-8", "replace")).hexdigest())
@@ -468,7 +524,7 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                                       "meta": {"role": role, "step": step, "run": run_name, "same_task": same,
                                                "chosen_model": g["model"], "rejected_model": b["model"],
                                                "chosen_tier": g["tier"], "rejected_tier": b["tier"],
-                                               "cross_tier": g["tier"] != b["tier"]}})
+                                               "cross_tier": g["tier"] != b["tier"], **({"lesson": lesson} if lesson else {})}})
 
             # ---- distillation: the worker could not, a bigger tier could. Teach the worker that answer.
             for esc in full["escalations"]:
@@ -504,12 +560,56 @@ def build(root_list, roles=None, max_chars=MAX_CHARS, pairs="same-task", min_qua
                 row["meta"]["for_tier"] = target
                 row["meta"]["for_model"] = esc.get("from_model")   # the student: the per-model tier file is the one it goes into
                 row["meta"]["why"] = (esc.get("why") or "")[:200]
+                row["meta"]["teacher_model"] = esc.get("to_model")
+                row["meta"]["student_model"] = esc.get("from_model")
+                if lesson:
+                    row["meta"]["lesson"] = lesson
                 distill[target].append(row)
                 stats["distill"] += 1
 
+            # ---- task-level distillation: the worker FAILED this training task's hidden checks in one kept run, and a local teacher
+            # (the heavy model, a retry labelled "teacher") PASSED it in this one. Pair the prompts they shared; teach the worker the teacher's reply.
+            if et is not None and et.get("bucket") == "train" and et.get("id") in failed_prompts:
+                for skey, tries in by_step.items():
+                    for t in tries:
+                        if not t["accepted"] or (t["call"] or {}).get("done_reason") == "length" or not _is_teacher_run(et, t["model"]):
+                            continue
+                        stu = next((f for f in failed_prompts[et["id"]] if f["role"] == skey[0] and f["model"] != t["model"]
+                                    and _same_task(f["user"], t["user"])), None)
+                        if not stu:
+                            continue
+                        key = hashlib.sha1(("D" + near_key(t["user"]) if dedupe else "D" + t["user"] + t["reply"]).encode("utf-8", "replace")).hexdigest()
+                        if key in seen_sft:
+                            stats["duplicates"] += 1
+                            stats["dup"] += 1
+                            continue
+                        q = quality_score(t["call"], t["reply"], 0, max_chars)
+                        if q < min_quality:
+                            stats["low_quality"] += 1
+                            continue
+                        seen_sft.add(key)
+                        target = stu["tier"]
+                        row = _sample(t["system"], t["user"], t["reply"], skey[0], target, {"flow": t["flow"], "model": t["model"]}, run_name, source="task-distill")
+                        diff = difficulty(t["call"], t["reply"], 2, True, flow=t["flow"])
+                        row["meta"].update({"quality": q, "difficulty": diff, "tags": _tags(diff), "taught_by": t["model"], "taught_by_tier": t["tier"],
+                                            "for_tier": target, "for_model": stu["model"], "teacher_model": t["model"], "student_model": stu["model"],
+                                            "student_run": stu["run"], "why": "the worker failed this task's hidden checks; the teacher passed them"})
+                        if lesson:
+                            row["meta"]["lesson"] = lesson
+                        if t["thinking"]:
+                            row["meta"]["thinking"] = t["thinking"][:4000]
+                        distill[target].append(row)
+                        stats["distill"] += 1
+                        stats["task_distill"] += 1
+
             # ---- tool trajectories: one sample per tool loop, rebuilt from the call id each tool record carries
             if run_pass:
-                traj.extend(_trajectories(full, run_name, roles, max_chars, stats))
+                new_traj = _trajectories(full, run_name, roles, max_chars, stats)
+                if lesson:
+                    for tr in new_traj:
+                        if isinstance(tr.get("meta"), dict):
+                            tr["meta"]["lesson"] = lesson
+                traj.extend(new_traj)
             elif full["tools"]:
                 stats["traj_run_not_passed"] += 1
 

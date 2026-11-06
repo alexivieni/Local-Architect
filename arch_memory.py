@@ -171,14 +171,88 @@ def _rewrite(l, used=None, confirmed=None):
     return f"{base} (used {u}, confirmed {c})"
 
 
-def for_prompt(root, budget=1800, top=None):
+ARCHITECT_MD = "ARCHITECT.md"
+ARCHITECT_MD_CHARS = 1500
+_PROPOSED_HEAD = "# Proposed for ARCHITECT.md (accept one to move it there)\n\n"
+
+
+def architect_md(root, limit=ARCHITECT_MD_CHARS):
+    """The project memory file the person owns: the top `limit` chars of <root>/ARCHITECT.md ("" when absent)."""
+    p = os.path.join(root, ARCHITECT_MD)
+    if not os.path.isfile(p):
+        return ""
+    try:
+        return core.read_text(p, 200000)[0].strip()[:limit]
+    except OSError:
+        return ""
+
+
+def _proposed_path(root):
+    return os.path.join(project_dir(root), "proposed.md")
+
+
+def proposed(root):
+    """-> the proposed learned lines (strings), oldest first."""
+    try:
+        with open(_proposed_path(root), encoding="utf-8") as f:
+            return [l[2:].strip() for l in f.read().splitlines() if l.startswith("- ") and l[2:].strip()]
+    except OSError:
+        return []
+
+
+def propose(root, text, run_id=""):
+    """A learned line goes to .arch/memory/proposed.md only; ARCHITECT.md never changes until accept(). -> {"ok", ...}."""
+    text = " ".join(str(text or "").split())[:MAX_LEN].strip(" -")
+    if len(text) < 8:
+        return {"ok": False, "why": "that is too short to be worth remembering"}
+    if SECRET_RX.search(text):
+        return {"ok": False, "why": "that line looks like it contains a credential; memory never stores secrets"}
+    if text.lower() in (x.lower() for x in proposed(root)):
+        return {"ok": True, "duplicate": True, "line": text}
+    p = _proposed_path(root)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    new = not os.path.isfile(p)
+    with open(p, "a", encoding="utf-8", newline="\n") as f:
+        if new:
+            f.write(_PROPOSED_HEAD)
+        f.write(f"- {text}\n")
+    return {"ok": True, "line": text, "path": p}
+
+
+def accept(root, which):
+    """The explicit step: move one proposed line (its text or 1-based number) into ARCHITECT.md under '## Learned'. -> {"ok", ...}."""
+    rows = proposed(root)
+    if isinstance(which, int) or str(which).strip().isdigit():
+        i = int(which) - 1
+        text = rows[i] if 0 <= i < len(rows) else None
+    else:
+        text = next((r for r in rows if r.lower() == str(which).strip().lower()), None)
+    if not text:
+        return {"ok": False, "why": "no such proposed line"}
+    p = os.path.join(root, ARCHITECT_MD)
+    body = core.read_text(p, 200000)[0] if os.path.isfile(p) else ""
+    if "## Learned" not in body:
+        body = (body.rstrip("\n") + "\n\n" if body.strip() else "# Project memory\n\n") + "## Learned\n"
+    body = body.rstrip("\n") + f"\n- {text}\n"
+    with open(p, "w", encoding="utf-8", newline="\n") as f:
+        f.write(body)
+    left = [r for r in rows if r != text]
+    with open(_proposed_path(root), "w", encoding="utf-8", newline="\n") as f:
+        f.write(_PROPOSED_HEAD + "".join(f"- {r}\n" for r in left))
+    return {"ok": True, "line": text, "path": p}
+
+
+def for_prompt(root, budget=1800, top=None, architect_md=True):
     """What goes into every prompt's stable prefix: the project note, then the best-earned lessons and gotchas.
     -> (text, [the line texts it used]) so the engine can count them as used and later confirm them."""
     parts, used = [], []
+    amd = globals()["architect_md"](root) if architect_md else ""   # the person's own file leads the stable prefix
     proj = read(root, "project.md") or _legacy_profile(root)
     if proj.strip():
         parts.append(proj.strip()[:budget])
     left = max(0, budget - len(parts[0] if parts else ""))
+    if amd:
+        parts.insert(0, "Project notes (ARCHITECT.md):" + chr(10) + amd)
     for name, title in (("lessons.md", "What worked here before"), ("gotchas.md", "Traps in this project")):
         rows = sorted(lines(root, name), key=lambda l: (-l["confirmed"], -l["used"]))[:int(top or TOP_LINES)]
         if not rows or left < 120:
@@ -216,3 +290,128 @@ def summary(root):
         if os.path.isfile(p):
             out["machine"][n] = {"bytes": os.path.getsize(p)}
     return out
+
+
+# ----------------------------------------------------------------------------------------------- consolidation (nightly-safe)
+CONSOLIDATE_FILES = ("lessons.md", "gotchas.md", "decisions.md", "notes.md")
+SIMILAR = 0.8                 # word-set Jaccard at or above which two lines are the same lesson
+PROPOSE_AT = 2                # a lesson confirmed this many times is worth proposing for ARCHITECT.md
+_WORD = re.compile(r"[a-z0-9_]+")
+_STOP = frozenset("a an the to of in on for and or is are be it this that with as at by from use using".split())
+
+
+def _words(text):
+    return frozenset(w for w in _WORD.findall(text.lower()) if w not in _STOP)
+
+
+def _similar(a, b):
+    wa, wb = _words(a), _words(b)
+    if not wa or not wb:
+        return a.strip().lower() == b.strip().lower()
+    return len(wa & wb) / len(wa | wb) >= SIMILAR
+
+
+def _write_atomic(path, body):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(body)
+    os.replace(tmp, path)
+
+
+class _Lock:
+    """One consolidation at a time (a nightly job and a person must not interleave). A lock older than 10 minutes is stale."""
+
+    def __init__(self, root):
+        self.path = os.path.join(project_dir(root), ".consolidate.lock")
+        self.held = False
+
+    def __enter__(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        for _ in range(2):
+            try:
+                os.close(os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                self.held = True
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - os.path.getmtime(self.path) > 600:
+                        os.remove(self.path)
+                        continue
+                except OSError:
+                    pass
+                return self
+        return self
+
+    def __exit__(self, *a):
+        if self.held:
+            try:
+                os.remove(self.path)
+            except OSError:
+                pass
+
+
+def consolidate(root, dry_run=False, prune_after=None, propose_at=None, files=None):
+    """Tidy the project's learned lines. Safe to run every night: it is idempotent, takes a lock, writes each file atomically and
+    never edits ARCHITECT.md (it only PROPOSES lines into .arch/memory/proposed.md, for the person to accept).
+      1. merge duplicate lessons (same words, or Jaccard >= SIMILAR): the better-earned line survives, `used` and `confirmed` are summed;
+      2. drop lines that were never confirmed after PRUNE_AFTER uses (the same rule `confirm` applies);
+      3. cut a file over MAX_LINES the usual way (`_trim`);
+      4. propose lessons confirmed >= PROPOSE_AT times that ARCHITECT.md and the proposals do not already say.
+    -> {"ok", "merged", "dropped", "trimmed", "proposed", "files": {name: {"before", "after"}}, "skipped"}. dry_run changes nothing."""
+    rep = {"ok": True, "merged": 0, "dropped": 0, "trimmed": 0, "proposed": 0, "files": {}, "skipped": "", "dry_run": bool(dry_run), "proposed_lines": []}
+    if not root or not os.path.isdir(project_dir(root)):
+        rep["skipped"] = "no project memory yet"
+        return rep
+    limit = int(prune_after or PRUNE_AFTER)
+    with _Lock(root) as lk:
+        if not lk.held:
+            rep.update(ok=False, skipped="another consolidation is running")
+            return rep
+        for name in files or CONSOLIDATE_FILES:
+            p = path_for(root, name)
+            if not p or not os.path.isfile(p):
+                continue
+            body = read(root, name)
+            rows = lines(root, name)
+            if not rows:
+                continue
+            kept = []                                               # [row dict], order of first appearance
+            for l in rows:
+                twin = next((k for k in kept if _similar(k["text"], l["text"])), None)
+                if twin is None:
+                    kept.append(dict(l))
+                    continue
+                rep["merged"] += 1
+                a, b = (twin, l) if (twin["confirmed"], twin["used"]) >= (l["confirmed"], l["used"]) else (l, twin)
+                a = dict(a, used=twin["used"] + l["used"], confirmed=twin["confirmed"] + l["confirmed"])
+                kept[kept.index(twin)] = a
+            survivors = []
+            for k in kept:
+                if k["confirmed"] == 0 and k["used"] >= limit:
+                    rep["dropped"] += 1
+                else:
+                    survivors.append(k)
+            head = [r for r in body.splitlines() if not r.strip().startswith("- ")]
+            new_rows = [_rewrite(k, used=k["used"], confirmed=k["confirmed"]) for k in survivors]
+            new_body = _trim("\n".join(head).rstrip("\n") + "\n" + "\n".join(new_rows) + "\n", None)
+            after = sum(1 for r in new_body.splitlines() if r.strip().startswith("- "))
+            rep["trimmed"] += max(0, len(new_rows) - after)
+            rep["files"][name] = {"before": len(rows), "after": after}
+            if new_body != (body if body.endswith("\n") else body + "\n") and not dry_run:
+                _write_atomic(p, new_body)
+        # proposals: well-confirmed lessons that ARCHITECT.md does not say yet
+        amd = architect_md(root, 200000)
+        have = list(proposed(root))
+        for l in sorted(lines(root, "lessons.md") + lines(root, "gotchas.md"), key=lambda l: -l["confirmed"]):
+            if l["confirmed"] < int(propose_at or PROPOSE_AT):
+                continue
+            if l["text"].lower() in amd.lower():
+                continue
+            if any(_similar(l["text"], x) for x in have) or any(_similar(l["text"], x.lstrip("- ")) for x in amd.splitlines() if x.strip()):
+                continue
+            rep["proposed_lines"].append(l["text"])
+            have.append(l["text"])
+            if not dry_run:
+                propose(root, l["text"])
+        rep["proposed"] = len(rep["proposed_lines"])
+    return rep

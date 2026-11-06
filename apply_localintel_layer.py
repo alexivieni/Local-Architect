@@ -1,6 +1,6 @@
 """Hook the LocalIntel layer into the Architect harness. Re-run it after dropping in a newer harness.
 
-    python apply_localintel_layer.py             add the hook (safe to run twice) and register the portfolio entry
+    python apply_localintel_layer.py             register the portfolio entry
     python apply_localintel_layer.py --check     only report the state
     python apply_localintel_layer.py --remove    take the hook out again (the harness is then byte-for-byte upstream)
 
@@ -81,10 +81,9 @@ def main(argv):
             print("hook was not applied")
         return 0
     if state(t):
-        print("hook already applied")
-    else:
-        write(t.rstrip("\n") + "\n" + BLOCK)
-        print("hook added to the end of arch_flows.py")
+        write(strip(t))
+        print("legacy import hook removed from arch_flows.py (the layer no longer patches the Engine at import)")
+    print("The LocalIntel layer is an explicit opt-in now: set localintel.enabled = true (Settings) or ARCH_LOCALINTEL=1; the Engine then installs it.")
     project = os.path.abspath(os.path.join(HERE, ".."))
     if os.path.isfile(os.path.join(project, "run.py")):
         print("portfolio entry written:", portfolio(project))

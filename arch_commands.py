@@ -50,7 +50,7 @@ def parse(text, path="", scope="shipped"):
     return {"name": name, "description": (head.get("description") or body.split("\n")[0])[:160],
             "flow": (head.get("flow") or "").strip().lower(), "args_hint": (head.get("args") or "").strip(),
             "body": body[:MAX_BODY], "path": path, "scope": scope,
-            "needs_args": "{args}" in body}
+            "needs_args": "{args}" in body and not re.match(r"^\[.*\]$", (head.get("args") or "").strip())}
 
 
 def load_all(root=None):

@@ -10,7 +10,11 @@ Colours are theme TOKEN names (accent, green, amber, violet, red, teal, blue, pi
 token to its own CSS variable, so light and dark themes both work. Thumbnails draw with currentColor and
 var(--tpl-accent, currentColor) for the same reason, and load nothing external.
 """
+import ast
+import functools
+import json
 import os
+import re
 
 import arch_templates as T
 
@@ -212,6 +216,154 @@ def _tree(files):
     return lines
 
 
+# ---------------------------------------------------------------------------------------------- contracts
+# A contract is derived by code (AST over the rendered files), never written by hand, so it cannot drift from the code:
+#   {"template", "package", "modules": [{"path", "module", "public": [{"name", "kind", "signature", "methods"}]}],
+#    "cli": {"module", "commands", "mains"}, "http": [{"method", "path", "where"}], "tests": {"command", "files", "count"}, "run"}
+_VERBS = ("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD")
+
+
+def _sig(fn):
+    r = f" -> {ast.unparse(fn.returns)}" if getattr(fn, "returns", None) is not None else ""
+    return f"({ast.unparse(fn.args)}){r}"
+
+
+def _public(tree):
+    out = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
+            out.append({"name": node.name, "kind": "function", "signature": _sig(node), "methods": []})
+        elif isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
+            ms = [{"name": m.name, "signature": _sig(m)} for m in node.body
+                  if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and (not m.name.startswith("_") or m.name == "__init__")]
+            out.append({"name": node.name, "kind": "class", "signature": next((m["signature"] for m in ms if m["name"] == "__init__"), "()"),
+                        "methods": [m for m in ms if m["name"] != "__init__"]})
+    return out
+
+
+def _is_path_expr(n):
+    return (isinstance(n, ast.Name) and n.id in ("path", "route", "p")) or (isinstance(n, ast.Attribute) and n.attr == "path")
+
+
+def _str_const(n):
+    return isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.startswith("/")
+
+
+def _http(tree, rel):
+    found = []
+    has_do = any(isinstance(c, ast.ClassDef) and any("RequestHandler" in ast.unparse(x) for x in c.bases) for c in ast.walk(tree))
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        where = f"{rel}:{fn.name}"
+        verb = fn.name[3:].upper() if fn.name.startswith("do_") and fn.name[3:].upper() in _VERBS else None
+        for dec in fn.decorator_list:                # @app.get("/x"), @app.route("/x", methods=[...]), @router.post("/x")
+            if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute) and dec.args and _str_const(dec.args[0]):
+                meth = dec.func.attr.upper()
+                if meth == "ROUTE":
+                    ms = [k.value for k in dec.keywords if k.arg == "methods"]
+                    vals = [e.value.upper() for e in ms[0].elts if isinstance(e, ast.Constant)] if ms and isinstance(ms[0], (ast.List, ast.Tuple)) else ["GET"]
+                    found += [{"method": m, "path": dec.args[0].value, "where": where} for m in vals]
+                elif meth in _VERBS:
+                    found.append({"method": meth, "path": dec.args[0].value, "where": where})
+        if not verb and has_do and not fn.name.startswith("do_"):
+            verb = "ANY"                              # a routing helper the do_* handlers call
+        if verb:                                      # http.server handlers compare the path with string constants
+            for n in ast.walk(fn):
+                if isinstance(n, ast.Compare) and _is_path_expr(n.left):
+                    for c in n.comparators:
+                        vals = list(c.elts) if isinstance(c, (ast.Tuple, ast.List, ast.Set)) else [c]
+                        found += [{"method": verb, "path": v.value, "where": where} for v in vals if _str_const(v)]
+                elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("fullmatch", "match", "search") \
+                        and n.args and _str_const(n.args[0]):
+                    found.append({"method": verb, "path": re.sub(r"\(.*?\)", "{}", n.args[0].value.replace("\\", "")), "where": where})
+                elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "startswith" \
+                        and _is_path_expr(n.func.value) and n.args and _str_const(n.args[0]):
+                    found.append({"method": verb, "path": n.args[0].value + "*", "where": where})
+    return found
+
+
+def _cli(tree):
+    return {n.args[0].value for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "add_parser" and n.args
+            and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)}
+
+
+def derive_contract(files, tid="", pkg="app", run="", test_cmd="python -m pytest -q"):
+    """-> the contract of a rendered project. files: {relative path: text}. Pure: reads nothing from disk."""
+    modules, cmds, cli_mod, http, tfiles, tcount = [], set(), "", [], [], 0
+    for rel in sorted(files):
+        if not rel.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(files[rel])
+        except SyntaxError:
+            continue
+        base = os.path.basename(rel)
+        if base.startswith("test_") or rel.startswith("tests/"):
+            if base.startswith("test_"):
+                tfiles.append(rel)
+                tcount += sum(1 for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name.startswith("test_"))
+            continue
+        if base == "conftest.py":
+            continue
+        mod = rel[:-3].replace("/", ".")
+        mod = mod[:-9] if mod.endswith(".__init__") else mod
+        pub = _public(tree)
+        if pub or base == "__main__.py":
+            modules.append({"path": rel, "module": mod, "public": pub})
+        c = _cli(tree)
+        if c:
+            cmds |= c
+            cli_mod = cli_mod or mod
+        http += _http(tree, rel)
+    seen, hs = set(), []
+    for h in sorted(http, key=lambda h: (h["path"], h["method"], h["where"])):
+        if (h["method"], h["path"]) not in seen:
+            seen.add((h["method"], h["path"]))
+            hs.append(h)
+    mains = sorted(m["module"].rsplit(".", 1)[0] for m in modules if m["path"].endswith("__main__.py") and "." in m["module"])
+    return {"template": tid, "package": pkg, "modules": modules,
+            "cli": {"module": cli_mod, "commands": sorted(cmds), "mains": mains},
+            "http": hs, "tests": {"command": test_cmd, "files": tfiles, "count": tcount}, "run": run}
+
+
+@functools.lru_cache(maxsize=None)
+def _contract_cached(tid, name, addons):
+    return json.dumps(derive_contract(T.render(tid, name, addons), tid, T.pkg_name(name), T.rendered_run(tid, name)), sort_keys=True)
+
+
+def contract(tid, name="app", addons=()):
+    """The machine-readable contract of template `tid` rendered as `name` (derived from the rendered code and its tests)."""
+    return json.loads(_contract_cached(tid, name, tuple(addons or ())))
+
+
+def read_contract(project):
+    """-> the CONTRACT.json inside a rendered project, or None when there is none or it does not parse."""
+    try:
+        with open(os.path.join(project, "CONTRACT.json"), encoding="utf-8") as f:
+            c = json.load(f)
+        return c if isinstance(c, dict) and "modules" in c else None
+    except (OSError, ValueError):
+        return None
+
+
+def as_interface_contract(c):
+    """A project contract in the shape arch_flows.interface_contract(goal) returns, so a feature run can check new work
+    against the known interface: {"imports": [(module, name)], "calls": [(name, n_positional, [keywords], text)], "mains": [module], "methods": []}."""
+    imports, calls = [], []
+    for m in (c or {}).get("modules", []):
+        for p in m["public"]:
+            imports.append((m["module"], p["name"]))
+            if p["kind"] == "function":
+                try:
+                    a = ast.parse("def f" + p["signature"].split(") -> ")[0].rstrip(")") + "): pass").body[0].args
+                    calls.append((p["name"], len(a.posonlyargs) + len(a.args) - len(a.defaults), [], p["name"] + "(...)"))
+                except SyntaxError:
+                    pass
+    return {"imports": imports, "calls": calls, "mains": list(((c or {}).get("cli") or {}).get("mains", [])), "methods": []}
+
+
 def entry(tid):
     t = T.TEMPLATES[tid]
     cat, colour, diff, langs, summary, steps = META.get(tid, ("cli", "accent", "intermediate", ["python"], t["blurb"].split(". ")[0], []))
@@ -223,6 +375,7 @@ def entry(tid):
         "needs": list(t["needs"]), "offline": not t["needs"], "run": t["run"], "test": "python -m pytest -q",
         "files": len(t["files"]), "test_files": tests, "tree": _tree(t["files"]), "next_steps": list(steps),
         "image": f"static/templates/{tid}.svg",
+        "contract": contract(tid),
     }
 
 
@@ -237,6 +390,8 @@ def render(tid, dest, vars=None, addons=(), overwrite=False):
     vars: {"name": display name}. Refuses to overwrite an existing file unless overwrite=True. -> list of paths written."""
     name = (vars or {}).get("name") or os.path.basename(os.path.abspath(dest)) or "app"
     files = T.render(tid, name, addons)
+    if "CONTRACT.json" not in files:
+        files["CONTRACT.json"] = json.dumps(contract(tid, name, addons), indent=2) + "\n"
     targets = {rel: os.path.join(dest, *rel.split("/")) for rel in files}
     clash = [p for p in targets.values() if os.path.exists(p)]
     if clash and not overwrite:

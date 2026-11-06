@@ -71,14 +71,16 @@ DEFAULTS = {
                "num_ctx_max": 32768},       # ceiling for that growth
     "storage": {"archive": "",                         # a second drive for copies of run records (arch_archive.py); "" = off
                 "slot_cache_gb": 4.0,                  # saved prompt memory (server/slots, ~0.2-0.4 GB a project): least recently used beyond this is dropped at each save (arch_cachehygiene.py)
-                "slot_max_age_days": 30},              # a saved prompt memory unused this long is offered for removal by `architect.py caches` (asked, never automatic)
+                "slot_max_age_days": 30,      # a saved prompt memory unused this long is offered for removal by `architect.py caches` (asked, never automatic)
+                "retention_days": 90},      # logs / old records older than this are listed by `caches` and removed with --prune --yes (arch_cachehygiene.retention_plan); 0 = keep all
+    "localintel": {"enabled": False},                  # opt-in: Engine.__init__ installs localintel_arch (nothing is patched at import)
     "behavior": {"model_defaults": "off", "role_profiles": "off", "telemetry": "on", "telemetry_mb": 20, "rank_cache": "on", "review_mode": "ask", "offline_tests": True, "best_of_n": 1, "evaluator": "final",   # final | each | off
                  "playwright": "auto", "seed": None,
                  "mutation": "on", "mutation_max": 8,          # test flow: how many code mutations to try
                  "min_gain_pct": 10, "bench_runs": 5,          # optimize flow: required speed-up, benchmark repetitions
                  "hunt_max_files": 4, "hunt_findings": 5,      # hunt flow
                  "network": "offline", "net_allow": [], "net_block_tools": True,   # policy for code run by the Architect: offline | practice | open (default: offline -- nothing the harness runs leaves this machine unless you say so; the binary block below is independent of this)
-                 "thinking": "roles", "sampling": "roles", "chat_model": "worker", "stall_samples": 3, "ground_edits": "on", "tests_first": "off", "test_first": "off", "tests_on_ecores": "auto", "chores_on_ecores": "auto", "close_on_exit": "auto", "reply_budget": "auto", "retry_stop": "auto", "broker": "suggest", "sandbox_mem_mb": 4096,     # roles = as each role defines; plan_debug_only / model_card: measured A/B options
+                 "thinking": "roles", "sampling": "roles", "chat_model": "worker", "stall_samples": 3, "ground_edits": "on", "tests_first": "off", "test_first": "off", "tests_on_ecores": "auto", "chores_on_ecores": "auto", "close_on_exit": "auto", "reply_budget": "auto", "retry_stop": "auto", "broker": "suggest", "notify": "on", "sandbox_mem_mb": 4096,     # roles = as each role defines; plan_debug_only / model_card: measured A/B options
                  "edit_style": "patch",                        # patch = EDIT blocks (search/replace); whole = write complete files under ~200 lines (small models); auto = whole under ~80 lines
                  "max_shrink_pct": 60,                         # refuse a reply that would cut an existing file (25+ lines) by more than this percent; 0 = off
                  "swap_aware": "on", "fast_tests": "on",      # fast_tests: in fix loops run the tests related to the changed files first, then the whole suite
@@ -116,6 +118,37 @@ DEFAULTS = {
                              ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".go", ".rs", ".java", ".cs", ".rb", ".php"],
               "ignored_dirs": [], "protected_dirs": []},
 }
+# --- settings added 2026-11-05 (caches, overlap, harness) ---
+DEFAULTS.setdefault("compact", {"enabled": True, "pct": 80, "keep_tail": 4, "use_router": False})
+DEFAULTS.setdefault("run", {}).setdefault("permission_mode", "auto")
+DEFAULTS.setdefault("run", {}).setdefault("permission_timeout_s", 120)
+DEFAULTS.setdefault("mcp", {"enabled": False, "servers": [], "timeout": 20, "output_cap": 4000})
+DEFAULTS.setdefault("behavior", {}).setdefault("request_cache", "on")
+DEFAULTS.setdefault("squad", {}).setdefault("digest", "on")
+DEFAULTS.setdefault("squad", {}).setdefault("digest_chars", 800)
+DEFAULTS.setdefault("squad", {}).setdefault("role_context", "on")
+DEFAULTS.setdefault("server", {}).setdefault("prewarm", 'off')
+DEFAULTS.setdefault("server", {}).setdefault("prewarm_max", 3)
+DEFAULTS.setdefault("server", {}).setdefault("prewarm_gb", 1.0)
+DEFAULTS.setdefault("server", {}).setdefault("cache_reuse", 256)
+DEFAULTS.setdefault("server", {}).setdefault("static_lookup", 'off')
+DEFAULTS.setdefault("server", {}).setdefault("batch", 2048)
+DEFAULTS.setdefault("server", {}).setdefault("mlock", 'auto')
+DEFAULTS.setdefault("server", {}).setdefault("no_mmap", 'auto')
+DEFAULTS.setdefault("server", {}).setdefault("kv_heavy", 'auto')
+DEFAULTS.setdefault("squad", {}).setdefault("shared_prefix", 'on')
+DEFAULTS.setdefault("behavior", {}).setdefault("tool_cache", 'on')
+DEFAULTS.setdefault("behavior", {}).setdefault("skip_planner_small", 'on')
+DEFAULTS.setdefault("behavior", {}).setdefault("same_failure_stop", 2)
+DEFAULTS.setdefault("behavior", {}).setdefault("overlap_checks", 'on')
+DEFAULTS.setdefault("supervisor", {}).setdefault("parallel_cpu", True)
+DEFAULTS.setdefault("behavior", {}).setdefault("repair_focus", 'off')
+DEFAULTS.setdefault("behavior", {}).setdefault("checkpoints", 'off')
+DEFAULTS.setdefault("behavior", {}).setdefault("trace_diffs", True)
+DEFAULTS.setdefault("memory", {}).setdefault("architect_md", True)
+DEFAULTS.setdefault("online", {}).setdefault("readonly_model", 'auto')
+DEFAULTS.setdefault("online", {}).setdefault("batch_jobs", 'off')
+DEFAULTS["online"]["cloud_cache_ttl"] = "auto" if DEFAULTS["online"].get("cloud_cache_ttl") in (None, "5m") else DEFAULTS["online"]["cloud_cache_ttl"]
 BUILTIN_IGNORED = {".git", ".arch", ".arch_self", "._guard", "node_modules", "venv", ".venv", "__pycache__", ".pytest_cache", "dist", "build", ".mypy_cache"}
 PROTECTED_FILES = {"architect_config.json"}
 
@@ -184,8 +217,8 @@ def list_models():
     try:
         import arch_server
         out += [m for m in arch_server.models() if m not in out]
-    except Exception:
-        pass
+    except Exception as _swx:
+        _tel_swallow("core.list_models", _swx)
     return out
 
 
@@ -315,15 +348,15 @@ def _tel_mirror(rec, run_id):
         if kind == "call":
             r["cache"] = {"state": "hit" if r.get("cached") else "miss"}
         arch_telemetry.emit(kind, run=run_id, **r)
-    except Exception:
-        pass
+    except Exception as _swx:
+        _tel_swallow("core._tel_mirror", _swx)
 
 
 def _tel_swallow(where, ex):
     try:
         import arch_telemetry
         arch_telemetry.swallow(where, ex)
-    except Exception:
+    except Exception:                      # intentional: the recorder itself must never break the caller
         pass
 
 
@@ -371,8 +404,8 @@ def rank_files(root, cfg, query, files=None):
     try:
         import arch_telemetry
         arch_telemetry.emit("cache.rank_terms", hits=_TERMS_STATS["hit"], misses=_TERMS_STATS["miss"], files=len(docs))
-    except Exception:
-        pass
+    except Exception as _swx:
+        _tel_swallow("core.rank_files", _swx)
     return sorted(scores, key=lambda x: -x[1])
 
 
@@ -545,6 +578,22 @@ def _bare_path_blocks(lines):
 
 def unified(old, new, rel):
     return "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), f"a/{rel}", f"b/{rel}", n=3))
+
+
+def diff_record(rel, diff, existed=True, cap=20000):
+    """A unified diff as a trace record body: file, hunks (header + +/- counts), totals, and the diff text (capped) for UI diff cards."""
+    hunks, cur = [], None
+    for ln in (diff or "").splitlines():
+        if ln.startswith("@@"):
+            cur = {"header": ln.split("@@")[1].strip() if ln.count("@@") >= 2 else ln, "added": 0, "removed": 0}
+            hunks.append(cur)
+        elif cur is not None and ln.startswith("+") and not ln.startswith("+++"):
+            cur["added"] += 1
+        elif cur is not None and ln.startswith("-") and not ln.startswith("---"):
+            cur["removed"] += 1
+    return {"type": "diff", "file": rel, "new_file": not existed, "hunks": hunks, "n_hunks": len(hunks),
+            "added": sum(h["added"] for h in hunks), "removed": sum(h["removed"] for h in hunks),
+            "diff": (diff or "")[:cap], "truncated": len(diff or "") > cap}
 
 
 def merge_partial(old, code):
@@ -965,8 +1014,8 @@ def kill_tree(pid):
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=30)
         else:
             os.killpg(os.getpgid(pid), 9)
-    except Exception:
-        pass
+    except Exception as _swx:
+        _tel_swallow("core.kill_tree", _swx)
 
 
 _SANDBOX = {"mem_mb": 0}     # set per run by the Engine from behavior.sandbox_mem_mb
@@ -993,8 +1042,8 @@ def run_bounded(argv, cwd, timeout, env=None):
             try:
                 import arch_hw
                 arch_hw.pin_to_ecores(p._handle if os.name == "nt" else p.pid)
-            except Exception:
-                pass
+            except Exception as _swx:
+                _tel_swallow("core.run_bounded", _swx)
         try:
             rc = p.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -1167,8 +1216,8 @@ def model_provenance(model):
         try:
             import arch_profiles
             rec["params_b"] = arch_profiles.params_b(tail)
-        except Exception:
-            pass
+        except Exception as _swx:
+            _tel_swallow("core.model_provenance", _swx)
     if path and not digest:
         b = os.path.basename(path)
         if re.fullmatch(r"sha256[-:][0-9a-fA-F]{64}", b):
@@ -1219,6 +1268,12 @@ class Engine:
         self.root = os.path.abspath(root)
         self.cfg = cfg or load_config(self.root)
         set_net(self.cfg)
+        if os.environ.get("ARCH_LOCALINTEL") or (self.cfg.get("localintel") or {}).get("enabled"):   # explicit opt-in only; nothing is patched at import
+            try:
+                import localintel_arch
+                localintel_arch.install_if_enabled(self.cfg)
+            except ImportError:
+                pass
         self.flow, self.goal = flow, goal
         self.review = review or self.cfg["behavior"]["review_mode"]
         self.ask = ask or self._ask
@@ -1282,8 +1337,41 @@ class Engine:
         self._write_state()
         try:                                                 # the hub's live panel shows the steps still to come
             self._trace({"type": "todo", "t": time.time(), "flow": self.flow, "items": self.state["todo"]})
-        except Exception:
+        except Exception as _swx:
+            _tel_swallow("core.todo_set", _swx)
+
+    def plan_override(self):
+        """The person's edits to the plan, read between steps: <run>/plan_override.json {items:[{id,title,status:pending|skipped}]}
+        (written by the hub, POST /api/arch/plan). A skipped item is marked skipped in the todo; an unknown id is appended as pending.
+        -> {"skipped": set of ids, "added": [ids appended now]}. Never raises."""
+        out = {"skipped": set(), "added": []}
+        try:
+            with open(os.path.join(self.run_dir, "plan_override.json"), encoding="utf-8") as f:
+                items = (json.load(f) or {}).get("items") or []
+            todo = self.state.setdefault("todo", [])
+            have = {it["id"]: it for it in todo}
+            changed = False
+            for it in items:
+                if not isinstance(it, dict) or not it.get("id"):
+                    continue
+                iid, st = str(it["id"]), it.get("status")
+                cur = have.get(iid)
+                if cur is None:
+                    cur = {"id": iid, "title": str(it.get("title") or iid)[:120], "status": "pending"}
+                    todo.append(cur)
+                    have[iid] = cur
+                    out["added"].append(iid)
+                    changed = True
+                if st == "skipped":
+                    out["skipped"].add(iid)
+                    if cur["status"] == "pending":
+                        cur["status"] = "skipped"
+                        changed = True
+            if changed:
+                self._write_state()
+        except (OSError, ValueError, TypeError, AttributeError):
             pass
+        return out
 
     def todo_mark(self, item_id, status):
         """status: doing | done | failed | skipped."""
@@ -1322,20 +1410,20 @@ class Engine:
                                         prune_after=(self.cfg.get("memory") or {}).get("prune_after"))
                 else:
                     arch_memory.mark_used(self.root, ("lessons.md", "gotchas.md"), set(self.memory_used))
-        except Exception:
-            pass
+        except Exception as _swx:
+            _tel_swallow("core.confirm_memory", _swx)
         try:                                                     # a skill that was in front of the model when the run passed earns a point
             import arch_skills
             if ok and getattr(self, "skills_used", None):
                 arch_skills.mark_helped(self.skills_used)
-        except Exception:
-            pass
+        except Exception as _swx:
+            _tel_swallow("core.confirm_memory", _swx)
         try:                                                     # a remembered reply records what it led to, so a later hit says so up front
             import arch_cache
             for k in set((getattr(self, "cache_keys", None) or {}).values()):
                 arch_cache.attach_verdict(k, "pass" if ok else "fail")
-        except Exception:
-            pass
+        except Exception as _swx:
+            _tel_swallow("core.confirm_memory", _swx)
 
     def _slot_early_save(self, rec):
         """server.slot_persist (auto): after the FIRST llama-server call of a run, save that slot's prompt memory for this project, so
@@ -1349,8 +1437,8 @@ class Engine:
             self._slot_saved = True
             import arch_server
             arch_server.slot_io("save", self.cfg, os.path.abspath(self.root), tier=rec["tier"], slot=int(getattr(self, "slot_id", 0) or 0))
-        except Exception:
-            pass
+        except Exception as _swx:
+            _tel_swallow("core._slot_early_save", _swx)
 
     def finish(self, ok, error=None):
         self._bring_back()
@@ -1359,7 +1447,8 @@ class Engine:
             try:
                 import arch_server
                 arch_server.slot_io("save", self.cfg, os.path.abspath(self.root), slot=int(getattr(self, "slot_id", 0) or 0))
-            except Exception:
+            except Exception as _swx:
+                _tel_swallow("core.finish", _swx)
                 pass                     # a tier that stepped aside for a bigger model is back before the run is called done
         if self.calls and self.state_path:
             self.report("", *self.swaps.lines(self.calls, self.reuse, time.time() - self.state["started"]))
@@ -1377,8 +1466,8 @@ class Engine:
             try:                                             # a copy on the archive drive, written in the background (arch_archive.py)
                 import arch_archive
                 arch_archive.archive_run(self.cfg, self.run_dir, os.path.basename(os.path.abspath(self.root)), self.run_id)
-            except Exception:
-                pass
+            except Exception as _swx:
+                _tel_swallow("core.finish", _swx)
 
     # --- reporting
     def report(self, *lines):
@@ -1533,6 +1622,13 @@ class Engine:
             raise BudgetExceeded(f"stopped after {self.calls} model calls (Settings > Limits > max calls)")
         if self.calls == 0 and self.persist_runs:
             self._prepare_server()
+        if self.persist_runs and role not in self.__dict__.setdefault("_role_restored", set()):
+            self._role_restored.add(role)                 # a role's first call: its saved prompt start is put back into the slot, best effort
+            try:
+                import arch_server
+                arch_server.restore_role(self.cfg, role, os.path.abspath(self.root))
+            except Exception as _swx:
+                _tel_swallow("core._call", _swx)
         key = hashlib.sha1((role + user).encode("utf-8", "replace")).hexdigest()
         self.seen[key] += 1
         if self.seen[key] > 2:
@@ -1873,6 +1969,8 @@ class Engine:
                "cache_n": r.get("cached_tokens"),        # llama-server timings.cache_n (exact prefix tokens served from its cache); None elsewhere
                "prompt_ref": getattr(self, "prompt_ref", ""), "system_sha": hashlib.sha256(sys_text.encode("utf-8", "replace")).hexdigest()[:12],
                "fewshot_model": fewshot_model, "model_defaults": model_defaults or None}
+        rec["sections"] = self._ctx_sections(msgs, cpt, model=model, prompt_tokens=r["prompt_tokens"], transport=rec["transport"])
+        rec["sections_exact"] = bool((rec["sections"] or {}).get("sections_exact"))
         if cur["host"]:
             rec["host"] = cur["name"]
         if _prof_tr:
@@ -1884,8 +1982,8 @@ class Engine:
             try:
                 import arch_replybudget as _rb
                 _rb.record(_rb_key, r.get("gen_tokens"), r.get("done_reason") == "length")
-            except Exception:
-                pass
+            except Exception as _swx:
+                _tel_swallow("core.chat", _swx)
         self._provenance(model, host=cur["name"] if cur["host"] else None)   # the model that actually answered (a fallback can differ)
         # the host-unreachable fallback can swap the model underneath (that reply answers a different question); a reply cut off at its
         # limit depends on a server window (llama-server's -c) that is not part of the key, so it is never replayed
@@ -1896,8 +1994,8 @@ class Engine:
                                secs=round(time.time() - t0, 1), tier=rec["tier"],
                                schema_name=("schema" if schema else "json" if json_out else ""), cfg=self.cfg)
                 self.cache_keys[tid] = ck
-            except Exception:
-                pass
+            except Exception as _swx:
+                _tel_swallow("core.chat", _swx)
         with_tok = f"{r['tok_s']} tok/s" if r["tok_s"] else f"{rec['secs']}s"
         self.say(f"    done: {r['gen_tokens']} tokens, {with_tok}" + (f", context {ctx_pct}% full" if ctx_pct is not None else ""))
         return {"text": text, "thinking": r["thinking"], "id": tid, "model": model, "truncated": r["done_reason"] == "length",
@@ -1993,8 +2091,8 @@ class Engine:
             held = next((m for m in (arch_ollama.status(timeout=2).get("loaded") or []) if m.get("name") == model), None)
             if held and held.get("size") and (held.get("size_vram") or 0) < 0.95 * held["size"]:
                 arch_ollama.unload(model)
-        except Exception:
-            pass
+        except Exception as _swx:
+            _tel_swallow("core._make_room", _swx)
 
     def _ka(self):
         return ollama_keep_alive(self.cfg)
@@ -2029,8 +2127,8 @@ class Engine:
             import arch_cleanup
             if arch_cleanup._job_running():
                 return []
-        except Exception:
-            pass
+        except Exception as _swx:
+            _tel_swallow("core._release_ollama", _swx)
         gone = []
         try:
             import arch_ollama
@@ -2045,8 +2143,8 @@ class Engine:
         if gone:
             try:
                 self.report(f"- Unloaded from Ollama at the end of the run: {', '.join('`%s`' % m for m in gone)}.")
-            except Exception:
-                pass
+            except Exception as _swx:
+                _tel_swallow("core._release_ollama", _swx)
         return gone
 
     def _held_longer_elsewhere(self, arch_ollama):
@@ -2189,6 +2287,69 @@ class Engine:
         self._fp[model] = fp
         return fp
 
+    def _ctx_sections(self, msgs, cpt, model=None, prompt_tokens=None, transport=None):
+        """What the prompt is made of, in tokens: {system_prompt, skills, memory, tools, project_files, conversation, est, sections_exact}.
+        Split on the headings context() writes; whatever has no heading is conversation. EXACT (sections_exact True, est False) when the
+        resident llama-server can tokenize each section (POST /tokenize, no inference); otherwise estimated from characters with the
+        engine's chars/token and, when the transport reported the prompt's token count (Ollama prompt_eval_count), scaled so the sections
+        add up to it (still sections_exact False; "basis" says so). Never raises."""
+        try:
+            import re as _re
+            texts = {"system_prompt": "", "skills": "", "memory": "", "tools": "", "project_files": "", "conversation": ""}
+            for m in msgs:
+                txt = m.get("content") or ""
+                if m.get("role") == "system":
+                    texts["system_prompt"] += txt
+                    continue
+                for part in _re.split(r"(?m)^(?=#{1,3} |=== )", txt):
+                    h = part[:80].lower()
+                    kind = ("skills" if "skill" in h else "memory" if ("memory" in h or "remember" in h or "lesson" in h) else
+                            "tools" if "tool" in h else "project_files" if ("file" in h or part.startswith("=== ")) else "conversation")
+                    texts[kind] += part
+            exact = self._tokenize_sections(texts, model) if transport == "llama" and model else None
+            if exact is not None:
+                d = dict(exact)
+                d["est"], d["sections_exact"], d["basis"] = False, True, "llama-server /tokenize"
+                if prompt_tokens:
+                    d["template_overhead"] = max(0, int(prompt_tokens) - sum(exact.values()))   # chat-template tokens no section owns
+                return d
+            d = {k: arch_tune.estimate_tokens(len(v), cpt) for k, v in texts.items()}
+            d["est"], d["sections_exact"], d["basis"] = True, False, "estimated from characters"
+            tot = sum(d[k] for k in texts)
+            if prompt_tokens and tot > 0:
+                f = float(prompt_tokens) / tot
+                for k in texts:
+                    d[k] = int(round(d[k] * f))
+                d["basis"] = "estimate scaled to the reported prompt token count"
+            return d
+        except Exception as e:
+            _tel_swallow("core._ctx_sections", e)
+            return None
+
+    def _tokenize_sections(self, texts, model):
+        """-> {section: exact token count} from the resident llama-server's /tokenize, or None when it is not available / any call fails."""
+        try:
+            import arch_server
+            sv = arch_server.serving(model, self.cfg)
+            if not sv or not sv.get("url"):
+                return None
+            out = {}
+            for k, t in texts.items():
+                if not t:
+                    out[k] = 0
+                    continue
+                req = urllib.request.Request(sv["url"].rstrip("/") + "/tokenize", data=json.dumps({"content": t, "add_special": False}).encode("utf-8"),
+                                             headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    toks = json.loads(resp.read().decode("utf-8", "replace")).get("tokens")
+                if not isinstance(toks, list):
+                    return None
+                out[k] = len(toks)
+            return out
+        except Exception as e:                     # no server / older build without /tokenize / slow: fall back to the estimate
+            _tel_swallow("core._tokenize_sections", e)
+            return None
+
     def _prepare_server(self):
         """Once per run, before the first call: is Ollama up (plain message and a short wait if it is starting), and free memory held by models outside the team."""
         import arch_ollama
@@ -2197,7 +2358,12 @@ class Engine:
             wanted = {m for m in (self.model_for(r) for r in arch_roles.ROLES) if m}   # only the tiers this run's roles will call
         except Exception:
             wanted = None                                                          # cannot tell: start what is planned, as before
-        arch_server.ensure(self.cfg, say=self.say, wanted=wanted)                  # the resident llama-server, when installed and planned; else nothing happens
+        try:
+            import inspect
+            _kw = {"project": os.path.abspath(self.root)} if "project" in inspect.signature(arch_server.ensure).parameters else {}
+        except Exception:
+            _kw = {}
+        arch_server.ensure(self.cfg, say=self.say, wanted=wanted, **_kw)           # the resident llama-server, when installed and planned; else nothing happens
         if arch_server.slot_io("restore", self.cfg, os.path.abspath(self.root), slot=int(getattr(self, "slot_id", 0) or 0)):
             self.say("[server] this project's prompt memory restored from disk")
         self._srv_ctx = {}                                                         # windows read before the servers started are stale
@@ -2337,8 +2503,8 @@ class Engine:
             if isinstance(getattr(self, "state", None), dict):
                 self.state.setdefault("provenance", {})[model] = rec
                 self._write_state()
-        except Exception:
-            pass
+        except Exception as _swx:
+            _tel_swallow("core._provenance", _swx)
 
     def mark(self, call_id, accepted, reason=""):
         """Label a past call with the outcome of the code checks. This is what makes training data trustworthy.
@@ -2445,6 +2611,13 @@ class Engine:
 
     def _commit(self, p, quiet=False):
         """Show the diff, ask according to the review mode, write. Sets and returns p with its final status."""
+        import arch_permissions
+        verdict, why = arch_permissions.decide(self, p)
+        if verdict != "allow":
+            p["status"] = "declined" if arch_permissions.mode(self.cfg, self) == "ask" else "error"
+            p["msg"] = why
+            self.say(f"[-] {p.get('rel')}: {why}")
+            return p
         if not quiet:
             self.say(f"\n----- CHANGE: {p['rel']}{'' if p['existed'] else ' (new file)'}")
             self.say("\n".join("  " + ln for ln in p["diff"].splitlines()[:120]))
@@ -2463,6 +2636,13 @@ class Engine:
             p["status"] = "applied"
             if not quiet:
                 self.say(f"[+] {p['rel']}: written")
+            if (self.cfg.get("behavior") or {}).get("trace_diffs", True):       # a diff card per applied change; apply itself is unchanged
+                try:
+                    rec = diff_record(p["rel"], p.get("diff") or "", p.get("existed", True))
+                    rec["t"] = time.time()
+                    self._trace(rec)
+                except Exception as ex:
+                    _tel_swallow("Engine._commit.diff", ex)
         return p
 
     def put_file(self, rel, text, label="", quiet=False):
@@ -2552,7 +2732,8 @@ class Engine:
             else:
                 import arch_memory
                 mcfg = self.cfg.get("memory") or {}
-                try_mem, mem_used = arch_memory.for_prompt(self.root, int(mcfg.get("prompt_chars", 1800)), top=mcfg.get("top_lines"))   # project.md plus the lessons and traps that earned their place
+                try_mem, mem_used = arch_memory.for_prompt(self.root, int(mcfg.get("prompt_chars", 1800)), top=mcfg.get("top_lines"),
+                                                           architect_md=bool(mcfg.get("architect_md", True)))   # project.md plus the lessons and traps that earned their place
                 self.memory_used = sorted(set(getattr(self, "memory_used", []) + mem_used))
                 if stable:
                     self._ctx_run["mem"] = try_mem
@@ -2583,8 +2764,8 @@ class Engine:
             if sk_text and sk_used:
                 self.skills_used = sorted(set(getattr(self, "skills_used", []) + sk_used))
                 arch_skills.mark_used(sk_used)
-        except Exception:
-            pass
+        except Exception as _swx:
+            _tel_swallow("core.context", _swx)
         for name in always:
             p = os.path.join(self.root, name)
             if os.path.isfile(p):
@@ -2681,7 +2862,8 @@ def emit_event(rec, run_id=""):
             ev.setdefault("run", run_id)
         sys.stdout.write(EVENT_MARK + json.dumps(ev, ensure_ascii=False, default=str) + "\n")
         sys.stdout.flush()
-    except Exception:
+    except Exception as _swx:
+        _tel_swallow("core.emit_event", _swx)
         pass                 # a watcher must never be able to break a run
 
 

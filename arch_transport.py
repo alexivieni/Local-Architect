@@ -25,6 +25,15 @@ import urllib.request
 from arch_core import LLMError   # one exception class for every caller, whichever server answered
 
 
+def _swallow(where, ex):
+    """Record a fault a caller deliberately swallows (arch_telemetry.swallow, rate-limited). Never raises."""
+    try:
+        import arch_telemetry
+        arch_telemetry.swallow(where, ex)
+    except Exception:                      # intentional: the recorder itself must never break the caller
+        pass
+
+
 def _timeouts(timeout):
     if isinstance(timeout, dict):
         return timeout["first"], timeout["idle"], timeout.get("total")
@@ -261,7 +270,8 @@ def _thinks_in_tags(model):
             name = st.get("name") or model
         p = arch_passport.load(name) or arch_passport.load(model)
         style = (p or {}).get("think_style")
-    except Exception:
+    except Exception as _swx:
+        _swallow("transport._thinks_in_tags", _swx)
         style = None
     _THINK_CACHE[model] = style == "tags" or bool(re.search(r"qwen3|deepseek-r1|qwq", model, re.I))
     return _THINK_CACHE[model]
@@ -276,7 +286,8 @@ def route(model, host=None, cfg=None):
     try:
         import arch_server
         srv = arch_server.serving(model, cfg)
-    except Exception:
+    except Exception as _swx:
+        _swallow("transport.route", _swx)
         srv = None
     if srv:
         return LlamaTransport(srv["url"], srv.get("ctx"))

@@ -318,9 +318,43 @@ def _cap(cfg):
         return 0.5
 
 
-def _ttl(cfg):
-    """Prompt-cache lifetime on Anthropic's side: "5m" (default) or "1h" (online.cloud_cache_ttl)."""
-    return "1h" if str(((cfg or {}).get("online") or {}).get("cloud_cache_ttl") or "5m").strip() == "1h" else "5m"
+LONG_LIVED = ("orchestrator", "session", "chat", "planner", "architect")     # prompts reused over more than five minutes
+SHORT_LIVED = ("agent", "fleet", "batch", "subagent", "once")                 # a few calls close together, then done
+
+
+def choose_ttl(cfg, use=None, gap_s=None):
+    """Prompt-cache lifetime for one use. online.cloud_cache_ttl: "5m" or "1h" force it; "auto" (default) picks by expected reuse:
+    1h for a long-lived orchestrator/session/chat prompt (a 1h write costs 2x input, 5m costs 1.25x, a read 0.1x: it pays when the
+    prefix is read again after more than five minutes), 5m for short agents. `gap_s` = the expected seconds between reuses, when
+    known: over five minutes and under an hour means 1h. Unknown use = 5m. cost(..., ttl) prices the write accordingly."""
+    v = str(((cfg or {}).get("online") or {}).get("cloud_cache_ttl") or "auto").strip().lower()
+    if v in ("5m", "1h"):
+        return v
+    if gap_s is not None:
+        try:
+            return "1h" if 300 < float(gap_s) < 3600 else "5m"
+        except (TypeError, ValueError):
+            pass
+    return "1h" if str(use or "").lower() in LONG_LIVED else "5m"
+
+
+def _ttl(cfg, use=None):
+    return choose_ttl(cfg, use if use is not None else (getattr(_HERE, "ttl_use", None) or ("chat" if getattr(_HERE, "on", False) else None)))
+
+
+# ---- read-only agents run on a cheaper model (online.readonly_model = auto | same)
+CHEAP = {"sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5"}
+
+
+def readonly_model(cfg, model, readonly, tiny=False):
+    """-> (model to use, why or ""). A model the person NAMED is never changed. With none named and online.readonly_model = auto
+    (default), a read-only agent (no write tools) gets Sonnet and a tiny lookup gets Haiku; "same" leaves the choice to the default."""
+    if model and str(model).strip() not in ("", "inherit", "default"):
+        return model, ""
+    if str(((cfg or {}).get("online") or {}).get("readonly_model") or "auto").strip().lower() != "auto" or not readonly:
+        return model, ""
+    pick = CHEAP["haiku"] if tiny else CHEAP["sonnet"]
+    return pick, ("a tiny read-only lookup" if tiny else "a read-only agent") + f" runs on {pick} (online.readonly_model = same keeps the default)"
 
 
 def _cache_control(ttl):

@@ -339,11 +339,22 @@ def launch(plan, root, total_cap_usd=20.0, tests=DEFAULT_TESTS, starter=None, ru
                        "tier": (a.get("tier") or "worker") if kind == "local_agent" else None,
                        "local_budget": dict(a.get("budget") or {}) if kind == "local_agent" else None,
                        "budget_usd": float(a.get("budget_usd") or 0) if local else float(a["budget_usd"]),
-                       "model": a.get("model") or None, "mode": "acceptEdits" if local else (a.get("mode") or "acceptEdits"),
+                       "model": a.get("model") or None, "model_why": None, "mode": "acceptEdits" if local else (a.get("mode") or "acceptEdits"),
                        "flow": (a.get("flow") or None) if local else None, "after": after,
                        "lane": (lane_of(a) if local else None), "run": None,
                        "status": "waiting" if after else "starting", "cost": 0.0, "turns": None, "error": None,
                        "waited_s": 0.0, "waiting_for": None, "why": None, "trace": None, "rc": None})
+    for ag in agents:                                            # no write tools and no model named -> a cheaper model (never one the person named)
+        if ag["kind"] == "claude" and not ag["model"]:
+            try:
+                import arch_cloud
+                import arch_core
+                ro = ag["mode"] == "plan"
+                m, why = arch_cloud.readonly_model(arch_core.load_config(), None, ro, tiny=len(ag["brief"] or "") < 600 and ag["budget_usd"] <= 0.5)
+                if m:
+                    ag["model"], ag["model_why"] = m, why
+            except Exception:
+                pass
     state = {"id": fid, "root": root, "created": time.time(), "ended": None, "phase": "starting", "cap_usd": float(total_cap_usd),
              "tests_planned": tests, "tests": [], "diffstat": None, "strays": [], "verdict": None,
              "dirty_before": sorted(s for _, s in _changed_paths(before.get("output") if before.get("rc") == 0 else ""))}

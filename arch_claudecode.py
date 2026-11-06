@@ -353,14 +353,18 @@ def start(root, prompt, mode="plan", model=None, resume=None, max_turns=40, budg
         raise RuntimeError(f"the budget must be a number of dollars (got {str(budget)[:20]!r})")
     if not budget > 0:
         raise RuntimeError("the budget must be above $0 (it is the run's hard spend limit)")
+    use = "agent" if tag else "session"                      # a fleet's agent is short-lived; a session you resume lives on
+    ttl = arch_cloud.choose_ttl(cfg, use)
+    if not model and mode == "plan":           # a read-only run with no model named: Sonnet (online.readonly_model)
+        model = arch_cloud.readonly_model(cfg, None, True)[0] or model
     hold = arch_cloud.reserve(cfg, budget, what="This Claude Code run")   # SpendRefused (a RuntimeError) past the daily cap
-    args = {"prompt": prompt, "mode": mode, "model": model, "resume": resume, "max_turns": int(max_turns), "budget": budget,
+    args = {"prompt": prompt, "mode": mode, "model": model, "resume": resume, "max_turns": int(max_turns), "budget": budget, "ttl": ttl,
             "files": [str(f) for f in (files or []) if str(f).strip()]}
     with _LOCK:
         rid = _new_run_id()
         started = time.time()
         _RUNS[rid] = {"events": [], "status": "running", "session": resume, "cost": 0.0, "started": started, "error": None, "proc": None,
-                      "hold": hold, "usage_usd": 0.0}
+                      "hold": hold, "usage_usd": 0.0, "ttl": ttl}
     write_meta(rid, prompt=prompt, mode=mode, model=model, budget=args["budget"], max_turns=args["max_turns"], root=os.path.abspath(root),
                resume=resume, tag=tag, started=started, ended=None, status="running", cost=0.0, turns=None, session=resume,
                error=None, pid=os.getpid())
@@ -401,8 +405,10 @@ def _count_usage(rid, model, usage):
     try:
         import arch_cloud
         u = usage or {}
+        with _LOCK:
+            ttl = (_RUNS.get(rid) or {}).get("ttl") or "5m"
         usd = arch_cloud.cost(model or "", u.get("input_tokens") or 0, u.get("output_tokens") or 0,
-                              u.get("cache_read_input_tokens") or 0, u.get("cache_creation_input_tokens") or 0)
+                              u.get("cache_read_input_tokens") or 0, u.get("cache_creation_input_tokens") or 0, ttl)
     except Exception:
         return
     with _LOCK:
@@ -438,6 +444,8 @@ def _drive(rid, args, root):
 
     async def go():
         env = {k: v for k, v in _env().items() if k in ("CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY")}
+        if args.get("ttl") == "1h":
+            env["ENABLE_PROMPT_CACHING_1H"] = "1"            # NOT_SURE: the Claude Code build must honour this switch; ignored otherwise
         opts = sdk.ClaudeAgentOptions(cwd=root, permission_mode=args["mode"], max_turns=args["max_turns"], env=env,
                                       model=args["model"] or None, resume=args["resume"] or None,
                                       max_budget_usd=args.get("budget") or 5.0,                  # a hard stop on spend per task

@@ -120,12 +120,31 @@ def _grounding_on(e):
     return ((getattr(e, "cfg", None) or {}).get("behavior") or {}).get("ground_edits", "on") != "off"
 
 
+def _read_cached(e, p):
+    """The text of a file, kept for the run while its size+mtime are unchanged (behavior.tool_cache). The per-line bookkeeping of
+    `read` (what was seen, repeat reads) still runs on every call."""
+    if not _tool_cache_on(e):
+        return core.read_text(p, 400000)[0]
+    c, k, st = _tc(e), os.path.normcase(os.path.abspath(p)), _stat(p)
+    got = c["files"].get(k)
+    if got and st is not None and got[0] == st:
+        c["hit"] += 1
+        _tele("tool.cache", tool="read", hit=True)
+        return got[1]
+    text = core.read_text(p, 400000)[0]
+    c["miss"] += 1
+    _tele("tool.cache", tool="read", hit=False)
+    if st is not None:
+        c["files"][k] = (st, text)
+    return text
+
+
 @tool("read", "Read a file, or part of one. Always read before you change something.",
       {"path": {"type": "string"}, "start": {"type": "integer", "description": "first line (1-based)"}, "end": {"type": "integer"}}, required=("path",))
 def t_read(e, path="", start=0, end=0, **_):
     try:
         p = _rel(e, path)
-        text = core.read_text(p, 400000)[0]
+        text = _read_cached(e, p)
     except (ValueError, OSError) as ex:
         return f"cannot read {path}: {ex}"
     rows = text.splitlines()
@@ -294,6 +313,16 @@ def t_edit_lines(e, path="", start=0, end=0, text="", **_):
     return f"changed {path}: lines {a}..{b} replaced by {len(text.splitlines())} line(s)" if r is not False else "nothing was applied"
 
 
+@tool("delegate", "Hand a piece of the work to a squad workflow and get its short digest back. Only for files you own; it cannot be nested.",
+      {"workflow": {"type": "string", "description": "a workflow name from workflows/ (e.g. review_squad)"},
+       "goal": {"type": "string", "description": "what the workflow should achieve"},
+       "owns": {"type": "array", "items": {"type": "string"}, "description": "files the workflow may change; must be files you own"}},
+      required=("workflow", "goal"), writes=True)
+def t_delegate(e, workflow="", goal="", owns=None, **_):
+    import arch_delegate
+    return _cap(arch_delegate.run(e, workflow=workflow, goal=goal, owns=owns), 3500)
+
+
 def describe(names=None):
     """The tool list for the prompt: one line each, plain words first."""
     out = []
@@ -315,20 +344,125 @@ def schema(names=None):
             "additionalProperties": False}
 
 
+# ---- within-run tool cache (behavior.tool_cache, default on): read-only tool results are kept for the life of one engine/run, keyed by
+# (tool, args, size+mtime of the files the answer depends on). A write through a tool (apply, edit_lines, memory_append) drops the
+# affected entries at once; an edit made any other way changes the files' size/mtime, so the key no longer matches. Never persisted.
+CACHED = ("ls", "grep", "search", "outline")
+WRITERS = ("apply", "edit_lines", "memory_append", "delegate")
+
+
+def _tc(e):
+    c = getattr(e, "_tool_cache", None)
+    if c is None:
+        c = e._tool_cache = {"d": {}, "files": {}, "hit": 0, "miss": 0, "inval": 0}
+    return c
+
+
+def cache_stats(e):
+    c = _tc(e)
+    return {"hit": c["hit"], "miss": c["miss"], "inval": c["inval"], "entries": len(c["d"])}
+
+
+def _tool_cache_on(e):
+    return ((getattr(e, "cfg", None) or {}).get("behavior") or {}).get("tool_cache", "on") != "off"
+
+
+def _stat(p):
+    try:
+        st = os.stat(p)
+        return (st.st_size, int(st.st_mtime_ns))
+    except OSError:
+        return None
+
+
+def _fingerprint(e, name, args):
+    """What the answer depends on: one file's size+mtime (outline), or every project file's (the tree tools)."""
+    if name == "outline":
+        return _stat(_rel(e, args.get("path", "")))
+    import hashlib
+    h = hashlib.sha1()
+    for f in core.list_files(e.root, e.cfg):
+        h.update(f"{f}|{_stat(os.path.join(e.root, f))}\n".encode("utf-8", "replace"))
+    return h.hexdigest()
+
+
+def invalidate(e, paths=None):
+    """Drop cached results a write may have changed: every tree-tool answer, and the file answers for `paths` (all when None)."""
+    c = _tc(e)
+    n = len(c["d"])
+    c["d"].clear()
+    if paths is None:
+        c["files"].clear()
+    else:
+        for p in paths:
+            c["files"].pop(os.path.normcase(os.path.abspath(os.path.join(e.root, p))), None)
+    c["inval"] += n
+
+
+def _tele(kind, **f):
+    try:
+        import arch_telemetry
+        arch_telemetry.emit(kind, **f)
+    except Exception:
+        pass
+
+
 def call(e, name, args, allowed=None):
+    out, ok = _call(e, name, args, allowed)
+    if ok and name in WRITERS and _tool_cache_on(e):
+        try:
+            invalidate(e, [str((args or {}).get("path"))] if isinstance(args, dict) and args.get("path") else None)
+        except Exception:
+            pass
+    return out, ok
+
+
+def _call(e, name, args, allowed=None):
     """Run one tool. -> (text, ok). An unknown tool or bad arguments cost a step and are explained, never crash the loop."""
     if allowed and name not in allowed:
         return f"'{name}' is not available in this step. Available: {', '.join(allowed)}", False
     t = TOOLS.get(name)
     if not t:
         return f"there is no tool called '{name}'. Available: {', '.join(TOOLS)}", False
+    try:
+        import arch_permissions                       # plan mode: a tool that writes is refused, whatever the agent's list says
+        why = arch_permissions.tool_refusal(e, name)
+        if why:
+            return why, False
+    except ImportError:
+        pass
     args = args if isinstance(args, dict) else {}
     missing = [k for k in t["required"] if not args.get(k)]
     if missing:
         return f"{name} needs: {', '.join(missing)}", False
     try:
-        return t["fn"](e, **{k: v for k, v in args.items() if isinstance(k, str)}), True
+        kw = {k: v for k, v in args.items() if isinstance(k, str)}
+        if name in CACHED and _tool_cache_on(e):
+            c = _tc(e)
+            try:
+                key = (name, repr(sorted(kw.items(), key=lambda x: x[0])), _fingerprint(e, name, kw))
+            except Exception:
+                key = None
+            if key is not None and key in c["d"]:
+                c["hit"] += 1
+                _tele("tool.cache", tool=name, hit=True)
+                return c["d"][key], True
+            out = t["fn"](e, **kw)
+            if key is not None:
+                c["d"][key] = out
+                c["miss"] += 1
+                _tele("tool.cache", tool=name, hit=False)
+            return out, True
+        return t["fn"](e, **kw), True
     except TypeError as ex:
         return f"{name}: wrong arguments ({ex})", False
     except Exception as ex:                                        # a tool must never take the run down
         return f"{name} failed: {type(ex).__name__}: {str(ex)[:200]}", False
+
+def load_mcp(cfg):
+    """Add trusted MCP tools (mcp.<server>.<tool>) to TOOLS. Off by default; never raises."""
+    try:
+        import arch_mcp_client
+        return arch_mcp_client.register(TOOLS, cfg)
+    except Exception:
+        return []

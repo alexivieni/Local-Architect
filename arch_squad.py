@@ -45,7 +45,7 @@ EFFORTS = {"low": False, "medium": None, "high": True}      # -> Engine.call(thi
 POLICIES = ("fresh", "inherit")
 CATEGORIES = ("coding", "end-to-end", "agentic", "ui", "system/it", "engineering", "architecture", "ai/models", "data", "harness", "other")
 KEYS = {"name", "description", "model", "role", "category", "system", "task", "tools", "writes", "output", "budget", "effort",
-        "max_steps", "context", "owns", "code"}
+        "max_steps", "context", "owns", "code", "color"}
 CODE_AGENTS = ("spec",)                                    # agents whose work is done by code, not a model (code: spec -> arch_spec.spec)
 OVERRIDABLE = ("model", "role", "category", "description", "system", "task", "tools", "writes", "output", "budget", "effort",
                "max_steps", "context", "owns")
@@ -94,8 +94,17 @@ class Budget:
             used = dict(self.spent, seconds=time.time() - self.t0)
         return {k: v - used[k] for k, v in self.limits.items()}
 
+    @property
+    def total(self):
+        """The workflow tool's budget.total: the ceilings ({} when there are none)."""
+        return dict(self.limits)
+
+    def exhausted(self):
+        left = self.remaining()
+        return left is not None and any(v <= 0 for v in left.values())
+
     def status(self):
-        return {"limits": self.limits, "spent": dict(self.spent, seconds=round(time.time() - self.t0, 1)),
+        return {"total": dict(self.limits), "limits": self.limits, "spent": dict(self.spent, seconds=round(time.time() - self.t0, 1)),
                 "remaining": self.remaining()}
 
 
@@ -288,20 +297,26 @@ def _project_dir(kind, root=None):
 
 
 def _find_named(name, kind, ext=".yaml", root=None):
-    """A bare or plugin:name -> its file: shipped wins a bare-name clash, then the project's .arch/<kind>/, then plugins."""
+    """A bare or plugin:name -> its file: shipped wins a bare-name clash, then the project's .arch/<kind>/, then plugins.
+    Agents are found as <name>.md (Claude Code format) first, then <name>.yaml."""
     shipped = AGENTS_DIR if kind == "agents" else WORKFLOWS_DIR
     name = str(name)
-    fn = name if name.endswith(ext) else name + ext
+    exts = (".md", ".yaml") if kind == "agents" else (ext,)
+
+    def names(bare):
+        return [bare] if bare.endswith(exts) else [bare + x for x in exts]
     if ":" in name:
         plug, _, bare = name.partition(":")
-        bare = bare if bare.endswith(ext) else bare + ext
         for n, d in _plugin_dirs(kind[:-1]):
-            if n == plug and os.path.isfile(os.path.join(d, bare)):
-                return os.path.join(d, bare)
+            if n == plug:
+                for fn in names(bare):
+                    if os.path.isfile(os.path.join(d, fn)):
+                        return os.path.join(d, fn)
         return None
     for d in [shipped, _project_dir(kind, root)] + [d for _, d in _plugin_dirs(kind[:-1])]:
-        if d and os.path.isfile(os.path.join(d, fn)):
-            return os.path.join(d, fn)
+        for fn in names(name):
+            if d and os.path.isfile(os.path.join(d, fn)):
+                return os.path.join(d, fn)
     return None
 
 
@@ -391,18 +406,166 @@ def _norm(d):
     return d
 
 
+# -- Claude-Code-style agent files: agents/<name>.md = frontmatter + the markdown body as the system prompt
+TOOL_ALIASES = {"read": ["read", "view", "outline"], "grep": ["grep", "search"], "glob": ["ls"], "ls": ["ls"],
+                "edit": ["edit_lines", "apply"], "write": ["edit_lines", "apply"], "multiedit": ["edit_lines", "apply"],
+                "bash": ["run_tests"], "test": ["run_tests"], "tests": ["run_tests"]}
+CLAUDE_MODEL_NAMES = ("sonnet", "opus", "haiku", "fable", "default")
+MD_DEFAULT_TASK = "{task}\n\nGoal of the whole job: {goal}\n{prev}"
+MD_DEFAULT_BUDGET = {"calls": 12, "tokens": 60000, "seconds": 900}
+
+
+def _fm_scalar(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        try:
+            return json.loads(v) if v[0] == '"' else v[1:-1]
+        except ValueError:
+            return v[1:-1]
+    return v
+
+
+def parse_frontmatter(text):
+    """'---\\nkey: value\\n...\\n---\\nbody' -> (dict of strings/lists, body). Supports `key: |` blocks and `- item` lists.
+    ValueError when there is no frontmatter block or a line cannot be read."""
+    t = str(text or "").lstrip("﻿").replace("\r\n", "\n")
+    if not t.startswith("---\n"):
+        raise ValueError("an agent .md file starts with a --- frontmatter block")
+    end = t.find("\n---", 3)
+    if end < 0:
+        raise ValueError("the frontmatter block is not closed with ---")
+    head, body = t[4:end].split("\n"), t[end + 4:].lstrip("\n")
+    out, i = {}, 0
+    while i < len(head):
+        ln = head[i]
+        i += 1
+        if not ln.strip() or ln.lstrip().startswith("#"):
+            continue
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$", ln)
+        if not m:
+            raise ValueError(f"frontmatter line {i}: expected key: value (got {ln[:40]!r})")
+        k, v = m.group(1).replace("-", "_"), m.group(2)
+        if v.strip() in ("|", ">"):
+            blk = []
+            while i < len(head) and (not head[i].strip() or head[i][:1] in " \t"):
+                blk.append(head[i])
+                i += 1
+            ind = min([len(x) - len(x.lstrip()) for x in blk if x.strip()] or [0])
+            out[k] = "\n".join(x[ind:] for x in blk).rstrip("\n") + "\n"
+        elif v.strip() == "":
+            items = []
+            while i < len(head) and re.match(r"^\s+-\s+", head[i]):
+                items.append(_fm_scalar(re.sub(r"^\s+-\s+", "", head[i])))
+                i += 1
+            out[k] = items
+        else:
+            out[k] = _fm_scalar(v)
+    return out, body
+
+
+def _csv(v):
+    if isinstance(v, list):
+        return [str(x).strip() for x in v if str(x).strip()]
+    return [x.strip() for x in str(v or "").split(",") if x.strip()]
+
+
+def map_tools(names):
+    """Claude-style tool names (Read, Grep, Glob, Edit, Write, Bash) and local names -> arch_tools names; order kept, no repeats.
+    A name that maps to nothing stays as it is, so validate() reports it."""
+    known, out = _tools(), []
+    for n in names:
+        low = str(n).strip().lower()
+        for t in ([low] if low in known and not str(n).strip()[:1].isupper() else TOOL_ALIASES.get(low, [str(n).strip()])):
+            if t not in out:
+                out.append(t)
+    return out
+
+
+def parse_agent_md(text):
+    """An agent .md file -> a definition dict (not yet validated). Frontmatter: name, description (when to use), tools (comma list),
+    model (a local tier or model id), effort, color; optional role, category, task, writes, output (JSON on one line), budget
+    (calls=,tokens=,seconds=), max_steps, context (policy[:max_chars]), owns, code. The body is the system prompt."""
+    fm, body = parse_frontmatter(text)
+    d = {"name": fm.get("name", ""), "description": str(fm.get("description", "")).strip(), "system": body.strip() + "\n"}
+    m = str(fm.get("model", "worker")).strip() or "worker"
+    d["model"] = "worker" if m == "inherit" else ("claude:" + m if m.lower() in CLAUDE_MODEL_NAMES else m)
+    d["tools"] = map_tools(_csv(fm["tools"])) if "tools" in fm else ["ls", "grep", "search", "read", "outline", "view"]
+    if fm.get("writes") is None:
+        writes = any(t in _tools() and _tools()[t]["writes"] for t in d["tools"])
+    else:
+        writes = str(fm["writes"]).lower() in ("true", "yes", "1")
+    d["writes"] = writes
+    d["role"] = fm.get("role") or ("generator" if writes else "reviewer")
+    for k in ("category", "effort", "color", "code"):
+        if k in fm:
+            d[k] = str(fm[k]).strip()
+    d["task"] = fm.get("task") or MD_DEFAULT_TASK
+    if "output" in fm:
+        o = str(fm["output"]).strip()
+        try:
+            d["output"] = o if o == "text" else json.loads(o)
+        except ValueError:
+            raise ValueError("output: 'text' or a JSON schema on one line")
+    d["budget"] = parse_budget(fm["budget"]) if "budget" in fm else dict(MD_DEFAULT_BUDGET)
+    if "max_steps" in fm:
+        try:
+            d["max_steps"] = int(fm["max_steps"])
+        except ValueError:
+            raise ValueError("max_steps: a whole number")
+    if "context" in fm:
+        pol, _, mc = str(fm["context"]).partition(":")
+        d["context"] = {"policy": pol.strip()}
+        if mc.strip():
+            d["context"]["max_chars"] = int(mc)
+    if "owns" in fm:
+        d["owns"] = _csv(fm["owns"])
+    return d
+
+
+def dump_md(d):
+    """A definition -> agent .md text (the inverse of parse_agent_md for every field it reads)."""
+    d = _plain(d)
+    fm = ["---", f"name: {d['name']}", "description: " + json.dumps(str(d.get("description") or ""), ensure_ascii=False),
+          f"model: {d['model']}", "tools: " + ", ".join(d["tools"])]
+    for k in ("effort", "color", "role", "category", "code"):
+        if d.get(k) is not None:
+            fm.append(f"{k}: {d[k]}")
+    fm.append(f"writes: {'true' if d.get('writes') else 'false'}")
+    if d.get("max_steps") is not None:
+        fm.append(f"max_steps: {d['max_steps']}")
+    if d.get("budget"):
+        fm.append("budget: " + ",".join(f"{k}={v}" for k, v in d["budget"].items()))
+    c = d.get("context")
+    if c:
+        fm.append(f"context: {c.get('policy', 'fresh')}:{c.get('max_chars', 8000)}")
+    if d.get("owns"):
+        fm.append("owns: " + ", ".join(d["owns"]))
+    if d.get("output") not in (None, "text"):
+        fm.append("output: " + json.dumps(d["output"], separators=(",", ":"), sort_keys=True, ensure_ascii=False))
+    fm.append("task: |")
+    fm += ["  " + ln if ln else "" for ln in (d.get("task") or MD_DEFAULT_TASK).rstrip("\n").split("\n")]
+    return "\n".join(fm) + "\n---\n" + (d.get("system") or "").strip() + "\n"
+
+
 def load_agent(name_or_path, folder=None):
-    """agents/<name>.yaml (or a path, or an already-loaded dict) -> a validated definition. ValueError lists the problems."""
+    """agents/<name>.md (Claude Code format) or agents/<name>.yaml (or a path, or an already-loaded dict) -> a validated definition.
+    ValueError lists the problems."""
     import arch_ci
     if isinstance(name_or_path, dict):
         d, src = _plain(name_or_path), name_or_path.get("_source") or "(inline)"
     else:
-        src = name_or_path if os.path.isfile(str(name_or_path)) else \
-            os.path.join(folder or AGENTS_DIR, str(name_or_path) + ".yaml")
-        if not folder and not os.path.isfile(src):
-            src = _find_named(name_or_path, "agents") or src
+        src = str(name_or_path)
+        if not os.path.isfile(src):
+            base = os.path.join(folder or AGENTS_DIR, src)
+            src = next((base + x for x in (".md", ".yaml") if os.path.isfile(base + x)), base + ".md")
+            if not folder and not os.path.isfile(src):
+                src = _find_named(name_or_path, "agents") or src
         with open(src, encoding="utf-8") as f:
-            d = arch_ci.load_yaml(f.read())
+            raw = f.read()
+        try:
+            d = parse_agent_md(raw) if src.endswith(".md") else arch_ci.load_yaml(raw)
+        except ValueError as ex:
+            raise ValueError(f"{src}: {ex}")
     probs = validate(d)
     if probs:
         raise ValueError(f"{src}: " + "; ".join(probs))
@@ -412,23 +575,26 @@ def load_agent(name_or_path, folder=None):
 
 
 def list_agents(folder=None, root=None):
-    """-> {name: definition or {"problems": [...]}} for every agents/*.yaml. Without a folder it also lists the project's
-    .arch/agents/ (scope project) and enabled plugins' agents (scope plugin, as plugin:name when the bare name is taken);
-    shipped agents win a bare-name clash."""
+    """-> {name: definition or {"problems": [...]}} for every agents/*.md and agents/*.yaml (a .yaml with a .md of the same name in
+    the same folder is skipped: one registration per agent). Without a folder it also lists the project's .arch/agents/ (scope
+    project) and enabled plugins' agents (scope plugin, as plugin:name when the bare name is taken); shipped agents win a bare-name
+    clash."""
     out = {}
     sources = [(folder, "folder", None)] if folder else \
         [(AGENTS_DIR, "shipped", None), (_project_dir("agents", root), "project", None)] + \
         [(d, "plugin", n) for n, d in _plugin_dirs("agent")]
     for fold, scope, plug in sources:
-        for fn in sorted(os.listdir(fold)) if fold and os.path.isdir(fold) else []:
-            if not fn.endswith(".yaml"):
+        files = sorted(os.listdir(fold)) if fold and os.path.isdir(fold) else []
+        for fn in files:
+            stem, ext = os.path.splitext(fn)
+            if ext not in (".md", ".yaml") or (ext == ".yaml" and stem + ".md" in files):
                 continue
             try:
                 d = load_agent(os.path.join(fold, fn))
                 d["fields"] = list(OVERRIDABLE)
                 key = d["name"]
             except Exception as e:
-                d, key = {"problems": [str(e)]}, fn[:-5]
+                d, key = {"problems": [str(e)]}, stem
             if scope != "folder":
                 d["scope"] = scope
             if plug:
@@ -601,10 +767,84 @@ def local_model(e, d):
     own = ((e.cfg.get("roles") or {}).get(d["role"]) or "").strip()
     if own.startswith("tier:"):
         own = e.tier_model(own[5:])
-    if own and not own.startswith("claude:") and d["model"] != "heavy":
+    if own and not own.startswith("claude:"):
         return own
     m = e.tier_model(d["model"])
     return "" if m.startswith("claude:") else m
+
+
+# ---------------------------------------------------------------- summaries, not transcripts (docs/PRINCIPLES.md 1 and 5)
+
+DIGEST_CHARS = 800                       # what the next phase gets of one result; the full text stays in the journal
+_DROP_FIRST = ("evidence", "details", "detail", "reason", "notes", "log", "text", "body", "diff", "output")
+
+
+def _flat(v, n):
+    return _cut(re.sub(r"\s+", " ", v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, default=str)), n)
+
+
+def digest(result, limit=DIGEST_CHARS):
+    """Condense one agent's result for the next phase. A result already within the limit passes unchanged. A schema object keeps its
+    short scalar fields (verdict ...), a summary cut to fit, the file list, and findings as one line each; a list is digested item by item;
+    text is cut. The result always fits `limit` characters as JSON. The full result is never lost: the record and the journal hold it."""
+    def size(x):
+        return len(x) if isinstance(x, str) else len(json.dumps(x, ensure_ascii=False, default=str))
+    if result is None or size(result) <= limit:
+        return result
+    if isinstance(result, str):
+        return _cut(result, limit - 4)
+    if isinstance(result, list):
+        per = max(60, (limit - 40) // max(1, len(result)))
+        out = {"n": len(result), "items": [digest(x, per) for x in result[:12]]}
+        if len(result) > 12:
+            out["more"] = len(result) - 12
+        return out if size(out) <= limit else {"n": len(result), "items": [_flat(x, 40) for x in result[:6]]}
+    if not isinstance(result, dict):
+        return _cut(str(result), limit - 4)
+    out, longs = {}, []
+    for k, v in result.items():
+        if isinstance(v, (bool, int, float)) or v is None or (isinstance(v, str) and len(v) <= 60):
+            out[k] = v
+        else:
+            longs.append((k, v))
+    for k, v in longs:
+        if k in ("changed", "files", "edited", "files_changed") and isinstance(v, list):
+            files = [str(x) for x in v]
+            out[k] = files[:15] + ([f"... {len(files) - 15} more"] if len(files) > 15 else [])
+        elif k == "findings" and isinstance(v, list):
+            out["findings_n"] = len(v)
+            out["findings"] = [_flat(f, 90) for f in v[:5]]
+        elif isinstance(v, list):
+            out[k + "_n"] = len(v)
+    room = limit - size(out) - 60
+    for k, v in sorted((x for x in longs if x[0] not in out and x[0] != "findings"),
+                       key=lambda x: (x[0] in _DROP_FIRST, x[0] != "summary")):
+        if isinstance(v, str) and room > 80:
+            out[k] = _cut(v, min(len(v), max(80, room // 2)))
+            room -= len(out[k])
+    while size(out) > limit and out.get("findings"):
+        out["findings"] = out["findings"][:-1]
+    while size(out) > limit and isinstance(out.get("changed"), list) and len(out["changed"]) > 3:
+        out["changed"] = out["changed"][:len(out["changed"]) // 2]
+    if size(out) > limit:
+        return _cut(json.dumps(out, ensure_ascii=False, default=str), limit - 4)
+    return out
+
+
+def context_cap(cfg, d):
+    """Characters of the previous phase's digest an agent may be shown: its own context.max_chars, never above half of its role
+    profile's prompt window (ctx_max tokens x 4 chars / 2). No profile window = no extra cap. squad.role_context = off skips it."""
+    cap = int(d["context"]["max_chars"])
+    if str((cfg.get("squad") or {}).get("role_context", "on")) == "off":
+        return cap
+    try:
+        import arch_roleprofile as rp
+        mine = ((cfg.get("role_profiles") or {}).get(d["role"]) or {}).get("ctx_max")
+        win = mine if mine else (rp.shipped().get(d["role"]) or {}).get("ctx_max")
+    except Exception:
+        win = None
+    return min(cap, int(win) * 2) if win else cap
+
 
 
 class Crew:
@@ -694,6 +934,10 @@ class Crew:
         cls = _owned_engine_class()
         e = cls(self.root, "crew", self.goal, self.cfg, review="auto", say=_quiet, persist=False)   # persist=False: never starts a server
         e.owns = tuple(owns)
+        e.crew = self
+        e.agent_def = d
+        if not hasattr(e, "delegate_depth"):
+            e.delegate_depth = 0
         return e
 
     def _claim(self, aid, label, owns):
@@ -715,6 +959,9 @@ class Crew:
             self._n += 1
             aid = f"a{self._n:03d}"
         label = label or d["name"]
+        raw_ctx = context
+        if context is not None and d["context"]["policy"] == "inherit" and str((self.cfg.get("squad") or {}).get("digest", "on")) != "off":
+            context = digest(context, int((self.cfg.get("squad") or {}).get("digest_chars") or DIGEST_CHARS))
         ph = phase or getattr(self._local, "phase", None) or self.phase_title
         parent = parent or getattr(self._local, "parent", None)
         rec = {"agentId": aid, "label": label, "agent": d["name"], "phase": ph, "parent": parent, "model": d["model"],
@@ -722,6 +969,9 @@ class Crew:
                "context_policy": d["context"]["policy"], "output": "schema" if isinstance(d["output"], dict) else "text",
                "tools_allowed": list(d["tools"]), "tools": {}, "edited": [], "calls": [], "verdict": None, "result": None,
                "why": None, "start": time.time(), "overrides": applied}
+        if context is not None and d["context"]["policy"] == "inherit":
+            rec["context_chars"] = {"raw": len(json.dumps(raw_ctx, ensure_ascii=False, default=str)),
+                                    "shown": len(json.dumps(context, ensure_ascii=False, default=str))}
         if oprobs:
             rec.update(verdict="refused", why="overrides break the definition: " + "; ".join(oprobs))
             self._finish(rec)
@@ -739,19 +989,9 @@ class Crew:
         if not owns and d["writes"]:
             rec["note"] = "owns nothing: its write tools were removed"
         # -- workflow budget: an exhausted run stops further agents (the run ends not_sure, never pass)
-        left = self.budget.remaining()
-        if left is not None and any(v <= 0 for v in left.values()):
-            self.budget_hit = True
-            rec.update(verdict="budget", why="the workflow budget is spent: " + json.dumps(self.budget.status()))
-            self._event({"type": "budget_exhausted", "agentId": aid, "label": label, "status": self.budget.status()})
-            self._finish(rec)
+        if self._budget_refuse(rec, aid, label):
             raise CrewBudgetExhausted(rec["why"])
-        if left:
-            for k, v in left.items():
-                b[k] = min(b[k], v) if k in b else v
-                b[k] = int(b[k]) if k != "seconds" else max(1, b[k])
-            b = {k: v for k, v in b.items() if v > 0}
-            rec["budget"] = b
+        b = self._cap_budget(b, rec)
         # -- replay (resume) and the step cache
         writer = bool(d["writes"] and owns)
         try:
@@ -791,11 +1031,19 @@ class Crew:
                     self.running += 1
                     self.peak_concurrency = max(self.peak_concurrency, self.running)
                 try:
+                    if self.budget.exhausted():          # a slot freed up after others spent the budget
+                        self._budget_refuse(rec, aid, label)
+                        raise CrewBudgetExhausted(rec["why"])
+                    b = self._cap_budget(b, rec)
                     e = self._engine(d, owns)
                     rec["result"], rec["verdict"], rec["why"] = self._loop(e, d, task, owns, context, vars, b, rec)
                 finally:
                     with self._lock:
                         self.running -= 1
+        except CrewBudgetExhausted:
+            with self._lock:
+                self._owners.pop(aid, None)
+            raise
         except Exception as ex:                        # a failing agent is None, never a crash of the run
             rec.update(verdict="failed", why=f"{type(ex).__name__}: {str(ex)[:300]}", result=None)
         finally:
@@ -813,6 +1061,26 @@ class Crew:
         _tele("crew.agent", run=self.run_id, agent=d["name"], label=label, outcome=rec["verdict"], calls=t["calls"],
               tokens=t["tokens_in"] + t["tokens_out"], secs=rec.get("secs"))
         return rec["result"] if rec["verdict"] == "ok" else None
+
+    def _budget_refuse(self, rec, aid, label):
+        if not self.budget.exhausted():
+            return False
+        self.budget_hit = True
+        rec.update(verdict="budget", why="the workflow budget is spent: " + json.dumps(self.budget.status()))
+        self._event({"type": "budget_exhausted", "agentId": aid, "label": label, "status": self.budget.status()})
+        self._finish(rec)
+        return True
+
+    def _cap_budget(self, b, rec):
+        left = self.budget.remaining()
+        if left:
+            b = dict(b)
+            for k, v in left.items():
+                b[k] = min(b[k], v) if k in b else v
+                b[k] = int(b[k]) if k != "seconds" else max(1, b[k])
+            b = {k: v for k, v in b.items() if v > 0}
+            rec["budget"] = b
+        return b
 
     # -- replay / cache
     def _model_id(self, d):
@@ -876,13 +1144,31 @@ class Crew:
                 return None, "schema", "the code result breaks the schema: " + "; ".join(bad[:3])
         return val, "ok", None
 
+    def shared_header(self):
+        """One byte-identical block that leads EVERY agent's system prompt in a run (squad.shared_prefix = on, default): the team's
+        rules, the project's name (+ vars.project_summary when a workflow gives one; never the live file list, so a resumed run keeps the same prefix) and the contract (vars.contract, else the goal). Agent-specific text comes after it, so
+        parallel agents of one phase share one prompt-cache prefix (the local server's prefix cache, and Claude's prompt cache where
+        a launcher sends it). Built once per run, so it cannot drift while agents write files. '' when switched off."""
+        if str((self.cfg.get("squad") or {}).get("shared_prefix", "on")) == "off":
+            return ""
+        with self._lock:
+            h = getattr(self, "_shared_hdr", None)
+            if h is None:
+                contract = str(self.vars.get("contract") or self.goal or "").strip()[:2000]
+                h = ("[crew team context]\nRules: stay inside the files you own; never claim a check passed that you did not see; "
+                     "answer in the form the task asks for; say plainly when you are not sure.\n"
+                     f"Project: {os.path.basename(os.path.normpath(self.root))} {(' - ' + str(self.vars.get('project_summary'))[:600]) if self.vars.get('project_summary') else ''}\n"
+                     f"Contract:\n{contract}\n[end team context]")
+                self._shared_hdr = h
+            return h
+
     def _brief(self, d, task, owns, context, vars_):
         v = dict(self.vars)
         v.update(goal=self.goal, task=task or "", prev="", focus="")
         v.update(vars_ or {})
         if d["context"]["policy"] == "inherit" and context is not None:
             v["prev"] = _cut(context if isinstance(context, str) else json.dumps(context, ensure_ascii=False, default=str),
-                             d["context"]["max_chars"])
+                             context_cap(self.cfg, d))
         body = render(d["task"], v).strip()
         body = f"[crew-agent:{d['name']}]\n" + body
         if owns:
@@ -890,7 +1176,9 @@ class Crew:
         if isinstance(d["output"], dict):
             body += (f"\n\nWhen you are done, your final answer must be ONE JSON value matching this schema, as the text of \"final\".\n"
                      f"{SCHEMA_BEGIN}\n{json.dumps(d['output'], sort_keys=True)}\n{SCHEMA_END}")
-        return render(d["system"], v).strip(), body
+        system = render(d["system"], v).strip()
+        hdr = self.shared_header()
+        return (hdr + "\n\n" + system if hdr else system), body
 
     def _loop(self, e, d, task, owns, context, vars_, budget, rec):
         """The tool loop (same contract as arch_dataflow's tool_loop step: one tool call or a final answer per turn, checked in code).
@@ -1105,6 +1393,16 @@ def phase(title):
     return _cur().phase(title)
 
 
+def log(text):
+    """A narrator line in the journal (the workflow tool's log())."""
+    return _cur().log(text)
+
+
+def budget():
+    """The current run's Budget: .total, .spent, .remaining(), .exhausted()."""
+    return _cur().budget
+
+
 # ---------------------------------------------------------------- workflows as data
 
 PHASE_KINDS = ("agent", "parallel", "pipeline", "loop", "panel", "code", "log")
@@ -1112,7 +1410,7 @@ INPUT_TYPES = ("string", "integer", "number", "boolean", "list")
 LOOP_MAX = 10
 
 
-def _code_dedupe_findings(prev, ctx):
+def _code_dedupe_findings(prev, ctx, args=None):
     """Merge the findings of several reviewers: one entry per (file, line, problem start); each counts the reviews that saw it."""
     rows = prev if isinstance(prev, list) else [prev]
     seen, out = {}, []
@@ -1133,11 +1431,206 @@ def _code_dedupe_findings(prev, ctx):
     return {"findings": out, "summary": f"{len(out)} distinct findings from {len(rows)} reviews"}
 
 
-def _code_collect(prev, ctx):
+def _code_collect(prev, ctx, args=None):
     return {"results": prev if isinstance(prev, list) else [prev]}
 
 
-CODE_STEPS = {"dedupe_findings": _code_dedupe_findings, "collect": _code_collect}
+# -- deterministic steps the lead does in code (docs/PRINCIPLES.md 2): arithmetic, test running, diff counting, JSON checks
+
+_SUITE_OK = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-/]*\.py$")
+_SKIP_DIRS = {".git", ".arch", "__pycache__", "node_modules", ".venv", "venv", "hub_data"}
+
+
+def _inside(root, rel):
+    """rel -> the absolute path when it stays inside root, else None."""
+    p = os.path.realpath(os.path.join(root, str(rel)))
+    r = os.path.realpath(root)
+    return p if p == r or p.startswith(r + os.sep) else None
+
+
+def run_suites(root, suites, jobs=4, timeout=600, env_extra=None):
+    """Run test scripts in parallel, each in its own throwaway ARCHITECT_HOME / ARCHITECT_DATA_DIR (like tools/ci_parallel.py), so none can
+    touch real settings. Only .py files inside root, never a shell. -> {"results": [...], "passed", "failed", "verdict", "summary"}.
+    A suite passes when it exits 0; a timeout is a failure; a missing file is `rc: None` and counts as failed (could not run)."""
+    import concurrent.futures as cf
+    import subprocess
+    import tempfile
+
+    def one(name):
+        path = _inside(root, name) if _SUITE_OK.match(str(name)) and ".." not in str(name) else None
+        if not path or not os.path.isfile(path):
+            return {"suite": name, "rc": None, "secs": 0, "summary": "not found inside the project"}
+        home = tempfile.mkdtemp(prefix="crew_suite_")
+        env = dict(os.environ, ARCHITECT_DATA_DIR=os.path.join(home, "data"), ARCHITECT_HOME=home, ARCHITECT_NO_CACHE="1",
+                   PYTHONDONTWRITEBYTECODE="1", ARCHITECT_SELFTEST="1", **(env_extra or {}))
+        t = time.time()
+        try:
+            p = subprocess.run([sys.executable, path], cwd=root, env=env, capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=timeout, creationflags=0x00004000 if os.name == "nt" else 0)
+            out, rc = (p.stdout or "") + (p.stderr or ""), p.returncode
+        except subprocess.TimeoutExpired:
+            out, rc = "timed out", -1
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+        lines = [l.strip() for l in out.splitlines() if l.strip()]
+        summ = next((l for l in reversed(lines) if re.search(r"passed|failed|PASSED|FAILED|OK", l)), lines[-1] if lines else "")
+        return {"suite": name, "rc": rc, "secs": round(time.time() - t, 1), "summary": summ[:140]}
+    names = [str(x) for x in (suites or [])]
+    with cf.ThreadPoolExecutor(max(1, min(int(jobs or 1), 16))) as ex:
+        res = list(ex.map(one, names))
+    bad = [r for r in res if r["rc"] != 0]
+    return {"results": res, "passed": len(res) - len(bad), "failed": len(bad), "verdict": "pass" if res and not bad else "fail",
+            "summary": f"{len(res) - len(bad)}/{len(res)} suites green" + (": failing " + ", ".join(r["suite"] for r in bad) if bad else "")}
+
+
+def diff_stats(root, base=None, files=None):
+    """Lines added and removed per file, ignoring line endings. base = a folder holding the earlier copy (compared with difflib on
+    splitlines, so CRLF vs LF is not a change); no base = `git diff --numstat --ignore-cr-at-eol` in root. -> {"files", "added",
+    "removed", "changed_files", "summary"}, or {"error": ...} when there is nothing to compare."""
+    import difflib
+    rows = []
+    if base:
+        b = os.path.realpath(str(base))
+        if not os.path.isdir(b):
+            return {"error": "base folder not found"}
+        names = [str(f).replace("\\", "/") for f in files or []]
+        if not names:
+            for top in (root, b):
+                for dp, dn, fn in os.walk(top):
+                    dn[:] = [x for x in dn if x not in _SKIP_DIRS]
+                    names += [os.path.relpath(os.path.join(dp, f), top).replace("\\", "/") for f in fn
+                              if f.endswith((".py", ".md", ".yaml", ".json", ".html", ".txt"))]
+            names = sorted(set(names))
+
+        def lines(top, rel):
+            pth = _inside(top, rel)
+            try:
+                with open(pth, encoding="utf-8", errors="replace", newline="") as f:
+                    return f.read().splitlines()
+            except (OSError, TypeError):
+                return []
+        for rel in names:
+            a, c = lines(b, rel), lines(root, rel)
+            if a == c:
+                continue
+            add = rem = 0
+            for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, c, autojunk=False).get_opcodes():
+                rem += i2 - i1 if op in ("replace", "delete") else 0
+                add += j2 - j1 if op in ("replace", "insert") else 0
+            if add or rem:
+                rows.append({"file": rel, "added": add, "removed": rem})
+    else:
+        import subprocess
+        try:
+            p = subprocess.run(["git", "-C", root, "diff", "--numstat", "--ignore-cr-at-eol", "--"] + [str(f) for f in files or []],
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        except (OSError, subprocess.SubprocessError) as ex:
+            return {"error": f"git not available: {ex}"}
+        if p.returncode != 0:
+            return {"error": "not a git repository (or git failed); pass base: <folder>"}
+        for ln in p.stdout.splitlines():
+            a, _, rest = ln.partition("\t")
+            r, _, f = rest.partition("\t")
+            if a.isdigit() and r.isdigit() and (int(a) or int(r)):
+                rows.append({"file": f, "added": int(a), "removed": int(r)})
+    ta, tr = sum(x["added"] for x in rows), sum(x["removed"] for x in rows)
+    return {"files": rows, "added": ta, "removed": tr, "changed_files": len(rows),
+            "summary": f"{len(rows)} files changed, +{ta} -{tr} (line endings ignored)"}
+
+
+def _json_source(prev, args, root):
+    if args.get("path"):
+        pth = _inside(root, args["path"])
+        if not pth or not os.path.isfile(pth):
+            return None, "file not found inside the project"
+        try:
+            with open(pth, encoding="utf-8-sig") as f:
+                return json.load(f), None
+        except (OSError, ValueError) as ex:
+            return None, f"not valid JSON: {str(ex)[:120]}"
+    if isinstance(prev, str):
+        try:
+            return json.loads(prev), None
+        except ValueError as ex:
+            return None, f"not valid JSON: {str(ex)[:120]}"
+    return prev, None
+
+
+def _code_count_json(prev, ctx, args=None):
+    """Count items (a list, or a list found at args.key, or the keys of an object) -- so no model does the counting."""
+    args = args or {}
+    val, err = _json_source(prev, args, ctx.get("root") or os.getcwd())
+    if err:
+        return {"count": None, "error": err}
+    for k in str(args.get("key") or "").split("."):
+        if k and isinstance(val, dict):
+            val = val.get(k)
+    if isinstance(val, (list, dict, str)):
+        return {"count": len(val), "summary": f"{len(val)} items"}
+    return {"count": None, "error": "nothing countable at that key"}
+
+
+def _code_validate_json(prev, ctx, args=None):
+    """Check JSON against a schema (args.schema, an arch_schemas schema). -> {"valid", "errors"}."""
+    import arch_schemas
+    args = args or {}
+    val, err = _json_source(prev, args, ctx.get("root") or os.getcwd())
+    if err:
+        return {"valid": False, "errors": [err], "summary": err}
+    bad = arch_schemas.errors(val, args["schema"]) if isinstance(args.get("schema"), dict) else []
+    return {"valid": not bad, "errors": bad[:10], "summary": "valid" if not bad else f"{len(bad)} problems"}
+
+
+def _code_run_suites(prev, ctx, args=None):
+    args = args or {}
+    return run_suites(ctx.get("root") or os.getcwd(), args.get("suites") or [], args.get("jobs", 4), args.get("timeout", 600))
+
+
+def _code_diff_stats(prev, ctx, args=None):
+    args = args or {}
+    return diff_stats(ctx.get("root") or os.getcwd(), args.get("base"), args.get("files"))
+
+
+CODE_STEPS = {"dedupe_findings": _code_dedupe_findings, "collect": _code_collect, "run_suites": _code_run_suites,
+              "diff_stats": _code_diff_stats, "count_json": _code_count_json, "validate_json": _code_validate_json}
+
+
+# -- the default shape: whatever writes is followed by a verifier that can only read and run tests
+
+def shape_problems(w):
+    """-> problems when the workflow can write but its last agent phase is not read-only. A phase writes when an entry names an agent
+    that writes AND gives it owns:. Read-only = writes false (so no edit tool; read, grep, run_tests only)."""
+    def entries(ph, tail=False):
+        k = _phase_kind(ph)
+        if k == "loop" and tail:
+            return entries((ph["loop"].get("stages") or [{}])[-1])
+        if k == "agent":
+            return [ph]
+        if k == "panel":
+            return [{"agent": ph["panel"]}]
+        if k == "parallel":
+            return [e for e in ph["parallel"] if isinstance(e, dict)]
+        if k == "pipeline":
+            return [e for e in (ph["pipeline"] or {}).get("stages") or [] if isinstance(e, dict)]
+        if k == "loop":
+            return [e for st in ph["loop"].get("stages") or [] for e in entries(st)]
+        return []
+
+    def writes(e):
+        try:
+            return bool(load_agent(e.get("agent"))["writes"]) and bool(e.get("owns"))
+        except Exception:
+            return False
+
+    phases = [ph for ph in w.get("phases") or [] if isinstance(ph, dict) and _phase_kind(ph) not in ("log", "code")]
+    if not phases or not any(writes(e) for ph in phases for e in entries(ph)):
+        return []
+    last = entries(phases[-1], tail=True)
+    if last and not any(writes(e) for e in last):
+        return []
+    return [f"{w.get('name')}: it can write, so its last phase must be read-only verifiers (agents with writes false), not "
+            + ", ".join(sorted({str(e.get('agent')) for e in last})) + " (docs/PRINCIPLES.md 4)"]
+
 
 
 def _resolve_workflow(path):
@@ -1199,6 +1692,8 @@ def _validate_phase(ph, where, need_title=True, depth=0):
     if kind == "code":
         if ph["code"] not in CODE_STEPS:
             p.append(f"{where}: code: one of " + ", ".join(CODE_STEPS))
+        if "with" in ph and not isinstance(ph["with"], dict):
+            p.append(f"{where}: with: a mapping of arguments")
         return p
     if kind == "loop":
         lp = ph["loop"] if isinstance(ph["loop"], dict) else {}
@@ -1316,7 +1811,8 @@ def _run_phase(crew, ph, ctx, title):
                 "owns": render(owns, v) if isinstance(owns, str) else owns, "context": prev, "vars": en.get("vars"),
                 "budget": en.get("budget")}
     if kind == "code":
-        return CODE_STEPS[ph["code"]](prev, ctx)
+        a = ph.get("with") if isinstance(ph.get("with"), dict) else {}
+        return CODE_STEPS[ph["code"]](prev, ctx, {k: (render(v, vars_) if isinstance(v, str) else v) for k, v in a.items()})
     if kind == "log":
         crew.log(render(ph["log"], dict(vars_, prev=prev if isinstance(prev, str) else json.dumps(prev, default=str)[:500],
                                         **{"prev.summary": (prev or {}).get("summary", "") if isinstance(prev, dict) else ""})))
@@ -1387,7 +1883,7 @@ def run_workflow(w, root=None, goal="", vars=None, overrides=None, **kw):
         return crew.close("refused"), crew
     prev, phases = None, {}
     for ph in w["phases"]:
-        ctx = {"goal": goal, "vars": vars_, "prev": prev, "phases": phases}
+        ctx = {"goal": goal, "vars": vars_, "prev": prev, "phases": phases, "root": root}
         pid = ph.get("id") or re.sub(r"\W+", "_", ph["title"].lower()).strip("_")
         t0 = time.time()
         if "when" in ph:
@@ -1542,7 +2038,27 @@ def _dump_yaml(v, ind=0):
     return lines
 
 
-def save_agent(name, spec, folder=None):
+def _save_agent_md(name, d, folder):
+    d = _norm(d)
+    if d["name"] != name:
+        raise ValueError(f"the definition is called {d['name']!r}, not {name!r}")
+    probs = validate(d)
+    if probs:
+        raise ValueError("; ".join(probs))
+    text = dump_md(d)
+    if _norm(parse_agent_md(text)) != d:
+        raise ValueError("would not read back the same")
+    folder = folder or AGENTS_DIR
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, name + ".md")
+    tmp = path + f".tmp{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    os.replace(tmp, path)
+    return path
+
+
+def save_agent(name, spec, folder=None, fmt="yaml"):
     """Validate a definition, then write agents/<name>.yaml atomically (temp file + os.replace). -> the path.
     ValueError with the problems when it is invalid, when its name is not `name`, or when the YAML would not read back the same;
     nothing is written then."""
@@ -1551,13 +2067,15 @@ def save_agent(name, spec, folder=None):
         raise ValueError(f"name: lower-case letters, digits, - or _ (got {str(name)[:40]!r})")
     d = _plain(dict(spec or {}))
     d.setdefault("name", name)
+    if fmt == "md":
+        return _save_agent_md(name, d, folder)
     if d["name"] != name:
         raise ValueError(f"the definition is called {d['name']!r}, not {name!r}")
     probs = validate(d)
     if probs:
         raise ValueError("; ".join(probs))
     order = ["name", "description", "model", "role", "category", "code", "system", "task", "tools", "writes", "output", "budget",
-             "effort", "max_steps", "context", "owns"]
+             "effort", "color", "max_steps", "context", "owns"]
     d = {k: d[k] for k in order if k in d}
     for k in ("system", "task"):
         if not d[k].endswith("\n") and "\n" in d[k]:

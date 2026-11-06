@@ -6,6 +6,7 @@ demonstrably does better. Every step records which role/model did it, so runs ca
 Flows: design, build, bugfix, refactor.   Router: route().
 """
 import abc
+import copy
 import json
 import os
 import re
@@ -24,6 +25,15 @@ DOMAINS = {"web": "Web front end", "api": "Backend / API", "data": "Data / SQL"}
 
 
 # ------------------------------------------------------------------------------------------ helpers
+def _swallow(where, ex):
+    """Record a fault a caller deliberately swallows (arch_telemetry.swallow, rate-limited). Never raises."""
+    try:
+        import arch_telemetry
+        arch_telemetry.swallow(where, ex)
+    except Exception:                      # intentional: the recorder itself must never break the caller
+        pass
+
+
 def detect_domains(e, goal):
     g = goal.lower()
     d = set()
@@ -344,6 +354,27 @@ def _not_counting_old(e, results):
     return out
 
 
+def _repair_focus(e, goal, feedback, changed):
+    """behavior.repair_focus (arch_repair): -> (short feedback, focused context) or None. Never raises."""
+    try:
+        import arch_repair
+        return arch_repair.focused(e, goal, feedback, changed)
+    except Exception:
+        return None
+
+
+def _checkpoint(e, tag, res):
+    """behavior.checkpoints (arch_checkpoint): commit this attempt's applied files to refs/architect/<run>/<tag>. Never raises."""
+    try:
+        import arch_checkpoint
+        if arch_checkpoint.enabled(e.cfg):
+            files = [x["rel"] for x in res if x.get("status") in ("applied", "identical") and x.get("rel")]
+            if files:
+                arch_checkpoint.attempt(e, tag, files)
+    except Exception as _swx:
+        _swallow("flows._checkpoint", _swx)
+
+
 def verify(e, files, run_tests=True, targets=None):
     """Code checks on the given files plus the project's tests. -> dict(ok, text, results, tests).
 
@@ -353,15 +384,32 @@ def verify(e, files, run_tests=True, targets=None):
     t_v = time.time()
     results = _not_counting_old(e, ck.check_files(e.root, files, e.cfg, e.run_dir))
     mine = set(e.changed_files) | set(e.created)                      # legacy code the run did not touch is never failed for being a stub
-    results += arch_fakecode.check(e.root, [f for f in files if f in mine], e.cfg["behavior"].get("fake_code", "fail"))
     import arch_deps
-    miss = arch_deps.missing(e.root, [f for f in files if f in mine])
-    if miss:
-        results.append(ck.R("imports are installed", False, arch_deps.feedback(miss)))
+    _mine = [f for f in files if f in mine]
+    _fc = lambda: arch_fakecode.check(e.root, _mine, e.cfg["behavior"].get("fake_code", "fail"))
+    _pending = None
+    if run_tests and e.cfg["behavior"].get("overlap_checks", "on") == "on":
+        try:                                   # the CPU checks run beside the tests (arch_overlap); joined before any verdict
+            import arch_overlap
+            _pending = (arch_overlap.submit_checks(_fc), arch_overlap.submit_checks(arch_deps.missing, e.root, _mine))
+        except Exception:
+            _pending = None
+
+    def _join_checks():
+        try:
+            if not _pending:
+                raise LookupError
+            fk, miss_ = arch_overlap.result(_pending[0]), arch_overlap.result(_pending[1])
+        except Exception:
+            fk, miss_ = _fc(), arch_deps.missing(e.root, _mine)
+        results.extend(fk)
+        if miss_:
+            results.append(ck.R("imports are installed", False, arch_deps.feedback(miss_)))
     tests = ("none", "")
     broken = [r for r in results if not r["ok"] and (r["name"].endswith(" parses") or r["name"].endswith("is valid JSON"))]
     if broken and run_tests:
         # fast verification: a file that does not even parse fails the step now; running the test suite would only say the same, slowly
+        _join_checks()
         s = ck.summarize(results)
         e._trace({"type": "check", "t": time.time(), "gate": "syntax first", "ok": False, "text": "; ".join(r["name"] for r in broken)[:300]})
         return {"ok": False, "text": s["failures"], "results": results, "tests": ("skipped", "a file does not parse; tests not run"),
@@ -372,6 +420,7 @@ def verify(e, files, run_tests=True, targets=None):
             quick = core.run_tests(e.root, e.cfg, fast)
             if quick[0] == "fail":
                 results.append(ck.R("project tests pass", False, f"(related tests first: {', '.join(fast)})\n" + quick[1][-1400:]))
+                _join_checks()
                 s = ck.summarize(results)
                 return {"ok": False, "text": s["failures"], "results": results, "tests": quick, "passed": s["passed"], "total": s["total"]}
         key = (_tree_hash(e), tuple(targets or ()))
@@ -394,8 +443,9 @@ def verify(e, files, run_tests=True, targets=None):
         hk = arch_hooks.fire(e, "after_apply", files=files, step=e.step_name())
         if hk["blocked"]:
             results.append(ck.R("the project's own hooks pass", False, hk["blocked"]))
-    except Exception:
-        pass
+    except Exception as _swx:
+        _swallow("flows._join_checks", _swx)
+    _join_checks()
     s = ck.summarize(results)
     _trace_checks(e, results, t_v)
     return {"ok": s["ok"], "text": s["failures"], "results": results, "tests": tests, "passed": s["passed"], "total": s["total"]}
@@ -413,8 +463,8 @@ def _trace_checks(e, results, t0):
             text = getattr(r, "detail", None) or getattr(r, "text", None) or (r.get("detail") if isinstance(r, dict) else "") or ""
             e._trace({"type": "check", "t": time.time(), "flow": e.flow, "step": e.step_name(), "gate": str(name),
                       "ok": (None if ok is None else bool(ok)), "text": str(text)[:2000], "metrics": {}, "secs": secs})
-    except Exception:
-        pass
+    except Exception as _swx:
+        _swallow("flows._trace_checks", _swx)
 
 
 _NAMED = re.compile(r"(?<![\w/.-])((?:[\w.-]+/)*[\w-]+\.(?:py|js|mjs|ts|tsx|jsx|html|css|sql|json|md|ya?ml|toml|sh))\b")
@@ -445,7 +495,29 @@ _METH = re.compile(r"^(?:[A-Za-z_]\w*\s*=\s*)?([A-Za-z_]\w*)\.([A-Za-z_]\w*)\(([
 _ASSIGN = re.compile(r"^([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\(")
 
 
-def interface_contract(goal):
+def interface_contract(goal, root=None):
+    """The request's own interface (_request_contract) plus, when `root` holds a CONTRACT.json (a rendered template), that project's
+    known interface (arch_templates_catalog). The request's entries come first and decide; a name already listed is not repeated."""
+    c = _request_contract(goal)
+    if root:
+        try:
+            import arch_templates_catalog as tc
+            pc = tc.as_interface_contract(tc.read_contract(root)) if tc.read_contract(root) else None
+        except Exception:
+            pc = None
+        if pc:
+            for k in ("imports", "calls", "mains", "methods"):
+                have = {repr(x) for x in c.get(k, [])}
+                names = {x[1] if k == "imports" else x[0] for x in c.get(k, []) if isinstance(x, (list, tuple))}
+                for x in pc.get(k, []):
+                    key = repr(x)
+                    nm = (x[1] if k == "imports" else x[0]) if isinstance(x, (list, tuple)) else x
+                    if key not in have and nm not in names:
+                        c.setdefault(k, []).append(x)
+    return c
+
+
+def _request_contract(goal):
     """The interface a request spells out in backticks: `from pkg import Name`, `Name(path)`, `python -m pkg ...`.
     -> {"imports": [(module, name)], "calls": [(name, n_positional, [keywords], text)], "mains": [module]}. Empty when it names none."""
     imports, calls, mains, methods, var_of = [], [], [], [], {}
@@ -632,7 +704,7 @@ def contract_check(e, goal):
 
     Small models routinely build something that works but is shaped differently from what was asked -- a constructor without the path
     argument, a function left out of the package's __init__. Their own tests pass, so nothing catches it until a user does."""
-    c = interface_contract(goal)
+    c = interface_contract(goal, e.root)
     if not (c["imports"] or c["mains"]):
         return True, ""
     lines = ["import importlib, inspect, sys", "bad = []", "names = {}"]
@@ -765,7 +837,7 @@ def wire_contract(e, goal, note=None):
     import ast
     if getattr(e, "review", "auto") != "auto":
         return []
-    c = interface_contract(goal)
+    c = interface_contract(goal, e.root)
     pkgs = sorted({m.split(".")[0] for m, _ in c["imports"]} | {m.split(".")[0] for m in c["mains"]})
     fixes = []
 
@@ -1124,11 +1196,42 @@ _ISIG = re.compile(r"^\s*(?:([\w./-]+\.py)\s*(?:::|[:\-])\s*)?(?:async\s+)?(?:de
                    r"(\([^()]*\))?\s*(?:->\s*([\w\[\], .|]+?))?\s*:?\s*(?:(?:#|--| - ).*)?$")
 
 
-def interface_lines(goal, planned=None, cap=20, dropped=None):
+_CHANGE_VERB = re.compile(r"\b(fix|change|update|modify|edit|add|remove|rename|refactor|improve|make|handle|support|replace|rewrite|simplify|optimi[sz]e)\b", re.I)
+_NEW_THING = re.compile(r"\b(new (?:project|app|package|module|file)|from scratch|create (?:a |an )?(?:new )?(?:project|app|package)|build (?:a |an )\w+)\b", re.I)
+
+
+def single_file_change(e, goal):
+    """behavior.skip_planner_small = on: the request names exactly ONE file, it already exists, and the request asks for a change in it."""
+    try:
+        if e.cfg["behavior"].get("skip_planner_small", "on") != "on":
+            return False
+        named = named_files(goal)
+        return (len(named) == 1 and os.path.isfile(os.path.join(e.root, named[0])) and bool(_CHANGE_VERB.search(goal or ""))
+                and not _NEW_THING.search(goal or ""))
+    except Exception:
+        return False
+
+
+def same_failure_stop(e, coach):
+    """behavior.same_failure_stop = N (0 = off): the last N tries of a fix loop ended in the identical failure signature
+    (arch_progress fingerprints) -> stop instead of trying a fifth time the same thing. Says so in the report."""
+    try:
+        n = int(e.cfg["behavior"].get("same_failure_stop", 2) or 0)
+        f = coach.fails
+        if n < 2 or len(f) < n or len(set(f[-n:])) != 1 or not f[-1]:
+            return False
+        e.say(f"[i] the same failure {n} tries in a row: stopping this step instead of repeating")
+        e.report(f"- Stopped: the identical failure came back {n} times in a row (behavior.same_failure_stop)")
+        return True
+    except Exception:
+        return False
+
+
+def interface_lines(goal, planned=None, cap=20, dropped=None, root=None):
     """The interface every sprint is shown: what the REQUEST names first (it is the contract the build is checked against), then what the
     planner decided for everything else, normalised to `path.py: name(args) -> type`. A planned entry never overrides the request: one
     with the same name is dropped. Entries that are not a signature at all go to `dropped` (when given) so the report can say so. -> [str]"""
-    c = interface_contract(goal)
+    c = interface_contract(goal, root)
     out, names = [], set()
     calls = {n: t for n, _, _, t in c["calls"]}
     for mod, name in c["imports"]:
@@ -1327,13 +1430,30 @@ class BuildFlow(Flow):
         files0 = core.list_files(e.root, e.cfg)
         ctx = ho + (e.context(goal, 9000, always=[x for x in ("docs/spec.md",) if os.path.isfile(os.path.join(e.root, x))]) if files0 else "(empty project)")
         rs = params.get("resume") or {}
+        hit = {"hit": False}
+        if self.plan_prompt is None and not rs.get("plan") and not single_file_change(e, goal):
+            try:
+                import arch_reqcache
+                hit = arch_reqcache.lookup(e.root, goal, cfg=e.cfg)
+            except Exception as _rcx:
+                _swallow("flows.reqcache", _rcx)
+                hit = {"hit": False}
         if rs.get("plan"):                                              # resuming: the saved plan, not a new one
             r, plan = None, {"sprints": rs["plan"]}
             e.say(f"[resume] continuing run {rs.get('from')}: {len(rs.get('done') or [])} sprint(s) already passed")
             e.report(f"- Resumed from run `{rs.get('from')}`; sprints already passed are skipped: {', '.join(rs.get('done') or []) or 'none'}")
+        elif self.plan_prompt is None and single_file_change(e, goal):
+            r, plan = None, None                                        # behavior.skip_planner_small: one sprint on that file, no planner call
+            e.say("[i] the request changes one existing file: no planner step, one sprint")
+            e.report("- Planner skipped: the request names one existing file and asks for a change in it (behavior.skip_planner_small); one sprint")
+        elif hit.get("hit"):                                            # behavior.request_cache: a validated plan for (nearly) this request on unchanged files
+            r, plan = None, hit["plan"]
+            e.say(f"[i] request cache: {hit['why']}")
+            e.report(f"- Planner skipped: {hit['why']}")
         else:
             r, plan = e.ask_json("planner", (self.plan_prompt or BUILD_PLAN).format(goal=goal, context=ctx, max_sprints=params.get("max_sprints") or e.cfg["limits"].get("max_sprints", 5)),
                                  schema=arch_schemas.PLAN if self.plan_prompt is None else None)
+        plan_raw = copy.deepcopy(plan) if isinstance(plan, dict) else None   # before the flow merges or extends sprints
         sprints = (plan or {}).get("sprints") if isinstance(plan, dict) else None
         sprints = [s for s in sprints if isinstance(s, dict)][:6] if isinstance(sprints, list) else []
         named = named_files(goal)                                       # files the request names outright: they WILL be checked for
@@ -1348,7 +1468,7 @@ class BuildFlow(Flow):
             sprints = merge_sprints(goal, sprints)
         wanted = rs.get("interface") if rs.get("plan") else ((plan or {}).get("interface") if isinstance(plan, dict) else None)
         unusable = []
-        iface = interface_lines(goal, wanted, dropped=unusable)          # a resume rebuilds the same list: request first, then the saved plan's
+        iface = interface_lines(goal, wanted, dropped=unusable, root=e.root)          # a resume rebuilds the same list: request first, then the saved plan's
         if iface:
             e.report("- Interface every sprint builds against:", *[f"  - `{x}`" for x in iface])
         if unusable:
@@ -1389,6 +1509,15 @@ class BuildFlow(Flow):
                     e.deny_prefixes = list(e.deny_prefixes) + [acc_rel]
                     iface_text += (f"\n({acc_rel} holds acceptance tests written from the request; it is locked: make the CODE pass it, "
                                    "never edit it)")
+        rc_plan, rc_snap = None, None                                   # request cache: the raw plan and the project as it is BEFORE any sprint edits it
+        if plan and self.plan_prompt is None and not rs.get("plan") and isinstance(plan, dict):
+            try:
+                import arch_reqcache
+                if arch_reqcache.enabled(e.cfg):
+                    rc_plan = copy.deepcopy(plan_raw)
+                    rc_snap = arch_reqcache.snapshot(e.root, set(planned) | set(named) | set(tests_for and [tests_for] or []))
+            except Exception as _rcx:
+                _swallow("flows.reqcache", _rcx)
         done, all_files = [], list(rs.get("files") or [])
         carry = ""                                                      # the failure of a folded sprint, handed to the next one
         import arch_chain
@@ -1428,10 +1557,15 @@ class BuildFlow(Flow):
                                   f"{arch_costmodel.STOP_MIN_SAMPLES}+ measured attempts, nor any later try: moving on instead")
                             e.report(f"- Stopped after {attempt} tries: later tries never passed for this model (measured)")
                             break
-                    except Exception:
-                        pass
-                cx = ho + e.context(sgoal + " " + " ".join(want), None, always=[x for x in ("docs/spec.md", "docs/architecture.md", "api/openapi.json", "db/schema.sql") if os.path.isfile(os.path.join(e.root, x))][:3])
-                prompt = BUILD_SPRINT.format(n=n, total=len(sprints), name=name, sgoal=sgoal, criteria=criteria, feedback=feedback, context=cx,
+                    except Exception as _swx:
+                        _swallow("flows.run", _swx)
+                fb_use, rp = feedback, (_repair_focus(e, sgoal + " " + criteria, feedback, changed) if feedback else None)
+                if rp:                                                  # behavior.repair_focus: only the failure tail + functions under test + contract
+                    fb_use, cx = rp
+                    cx = ho + cx
+                else:
+                    cx = ho + e.context(sgoal + " " + " ".join(want), None, always=[x for x in ("docs/spec.md", "docs/architecture.md", "api/openapi.json", "db/schema.sql") if os.path.isfile(os.path.join(e.root, x))][:3])
+                prompt = BUILD_SPRINT.format(n=n, total=len(sprints), name=name, sgoal=sgoal, criteria=criteria, feedback=fb_use, context=cx,
                                              files=", ".join(want) or "(your choice)", interface=iface_text)
                 k = int(e.cfg["behavior"].get("stall_samples", 3) or 1)
                 if (coach.stalled or rescue) and k > 1 and not e.pins.get(role) and e.review in ("auto", "dry"):
@@ -1447,6 +1581,7 @@ class BuildFlow(Flow):
                     continue
                 last_text = r["text"].strip()
                 res = e.apply(r["text"], f"sprint {n} try {attempt + 1}")
+                _checkpoint(e, f"{n}.{attempt + 1}", res)
                 if any(x["status"] == "quit" for x in res):
                     e.report("- Stopped by user.")
                     return {"ok": False, "files": all_files, "stopped": True}
@@ -1535,8 +1670,12 @@ class BuildFlow(Flow):
                     head = (f"FEEDBACK: your last change made things worse ({undone}), so it was UNDONE: the files are back to the version before it "
                             "(the project context shows them as they are now). What still fails in that version:\n" + best.still_fails())
                     feedback = coach.after(head + hint + "\n\n", r["text"], v["text"], applied)
+                    if same_failure_stop(e, coach):
+                        break
                     continue
                 feedback = coach.after("FEEDBACK: your last change failed these checks. Fix them (smallest change):\n" + v["text"] + hint + "\n\n", r["text"], v["text"], applied)
+                if same_failure_stop(e, coach):
+                    break
             coach.close()
             if acc_rel and not ok and n == len(sprints) and e.review == "auto":
                 import arch_spec                                        # a wrong acceptance test may not block a correct build forever
@@ -1593,6 +1732,12 @@ class BuildFlow(Flow):
         ok_all = bool(done) and done[-1]["ok"] and all(d["ok"] or d.get("folded") for d in done)
         e.report("", f"- Build {'complete' if ok_all else 'incomplete'}: {sum(1 for d in done if d['ok'])}/{len(sprints)} sprints passed their checks"
                  + (" (failed sprints were folded into later ones that passed)" if ok_all and any(d.get("folded") for d in done) else "") + ".")
+        if ok_all and rc_plan and rc_snap is not None and e.review != "dry":    # only a plan whose gates all passed is remembered
+            try:
+                import arch_reqcache
+                arch_reqcache.store(e.root, goal, rc_plan, [], snap=rc_snap, validated=True)
+            except Exception as _rcx:
+                _swallow("flows.reqcache", _rcx)
         return {"ok": ok_all, "files": all_files}
 
     def _evidence(self, e, files, tests=None):
@@ -1724,8 +1869,12 @@ class BugfixFlow(Flow):
             rescue = attempt == e.cfg["limits"]["max_revisions"] + 1
             if rescue and not (can_bon and not e.pins.get("generator")):
                 break                                                   # the extra round is only a best-of-N rescue
-            cx = e.context(goal + " " + failure[:500], None, always=focus[:3])
-            prompt = BUG_FIX.format(goal=goal, repro=repro_rel or "(none)", failure=failure or "(no reproduction available; use the bug report)", feedback=feedback, context=cx)
+            fb_use, rp = feedback, (_repair_focus(e, goal, feedback, e.changed_files) if feedback else None)
+            if rp:                                                      # behavior.repair_focus: only the failure tail + functions under test + contract
+                fb_use, cx = rp
+            else:
+                cx = e.context(goal + " " + failure[:500], None, always=focus[:3])
+            prompt = BUG_FIX.format(goal=goal, repro=repro_rel or "(none)", failure=failure or "(no reproduction available; use the bug report)", feedback=fb_use, context=cx)
             e.deny_prefixes = ([repro_rel] if repro_rel else []) + kept_tests      # the fix changes the code, never the tests that judge it
             if (coach.stalled or rescue) and can_bon and not e.pins.get("generator"):
                 # stuck, or out of normal tries: several different attempts, each tested, the best kept (no more identical retries)
@@ -1733,6 +1882,7 @@ class BugfixFlow(Flow):
             else:
                 r = e.call("generator", prompt, label=f"fix-try{attempt + 1}")
             res = e.apply(r["text"], f"fix try {attempt + 1}")
+            _checkpoint(e, f"fix{attempt + 1}", res)
             if any(x["status"] == "quit" for x in res):
                 return {"ok": False, "stopped": True}
             if e.review == "dry":
@@ -1756,6 +1906,8 @@ class BugfixFlow(Flow):
                                        "before it. What still fails in that version:\n" + best.still_fails() + "\n\n", r["text"], v["text"], changed)
                 continue
             feedback = coach.after("FEEDBACK: after your last change this still fails:\n" + v["text"] + "\n\n", r["text"], v["text"], changed)
+            if same_failure_stop(e, coach):
+                break
         coach.close()
         e.deny_prefixes = []
         if fixed and e.cfg["behavior"]["evaluator"] != "off":
@@ -2015,8 +2167,8 @@ def route(e, goal, forced=None):
         learned = arch_routelearn.suggest_for(goal, cfg=e.cfg)
         if learned and learned.get("flow") in FLOWS:
             hint += learned["hint"]
-    except Exception:
-        pass
+    except Exception as _swx:
+        _swallow("flows.route", _swx)
     ck = _route_key(e, goal, empty)
     cached = _ROUTE_CACHE.get(ck)
     if cached and cached[0] in FLOWS:                      # the same request in the same kind of folder: the router already decided
@@ -2065,14 +2217,17 @@ def run_flow(e, flow_id, params=None):
     flow = FLOWS[flow_id]
     t0 = time.time()
     e.state["params"] = json.loads(json.dumps({k: v for k, v in params.items() if k != "resume"}, default=str))
+    rid = str(params.get("recipe") or getattr(e, "recipe", "") or os.environ.get("ARCHITECT_RECIPE") or "")[:64]   # hub: params["recipe"], or ARCHITECT_RECIPE for a spawned run
+    if rid:
+        e.state["recipe"] = rid
     e._write_state()
     model_down = False
     broker_advice(e, flow_id)
     if not (e.state.get("todo")) and getattr(flow, "steps", None):
         try:                                              # Python flows have no per-step hook: the list is set now and closed at the end
             e.todo_set([{"id": f"s{i}", "title": str(t)} for i, t in enumerate(flow.steps, 1)])
-        except Exception:
-            pass
+        except Exception as _swx:
+            _swallow("flows.run_flow", _swx)
     try:
         out = flow.run(e, params)
     except (LLMError, BudgetExceeded, LoopDetected) as ex:
@@ -2089,12 +2244,20 @@ def run_flow(e, flow_id, params=None):
     e.finish(out.get("ok"), out.get("error"))
     verdict = "not_sure" if out.get("unsure") else ("pass" if out.get("ok") else "fail")
     try:                                                  # the run's own conclusion, as a record: the live view shows it without parsing prose
-        e._trace({"type": "verdict", "t": time.time(), "flow": flow_id, "verdict": verdict,
-                  "why": str(out.get("error") or out.get("why") or "")[:400], "meter": dict(e.meter)})
+        e._trace(dict({"recipe": rid} if rid else {}, type="verdict", t=time.time(), flow=flow_id, verdict=verdict,
+                  why=str(out.get("error") or out.get("why") or "")[:400], meter=dict(e.meter)))
         import arch_hooks
         arch_hooks.fire(e, "after_verdict", files=sorted(set(e.changed_files) | set(e.created)), verdict=verdict)
-    except Exception:
-        pass
+    except Exception as _swx:
+        _swallow("flows.run_flow", _swx)
+    if verdict != "pass" and not out.get("dry") and not out.get("stopped"):
+        try:                                              # a redacted report bundle for the person to share; never changes the verdict
+            import arch_bundle
+            _bz = arch_bundle.auto(e.run_dir, verdict)
+            if _bz:
+                e.say(f"[bundle] {_bz}")
+        except Exception as _swx:
+            _swallow("flows.run_flow", _swx)
     if verdict != "pass" and not out.get("dry") and not out.get("stopped") and not model_down:
         # After the verdict is on record, so a supervisor's time limit can never cost the verdict. Not when the model itself was the
         # problem (unreachable, timed out): asking it to explain would only fail again, slowly.
@@ -2118,11 +2281,3 @@ try:                                                    # flows as data (flows/*
     DATA_FLOWS = arch_dataflow.register(FLOWS, (core.load_config().get("flows") or {}).get("engine", "legacy"), say=lambda m: None)
 except Exception as _ex:                                # a broken YAML must never take the engine down
     DATA_FLOWS = []
-
-
-# [localintel-bridge] begin: app-specific layer (removed by apply_localintel_layer.py --remove)
-try:
-    import localintel_arch  # noqa: F401
-except ImportError:
-    pass
-# [localintel-bridge] end

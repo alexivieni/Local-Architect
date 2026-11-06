@@ -435,3 +435,71 @@ def report(out):
         lines.append("  " + out["apply_note"])
     lines.append("  saved: " + out["path"])
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ recommended steps per flow (advice only)
+RECOMMEND_FILE = os.path.join(HERE, "data", "flow_recommendations.json")
+EVIDENCE = ("measured-here", "vendor", "estimate")
+
+
+def _rec_data():
+    try:
+        with open(RECOMMEND_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        d = {}
+    return d if isinstance(d, dict) else {}
+
+
+def recommend_flows():
+    return [k for k, v in _rec_data().items() if not k.startswith("_") and isinstance(v, dict)]
+
+
+def recommend(flow):
+    """-> {"flow", "title", "steps": [{role, job, tier, ctx, thinking, escalate, reason, evidence}], "facts"}; raises KeyError for an unknown flow."""
+    d = _rec_data()
+    key = str(flow or "").strip().lower()
+    if key.startswith("_") or not isinstance(d.get(key), dict):
+        raise KeyError(f"no recommendation for flow {flow!r} (have: {', '.join(recommend_flows())})")
+    return {"flow": key, "title": d[key].get("title", ""), "steps": d[key].get("steps") or [], "facts": d.get("_facts") or []}
+
+
+def recommend_text(rec):
+    lines = [f"{rec['flow']}: {rec['title']}"]
+    for i, s in enumerate(rec["steps"], 1):
+        esc = s.get("escalate")
+        lines.append(f"  {i}. {s['role']:<18} job {s['job']:<8} tier {s['tier']:<7} ctx {s.get('ctx') or 'window':<7} thinking {s['thinking']:<4} [{s['evidence']}]")
+        lines.append(f"       why: {s['reason']}")
+        if esc:
+            lines.append(f"       escalate to {esc['to']} when {esc['when']}")
+        if s.get("note"):
+            lines.append(f"       note: {s['note']}")
+    lines.append("  Evidence: measured-here = runs on this machine; vendor = model card; estimate = reasoned, not measured. Advice only; nothing is changed.")
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ crew defaults by job (docs/PRINCIPLES.md 3, 5)
+
+# Verifiers run on the worker: they run several times per run (panels of n, one per writer), and on a 6 GB card a heavy verifier means a model swap on every call
+# (5-15 s, docs/research/local_ai_playbook.md rule per_call_swap). Planners and designers run once per run and stay heavy.
+# Which model tier each shipped crew agent starts on. These are DEFAULTS written in agents/*.md (model: ...); a model the person set
+# (a roles.<role> assignment, a --set agent.model=..., a settings override) always wins (arch_squad.local_model, apply_overrides).
+JOB_TIER = {"mechanical": "router", "build": "worker", "design": "heavy", "verify": "worker"}   # verify: worker, NOT heavy (see below)
+AGENT_JOB = {"summarizer": "mechanical", "router": "mechanical",
+             "planner": "design", "architect": "design", "spec-writer": "design", "si-planner": "design",
+             "interface-designer": "design", "migration-planner": "design", "incident-responder": "design",
+             "verifier": "verify"}                      # every other shipped agent (writers, reviewers, auditors ...) is "build": worker
+
+
+def agent_tier(name):
+    """The tier a shipped crew agent should default to, by its job."""
+    return JOB_TIER[AGENT_JOB.get(name, "build")]
+
+
+def context_chars(role, cfg=None):
+    """Characters of earlier results a role may be shown in a crew brief: half its prompt window (ctx_max tokens x 4 chars / 2);
+    None when the role has no window cap. The person's role_profiles win over the shipped ones. Applies regardless of
+    behavior.role_profiles, because it only caps a crew brief."""
+    mine = (((cfg or {}).get("role_profiles") or {}).get(role) or {}).get("ctx_max")
+    win = mine if mine else (shipped().get(role) or {}).get("ctx_max")
+    return int(win) * 2 if win else None

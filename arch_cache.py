@@ -52,6 +52,15 @@ create table if not exists totals (k text primary key, v real);
 """
 
 
+def _swallow(where, ex):
+    """Record a fault a caller deliberately swallows (arch_telemetry.swallow, rate-limited). Never raises."""
+    try:
+        import arch_telemetry
+        arch_telemetry.swallow(where, ex)
+    except Exception:                      # intentional: the recorder itself must never break the caller
+        pass
+
+
 def db_path():
     return os.path.join(core.data_dir(), "cache", "responses.db")
 
@@ -67,7 +76,8 @@ def _open(create=True):
         c = sqlite3.connect(p, timeout=3.0)
         c.executescript(SCHEMA)
         return c
-    except (sqlite3.Error, OSError):
+    except (sqlite3.Error, OSError) as _swx:
+        _swallow("cache._open", _swx)
         return None
 
 
@@ -176,7 +186,8 @@ def get(k, cfg=None):
         return {"reply": row[0], "model": row[1], "tier": row[2], "tokens_in": int(row[3] or 0),
                 "tokens_out": int(row[4] or 0), "secs": float(row[5] or 0), "verdict": row[6] or "",
                 "hits": int(row[7] or 0) + 1, "created": float(row[8] or 0), "cached": True}
-    except sqlite3.Error:
+    except sqlite3.Error as _swx:
+        _swallow("cache.get", _swx)
         return None
     finally:
         c.close()
@@ -231,7 +242,8 @@ def put(k, model, reply, tokens_in=0, tokens_out=0, secs=0.0, tier="", schema_na
         _trim(c, cfg, now)
         c.commit()
         return True
-    except sqlite3.Error:
+    except sqlite3.Error as _swx:
+        _swallow("cache.put", _swx)
         return False
     finally:
         c.close()
@@ -248,7 +260,8 @@ def attach_verdict(k, verdict):
         c.execute("update responses set verdict = ? where k = ?", (str(verdict), k))
         c.commit()
         return True
-    except sqlite3.Error:
+    except sqlite3.Error as _swx:
+        _swallow("cache.attach_verdict", _swx)
         return False
     finally:
         c.close()
@@ -273,7 +286,8 @@ def prune(max_rows=MAX_ROWS, max_days=MAX_DAYS):
                 gone += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
         c.commit()
         return gone
-    except sqlite3.Error:
+    except sqlite3.Error as _swx:
+        _swallow("cache.prune", _swx)
         return 0
     finally:
         c.close()
@@ -286,8 +300,8 @@ def stats():
     if os.path.isfile(p):
         try:
             out["bytes"] = os.path.getsize(p)
-        except OSError:
-            pass
+        except OSError as _swx:
+            _swallow("cache.stats", _swx)
     c = _open(create=False)
     if c:
         try:
@@ -295,8 +309,8 @@ def stats():
             for k, v in c.execute("select k, v from totals").fetchall():
                 if k in out:
                     out[k] = int(v) if k != "secs_saved" else round(float(v), 1)
-        except sqlite3.Error:
-            pass
+        except sqlite3.Error as _swx:
+            _swallow("cache.stats", _swx)
         finally:
             c.close()
     seen = out["hits"] + out["misses"]
@@ -313,5 +327,6 @@ def clear():
         if os.path.isfile(p):
             os.remove(p)
         return not os.path.isfile(p)
-    except OSError:
+    except OSError as _swx:
+        _swallow("cache.clear", _swx)
         return False

@@ -405,8 +405,239 @@ RULES = {
 }
 
 
-def lint(cfg=None, e=None):
-    """-> [{"rule", "level": error|warn|info, "msg", "why", "fix"}] for the current settings. Reads only."""
+# ------------------------------------------------------------------ cache and load features as lint checks
+# One row per feature. state "on" means the feature is doing its job under the current settings. Evidence tier: [M] measured here,
+# [B] vendor card / llama.cpp docs, [C] community, [E] reasoned estimate. verify = the step that proves it on the machine.
+VM = "py -3.12 tools/verify_machine.py --gpu"
+CACHE_RULES = {
+    "cache_reuse": ("Reuse matching prompt chunks (server.cache_reuse > 0).",
+                    "A retry changes a middle part of the prompt (the feedback); with chunk reuse the model re-reads only what is new instead of everything after the change.",
+                    "[B] llama.cpp --cache-reuse; effect here not yet measured",
+                    VM + " (step 'prefix reuse cache_n/prompt_n': cache_n should be most of the prompt on the second call)",
+                    "warn", "server.cache_reuse = 256"),
+    "cache_prewarm": ("Pre-warm role prompts (server.prewarm = on).",
+                      "Each role's fixed instructions are read once at start and saved, so its first call of a run skips them. Opt-in: it costs disk (server.prewarm_gb) and a little start time.",
+                      "[E] prompt-time arithmetic; not yet measured here", VM + " (steps 'slot save -> restore' and 'prefix reuse cache_n/prompt_n')",
+                      "info", "server.prewarm = on"),
+    "cache_static_lookup": ("Speculation from your code (server.static_lookup = on).",
+                            "Draft tokens come from names in your own project, so edits that repeat existing code are accepted in long runs. N-gram speculation itself is the measured win.",
+                            "[M] n-gram speculation on edits 56 -> 306-343 tok/s; the project lookup on top is [C]", VM + " (step 'n-gram speculation on vs off')",
+                            "info", "server.static_lookup = on"),
+    "cache_batch": ("Prompt batch sizes sane (server.ubatch 128-1024, server.batch >= ubatch).",
+                    "Prompt tokens are read in these chunks: too small reads long prompts slowly, too large takes graphics memory the worker needs.",
+                    "[B] llama.cpp -b/-ub docs; sweet spot on this card not yet measured",
+                    VM + " (step 'decode tok/s'); `architect.py server plan` shows the graphics memory left",
+                    "info", "server.ubatch = 256, server.batch = 2048"),
+    "cache_threads": ("CPU threads follow the performance cores (-t = performance cores, -tb = all cores; no model_overrides.num_thread above the core count).",
+                      "E-cores slow every step of a CPU-bound tier; too many threads fight Windows and the tests.",
+                      "[M] machine audit 2026-11-03 (11 threads on a 4P+4E laptop was worse); exact gain not re-measured",
+                      VM + " (step 'decode tok/s') before and after a change",
+                      "warn", "remove the num_thread override, or set it <= the performance-core count"),
+    "load_mode": ("Big MoE models pinned and read whole (server.mlock and server.no_mmap not 'off').",
+                  "The experts live in RAM; without pinning Windows moves them to disk under pressure and decode stalls, and demand paging makes the first tokens slow.",
+                  "[B] llama.cpp --mlock/--no-mmap docs; [M] heavy beside the worker 14-16 tok/s with experts in RAM",
+                  VM + " (steps 'server start -> health' and 'decode tok/s' on the heavy tier)",
+                  "warn", "server.mlock = auto, server.no_mmap = auto"),
+    "cache_kv_heavy": ("The planner's cache at q4_0 when it stays beside the worker (server.kv_heavy = auto or q4_0).",
+                       "A quarter of the memory of f16 on a card the worker shares. Fine for plan/review; never for code, which is why only the heavy tier gets it.",
+                       "[B] llama.cpp KV-quant measurements (small quality cost); not measured here",
+                       "`architect.py server plan` (heavy KV line) and a plan-quality eval: `architect.py eval --quick`",
+                       "info", "server.kv_heavy = auto"),
+    "cache_slot_persist": ("Prompt memory kept between runs (server.slot_persist = auto).",
+                           "The project's fixed prompt start is saved after the first call and restored by the next run, so it starts warm.",
+                           "[M] slot save/restore is a verify_machine step; gain per run not yet measured", VM + " (step 'slot save -> restore')",
+                           "warn", "server.slot_persist = auto"),
+    "cache_stable_context": ("Same project context on every retry of a step (behavior.stable_context).",
+                             "The server can only reuse a prefix that is byte-identical; re-ranking files per try changes the start and throws the cache away.",
+                             "[M] arch_selftest_promptprefix (retry templates keep the stable part first); live reuse via cache_n",
+                             VM + " (step 'prefix reuse cache_n/prompt_n')",
+                             "warn", "behavior.stable_context = true"),
+    "cache_tool_cache": ("Tool results cached inside a run (behavior.tool_cache = on).",
+                         "Repeated read/ls/grep on unchanged files cost nothing; any edit clears the affected entries.",
+                         "[E] code-side, no model call saved or added; correctness proved by selftest",
+                         "`py -3.12 arch_selftest.py` (tools suite); `architect.py caches` shows hits",
+                         "info", "behavior.tool_cache = on"),
+    "cache_squad_prefix": ("Crew agents share one identical first block and get digests (squad.shared_prefix and squad.digest = on).",
+                           "Agents of one phase reuse each other's cached prompt; later phases read a short digest, not a transcript.",
+                           "[M] Claude lead 98% prompt-cache hit with the shared header; 8-finding result ~5,000 chars reaches the next phase as <= 800",
+                           "arch_selftest_squad.py; `architect.py caches` (Agent steps layer)",
+                           "warn", "squad.shared_prefix = on, squad.digest = on"),
+    "cache_rank": ("File ranking remembered between context builds (behavior.rank_cache = on).",
+                   "Only files whose size or time changed are re-read when the context is built.",
+                   "[E] code-side; correctness proved by selftest", "`architect.py caches` (rank layer); arch_selftest_cacheplus.py",
+                   "info", "behavior.rank_cache = on"),
+    "cache_incremental_index": ("Retrieval index updated incrementally (always: changed files only).",
+                                "Only changed or new files are re-chunked, so the index never costs a full re-read of the project.",
+                                "[E] by design (arch_index); retrieval quality measured by bench-retrieval",
+                                "`architect.py bench-retrieval`", "info", "(no setting)"),
+    "cache_ollama_keep_alive": ("Ollama keeps a model loaded for at most ~2 minutes (server.ollama_keep_alive, default 60s).",
+                                "A model Ollama still holds when the next run starts takes RAM or graphics memory the servers need; the heavy MoE alone is ~20 GB in RAM.",
+                                "[M] heavy MoE in RAM ~20 GB; Ollama had put 28% of it on the card and starved the worker",
+                                "`architect.py status` after a run: the model should be gone; hub_data/live.log RAM column",
+                                "warn", "server.ollama_keep_alive = 60s"),
+    "cache_heavy_beside": ("The MoE heavy model stays loaded beside the worker (server.heavy_beside != off).",
+                           "Switching to the planner costs about 1 s instead of a 5-15 s load per call.",
+                           "[M] heavy beside the worker 14-16 tok/s, switching in about 1 s",
+                           VM + " (step 'server start -> health'); `py -3.12 after_upgrade.py`",
+                           "warn", "server.heavy_beside = auto"),
+    "fast_lane_vs_heavy": ("Fast lane (server.fast_lane) and the heavy planner: choose knowingly.",
+                           "The fast lane gives the worker the whole card, so the heavy model is loaded only when a call needs it: every run that plans pays a load (5-8 s restart here) and the heavy server does not stay resident.",
+                           "[M] restart cost 5-8 s; fast-lane window arithmetic from arch_selftest_fastlane",
+                           VM + "; compare plan time of `architect.py run` with fast_lane off and on",
+                           "info", "server.fast_lane = off when most runs plan (heavy_beside covers the planner); on for worker-only runs"),
+    "cache_cloud_ttl": ("Claude prompt-cache lifetime chosen by the app (online.cloud_cache_ttl = auto).",
+                        "A 1-hour cache write costs 2x, a 5-minute one 1.25x; auto picks per use so a long shared prefix is not re-written needlessly. Only matters when Claude is enabled.",
+                        "[B] Anthropic prompt-caching pricing; [M] 6-call Council answer $0.27 -> $0.18 with a shared prefix",
+                        "arch_selftest_cloud.py (no live call); `architect.py costs`",
+                        "info", "online.cloud_cache_ttl = auto"),
+    "cache_readonly_model": ("Read-only Claude agents on the cheaper model (online.readonly_model = auto).",
+                             "An agent that cannot write does not need the strongest model.",
+                             "[B] model price list (arch_cloud.PRICES); no quality measurement here",
+                             "arch_selftest_cloud.py; `architect.py orchestration` shows the model per agent",
+                             "info", "online.readonly_model = auto"),
+    "cache_batch_jobs": ("Non-urgent Claude jobs through the Batch API (online.batch_jobs).",
+                         "Half price, results later; only for work nobody waits on. Off by default and gated by the Claude allowed() check.",
+                         "[B] Anthropic Batch API pricing", "arch_selftest_cloud.py", "info", "online.batch_jobs = on (only for overnight work)"),
+    "per_call_swap": ("An agent on the heavy tier that runs more than once per run while heavy is not resident beside the worker.",
+                      "Each of its calls can load the 13 GB model: 5-15 s per call on this card. Planners run once; repeat jobs (verifiers, panels) belong on the worker.",
+                      "[M] restart cost 5-8 s, load_s 24 s for the 13 GB MoE",
+                      VM + " (step 'server start -> health'); `architect.py crew <workflow> --fake` then read 'Run economics'",
+                      "warn", "model: worker in agents/<name>.md, or keep heavy resident beside the worker (server.heavy_beside = auto)"),
+}
+RULES.update({k: v[0] for k, v in CACHE_RULES.items()})
+
+
+def _cv(cfg, path, default=None):
+    sec, _, name = path.partition(".")
+    for src in (cfg, core.DEFAULTS):
+        s = src.get(sec)
+        if isinstance(s, dict) and s.get(name) is not None:
+            return s[name]
+    return default
+
+
+def _secs(v):
+    m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(ms|s|m|h)?\s*", str(v or ""))
+    if not m:
+        return None
+    return float(m.group(1)) * {"ms": 0.001, "s": 1, None: 1, "m": 60, "h": 3600}[m.group(2)]
+
+
+def agent_runs(w):
+    """{agent: how many times it runs in one workflow dict} (phases, parallel lists, panels of n)."""
+    runs = {}
+
+    def walk(x):
+        if isinstance(x, dict):
+            if x.get("panel"):
+                runs[x["panel"]] = runs.get(x["panel"], 0) + max(1, int(x.get("n") or 1))
+            elif x.get("agent"):
+                runs[x["agent"]] = runs.get(x["agent"], 0) + 1
+            for v in x.values():
+                if isinstance(v, (list, dict)):
+                    walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    walk(w.get("phases") if isinstance(w, dict) else None)
+    return runs
+
+
+def _agent_model(name):
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "agents", name + ".md"), encoding="utf-8") as f:
+            m = re.search(r"^model:\s*(\S+)", f.read(4000), re.M)
+        return m.group(1) if m else ""
+    except OSError:
+        return ""
+
+
+def heavy_repeat_agents(workflows=None, model_of=None):
+    """-> {agent: (most runs in one workflow, workflow file)} for agents on the heavy tier that run more than once in a workflow."""
+    import glob
+    import arch_ci
+    model_of = model_of or _agent_model
+    out = {}
+    if workflows is None:
+        workflows = {}
+        for p in sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "workflows", "*.yaml"))):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    workflows[os.path.basename(p)] = arch_ci.load_yaml(f.read())
+            except Exception:
+                continue
+    for fn, w in workflows.items():
+        for a, n in agent_runs(w).items():
+            if n > 1 and model_of(a) == "heavy" and n > out.get(a, (0, ""))[0]:
+                out[a] = (n, fn)
+    return out
+
+
+def cache_checks(cfg=None, e=None, workflows=None, model_of=None):
+    """-> [{"rule", "state": on|off, "level": ok|info|warn, "msg", "why", "evidence", "verify", "fix"}], one per cache/load feature.
+    Reads only. Missing settings fall back to arch_core.DEFAULTS."""
+    e = e or env(cfg)
+    cfg = e["cfg"]
+    sp = e.get("server_plan") or {}
+    procs = {p.get("tier"): p for p in sp.get("processes") or []}
+    tiers = cfg.get("tiers") or {}
+    fb = {f["name"]: f for f in e["facts"]}
+    hf = fb.get(tiers.get("heavy") or "") or {}
+    heavy_moe = bool(hf.get("moe") or (hf.get("arch") or {}).get("experts"))
+
+    def cv(p, d=None):
+        return _cv(cfg, p, d)
+    st = {}
+    st["cache_reuse"] = (int(cv("server.cache_reuse", 0) or 0) > 0, f"server.cache_reuse = {cv('server.cache_reuse')}")
+    st["cache_prewarm"] = (str(cv("server.prewarm", "off")) == "on", f"server.prewarm = {cv('server.prewarm')}")
+    st["cache_static_lookup"] = (str(cv("server.static_lookup", "off")) == "on", f"server.static_lookup = {cv('server.static_lookup')}")
+    ub, bt = int(cv("server.ubatch", 256) or 256), int(cv("server.batch", 2048) or 2048)
+    st["cache_batch"] = (128 <= ub <= 1024 and bt >= ub, f"ubatch {ub}, batch {bt}")
+    try:
+        import arch_hw
+        pc = int(arch_hw.perf_cores() or 0)
+    except Exception:
+        pc = 0
+    bad_t = sorted(m for m, o in (cfg.get("model_overrides") or {}).items() if pc and int((o or {}).get("num_thread") or 0) > pc)
+    st["cache_threads"] = (not bad_t, (f"num_thread above the performance cores ({pc}) for {', '.join(bad_t)}") if bad_t else
+                           f"auto: -t = performance cores ({pc or 'unknown'}), -tb = all cores")
+    ml, nm = str(cv("server.mlock", "auto")), str(cv("server.no_mmap", "auto"))
+    st["load_mode"] = (not (heavy_moe and "off" in (ml, nm)), f"server.mlock = {ml}, server.no_mmap = {nm}" + ("" if heavy_moe else " (no MoE heavy tier: not needed)"))
+    kh = str(cv("server.kv_heavy", "auto"))
+    st["cache_kv_heavy"] = (kh in ("auto", "q4_0"), f"server.kv_heavy = {kh}")
+    st["cache_slot_persist"] = (str(cv("server.slot_persist", "auto")) != "off", f"server.slot_persist = {cv('server.slot_persist')}")
+    st["cache_stable_context"] = (bool(cv("behavior.stable_context", True)), f"behavior.stable_context = {cv('behavior.stable_context')}")
+    st["cache_tool_cache"] = (str(cv("behavior.tool_cache", "on")) != "off", f"behavior.tool_cache = {cv('behavior.tool_cache')}")
+    st["cache_squad_prefix"] = (str(cv("squad.shared_prefix", "on")) != "off" and str(cv("squad.digest", "on")) != "off",
+                                f"squad.shared_prefix = {cv('squad.shared_prefix')}, squad.digest = {cv('squad.digest')}")
+    st["cache_rank"] = (str(cv("behavior.rank_cache", "on")) != "off", f"behavior.rank_cache = {cv('behavior.rank_cache')}")
+    st["cache_incremental_index"] = (True, "on by design")
+    ka = _secs(cv("server.ollama_keep_alive", "60s"))
+    st["cache_ollama_keep_alive"] = (ka is not None and ka <= 120, f"server.ollama_keep_alive = {cv('server.ollama_keep_alive')}")
+    hb = str(cv("server.heavy_beside", "auto"))
+    st["cache_heavy_beside"] = (hb != "off" or not tiers.get("heavy"), f"server.heavy_beside = {hb}")
+    fl = str(cv("server.fast_lane", "off")) == "on"
+    st["fast_lane_vs_heavy"] = (not (fl and tiers.get("heavy") and hb != "off"), f"server.fast_lane = {'on' if fl else 'off'}, heavy_beside = {hb}")
+    ttl = str(cv("online.cloud_cache_ttl", "auto"))
+    st["cache_cloud_ttl"] = (ttl == "auto", f"online.cloud_cache_ttl = {ttl}")
+    st["cache_readonly_model"] = (str(cv("online.readonly_model", "auto")) != "same", f"online.readonly_model = {cv('online.readonly_model')}")
+    st["cache_batch_jobs"] = (str(cv("online.batch_jobs", "off")) == "on", f"online.batch_jobs = {cv('online.batch_jobs')}")
+    heavy_res = bool((procs.get("heavy") or {}).get("resident")) and hb != "off"
+    rep = {} if heavy_res else heavy_repeat_agents(workflows, model_of)
+    st["per_call_swap"] = (not rep, ("heavy is resident beside the worker" if heavy_res else "no heavy-tier agent repeats in a shipped workflow") if not rep else
+                           "; ".join(f"{a} runs {n}x in {fn}" for a, (n, fn) in sorted(rep.items())))
+    out = []
+    for rule, (title, why, ev, verify, lvl, fix) in CACHE_RULES.items():
+        ok, detail = st[rule]
+        out.append({"rule": rule, "state": "on" if ok else "off", "level": "ok" if ok else lvl,
+                    "msg": f"{title} {'ON' if ok else 'OFF'}: {detail}", "why": why, "evidence": ev, "verify": verify,
+                    "fix": "keep" if ok else fix})
+    return out
+
+
+def lint(cfg=None, e=None, cache=True):
+    """-> [{"rule", "level": error|warn|info, "msg", "why", "fix"}] for the current settings. Reads only. cache=True adds one finding per
+    cache/load feature that is OFF (cache_checks: why, evidence tier, how to verify); `swap --lint --cache` lists the ON ones too."""
     e = e or env(cfg)
     cfg = e["cfg"]
     hw = e["hw"]
@@ -498,6 +729,8 @@ def lint(cfg=None, e=None):
             add("ram_headroom", "error" if left < 0 else "warn",
                 f"RAM left with every planned model loaded, Windows and Docker/WSL ({(e['vm'] or {}).get('vm_gb') or 0} GB): {left} GB",
                 "a smaller heavy model, fewer resident tiers, or a lower WSL memory limit (your choice)")
+    if cache:
+        out += [{k: v for k, v in c.items() if k != "state"} for c in cache_checks(cfg, e) if c["state"] == "off"]
     return out
 
 
@@ -507,7 +740,92 @@ def lint_text(findings):
     lines = [f"swap --lint: {len(findings)} finding(s) (docs/research/local_ai_playbook.md)"]
     for x in findings:
         lines += [f"  [{x['level'].upper()}] {x['rule']}: {x['msg']}", f"      why: {x['why']}", f"      fix: {x['fix']}"]
+        if x.get("evidence"):
+            lines += [f"      evidence: {x['evidence']}", f"      verify: {x['verify']}"]
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ swap advisor for newly downloaded models
+def _suggestions_path():
+    return os.path.join(_swap_dir(), "suggestions.jsonl")
+
+
+def on_new_models(cfg=None, e=None, installed=None, have_passport=None, build_passports=None, identify=None, write=True, say=print):
+    """Find installed models that have no passport yet (= new downloads), build their passports, identify the family and run plan()
+    for every job. Writes ONE suggestion record per new model to <data>/swap/suggestions.jsonl and returns them. Never applies
+    anything: a suggestion says "try this with `swap --trial TARGET MODEL`". Injectable for tests: installed (list of names),
+    have_passport(name) -> bool, build_passports(names) -> {name: passport}, identify(name) -> dict, e (a prepared env).
+    -> {"new": [model names], "suggestions": [record], "text": str}"""
+    if installed is None:
+        import arch_server
+        installed = list(arch_server.local_tags())
+    if have_passport is None:
+        import arch_passport
+        have_passport = lambda n: bool(arch_passport.load(n))
+    new = [n for n in installed if not have_passport(n)]
+    if not new:
+        return {"new": [], "suggestions": [], "text": "swap --new: every installed model already has a passport; nothing is new."}
+    if build_passports is None:
+        import arch_passport
+        build_passports = lambda names: arch_passport.refresh(names, say=lambda *_: None)
+    try:
+        build_passports(new)
+    except Exception as ex:
+        say(f"[swap] could not build passports: {ex}")
+    if identify is None:
+        import arch_modelknow
+        identify = arch_modelknow.identify
+    if e is None:
+        e = env(cfg)                     # after the passports exist, so the new model is among the facts
+    cfg = e["cfg"]
+    known = {f["name"] for f in e["facts"]}
+    recs = []
+    for name in new:
+        if name not in known:
+            recs.append({"ts": int(time.time()), "model": name, "family": None, "jobs": [], "suggest": [], "applied": False,
+                         "note": "no usable passport (the model files could not be read); nothing to compare"})
+            continue
+        try:
+            ident = identify(name) or {}
+        except Exception as ex:
+            ident = {"family": None, "note": str(ex)}
+        jobs, suggest = [], []
+        for job in arch_jobs.JOBS:
+            p = plan(target={"job": job}, e=e)
+            opts = p["options"]
+            mine = next((i for i, o in enumerate(opts, 1) if o["model"] == name), None)
+            if mine is None:
+                continue
+            o = opts[mine - 1]
+            cur = next((x for x in opts if x["model"] == p["current"]), None)
+            better = bool(o["eligible"] and (cur is None or not cur["eligible"] or o["score"] < cur["score"]) and o["model"] != p["current"])
+            row = {"job": job, "rank": mine, "of": len(opts), "eligible": o["eligible"], "score": o["score"], "score_source": o["score_source"],
+                   "current": p["current"], "current_score": cur["score"] if cur else None, "better": better, "reason": o["reason"]}
+            jobs.append(row)
+            if better:
+                suggest.append(job)
+        rec = {"ts": int(time.time()), "model": name, "family": ident.get("family"), "line": ident.get("line"), "modifiers": ident.get("modifiers"),
+               "matched_by": ident.get("matched_by"), "jobs": jobs, "suggest": suggest, "applied": False,
+               "next": [f"architect.py swap --trial job:{j} {name}" for j in suggest]}
+        recs.append(rec)
+    if write and recs:
+        try:
+            os.makedirs(_swap_dir(), exist_ok=True)
+            with open(_suggestions_path(), "a", encoding="utf-8") as f:
+                for r in recs:
+                    f.write(json.dumps(r, default=str) + "\n")
+        except OSError as ex:
+            say(f"[swap] could not write the suggestion record: {ex}")
+    lines = [f"swap --new: {len(new)} new model(s): {', '.join(new)}"]
+    for r in recs:
+        lines.append(f"  {r['model']}  family {r.get('family') or 'unknown'}" + (f" ({r['note']})" if r.get("note") else ""))
+        if r["suggest"]:
+            lines.append(f"    might beat the current model for: {', '.join(r['suggest'])} (estimates until measured)")
+            lines += [f"      next: {x}" for x in r["next"]]
+        elif r["jobs"]:
+            lines.append("    does not rank above the current model for any job on paper")
+    lines.append("Nothing was changed. A trial must pass before `swap --apply`.")
+    return {"new": new, "suggestions": recs, "text": "\n".join(lines)}
 
 
 # ------------------------------------------------------------------ trial
@@ -680,6 +998,8 @@ def main(argv=None):
     ap.add_argument("--tier")
     ap.add_argument("--job")
     ap.add_argument("--lint", action="store_true")
+    ap.add_argument("--cache", action="store_true", help="with --lint: list every cache/load feature, on or off")
+    ap.add_argument("--new", action="store_true", help="models installed since the last passport build: passports, family, a suggestion per job (applies nothing)")
     ap.add_argument("--trial", nargs=2, metavar=("TARGET", "MODEL"))
     ap.add_argument("--fake", action="store_true")
     ap.add_argument("--apply", nargs=2, metavar=("TARGET", "MODEL"))
@@ -688,6 +1008,15 @@ def main(argv=None):
     ap.add_argument("--undo", action="store_true")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.new:
+        r = on_new_models()
+        print(json.dumps(r, indent=1, default=str) if a.json else r["text"])
+        return 0
+    if a.lint and a.cache:
+        f = cache_checks()
+        print(json.dumps(f, indent=1) if a.json else "\n".join(
+            f"[{x['state'].upper():<3}] {x['rule']}: {x['msg']}\n      why: {x['why']}\n      evidence: {x['evidence']}\n      verify: {x['verify']}" for x in f))
+        return 0
     if a.lint:
         f = lint()
         print(json.dumps(f, indent=1) if a.json else lint_text(f))
