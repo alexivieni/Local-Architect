@@ -299,6 +299,9 @@ def run():
         import arch_pipeline as pp
         check("stages default by tier: a tiny builder gets build+review, a large one the whole pipeline", pp.BY_TIER["tiny"] == ["build", "review"] and pp.BY_TIER["large"] == pp.STAGES)
         check("ship is routable by keyword", fl.FLOWS["ship"].id == "ship" and "ship" in fl.KEYWORDS and "ship" in fl.PRIORITY)
+        os.makedirs(os.path.join(es2.root, "tests"), exist_ok=True)
+        _tp = os.path.join(es2.root, "tests", "test_slugify.py")
+        os.path.exists(_tp) or open(_tp, "w").write("def test_x():"+chr(10)+"    pass"+chr(10))
         rel = fl.related_tests(es2, ["slugify.py", "tests/test_slugify.py", "other.py"])
         check("related_tests maps changed modules to their test files and keeps changed tests", rel == ["tests/test_slugify.py"], rel)
         # a failing related test comes back before the whole suite runs

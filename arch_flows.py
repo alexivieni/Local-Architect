@@ -864,6 +864,59 @@ def _main_text(pkg, mod_file, guard):
             f'if __name__ == "__main__":\n    rc = main()\n    sys.exit(rc if rc is None or type(rc) is int else 0)\n')
 
 
+def fix_test_name_collisions(e, note=None):
+    """Two test modules with the same file name in different folders (test_x.py and tests/test_x.py) stop pytest from collecting
+    ANY test ("import file mismatch"). When the one this run created collides with one that was already there, it is renamed to
+    test_x_new.py: wiring, not logic, so code fixes it (seen live 2026-11-05: an 8B and the heavy model both failed a correct
+    word_count change because they put their tests in tests/test_textkit.py next to the project's test_textkit.py).
+    -> [(old_rel, new_rel)]"""
+    import os as _os
+    created = set(getattr(e, "created", None) or []) | set(getattr(e, "changed_files", None) or [])
+    created = {c.replace("\\", "/") for c in created}
+    by_name = {}
+    for rel in core.list_files(e.root, e.cfg):
+        r = rel.replace("\\", "/")
+        b = _os.path.basename(r)
+        if b.startswith("test_") and b.endswith(".py"):
+            by_name.setdefault(b, []).append(r)
+    out = []
+    for b, rels in by_name.items():
+        if len(rels) < 2:
+            continue
+        mine = [r for r in rels if r in created]
+        if not mine or len(mine) == len(rels):
+            continue
+        for r in mine:
+            d, base = _os.path.split(r)
+            stem = base[:-3]
+            new = (d + "/" if d else "") + stem + "_new.py"
+            k = 2
+            # the run's own earlier rename is overwritten (the model re-created the clashing file on a retry), never _new2, _new3...
+            while _os.path.exists(_os.path.join(e.root, new)) and new not in created:
+                new = (d + "/" if d else "") + f"{stem}_new{k}.py"
+                k += 1
+            try:
+                text = open(_os.path.join(e.root, r), encoding="utf-8").read()
+            except OSError:
+                continue
+            res = e.put_file(new, text, label="test file renamed (name clash)", quiet=True)
+            if res.get("status") == "applied":
+                try:
+                    _os.remove(_os.path.join(e.root, r))
+                except OSError:
+                    pass
+                for _attr in ("created", "changed_files"):          # later steps (related tests first, Review) use the new name
+                    _lst = getattr(e, _attr, None)
+                    if isinstance(_lst, list):
+                        setattr(e, _attr, [new if str(x).replace("\\", "/") == r else x for x in _lst])
+                    elif isinstance(_lst, set):
+                        setattr(e, _attr, {new if str(x).replace("\\", "/") == r else x for x in _lst})
+                e.report(f"- Renamed `{r}` to `{new}`: its name clashed with an existing test file, which stops pytest collecting any test")
+                e.say(f"[wire] {r} -> {new} (test file name clash)")
+                out.append((r, new))
+    return out
+
+
 def wire_contract(e, goal, note=None):
     """Mechanical repairs that make the interface the request states reachable, when the code is already written and only the wiring
     is missing -- what an IDE's quick fix does, never new behaviour. -> [(rel, why)] for every file changed.
@@ -988,7 +1041,8 @@ def related_tests(e, files):
     out = []
     for f in files or []:
         if f.startswith("tests/") and f.endswith(".py"):
-            out.append(f)
+            if os.path.isfile(os.path.join(e.root, f)):      # a renamed or removed test file must not be handed to pytest
+                out.append(f)
         elif f.endswith(".py"):
             stem = os.path.splitext(os.path.basename(f))[0]
             for cand in (f"tests/test_{stem}.py", f"tests/{stem}_test.py", f"test_{stem}.py"):
@@ -1302,6 +1356,15 @@ def same_failure_stop(e, coach):
         f = coach.fails
         if n < 2 or len(f) < n or len(set(f[-n:])) != 1 or not f[-1]:
             return False
+        # A stall usually triggers escalation to a bigger model: let that model have its try before stopping
+        # (seen live 2026-11-05: the run escalated to the heavy model and was stopped before it answered once).
+        if getattr(e, "pins", None):
+            mark = getattr(e, "_esc_mark", None)
+            if mark is None:
+                e._esc_mark = len(f)
+                return False
+            if len(f) <= mark:
+                return False
         line = _repeated_failure_line(coach)
         e.say(f"[i] the same failure {n} tries in a row: stopping this step instead of repeating")
         e.report(f"- Stopped: the identical failure came back {n} times in a row (behavior.same_failure_stop)"
@@ -1700,6 +1763,7 @@ class BuildFlow(Flow):
                     e.mark(r["id"], False, feedback)
                     feedback = coach.after(feedback, r["text"], feedback, [])
                     continue
+                fix_test_name_collisions(e)
                 wired = wire_contract(e, goal, note=best.note)          # missing __init__/__main__/re-export: code fixes the wiring;
                 if wired:                                               # registered with BestState, so an undone try takes it along
                     e.report("- Interface wiring: " + "; ".join(why for _, why in wired))
