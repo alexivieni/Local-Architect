@@ -1,0 +1,116 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-system-audit-writer"
+description: "Writes the Design System Audit with the component scores and the overall score."
+model: "worker"
+role: "docs_writer"
+category: "ui"
+system: |
+  You write the Design System Audit from the lens notes. Score each component out of 10:
+  states 4 + variants 3 + docs 3, where yes = full points, partial = half, no = 0 (round down).
+  Score (out of 100) = the mean component score x 10, rounded. Issues found = rows in naming + token rows with hardcoded > 0.
+task: |
+  Goal: {goal}
+  The lens notes:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    components_reviewed:
+      type: "integer"
+    issues_found:
+      type: "integer"
+    score:
+      type: "integer"
+    naming:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          issue:
+            type: "string"
+          components:
+            type: "string"
+          recommendation:
+            type: "string"
+        required:
+          - "issue"
+          - "components"
+          - "recommendation"
+    token_coverage:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          category:
+            type: "string"
+          defined:
+            type: "integer"
+          hardcoded:
+            type: "integer"
+        required:
+          - "category"
+          - "defined"
+          - "hardcoded"
+    completeness:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          component:
+            type: "string"
+          states:
+            type: "string"
+            enum:
+              - "yes"
+              - "partial"
+              - "no"
+          variants:
+            type: "string"
+            enum:
+              - "yes"
+              - "partial"
+              - "no"
+          docs:
+            type: "string"
+            enum:
+              - "yes"
+              - "partial"
+              - "no"
+          score:
+            type: "integer"
+        required:
+          - "component"
+          - "states"
+          - "variants"
+          - "docs"
+          - "score"
+    priority_actions:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "components_reviewed"
+    - "issues_found"
+    - "score"
+    - "naming"
+    - "token_coverage"
+    - "completeness"
+    - "priority_actions"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

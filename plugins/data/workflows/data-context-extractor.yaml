@@ -1,0 +1,14 @@
+# data:data-context-extractor - generated from the data plugin's data-context-extractor skill (see skills/data-context-extractor.md)
+name: "data-context-extractor"
+description: "Extract company data knowledge into a generated skill: discover, then write."
+phases:
+  - title: "Discover"
+    agent: "data-context-discover"
+    label: "discover"
+    vars:
+      focus: "bootstrap phases 1-2 or iteration steps 1-3"
+  - title: "Generate"
+    agent: "data-context-writer"
+    label: "generate"
+    vars:
+      focus: "phase 3-4: SKILL.md + references, then the quality checklist"

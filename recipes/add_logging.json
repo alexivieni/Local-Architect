@@ -1,0 +1,30 @@
+{
+  "id": "add_logging",
+  "title": "Add logging",
+  "summary": "Adds structured logging with levels to the code paths that matter, without changing output.",
+  "goal": "Add logging using the standard logging module to {target}: one logger per module, INFO for lifecycle events, WARNING for recoverable problems, ERROR with the exception for failures. Do not print to stdout and do not change any return value. Add a test with caplog that checks one message.",
+  "flow": "refactor",
+  "workflow": "feature_squad",
+  "agents": [
+    "architect",
+    "coder",
+    "reviewer"
+  ],
+  "params": [
+    {
+      "name": "target",
+      "label": "Where to log",
+      "default": "the public entry points"
+    }
+  ],
+  "requires": [
+    "modules",
+    "tests"
+  ],
+  "requires_text": {
+    "http": "a server with routes",
+    "cli": "a command line with subcommands",
+    "tests": "a test suite",
+    "modules": "at least one Python module"
+  }
+}

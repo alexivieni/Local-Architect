@@ -1,0 +1,20 @@
+# /research-synthesis as a local crew: two independent coding passes, one synthesis, then every quote is grepped in the source.
+name: research-synthesis
+description: Two coders read the research independently, a writer keeps only themes with evidence, a checker verifies every quote verbatim.
+phases:
+  - title: Code
+    parallel:
+      - agent: design-research-coder
+        label: "code:needs"
+        vars:
+          focus: "pass A - goals, needs and motivations; what people are trying to get done (jobs to be done)"
+      - agent: design-research-coder
+        label: "code:pains"
+        vars:
+          focus: "pass B - pain points, workarounds and behaviors; where the experience breaks (journey)"
+  - title: Synthesis
+    agent: design-research-writer
+    label: synthesis
+  - title: Check quotes
+    agent: design-quote-checker
+    label: quotes

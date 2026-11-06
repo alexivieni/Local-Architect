@@ -1,0 +1,6 @@
+{
+  "name": "engineering",
+  "version": "1.2.0",
+  "description": "Engineering workflows on local models: code review, debug, architecture (ADR), system design, tech debt, testing strategy, deploy checklist, documentation, incident response, standup. Adapted from Anthropic's engineering plugin (Apache-2.0).",
+  "requires": {"architect": ">=13", "tiers": ["worker"]}
+}

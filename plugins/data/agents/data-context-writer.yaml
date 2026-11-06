@@ -1,0 +1,73 @@
+# data-context-writer: saved by arch_squad.save_agent (validated before writing)
+name: "data-context-writer"
+description: "Writes the generated company data skill (SKILL.md + references) and runs the quality checklist."
+model: "worker"
+role: "docs_writer"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Phase 3 of the data-context-extractor skill. Unknown facts stay as [PLACEHOLDER].
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    skill_name:
+      type: "string"
+    skill_md:
+      type: "string"
+    reference_files:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          path:
+            type: "string"
+          content:
+            type: "string"
+        required:
+          - "path"
+          - "content"
+    checklist:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          item:
+            type: "string"
+          ok:
+            type: "boolean"
+        required:
+          - "item"
+          - "ok"
+    open_questions:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "skill_name"
+    - "skill_md"
+    - "reference_files"
+    - "checklist"
+    - "open_questions"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

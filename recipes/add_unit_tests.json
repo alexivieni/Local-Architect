@@ -1,0 +1,34 @@
+{
+  "id": "add_unit_tests",
+  "title": "Add unit tests for a module",
+  "summary": "Writes tests that pin the current behaviour, edge cases included.",
+  "goal": "Write unit tests for {module} in {test_dir}/test_{short}.py. Cover the normal case, an empty input, a boundary and an error for every public function. Do not edit {module}.",
+  "flow": "test",
+  "workflow": "feature_squad",
+  "agents": [
+    "test-author",
+    "coder"
+  ],
+  "params": [
+    {
+      "name": "module",
+      "label": "Module to test",
+      "default": "the least-tested module"
+    },
+    {
+      "name": "short",
+      "label": "Short name for the test file",
+      "default": "module"
+    }
+  ],
+  "requires": [
+    "modules",
+    "tests"
+  ],
+  "requires_text": {
+    "http": "a server with routes",
+    "cli": "a command line with subcommands",
+    "tests": "a test suite",
+    "modules": "at least one Python module"
+  }
+}

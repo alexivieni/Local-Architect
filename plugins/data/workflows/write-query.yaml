@@ -1,0 +1,19 @@
+# data:write-query - generated from the data plugin's write-query skill (see skills/write-query.md)
+name: "write-query"
+description: "Write optimized SQL: write, review against the best practices, rewrite."
+phases:
+  - title: "Write"
+    agent: "data-sql-writer"
+    label: "write"
+    vars:
+      focus: "steps 1-4: output columns, filters, aggregations, joins, ordering, limits; dialect; schema from project files; CTEs"
+  - title: "Review"
+    agent: "data-checker"
+    label: "review"
+    vars:
+      focus: "SQL review: no SELECT *, filter early, partition filters, EXISTS vs IN, right JOIN type, no correlated subqueries, exploding joins, dialect syntax, comments"
+  - title: "Rewrite"
+    agent: "data-sql-writer"
+    label: "rewrite"
+    vars:
+      focus: "step 5: fix every concern the review raised and present the final query"

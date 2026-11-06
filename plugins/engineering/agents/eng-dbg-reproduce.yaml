@@ -1,0 +1,53 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-dbg-reproduce"
+description: "Debug step 1: reproduce."
+model: "worker"
+role: "bug_hunter"
+category: "engineering"
+system: |
+  You reproduce a bug. Find expected vs actual behaviour and the exact steps. Run the tests if they exist.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Step REPRODUCE: expected vs actual, exact reproduction steps, scope (when it started, who is affected).
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "run_tests"
+writes: false
+output:
+  type: "object"
+  properties:
+    expected:
+      type: "string"
+    actual:
+      type: "string"
+    steps:
+      type: "string"
+    scope:
+      type: "string"
+    failing_tests:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "expected"
+    - "actual"
+    - "steps"
+    - "scope"
+    - "failing_tests"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

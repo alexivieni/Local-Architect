@@ -1,0 +1,23 @@
+# data:explore-data - generated from the data plugin's explore-data skill (see skills/explore-data.md)
+name: "explore-data"
+description: "Profile a table or file: three profilers side by side, then one Data Profile."
+phases:
+  - title: "Profile"
+    parallel:
+      - agent: "data-profiler"
+        label: "profile:structure"
+        vars:
+          focus: "structure: rows, columns, grain, primary key, column classification, per-type profile stats"
+      - agent: "data-profiler"
+        label: "profile:quality"
+        vars:
+          focus: "quality: completeness score per column, null rates, cardinality surprises, placeholder/suspicious values, duplicates, encoding"
+      - agent: "data-profiler"
+        label: "profile:patterns"
+        vars:
+          focus: "patterns: distributions, temporal patterns, segments (3-20 values), correlations, FK candidates, hierarchies"
+  - title: "Report"
+    agent: "data-explore-report"
+    label: "report"
+    vars:
+      focus: "the Output Format of explore-data: Overview, Column Details, Data Quality Issues, Recommended Explorations (3-5)"

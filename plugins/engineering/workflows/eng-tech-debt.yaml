@@ -1,0 +1,80 @@
+# Output format: tech-debt (render.py turns the result into the skill's Markdown).
+name: "eng-tech-debt"
+description: "Three debt scanners in parallel, merged in code, then scored and planned."
+phases:
+  - title: "Scan"
+    parallel:
+      - agent: "eng-td-code"
+        label: "scan:code-test"
+      - agent: "eng-td-system"
+        label: "scan:arch-infra"
+      - agent: "eng-td-deps-docs"
+        label: "scan:deps-docs"
+  - title: "Merge"
+    code: "dedupe_findings"
+  - title: "Score"
+    agent: "eng-td-scorer"
+    label: "score"
+returns:
+  type: "object"
+  properties:
+    items:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          title:
+            type: "string"
+          category:
+            type: "string"
+            enum:
+              - "Code"
+              - "Architecture"
+              - "Test"
+              - "Dependency"
+              - "Documentation"
+              - "Infrastructure"
+          location:
+            type: "string"
+          impact:
+            type: "integer"
+            minimum: 1
+            maximum: 5
+          risk:
+            type: "integer"
+            minimum: 1
+            maximum: 5
+          effort:
+            type: "integer"
+            minimum: 1
+            maximum: 5
+          justification:
+            type: "string"
+        required:
+          - "title"
+          - "category"
+          - "location"
+          - "impact"
+          - "risk"
+          - "effort"
+          - "justification"
+    phases:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          phase:
+            type: "string"
+          items:
+            type: "array"
+            items:
+              type: "string"
+          alongside:
+            type: "string"
+        required:
+          - "phase"
+          - "items"
+          - "alongside"
+  required:
+    - "items"
+    - "phases"

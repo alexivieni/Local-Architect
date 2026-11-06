@@ -1,0 +1,38 @@
+{
+  "name": "data",
+  "version": "1.1.0",
+  "description": "Write SQL, explore datasets, validate analyses, build charts and dashboards with the local models: the Anthropic data plugin's ten skills as local commands, skills and agent workflows.",
+  "author": "Adapted for Architect from Anthropic's knowledge-work-plugins/data (Apache-2.0)",
+  "requires": {
+    "architect": ">=13",
+    "tiers": [
+      "worker"
+    ]
+  },
+  "provides": {
+    "commands": [
+      "analyze",
+      "build-dashboard",
+      "create-viz",
+      "data-context-extractor",
+      "data-visualization",
+      "explore-data",
+      "sql-queries",
+      "statistical-analysis",
+      "validate-data",
+      "write-query"
+    ],
+    "command_workflow": {
+      "analyze": "data:analyze",
+      "build-dashboard": "data:build-dashboard",
+      "create-viz": "data:create-viz",
+      "data-context-extractor": "data:data-context-extractor",
+      "data-visualization": "data:data-visualization",
+      "explore-data": "data:explore-data",
+      "sql-queries": "data:sql-queries",
+      "statistical-analysis": "data:statistical-analysis",
+      "validate-data": "data:validate-data",
+      "write-query": "data:write-query"
+    }
+  }
+}

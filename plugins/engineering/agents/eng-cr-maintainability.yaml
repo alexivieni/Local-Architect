@@ -1,0 +1,65 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-cr-maintainability"
+description: "Code review lens: maintainability."
+model: "worker"
+role: "reviewer"
+category: "engineering"
+system: |
+  You review code for maintainability only. Report only problems you saw, each with file and line. Never edit.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Lens MAINTAINABILITY: naming clarity, single responsibility, duplication, test coverage, missing docs for non-obvious logic.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    findings:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          file:
+            type: "string"
+          line:
+            type: "integer"
+          problem:
+            type: "string"
+          severity:
+            type: "string"
+            enum:
+              - "Critical"
+              - "High"
+              - "Medium"
+              - "Low"
+          fix:
+            type: "string"
+        required:
+          - "file"
+          - "line"
+          - "problem"
+          - "severity"
+          - "fix"
+    summary:
+      type: "string"
+  required:
+    - "findings"
+    - "summary"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "low"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

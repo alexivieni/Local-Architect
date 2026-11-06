@@ -1,0 +1,90 @@
+# Output format: code-review (render.py turns the result into the skill's Markdown).
+name: "eng-code-review"
+description: "Four review lenses in parallel, merged in code, each finding re-checked, written in the code-review format."
+phases:
+  - title: "Lenses"
+    parallel:
+      - agent: "eng-cr-correctness"
+        label: "lens:correctness"
+      - agent: "eng-cr-security"
+        label: "lens:security"
+      - agent: "eng-cr-performance"
+        label: "lens:performance"
+      - agent: "eng-cr-maintainability"
+        label: "lens:maintainability"
+  - title: "Dedupe"
+    code: "dedupe_findings"
+  - title: "Verify"
+    agent: "eng-cr-verify"
+    label: "verify"
+  - title: "Write"
+    agent: "eng-cr-writer"
+    label: "write"
+returns:
+  type: "object"
+  properties:
+    title:
+      type: "string"
+    summary:
+      type: "string"
+    critical_issues:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          file:
+            type: "string"
+          line:
+            type: "integer"
+          issue:
+            type: "string"
+          severity:
+            type: "string"
+            enum:
+              - "Critical"
+              - "High"
+        required:
+          - "file"
+          - "line"
+          - "issue"
+          - "severity"
+    suggestions:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          file:
+            type: "string"
+          line:
+            type: "integer"
+          suggestion:
+            type: "string"
+          category:
+            type: "string"
+            enum:
+              - "Security"
+              - "Performance"
+              - "Correctness"
+              - "Maintainability"
+        required:
+          - "file"
+          - "line"
+          - "suggestion"
+          - "category"
+    looks_good:
+      type: "array"
+      items:
+        type: "string"
+    verdict:
+      type: "string"
+      enum:
+        - "Approve"
+        - "Request Changes"
+        - "Needs Discussion"
+  required:
+    - "title"
+    - "summary"
+    - "critical_issues"
+    - "suggestions"
+    - "looks_good"
+    - "verdict"

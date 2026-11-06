@@ -1,0 +1,36 @@
+{
+  "id": "add_input_validation",
+  "title": "Add input validation",
+  "summary": "Rejects bad input at the boundary with clear errors, and tests every rejection.",
+  "goal": "Add input validation to {target}. Reject {rules} with a clear error instead of a crash. Do not change behaviour for valid input. Add a test per rejected case in {test_dir}/.",
+  "flow": "hunt",
+  "workflow": "bugfix_squad",
+  "agents": [
+    "auditor",
+    "debugger",
+    "test-author",
+    "coder"
+  ],
+  "params": [
+    {
+      "name": "target",
+      "label": "Function or endpoint to guard",
+      "default": "the public entry points"
+    },
+    {
+      "name": "rules",
+      "label": "What to reject",
+      "default": "empty, wrong-typed or oversized values"
+    }
+  ],
+  "requires": [
+    "modules",
+    "tests"
+  ],
+  "requires_text": {
+    "http": "a server with routes",
+    "cli": "a command line with subcommands",
+    "tests": "a test suite",
+    "modules": "at least one Python module"
+  }
+}

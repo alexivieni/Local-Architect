@@ -1,0 +1,61 @@
+# Output format: documentation (render.py turns the result into the skill's Markdown).
+name: "eng-documentation"
+description: "Survey the code, then write the document."
+phases:
+  - title: "Survey"
+    agent: "eng-doc-survey"
+    label: "survey"
+  - title: "Write"
+    agent: "eng-doc-writer"
+    label: "write"
+returns:
+  type: "object"
+  properties:
+    doc_type:
+      type: "string"
+      enum:
+        - "README"
+        - "API Documentation"
+        - "Runbook"
+        - "Architecture Doc"
+        - "Onboarding Guide"
+    title:
+      type: "string"
+    sections:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          key:
+            type: "string"
+            enum:
+              - "what"
+              - "quickstart"
+              - "config"
+              - "contributing"
+              - "endpoints"
+              - "auth"
+              - "ratelimits"
+              - "sdk"
+              - "when"
+              - "prereqs"
+              - "procedure"
+              - "rollback"
+              - "escalation"
+              - "context"
+              - "design"
+              - "decisions"
+              - "dataflow"
+              - "setup"
+              - "systems"
+              - "tasks"
+              - "contacts"
+          body:
+            type: "string"
+        required:
+          - "key"
+          - "body"
+  required:
+    - "doc_type"
+    - "title"
+    - "sections"

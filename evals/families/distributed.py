@@ -1757,7 +1757,8 @@ TEMPLATES = [
 ]
 
 
-HOLDOUT = 4         # variant index never trained on: `eval --tags holdout` measures an adapter on tasks it did not see
+HOLDOUT_TEMPLATES = ("vclock", "ring", "election")   # held out WHOLE: no variant of these is ever trained on; `eval --tags holdout` measures them
+HOLDOUT = 4         # legacy name (the old per-variant index); no longer used to hold anything out
 
 
 def _task(key, level, k, built):
@@ -1766,7 +1767,7 @@ def _task(key, level, k, built):
     test_src = TEST_HEAD + tests + TEST_TAIL
     return {
         "id": f"{PREFIX}-{key}-{k:02d}", "template": key,
-        "tags": [TAG, "training", "python", "from-nothing", key, "level-" + level] + (["holdout"] if k == HOLDOUT else []),
+        "tags": [TAG, "training", "python", "from-nothing", key, "level-" + level] + (["holdout"] if key in HOLDOUT_TEMPLATES else []),
         "goal": goal, "params": {"domains": ["api"]},
         "fixture": {"files": {"fakeclock.py": FAKECLOCK, "CONVENTIONS.md": CONVENTIONS}},
         "budget": {"calls": 24, "tokens": 90000, "seconds": 1200},
@@ -1863,7 +1864,7 @@ def check(family="distributed", quick=False):
         results.append(bool(cond))
         print(f"  {'PASS' if cond else 'FAIL'}  {name}" + (f"   ({str(extra)[:400]})" if extra and not cond else ""))
 
-    tasks = [E.normalize(t) for t in fam.all_tasks()]
+    tasks = [E.normalize(dict(t, flow=getattr(fam, "FLOW", "build"))) for t in fam.all_tasks()]
     keys = sorted({t["template"] for t in tasks})
     ok(f"{family}: {len(tasks)} tasks from {len(keys)} templates (at least {fam.MIN_TASKS} from {fam.MIN_TEMPLATES})",
        len(tasks) >= fam.MIN_TASKS and len(keys) >= fam.MIN_TEMPLATES, (len(tasks), keys))
@@ -1877,8 +1878,9 @@ def check(family="distributed", quick=False):
        g1 == g2 and set(g1) == set(ids) and {t["template"] for t in fam.generate(len(keys), 0)} == set(keys) and len(fam.generate(1, 0)) == 1)
     ok("the loader picks the family up (FLOW, DEFAULT_N, generate)", fam.FLOW == "build" and fam.DEFAULT_N >= 1 and callable(fam.generate))
     held = [t for t in tasks if "holdout" in t["tags"]]
-    ok("exactly one variant per template is held out of training (eval --tags holdout measures what was not trained on)",
-       sorted(t["template"] for t in held) == keys, [t["id"] for t in held])
+    ok("held-out templates are held out WHOLE: every variant of a held-out template is tagged holdout, no variant of any other is",
+       {t["template"] for t in held} == set(fam.HOLDOUT_TEMPLATES) and len(held) == sum(1 for t in tasks if t["template"] in fam.HOLDOUT_TEMPLATES)
+       and set(fam.HOLDOUT_TEMPLATES) <= set(keys), [t["id"] for t in held][:4])
     for t in (tasks if not quick else [next(x for x in tasks if x["template"] == k) for k in keys]):
         fake = [f"{rel}:{x['line']} {x['rule']}" for rel, text in t["solution"]["files"].items() for x in F.scan_text(rel, text) if x.get("gate")]
         right, unit = _judge_all(E, t, t["solution"]["files"])

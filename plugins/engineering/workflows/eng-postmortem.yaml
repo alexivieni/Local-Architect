@@ -1,0 +1,107 @@
+# Output format: postmortem (render.py turns the result into the skill's Markdown).
+name: "eng-postmortem"
+description: "Timeline and 5 whys, then the blameless postmortem."
+phases:
+  - title: "Timeline"
+    agent: "eng-pm-timeline"
+    label: "timeline"
+  - title: "Postmortem"
+    agent: "eng-pm-writer"
+    label: "postmortem"
+returns:
+  type: "object"
+  properties:
+    title:
+      type: "string"
+    date:
+      type: "string"
+    duration:
+      type: "string"
+    severity:
+      type: "string"
+      enum:
+        - "SEV1"
+        - "SEV2"
+        - "SEV3"
+        - "SEV4"
+    authors:
+      type: "string"
+    summary:
+      type: "string"
+    impact:
+      type: "array"
+      items:
+        type: "string"
+    timeline:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          time:
+            type: "string"
+          event:
+            type: "string"
+        required:
+          - "time"
+          - "event"
+    root_cause:
+      type: "string"
+    five_whys:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          why:
+            type: "string"
+          because:
+            type: "string"
+        required:
+          - "why"
+          - "because"
+    went_well:
+      type: "array"
+      items:
+        type: "string"
+    went_poorly:
+      type: "array"
+      items:
+        type: "string"
+    action_items:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          action:
+            type: "string"
+          owner:
+            type: "string"
+          priority:
+            type: "string"
+            enum:
+              - "P0"
+              - "P1"
+              - "P2"
+          due:
+            type: "string"
+        required:
+          - "action"
+          - "owner"
+          - "priority"
+          - "due"
+    lessons:
+      type: "string"
+  required:
+    - "title"
+    - "date"
+    - "duration"
+    - "severity"
+    - "authors"
+    - "summary"
+    - "impact"
+    - "timeline"
+    - "root_cause"
+    - "five_whys"
+    - "went_well"
+    - "went_poorly"
+    - "action_items"
+    - "lessons"

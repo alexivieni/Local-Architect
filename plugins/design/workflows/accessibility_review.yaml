@@ -1,0 +1,28 @@
+# /accessibility-review as a local crew: four WCAG principles audited side by side, one report, one adversarial check.
+name: accessibility-review
+description: Four auditors take one WCAG 2.1 AA principle each (POUR), a reporter writes the audit in the skill's tables, a checker re-reads every cited line.
+phases:
+  - title: Audit
+    parallel:
+      - agent: design-a11y-auditor
+        label: "audit:perceivable"
+        vars:
+          focus: "Perceivable - 1.1.1 alt text, 1.3.1 semantic structure, 1.4.3 text contrast 4.5:1 (3:1 large), 1.4.11 non-text contrast 3:1"
+      - agent: design-a11y-auditor
+        label: "audit:operable"
+        vars:
+          focus: "Operable - 2.1.1 keyboard access, 2.4.3 focus order, 2.4.7 visible focus, 2.5.5 touch target 44x44, focus traps in modals"
+      - agent: design-a11y-auditor
+        label: "audit:understandable"
+        vars:
+          focus: "Understandable - 3.2.1 no change on focus, 3.3.1 errors described, 3.3.2 labels or instructions on inputs"
+      - agent: design-a11y-auditor
+        label: "audit:robust"
+        vars:
+          focus: "Robust - 4.1.2 name, role, value on every UI component; ARIA landmarks"
+  - title: Report
+    agent: design-a11y-reporter
+    label: report
+  - title: Check
+    agent: design-a11y-checker
+    label: check

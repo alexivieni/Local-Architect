@@ -1,0 +1,25 @@
+# /design-handoff as a local crew: four readers extract one slice of the spec each, a writer assembles the Handoff Spec.
+name: design-handoff
+description: Readers extract visual/tokens, interactions/states, content/edge cases and accessibility from the code; a writer produces the Handoff Spec.
+phases:
+  - title: Extract
+    parallel:
+      - agent: design-handoff-reader
+        label: "extract:visual"
+        vars:
+          focus: "Visual - measurements, design tokens (colors, typography, spacing), layout grid, responsive breakpoints, component variants"
+      - agent: design-handoff-reader
+        label: "extract:interaction"
+        vars:
+          focus: "Interaction - click/tap, hover, every state (default, hover, active, disabled, loading, error, empty), transitions with duration and easing, gestures"
+      - agent: design-handoff-reader
+        label: "extract:content"
+        vars:
+          focus: "Content and edge cases - character limits, truncation, empty/loading/error states, min/max content, long international text, slow connections, missing data"
+      - agent: design-handoff-reader
+        label: "extract:accessibility"
+        vars:
+          focus: "Accessibility - focus order, ARIA labels and roles, keyboard interactions, screen reader announcements"
+  - title: Spec
+    agent: design-handoff-writer
+    label: spec

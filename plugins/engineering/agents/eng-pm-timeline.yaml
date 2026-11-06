@@ -1,0 +1,64 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-pm-timeline"
+description: "Postmortem: timeline and 5 whys."
+model: "worker"
+role: "reliability_engineer"
+category: "engineering"
+system: |
+  You reconstruct an incident timeline and run 5 whys down to a root cause. Blameless: systems and processes, not people.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Rebuild the timeline (UTC) and the 5 whys.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    timeline:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          time:
+            type: "string"
+          event:
+            type: "string"
+        required:
+          - "time"
+          - "event"
+    five_whys:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          why:
+            type: "string"
+          because:
+            type: "string"
+        required:
+          - "why"
+          - "because"
+    root_cause:
+      type: "string"
+  required:
+    - "timeline"
+    - "five_whys"
+    - "root_cause"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "high"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

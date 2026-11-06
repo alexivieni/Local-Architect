@@ -1,0 +1,56 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-ts-inventory"
+description: "Testing strategy: inventory of existing tests and coverage gaps."
+model: "worker"
+role: "tester"
+category: "engineering"
+system: |
+  You inventory a project's tests: what exists, what runs, which modules have none.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Run the tests, list test files and the modules they cover, list modules with no tests.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "run_tests"
+writes: false
+output:
+  type: "object"
+  properties:
+    tests_pass:
+      type: "string"
+      enum:
+        - "yes"
+        - "no"
+        - "unknown"
+    test_files:
+      type: "array"
+      items:
+        type: "string"
+    untested:
+      type: "array"
+      items:
+        type: "string"
+    component_type:
+      type: "string"
+  required:
+    - "tests_pass"
+    - "test_files"
+    - "untested"
+    - "component_type"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "low"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

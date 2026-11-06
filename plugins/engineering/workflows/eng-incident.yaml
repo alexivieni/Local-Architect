@@ -1,0 +1,65 @@
+# Output format: incident-status (render.py turns the result into the skill's Markdown).
+name: "eng-incident"
+description: "Triage, then a status update."
+phases:
+  - title: "Triage"
+    agent: "eng-ir-triage"
+    label: "triage"
+  - title: "Update"
+    agent: "eng-ir-status"
+    label: "update"
+returns:
+  type: "object"
+  properties:
+    title:
+      type: "string"
+    severity:
+      type: "string"
+      enum:
+        - "SEV1"
+        - "SEV2"
+        - "SEV3"
+        - "SEV4"
+    status:
+      type: "string"
+      enum:
+        - "Investigating"
+        - "Identified"
+        - "Monitoring"
+        - "Resolved"
+    impact:
+      type: "string"
+    last_updated:
+      type: "string"
+    current_status:
+      type: "string"
+    actions_taken:
+      type: "array"
+      items:
+        type: "string"
+    next_steps:
+      type: "array"
+      items:
+        type: "string"
+    timeline:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          time:
+            type: "string"
+          event:
+            type: "string"
+        required:
+          - "time"
+          - "event"
+  required:
+    - "title"
+    - "severity"
+    - "status"
+    - "impact"
+    - "last_updated"
+    - "current_status"
+    - "actions_taken"
+    - "next_steps"
+    - "timeline"

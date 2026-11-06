@@ -1,0 +1,47 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-sd-scale"
+description: "System design 4: scale and reliability."
+model: "worker"
+role: "reliability_engineer"
+category: "engineering"
+system: |
+  You assess scale and reliability for a design from the requirements.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Scale and reliability: load estimation, horizontal vs vertical, failover and redundancy, monitoring and alerting.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    load_estimate:
+      type: "string"
+    scaling:
+      type: "string"
+    failover:
+      type: "string"
+    monitoring:
+      type: "string"
+  required:
+    - "load_estimate"
+    - "scaling"
+    - "failover"
+    - "monitoring"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

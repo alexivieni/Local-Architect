@@ -1,0 +1,102 @@
+# Output format: architecture (render.py turns the result into the skill's Markdown).
+name: "eng-architecture"
+description: "Context, options, then the ADR."
+phases:
+  - title: "Context"
+    agent: "eng-adr-context"
+    label: "context"
+  - title: "Options"
+    agent: "eng-adr-options"
+    label: "options"
+  - title: "ADR"
+    agent: "eng-adr-writer"
+    label: "adr"
+returns:
+  type: "object"
+  properties:
+    number:
+      type: "integer"
+    title:
+      type: "string"
+    status:
+      type: "string"
+      enum:
+        - "Proposed"
+        - "Accepted"
+        - "Deprecated"
+        - "Superseded"
+    date:
+      type: "string"
+    deciders:
+      type: "string"
+    context:
+      type: "string"
+    decision:
+      type: "string"
+    options:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          name:
+            type: "string"
+          complexity:
+            type: "string"
+            enum:
+              - "Low"
+              - "Med"
+              - "High"
+          cost:
+            type: "string"
+          scalability:
+            type: "string"
+          team_familiarity:
+            type: "string"
+          pros:
+            type: "array"
+            items:
+              type: "string"
+          cons:
+            type: "array"
+            items:
+              type: "string"
+        required:
+          - "name"
+          - "complexity"
+          - "cost"
+          - "scalability"
+          - "team_familiarity"
+          - "pros"
+          - "cons"
+    tradeoff_analysis:
+      type: "string"
+    easier:
+      type: "array"
+      items:
+        type: "string"
+    harder:
+      type: "array"
+      items:
+        type: "string"
+    revisit:
+      type: "array"
+      items:
+        type: "string"
+    action_items:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "number"
+    - "title"
+    - "status"
+    - "date"
+    - "deciders"
+    - "context"
+    - "decision"
+    - "options"
+    - "tradeoff_analysis"
+    - "easier"
+    - "harder"
+    - "revisit"
+    - "action_items"

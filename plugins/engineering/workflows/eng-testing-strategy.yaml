@@ -1,0 +1,68 @@
+# Output format: testing-strategy (render.py turns the result into the skill's Markdown).
+name: "eng-testing-strategy"
+description: "Inventory of the tests, then the test plan."
+phases:
+  - title: "Inventory"
+    agent: "eng-ts-inventory"
+    label: "inventory"
+  - title: "Plan"
+    agent: "eng-ts-planner"
+    label: "plan"
+returns:
+  type: "object"
+  properties:
+    subject:
+      type: "string"
+    component_type:
+      type: "string"
+      enum:
+        - "API endpoints"
+        - "Data pipelines"
+        - "Frontend"
+        - "Infrastructure"
+        - "Other"
+    areas:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          area:
+            type: "string"
+          test_type:
+            type: "string"
+            enum:
+              - "Unit"
+              - "Integration"
+              - "E2E"
+              - "Contract"
+              - "Component"
+              - "Visual regression"
+              - "Accessibility"
+              - "Smoke"
+              - "Load"
+              - "Chaos"
+          coverage_target:
+            type: "string"
+          example_cases:
+            type: "array"
+            items:
+              type: "string"
+        required:
+          - "area"
+          - "test_type"
+          - "coverage_target"
+          - "example_cases"
+    gaps:
+      type: "array"
+      items:
+        type: "string"
+    skip:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "subject"
+    - "component_type"
+    - "areas"
+    - "gaps"
+    - "skip"

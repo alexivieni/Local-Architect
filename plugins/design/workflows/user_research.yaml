@@ -1,0 +1,7 @@
+# The user-research skill as a local crew: one planner writes the research plan and the interview guide.
+name: user-research
+description: A planner picks the method from the methods table and writes the research plan, interview guide, analysis and deliverables.
+phases:
+  - title: Plan
+    agent: design-research-planner
+    label: plan

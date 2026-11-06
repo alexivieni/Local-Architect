@@ -1,0 +1,85 @@
+# data-analyze-report: saved by arch_squad.save_agent (validated before writing)
+name: "data-analyze-report"
+description: "Writes the /analyze answer in the skill's format for its complexity level."
+model: "worker"
+role: "docs_writer"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Write the answer. Quick: answer + query. Full: key finding first, support, method, caveats, follow-ups. Formal: all sections.
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    complexity:
+      type: "string"
+      enum:
+        - "quick"
+        - "full"
+        - "formal"
+    answer:
+      type: "string"
+    executive_summary:
+      type: "array"
+      items:
+        type: "string"
+    methodology:
+      type: "string"
+    findings:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          finding:
+            type: "string"
+          evidence:
+            type: "string"
+        required:
+          - "finding"
+          - "evidence"
+    caveats:
+      type: "array"
+      items:
+        type: "string"
+    query:
+      type: "string"
+    recommendations:
+      type: "array"
+      items:
+        type: "string"
+    follow_ups:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "complexity"
+    - "answer"
+    - "executive_summary"
+    - "methodology"
+    - "findings"
+    - "caveats"
+    - "query"
+    - "recommendations"
+    - "follow_ups"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

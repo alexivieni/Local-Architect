@@ -1,0 +1,19 @@
+# data:sql-queries - generated from the data plugin's sql-queries skill (see skills/sql-queries.md)
+name: "sql-queries"
+description: "SQL across dialects: write with the dialect reference, review, rewrite."
+phases:
+  - title: "Write"
+    agent: "data-sql-writer"
+    label: "write"
+    vars:
+      focus: "use the sql-queries dialect reference and common patterns (window functions, CTEs, cohort, funnel, dedup)"
+  - title: "Review"
+    agent: "data-checker"
+    label: "review"
+    vars:
+      focus: "error handling list: dialect syntax, column names, type casts, division by zero (NULLIF), ambiguous columns, GROUP BY"
+  - title: "Rewrite"
+    agent: "data-sql-writer"
+    label: "rewrite"
+    vars:
+      focus: "fix the review's concerns; final query"

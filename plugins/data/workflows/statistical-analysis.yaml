@@ -1,0 +1,19 @@
+# data:statistical-analysis - generated from the data plugin's statistical-analysis skill (see skills/statistical-analysis.md)
+name: "statistical-analysis"
+description: "Statistics: compute, check the claims for statistical traps, report."
+phases:
+  - title: "Compute"
+    agent: "data-analyst"
+    label: "compute"
+    vars:
+      focus: "descriptive stats (mean+median, spread, percentiles), trend, outliers (z-score/IQR), tests as asked"
+  - title: "Caution"
+    agent: "data-checker"
+    label: "caution"
+    vars:
+      focus: "correlation vs causation, multiple comparisons, Simpson's paradox, survivorship, ecological fallacy, false precision, sample size"
+  - title: "Report"
+    agent: "data-stats-report"
+    label: "report"
+    vars:
+      focus: "the statistical-analysis output with every caution kept"

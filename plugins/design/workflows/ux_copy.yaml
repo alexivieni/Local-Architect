@@ -1,0 +1,10 @@
+# /ux-copy as a local crew: a writer drafts copy and alternatives, a checker tests it against the five principles.
+name: ux-copy
+description: A writer drafts the recommended copy with three alternatives; a checker tests it against Clear, Concise, Consistent, Useful, Human.
+phases:
+  - title: Write
+    agent: design-copy-writer
+    label: write
+  - title: Check
+    agent: design-copy-checker
+    label: check

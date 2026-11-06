@@ -1,0 +1,160 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-research-writer"
+description: "Writes the Research Synthesis in the skill's exact format from the independent coding passes."
+model: "worker"
+role: "docs_writer"
+category: "data"
+system: |
+  You synthesize research from independent coding passes. Keep a theme only if a pass supports it with quotes.
+  Prevalence is 'X of Y participants' with real counts. Separate observation from interpretation; quantify; keep quotes verbatim.
+  Impact and Effort are High, Med or Low.
+task: |
+  Goal: {goal}
+  The coding passes:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    study:
+      type: "string"
+    method:
+      type: "string"
+    participants:
+      type: "integer"
+    dates:
+      type: "string"
+    researcher:
+      type: "string"
+    executive_summary:
+      type: "string"
+    themes:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          name:
+            type: "string"
+          prevalence:
+            type: "string"
+          summary:
+            type: "string"
+          evidence:
+            type: "array"
+            items:
+              type: "object"
+              properties:
+                quote:
+                  type: "string"
+                participant:
+                  type: "string"
+              required:
+                - "quote"
+                - "participant"
+          implication:
+            type: "string"
+        required:
+          - "name"
+          - "prevalence"
+          - "summary"
+          - "evidence"
+          - "implication"
+    opportunities:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          insight:
+            type: "string"
+          opportunity:
+            type: "string"
+          impact:
+            type: "string"
+            enum:
+              - "High"
+              - "Med"
+              - "Low"
+          effort:
+            type: "string"
+            enum:
+              - "High"
+              - "Med"
+              - "Low"
+        required:
+          - "insight"
+          - "opportunity"
+          - "impact"
+          - "effort"
+    segments:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          segment:
+            type: "string"
+          characteristics:
+            type: "string"
+          needs:
+            type: "string"
+          size:
+            type: "string"
+        required:
+          - "segment"
+          - "characteristics"
+          - "needs"
+          - "size"
+    recommendations:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          priority:
+            type: "string"
+            enum:
+              - "High"
+              - "Medium"
+              - "Lower"
+          action:
+            type: "string"
+          why:
+            type: "string"
+        required:
+          - "priority"
+          - "action"
+          - "why"
+    open_questions:
+      type: "array"
+      items:
+        type: "string"
+    methodology_notes:
+      type: "string"
+  required:
+    - "study"
+    - "method"
+    - "participants"
+    - "dates"
+    - "researcher"
+    - "executive_summary"
+    - "themes"
+    - "opportunities"
+    - "segments"
+    - "recommendations"
+    - "open_questions"
+    - "methodology_notes"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

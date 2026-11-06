@@ -1,0 +1,17 @@
+# source: claude-orchestration (mined by arch_playbook; local tiers only)
+name: learned-audit-x3-verify-x3
+description: "Mined shape: audit x3+ > verify x3+"
+phases:
+  - title: "Audit 1"
+    parallel:
+      - agent: auditor
+        label: "audit1:1"
+      - agent: auditor
+        label: "audit1:2"
+      - agent: auditor
+        label: "audit1:3"
+  - title: "Verify 2"
+    panel: verifier
+    n: 3
+    vote: verdict
+    label: verify2

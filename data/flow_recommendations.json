@@ -1,0 +1,419 @@
+{
+ "_about": "Recommended order of roles per flow, for `architect.py recommend FLOW`. Each step: role, job (arch_jobs), tier, ctx (prompt tokens; null = whole window), thinking, escalate (when, to), reason and an evidence tag: measured-here (this machine's runs), vendor (model card) or estimate (reasoned, not measured). Advice only; nothing here changes a setting.",
+ "_facts": [
+  {
+   "text": "A local 8B model passes about 30-45% of small tasks on its own.",
+   "evidence": "measured-here"
+  },
+  {
+   "text": "Qwen3.6 MoE is the strongest installed coder but slower.",
+   "evidence": "measured-here"
+  },
+  {
+   "text": "Qwen2.5-Coder-14B is the code specialist, about 50 tok/s here.",
+   "evidence": "measured-here"
+  },
+  {
+   "text": "Code fixes the wiring (exports, __main__, __init__); the model writes the logic: about half of failed live builds failed on shape.",
+   "evidence": "measured-here"
+  },
+  {
+   "text": "Writing tests first gave no gain at n=16.",
+   "evidence": "measured-here"
+  },
+  {
+   "text": "Thinking on for plan and review, off for edits.",
+   "evidence": "estimate"
+  }
+ ],
+ "build": {
+  "title": "Build something new from a request",
+  "steps": [
+   {
+    "role": "planner",
+    "job": "plan",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "Planning and review are where thinking pays; the plan lists every public name so later sprints agree.",
+    "evidence": "estimate"
+   },
+   {
+    "role": "interface_designer",
+    "job": "plan",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "Fix the public names before code: wiring mistakes, not logic, were about half of the failed live builds.",
+    "evidence": "measured-here"
+   },
+   {
+    "role": "generator",
+    "job": "code",
+    "tier": "worker",
+    "ctx": null,
+    "thinking": "off",
+    "escalate": {
+     "when": "two failed tries on the same sprint",
+     "to": "heavy"
+    },
+    "reason": "One sprint per module; the model writes the logic, code fixes the wiring (exports, __main__, __init__).",
+    "evidence": "measured-here",
+    "note": "Qwen2.5-Coder-14B is the code specialist when installed (~50 tok/s measured here); the 8B alone lands ~30-45% on small tasks."
+   },
+   {
+    "role": "tester",
+    "job": "test",
+    "tier": "worker",
+    "ctx": 6144,
+    "thinking": "off",
+    "escalate": null,
+    "reason": "Tests are written beside the code, not first: test-first gave no gain at n=16.",
+    "evidence": "measured-here"
+   },
+   {
+    "role": "reviewer",
+    "job": "review",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "A reading pass for what tests do not cover; its verdict is re-checked in code.",
+    "evidence": "estimate"
+   }
+  ]
+ },
+ "bugfix": {
+  "title": "Fix a bug from a report or a failing test",
+  "steps": [
+   {
+    "role": "debugger",
+    "job": "fix",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "Name the cause from the failure text before editing; a wrong fix on a guess costs more than a short think.",
+    "evidence": "estimate"
+   },
+   {
+    "role": "test_author",
+    "job": "test",
+    "tier": "worker",
+    "ctx": 6144,
+    "thinking": "off",
+    "escalate": null,
+    "reason": "The reproduction is a new test file; existing tests stay read-only.",
+    "evidence": "measured-here"
+   },
+   {
+    "role": "generator",
+    "job": "code",
+    "tier": "worker",
+    "ctx": null,
+    "thinking": "off",
+    "escalate": {
+     "when": "the reproduction still fails after two tries",
+     "to": "heavy"
+    },
+    "reason": "Smallest edit through DEF or EDIT blocks, thinking off for edits.",
+    "evidence": "measured-here",
+    "note": "Small local models fix about 30-45% of small tasks first time; escalation is for the stuck case, not the first try."
+   },
+   {
+    "role": "reviewer",
+    "job": "review",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "Checks that the fix is the cause, not a patch over the test.",
+    "evidence": "estimate"
+   }
+  ]
+ },
+ "feature": {
+  "title": "Add a feature to an existing project",
+  "steps": [
+   {
+    "role": "spec_writer",
+    "job": "plan",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "A short spec with acceptance checks keeps the change small.",
+    "evidence": "estimate"
+   },
+   {
+    "role": "fullstack",
+    "job": "code",
+    "tier": "worker",
+    "ctx": null,
+    "thinking": "off",
+    "escalate": {
+     "when": "the contract check fails twice",
+     "to": "heavy"
+    },
+    "reason": "Contract first, then data, API and UI, so the layers agree; wiring is repaired in code.",
+    "evidence": "measured-here"
+   },
+   {
+    "role": "tester",
+    "job": "test",
+    "tier": "worker",
+    "ctx": 6144,
+    "thinking": "off",
+    "escalate": null,
+    "reason": "Tests after the code (test-first showed no gain at n=16).",
+    "evidence": "measured-here"
+   },
+   {
+    "role": "reviewer",
+    "job": "review",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "One judge pass on the diff.",
+    "evidence": "estimate"
+   }
+  ]
+ },
+ "refactor": {
+  "title": "Restructure code without changing behaviour",
+  "steps": [
+   {
+    "role": "reviewer",
+    "job": "review",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "Name what is wrong (duplication, length) before touching it; the flow rejects an unchanged try.",
+    "evidence": "estimate"
+   },
+   {
+    "role": "refactorer",
+    "job": "fix",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "off",
+    "escalate": {
+     "when": "the shape check or the tests fail twice",
+     "to": "heavy"
+    },
+    "reason": "Whole-definition DEF blocks keep every other line; green tests alone prove nothing was done, so code checks that the shape changed.",
+    "evidence": "measured-here"
+   }
+  ]
+ },
+ "test": {
+  "title": "Write tests for existing code",
+  "steps": [
+   {
+    "role": "test_author",
+    "job": "test",
+    "tier": "worker",
+    "ctx": 6144,
+    "thinking": "off",
+    "escalate": {
+     "when": "no test survives the full suite after two tries",
+     "to": "heavy"
+    },
+    "reason": "Tests judged by whether broken code makes them fail; sound tests of a half-right file are kept.",
+    "evidence": "measured-here"
+   },
+   {
+    "role": "reviewer",
+    "job": "review",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "Optional: look for assertions that cannot fail.",
+    "evidence": "estimate"
+   }
+  ]
+ },
+ "review": {
+  "title": "Read a change for risks; advice only",
+  "steps": [
+   {
+    "role": "reviewer",
+    "job": "review",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": {
+     "when": "the diff is large and the worker's window cannot hold it",
+     "to": "heavy"
+    },
+    "reason": "Review is the other place thinking pays; severity-ordered, with file and line.",
+    "evidence": "estimate",
+    "note": "Qwen3.6 MoE is the strongest installed coder but slower: worth it here only when the change is big."
+   },
+   {
+    "role": "evaluator",
+    "job": "review",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "Only where code checks cannot decide.",
+    "evidence": "estimate"
+   }
+  ]
+ },
+ "secure": {
+  "title": "Fix concrete security findings",
+  "steps": [
+   {
+    "role": "security_engineer",
+    "job": "security",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": {
+     "when": "a finding is still reported after two tries",
+     "to": "heavy"
+    },
+    "reason": "A static scan supplies file, line and CWE; the model only fixes those, so a small model is enough.",
+    "evidence": "measured-here"
+   },
+   {
+    "role": "reviewer",
+    "job": "review",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "Checks that no validation was removed to make the scan pass.",
+    "evidence": "estimate"
+   }
+  ]
+ },
+ "optimize": {
+  "title": "Speed up code that was measured to be slow",
+  "steps": [
+   {
+    "role": "perf_tuner",
+    "job": "fix",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": {
+     "when": "the benchmark does not improve after two tries",
+     "to": "heavy"
+    },
+    "reason": "Reason from the measurement: pick the algorithmic change, one at a time.",
+    "evidence": "estimate"
+   },
+   {
+    "role": "tester",
+    "job": "test",
+    "tier": "worker",
+    "ctx": 6144,
+    "thinking": "off",
+    "escalate": null,
+    "reason": "A change counts only if tests stay green and the benchmark improves; code decides, not the model.",
+    "evidence": "measured-here"
+   }
+  ]
+ },
+ "hunt": {
+  "title": "Find real defects and prove each with a failing test",
+  "steps": [
+   {
+    "role": "bug_hunter",
+    "job": "fix",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": {
+     "when": "no defect is demonstrated on the first pass",
+     "to": "heavy"
+    },
+    "reason": "Adversarial reading; an unproven suspicion is discarded.",
+    "evidence": "estimate",
+    "note": "Qwen3.6 MoE reads code best of the installed models but is slower; use it for this pass only."
+   },
+   {
+    "role": "test_author",
+    "job": "test",
+    "tier": "worker",
+    "ctx": 6144,
+    "thinking": "off",
+    "escalate": null,
+    "reason": "Each defect becomes a failing pytest test; the test is the proof.",
+    "evidence": "measured-here"
+   }
+  ]
+ },
+ "design": {
+  "title": "Turn a request into a design and contract",
+  "steps": [
+   {
+    "role": "planner",
+    "job": "plan",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "Stay high-level; early plan errors cascade.",
+    "evidence": "estimate"
+   },
+   {
+    "role": "architect",
+    "job": "plan",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": {
+     "when": "the plan check rejects the design twice",
+     "to": "heavy"
+    },
+    "reason": "Decisions, rejected alternatives, API contract and data model.",
+    "evidence": "estimate",
+    "note": "Planning is low-volume (about two calls a run), so a slower, stronger model costs little here."
+   },
+   {
+    "role": "interface_designer",
+    "job": "plan",
+    "tier": "worker",
+    "ctx": 8192,
+    "thinking": "on",
+    "escalate": null,
+    "reason": "Exact public names and errors, so the build agrees with the design.",
+    "evidence": "measured-here"
+   }
+  ]
+ },
+ "docs": {
+  "title": "Document code from what it actually does",
+  "steps": [
+   {
+    "role": "explainer",
+    "job": "docs",
+    "tier": "worker",
+    "ctx": 4096,
+    "thinking": "off",
+    "escalate": null,
+    "reason": "Plain sentences from the code shown; talks only.",
+    "evidence": "estimate"
+   },
+   {
+    "role": "docs_writer",
+    "job": "docs",
+    "tier": "worker",
+    "ctx": 4096,
+    "thinking": "off",
+    "escalate": null,
+    "reason": "Docstrings and README; may write only *.md, docs/ and README.",
+    "evidence": "measured-here"
+   }
+  ]
+ }
+}

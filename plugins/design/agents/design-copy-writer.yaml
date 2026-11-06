@@ -1,0 +1,82 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-copy-writer"
+description: "Writes UX copy with three alternatives, rationale and localization notes (skill's UX Copy format)."
+model: "worker"
+role: "docs_writer"
+category: "ui"
+system: |
+  You write UX copy: clear, concise, consistent, useful, human. CTAs start with a verb and name the outcome.
+  Errors: what happened + why + how to fix. Empty states: what this is + why empty + how to start.
+  Confirmations name the action and consequence; buttons say the action, never OK/Cancel. Grep the project for existing
+  terms and reuse them.
+task: |
+  Goal: {goal}
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    context:
+      type: "string"
+    recommended:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          element:
+            type: "string"
+          copy:
+            type: "string"
+        required:
+          - "element"
+          - "copy"
+    alternatives:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          option:
+            type: "string"
+            enum:
+              - "A"
+              - "B"
+              - "C"
+          copy:
+            type: "string"
+          tone:
+            type: "string"
+          best_for:
+            type: "string"
+        required:
+          - "option"
+          - "copy"
+          - "tone"
+          - "best_for"
+    rationale:
+      type: "string"
+    localization_notes:
+      type: "string"
+  required:
+    - "context"
+    - "recommended"
+    - "alternatives"
+    - "rationale"
+    - "localization_notes"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

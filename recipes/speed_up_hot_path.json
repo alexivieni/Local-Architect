@@ -1,0 +1,30 @@
+{
+  "id": "speed_up_hot_path",
+  "title": "Speed up a hot path",
+  "summary": "Makes one function faster while a test proves the answers stay the same.",
+  "goal": "Make `{function}` faster. First add a test that pins its current results on varied inputs, then optimise it without changing any result. Report the before and after timing.",
+  "flow": "optimize",
+  "workflow": "feature_squad",
+  "agents": [
+    "perf-tuner",
+    "test-author",
+    "coder"
+  ],
+  "params": [
+    {
+      "name": "function",
+      "label": "Function to speed up",
+      "default": "the slowest public function"
+    }
+  ],
+  "requires": [
+    "modules",
+    "tests"
+  ],
+  "requires_text": {
+    "http": "a server with routes",
+    "cli": "a command line with subcommands",
+    "tests": "a test suite",
+    "modules": "at least one Python module"
+  }
+}

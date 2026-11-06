@@ -1,0 +1,32 @@
+# /design-system [audit | document | extend] as a local crew. The mode word in the goal picks the branch; audit is the default.
+name: design-system
+description: Audit (three lenses in parallel, then a scored audit), document one component, or extend the system with a new pattern.
+phases:
+  - title: Audit
+    id: audit
+    when: "'document' not in str(goal) and 'extend' not in str(goal)"
+    parallel:
+      - agent: design-system-auditor
+        label: "audit:naming"
+        vars:
+          focus: "Naming consistency - component, variant and token names that break one convention"
+      - agent: design-system-auditor
+        label: "audit:tokens"
+        vars:
+          focus: "Token coverage - tokens defined per category (colors, spacing, typography) and hardcoded values found outside them"
+      - agent: design-system-auditor
+        label: "audit:completeness"
+        vars:
+          focus: "Component completeness - for each component: states, variants and docs present (yes, partial, no)"
+  - title: Audit report
+    when: "'document' not in str(goal) and 'extend' not in str(goal)"
+    agent: design-system-audit-writer
+    label: audit-report
+  - title: Document
+    when: "'document' in str(goal)"
+    agent: design-system-documenter
+    label: document
+  - title: Extend
+    when: "'extend' in str(goal)"
+    agent: design-system-extender
+    label: extend

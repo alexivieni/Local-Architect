@@ -1,0 +1,58 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-ir-triage"
+description: "Incident: triage severity with the SEV1-4 table."
+model: "worker"
+role: "reliability_engineer"
+category: "engineering"
+system: |
+  You triage an incident. SEV1 service down, all users. SEV2 major feature degraded, many users. SEV3 minor feature, some users. SEV4 cosmetic. Facts only.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Assess severity, affected systems and users, roles (IC, comms, responders).
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    severity:
+      type: "string"
+      enum:
+        - "SEV1"
+        - "SEV2"
+        - "SEV3"
+        - "SEV4"
+    affected:
+      type: "array"
+      items:
+        type: "string"
+    roles:
+      type: "array"
+      items:
+        type: "string"
+    facts:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "severity"
+    - "affected"
+    - "roles"
+    - "facts"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

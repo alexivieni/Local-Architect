@@ -1,0 +1,80 @@
+# data-checker: saved by arch_squad.save_agent (validated before writing)
+name: "data-checker"
+description: "One QA lens on an analysis or query (checklist items, pitfalls, visuals, SQL practice); reports checks and issues."
+model: "worker"
+role: "reviewer"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Go through every item of your lens. Mark each pass / concern / fail / not_checked with a one-line reason.
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    checks:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          check:
+            type: "string"
+          status:
+            type: "string"
+            enum:
+              - "pass"
+              - "concern"
+              - "fail"
+              - "not_checked"
+          detail:
+            type: "string"
+        required:
+          - "check"
+          - "status"
+          - "detail"
+    issues:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          severity:
+            type: "string"
+            enum:
+              - "High"
+              - "Medium"
+              - "Low"
+          issue:
+            type: "string"
+          impact:
+            type: "string"
+        required:
+          - "severity"
+          - "issue"
+          - "impact"
+    summary:
+      type: "string"
+  required:
+    - "checks"
+    - "issues"
+    - "summary"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

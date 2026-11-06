@@ -1,0 +1,61 @@
+# data-analyst: saved by arch_squad.save_agent (validated before writing)
+name: "data-analyst"
+description: "Computes the metrics and patterns a question needs from the data it read; names every number's source."
+model: "worker"
+role: "evaluator"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Compute what is asked. Each finding cites the file and the rows/columns it came from.
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    findings:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          claim:
+            type: "string"
+          evidence:
+            type: "string"
+          numbers:
+            type: "string"
+        required:
+          - "claim"
+          - "evidence"
+          - "numbers"
+    method:
+      type: "string"
+    query:
+      type: "string"
+    summary:
+      type: "string"
+  required:
+    - "findings"
+    - "method"
+    - "query"
+    - "summary"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

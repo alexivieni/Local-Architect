@@ -1,0 +1,964 @@
+{
+ "schemas": {
+  "code-review": {
+   "type": "object",
+   "properties": {
+    "title": {
+     "type": "string"
+    },
+    "summary": {
+     "type": "string"
+    },
+    "critical_issues": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "file": {
+        "type": "string"
+       },
+       "line": {
+        "type": "integer"
+       },
+       "issue": {
+        "type": "string"
+       },
+       "severity": {
+        "type": "string",
+        "enum": [
+         "Critical",
+         "High"
+        ]
+       }
+      },
+      "required": [
+       "file",
+       "line",
+       "issue",
+       "severity"
+      ]
+     }
+    },
+    "suggestions": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "file": {
+        "type": "string"
+       },
+       "line": {
+        "type": "integer"
+       },
+       "suggestion": {
+        "type": "string"
+       },
+       "category": {
+        "type": "string",
+        "enum": [
+         "Security",
+         "Performance",
+         "Correctness",
+         "Maintainability"
+        ]
+       }
+      },
+      "required": [
+       "file",
+       "line",
+       "suggestion",
+       "category"
+      ]
+     }
+    },
+    "looks_good": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "verdict": {
+     "type": "string",
+     "enum": [
+      "Approve",
+      "Request Changes",
+      "Needs Discussion"
+     ]
+    }
+   },
+   "required": [
+    "title",
+    "summary",
+    "critical_issues",
+    "suggestions",
+    "looks_good",
+    "verdict"
+   ]
+  },
+  "debug": {
+   "type": "object",
+   "properties": {
+    "issue_summary": {
+     "type": "string"
+    },
+    "expected": {
+     "type": "string"
+    },
+    "actual": {
+     "type": "string"
+    },
+    "steps": {
+     "type": "string"
+    },
+    "root_cause": {
+     "type": "string"
+    },
+    "fix": {
+     "type": "string"
+    },
+    "prevention_tests": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "prevention_guards": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "issue_summary",
+    "expected",
+    "actual",
+    "steps",
+    "root_cause",
+    "fix",
+    "prevention_tests",
+    "prevention_guards"
+   ]
+  },
+  "architecture": {
+   "type": "object",
+   "properties": {
+    "number": {
+     "type": "integer"
+    },
+    "title": {
+     "type": "string"
+    },
+    "status": {
+     "type": "string",
+     "enum": [
+      "Proposed",
+      "Accepted",
+      "Deprecated",
+      "Superseded"
+     ]
+    },
+    "date": {
+     "type": "string"
+    },
+    "deciders": {
+     "type": "string"
+    },
+    "context": {
+     "type": "string"
+    },
+    "decision": {
+     "type": "string"
+    },
+    "options": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "complexity": {
+        "type": "string",
+        "enum": [
+         "Low",
+         "Med",
+         "High"
+        ]
+       },
+       "cost": {
+        "type": "string"
+       },
+       "scalability": {
+        "type": "string"
+       },
+       "team_familiarity": {
+        "type": "string"
+       },
+       "pros": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "cons": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       }
+      },
+      "required": [
+       "name",
+       "complexity",
+       "cost",
+       "scalability",
+       "team_familiarity",
+       "pros",
+       "cons"
+      ]
+     }
+    },
+    "tradeoff_analysis": {
+     "type": "string"
+    },
+    "easier": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "harder": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "revisit": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "action_items": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "number",
+    "title",
+    "status",
+    "date",
+    "deciders",
+    "context",
+    "decision",
+    "options",
+    "tradeoff_analysis",
+    "easier",
+    "harder",
+    "revisit",
+    "action_items"
+   ]
+  },
+  "deploy-checklist": {
+   "type": "object",
+   "properties": {
+    "service": {
+     "type": "string"
+    },
+    "date": {
+     "type": "string"
+    },
+    "deployer": {
+     "type": "string"
+    },
+    "customizations": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "section": {
+        "type": "string",
+        "enum": [
+         "Pre-Deploy",
+         "Deploy",
+         "Post-Deploy"
+        ]
+       },
+       "item": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "section",
+       "item"
+      ]
+     }
+    },
+    "error_rate_pct": {
+     "type": "number"
+    },
+    "p50_latency_ms": {
+     "type": "number"
+    },
+    "critical_flow": {
+     "type": "string"
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "service",
+    "date",
+    "deployer",
+    "customizations",
+    "error_rate_pct",
+    "p50_latency_ms",
+    "critical_flow",
+    "notes"
+   ]
+  },
+  "documentation": {
+   "type": "object",
+   "properties": {
+    "doc_type": {
+     "type": "string",
+     "enum": [
+      "README",
+      "API Documentation",
+      "Runbook",
+      "Architecture Doc",
+      "Onboarding Guide"
+     ]
+    },
+    "title": {
+     "type": "string"
+    },
+    "sections": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string",
+        "enum": [
+         "what",
+         "quickstart",
+         "config",
+         "contributing",
+         "endpoints",
+         "auth",
+         "ratelimits",
+         "sdk",
+         "when",
+         "prereqs",
+         "procedure",
+         "rollback",
+         "escalation",
+         "context",
+         "design",
+         "decisions",
+         "dataflow",
+         "setup",
+         "systems",
+         "tasks",
+         "contacts"
+        ]
+       },
+       "body": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key",
+       "body"
+      ]
+     }
+    }
+   },
+   "required": [
+    "doc_type",
+    "title",
+    "sections"
+   ]
+  },
+  "incident-status": {
+   "type": "object",
+   "properties": {
+    "title": {
+     "type": "string"
+    },
+    "severity": {
+     "type": "string",
+     "enum": [
+      "SEV1",
+      "SEV2",
+      "SEV3",
+      "SEV4"
+     ]
+    },
+    "status": {
+     "type": "string",
+     "enum": [
+      "Investigating",
+      "Identified",
+      "Monitoring",
+      "Resolved"
+     ]
+    },
+    "impact": {
+     "type": "string"
+    },
+    "last_updated": {
+     "type": "string"
+    },
+    "current_status": {
+     "type": "string"
+    },
+    "actions_taken": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "next_steps": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "timeline": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "time": {
+        "type": "string"
+       },
+       "event": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "time",
+       "event"
+      ]
+     }
+    }
+   },
+   "required": [
+    "title",
+    "severity",
+    "status",
+    "impact",
+    "last_updated",
+    "current_status",
+    "actions_taken",
+    "next_steps",
+    "timeline"
+   ]
+  },
+  "postmortem": {
+   "type": "object",
+   "properties": {
+    "title": {
+     "type": "string"
+    },
+    "date": {
+     "type": "string"
+    },
+    "duration": {
+     "type": "string"
+    },
+    "severity": {
+     "type": "string",
+     "enum": [
+      "SEV1",
+      "SEV2",
+      "SEV3",
+      "SEV4"
+     ]
+    },
+    "authors": {
+     "type": "string"
+    },
+    "summary": {
+     "type": "string"
+    },
+    "impact": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "timeline": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "time": {
+        "type": "string"
+       },
+       "event": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "time",
+       "event"
+      ]
+     }
+    },
+    "root_cause": {
+     "type": "string"
+    },
+    "five_whys": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "why": {
+        "type": "string"
+       },
+       "because": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "why",
+       "because"
+      ]
+     }
+    },
+    "went_well": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "went_poorly": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "action_items": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "action": {
+        "type": "string"
+       },
+       "owner": {
+        "type": "string"
+       },
+       "priority": {
+        "type": "string",
+        "enum": [
+         "P0",
+         "P1",
+         "P2"
+        ]
+       },
+       "due": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "action",
+       "owner",
+       "priority",
+       "due"
+      ]
+     }
+    },
+    "lessons": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "title",
+    "date",
+    "duration",
+    "severity",
+    "authors",
+    "summary",
+    "impact",
+    "timeline",
+    "root_cause",
+    "five_whys",
+    "went_well",
+    "went_poorly",
+    "action_items",
+    "lessons"
+   ]
+  },
+  "standup": {
+   "type": "object",
+   "properties": {
+    "date": {
+     "type": "string"
+    },
+    "yesterday": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "today": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "blockers": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "blocker": {
+        "type": "string"
+       },
+       "who_can_help": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "blocker",
+       "who_can_help"
+      ]
+     }
+    }
+   },
+   "required": [
+    "date",
+    "yesterday",
+    "today",
+    "blockers"
+   ]
+  },
+  "system-design": {
+   "type": "object",
+   "properties": {
+    "title": {
+     "type": "string"
+    },
+    "functional": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "non_functional": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "constraints": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "diagram": {
+     "type": "string"
+    },
+    "components": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "data_flow": {
+     "type": "string"
+    },
+    "api_contracts": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "storage": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "data_model": {
+     "type": "string"
+    },
+    "api_design": {
+     "type": "string"
+    },
+    "caching": {
+     "type": "string"
+    },
+    "queues": {
+     "type": "string"
+    },
+    "error_handling": {
+     "type": "string"
+    },
+    "load_estimate": {
+     "type": "string"
+    },
+    "scaling": {
+     "type": "string"
+    },
+    "failover": {
+     "type": "string"
+    },
+    "monitoring": {
+     "type": "string"
+    },
+    "tradeoffs": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "decision": {
+        "type": "string"
+       },
+       "chose": {
+        "type": "string"
+       },
+       "over": {
+        "type": "string"
+       },
+       "why": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "decision",
+       "chose",
+       "over",
+       "why"
+      ]
+     }
+    },
+    "assumptions": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "revisit": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "title",
+    "functional",
+    "non_functional",
+    "constraints",
+    "diagram",
+    "components",
+    "data_flow",
+    "api_contracts",
+    "storage",
+    "data_model",
+    "api_design",
+    "caching",
+    "queues",
+    "error_handling",
+    "load_estimate",
+    "scaling",
+    "failover",
+    "monitoring",
+    "tradeoffs",
+    "assumptions",
+    "revisit"
+   ]
+  },
+  "tech-debt": {
+   "type": "object",
+   "properties": {
+    "items": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "title": {
+        "type": "string"
+       },
+       "category": {
+        "type": "string",
+        "enum": [
+         "Code",
+         "Architecture",
+         "Test",
+         "Dependency",
+         "Documentation",
+         "Infrastructure"
+        ]
+       },
+       "location": {
+        "type": "string"
+       },
+       "impact": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5
+       },
+       "risk": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5
+       },
+       "effort": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5
+       },
+       "justification": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "title",
+       "category",
+       "location",
+       "impact",
+       "risk",
+       "effort",
+       "justification"
+      ]
+     }
+    },
+    "phases": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "phase": {
+        "type": "string"
+       },
+       "items": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "alongside": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "phase",
+       "items",
+       "alongside"
+      ]
+     }
+    }
+   },
+   "required": [
+    "items",
+    "phases"
+   ]
+  },
+  "testing-strategy": {
+   "type": "object",
+   "properties": {
+    "subject": {
+     "type": "string"
+    },
+    "component_type": {
+     "type": "string",
+     "enum": [
+      "API endpoints",
+      "Data pipelines",
+      "Frontend",
+      "Infrastructure",
+      "Other"
+     ]
+    },
+    "areas": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "area": {
+        "type": "string"
+       },
+       "test_type": {
+        "type": "string",
+        "enum": [
+         "Unit",
+         "Integration",
+         "E2E",
+         "Contract",
+         "Component",
+         "Visual regression",
+         "Accessibility",
+         "Smoke",
+         "Load",
+         "Chaos"
+        ]
+       },
+       "coverage_target": {
+        "type": "string"
+       },
+       "example_cases": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       }
+      },
+      "required": [
+       "area",
+       "test_type",
+       "coverage_target",
+       "example_cases"
+      ]
+     }
+    },
+    "gaps": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "skip": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "subject",
+    "component_type",
+    "areas",
+    "gaps",
+    "skip"
+   ]
+  }
+ },
+ "workflows": {
+  "eng-code-review": "code-review",
+  "eng-debug": "debug",
+  "eng-architecture": "architecture",
+  "eng-system-design": "system-design",
+  "eng-tech-debt": "tech-debt",
+  "eng-testing-strategy": "testing-strategy",
+  "eng-deploy-checklist": "deploy-checklist",
+  "eng-documentation": "documentation",
+  "eng-incident": "incident-status",
+  "eng-postmortem": "postmortem",
+  "eng-standup": "standup"
+ }
+}

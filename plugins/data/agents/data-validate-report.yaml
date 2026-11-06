@@ -1,0 +1,98 @@
+# data-validate-report: saved by arch_squad.save_agent (validated before writing)
+name: "data-validate-report"
+description: "Synthesises the validation lenses into the validate-data Validation Report with one overall assessment."
+model: "worker"
+role: "evaluator"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Needs revision if any High issue or Discrepancy; Share with caveats if Medium issues or caveats; else Ready to share.
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    overall_assessment:
+      type: "string"
+      enum:
+        - "Ready to share"
+        - "Share with caveats"
+        - "Needs revision"
+    methodology_review:
+      type: "string"
+    issues_found:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          severity:
+            type: "string"
+            enum:
+              - "High"
+              - "Medium"
+              - "Low"
+          issue:
+            type: "string"
+          impact:
+            type: "string"
+        required:
+          - "severity"
+          - "issue"
+          - "impact"
+    calculation_spot_checks:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          metric:
+            type: "string"
+          status:
+            type: "string"
+            enum:
+              - "Verified"
+              - "Discrepancy found"
+          detail:
+            type: "string"
+        required:
+          - "metric"
+          - "status"
+          - "detail"
+    visualization_review:
+      type: "string"
+    suggested_improvements:
+      type: "array"
+      items:
+        type: "string"
+    required_caveats:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "overall_assessment"
+    - "methodology_review"
+    - "issues_found"
+    - "calculation_spot_checks"
+    - "visualization_review"
+    - "suggested_improvements"
+    - "required_caveats"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

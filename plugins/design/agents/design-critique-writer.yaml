@@ -1,0 +1,123 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-critique-writer"
+description: "Synthesizes the dimension critiques into the skill's Design Critique format."
+model: "worker"
+role: "docs_writer"
+category: "ui"
+system: |
+  You write one design critique from the dimension notes. Keep only specific, justified findings; rank the three
+  most impactful changes first. Severity is Critical, Moderate or Minor exactly.
+task: |
+  Goal: {goal}
+  The dimension notes:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    name:
+      type: "string"
+    overall_impression:
+      type: "string"
+    usability:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          finding:
+            type: "string"
+          severity:
+            type: "string"
+            enum:
+              - "Critical"
+              - "Moderate"
+              - "Minor"
+          recommendation:
+            type: "string"
+        required:
+          - "finding"
+          - "severity"
+          - "recommendation"
+    visual_hierarchy:
+      type: "object"
+      properties:
+        draws_eye_first:
+          type: "string"
+        reading_flow:
+          type: "string"
+        emphasis:
+          type: "string"
+      required:
+        - "draws_eye_first"
+        - "reading_flow"
+        - "emphasis"
+    consistency:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          element:
+            type: "string"
+          issue:
+            type: "string"
+          recommendation:
+            type: "string"
+        required:
+          - "element"
+          - "issue"
+          - "recommendation"
+    accessibility:
+      type: "object"
+      properties:
+        color_contrast:
+          type: "string"
+        touch_targets:
+          type: "string"
+        text_readability:
+          type: "string"
+      required:
+        - "color_contrast"
+        - "touch_targets"
+        - "text_readability"
+    what_works_well:
+      type: "array"
+      items:
+        type: "string"
+    priority_recommendations:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          change:
+            type: "string"
+          why_how:
+            type: "string"
+        required:
+          - "change"
+          - "why_how"
+  required:
+    - "name"
+    - "overall_impression"
+    - "usability"
+    - "visual_hierarchy"
+    - "consistency"
+    - "accessibility"
+    - "what_works_well"
+    - "priority_recommendations"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

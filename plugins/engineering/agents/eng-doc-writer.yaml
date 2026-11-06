@@ -1,0 +1,78 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-doc-writer"
+description: "Documentation: writes the doc with the type's required sections."
+model: "worker"
+role: "docs_writer"
+category: "engineering"
+system: |
+  You write technical docs. Write for the reader, most useful first, show with commands and code, link instead of copying.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Write every required section for the doc type, one section per key.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "read"
+writes: false
+output:
+  type: "object"
+  properties:
+    doc_type:
+      type: "string"
+      enum:
+        - "README"
+        - "API Documentation"
+        - "Runbook"
+        - "Architecture Doc"
+        - "Onboarding Guide"
+    title:
+      type: "string"
+    sections:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          key:
+            type: "string"
+            enum:
+              - "what"
+              - "quickstart"
+              - "config"
+              - "contributing"
+              - "endpoints"
+              - "auth"
+              - "ratelimits"
+              - "sdk"
+              - "when"
+              - "prereqs"
+              - "procedure"
+              - "rollback"
+              - "escalation"
+              - "context"
+              - "design"
+              - "decisions"
+              - "dataflow"
+              - "setup"
+              - "systems"
+              - "tasks"
+              - "contacts"
+          body:
+            type: "string"
+        required:
+          - "key"
+          - "body"
+  required:
+    - "doc_type"
+    - "title"
+    - "sections"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

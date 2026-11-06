@@ -1,0 +1,42 @@
+{
+  "id": "add_http_endpoint",
+  "title": "Add an HTTP endpoint with tests",
+  "summary": "Adds one route to the existing server, plus tests that call it over HTTP.",
+  "goal": "Add an HTTP endpoint {method} {path} to the existing server. It should {behaviour}. Keep every existing route working. Add tests in {test_dir}/ that call the new route over HTTP and also cover a bad request.",
+  "flow": "feature",
+  "workflow": "feature_squad",
+  "agents": [
+    "spec-extractor",
+    "architect",
+    "test-author",
+    "coder",
+    "reviewer"
+  ],
+  "params": [
+    {
+      "name": "method",
+      "label": "HTTP method",
+      "default": "GET"
+    },
+    {
+      "name": "path",
+      "label": "Route path",
+      "default": "/status"
+    },
+    {
+      "name": "behaviour",
+      "label": "What it does",
+      "default": "return a JSON object with status ok"
+    }
+  ],
+  "requires": [
+    "http",
+    "tests"
+  ],
+  "requires_text": {
+    "http": "a server with routes",
+    "cli": "a command line with subcommands",
+    "tests": "a test suite",
+    "modules": "at least one Python module"
+  }
+}

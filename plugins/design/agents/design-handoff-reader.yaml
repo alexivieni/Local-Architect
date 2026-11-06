@@ -1,0 +1,62 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-handoff-reader"
+description: "Extracts one slice of a handoff spec (visual/tokens, interactions/states, content/edge cases, accessibility) from the code or description."
+model: "worker"
+role: "reviewer"
+category: "ui"
+system: |
+  You extract facts for a developer handoff, one slice only. Read the files: CSS variables and theme files are the tokens,
+  components and their props are the components. Prefer token names over raw values. Record where each fact came from.
+  If something is not specified, say 'not specified' rather than guessing. Never edit.
+task: |
+  Goal: {goal}
+  Slice: {focus}
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    items:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          section:
+            type: "string"
+          element:
+            type: "string"
+          detail:
+            type: "string"
+          source:
+            type: "string"
+        required:
+          - "section"
+          - "element"
+          - "detail"
+    unspecified:
+      type: "array"
+      items:
+        type: "string"
+    summary:
+      type: "string"
+  required:
+    - "items"
+    - "summary"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

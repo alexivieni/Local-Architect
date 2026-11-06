@@ -1,0 +1,124 @@
+# data-explore-report: saved by arch_squad.save_agent (validated before writing)
+name: "data-explore-report"
+description: "Merges the profilers' notes into the explore-data 'Data Profile' format."
+model: "worker"
+role: "docs_writer"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Merge the three profiles; one row per column; keep every flagged issue with its severity.
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    table:
+      type: "string"
+    overview:
+      type: "object"
+      properties:
+        rows:
+          type: "string"
+        columns:
+          type: "string"
+        column_breakdown:
+          type: "string"
+        date_range:
+          type: "string"
+      required:
+        - "rows"
+        - "columns"
+        - "column_breakdown"
+        - "date_range"
+    column_details:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          column:
+            type: "string"
+          type:
+            type: "string"
+          kind:
+            type: "string"
+          null_rate:
+            type: "string"
+          distinct:
+            type: "string"
+          completeness:
+            type: "string"
+            enum:
+              - "Complete"
+              - "Mostly complete"
+              - "Incomplete"
+              - "Sparse"
+          notes:
+            type: "string"
+        required:
+          - "column"
+          - "type"
+          - "kind"
+          - "null_rate"
+          - "distinct"
+          - "completeness"
+          - "notes"
+    quality_issues:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          severity:
+            type: "string"
+            enum:
+              - "alert"
+              - "warn"
+              - "info"
+          column:
+            type: "string"
+          issue:
+            type: "string"
+        required:
+          - "severity"
+          - "column"
+          - "issue"
+    dimensions:
+      type: "array"
+      items:
+        type: "string"
+    metrics:
+      type: "array"
+      items:
+        type: "string"
+    recommended_explorations:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "table"
+    - "overview"
+    - "column_details"
+    - "quality_issues"
+    - "dimensions"
+    - "metrics"
+    - "recommended_explorations"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

@@ -1,0 +1,115 @@
+# Output format: system-design (render.py turns the result into the skill's Markdown).
+name: "eng-system-design"
+description: "Requirements, then high-level design and scale side by side, then trade-offs."
+phases:
+  - title: "Requirements"
+    agent: "eng-sd-requirements"
+    label: "requirements"
+  - title: "Design"
+    parallel:
+      - agent: "eng-sd-highlevel"
+        label: "design:high-level"
+      - agent: "eng-sd-scale"
+        label: "design:scale"
+  - title: "Document"
+    agent: "eng-sd-writer"
+    label: "document"
+returns:
+  type: "object"
+  properties:
+    title:
+      type: "string"
+    functional:
+      type: "array"
+      items:
+        type: "string"
+    non_functional:
+      type: "array"
+      items:
+        type: "string"
+    constraints:
+      type: "array"
+      items:
+        type: "string"
+    diagram:
+      type: "string"
+    components:
+      type: "array"
+      items:
+        type: "string"
+    data_flow:
+      type: "string"
+    api_contracts:
+      type: "array"
+      items:
+        type: "string"
+    storage:
+      type: "array"
+      items:
+        type: "string"
+    data_model:
+      type: "string"
+    api_design:
+      type: "string"
+    caching:
+      type: "string"
+    queues:
+      type: "string"
+    error_handling:
+      type: "string"
+    load_estimate:
+      type: "string"
+    scaling:
+      type: "string"
+    failover:
+      type: "string"
+    monitoring:
+      type: "string"
+    tradeoffs:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          decision:
+            type: "string"
+          chose:
+            type: "string"
+          over:
+            type: "string"
+          why:
+            type: "string"
+        required:
+          - "decision"
+          - "chose"
+          - "over"
+          - "why"
+    assumptions:
+      type: "array"
+      items:
+        type: "string"
+    revisit:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "title"
+    - "functional"
+    - "non_functional"
+    - "constraints"
+    - "diagram"
+    - "components"
+    - "data_flow"
+    - "api_contracts"
+    - "storage"
+    - "data_model"
+    - "api_design"
+    - "caching"
+    - "queues"
+    - "error_handling"
+    - "load_estimate"
+    - "scaling"
+    - "failover"
+    - "monitoring"
+    - "tradeoffs"
+    - "assumptions"
+    - "revisit"

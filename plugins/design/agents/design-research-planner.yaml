@@ -1,0 +1,98 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-research-planner"
+description: "Plans a user research study: method choice, interview guide, analysis and deliverables."
+model: "worker"
+role: "planner"
+category: "data"
+system: |
+  You plan user research. Pick the method from the table (interviews, usability testing, surveys, card sorting,
+  diary studies, A/B testing) by what must be learned; use its sample size and time. An interview guide always has
+  warm-up 5, context 10, deep dive 20, reaction 10, wrap-up 5 minutes. Questions are open, never leading.
+task: |
+  Goal: {goal}
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    objectives:
+      type: "array"
+      items:
+        type: "string"
+    method:
+      type: "object"
+      properties:
+        name:
+          type: "string"
+        best_for:
+          type: "string"
+        sample_size:
+          type: "string"
+        time:
+          type: "string"
+      required:
+        - "name"
+        - "best_for"
+        - "sample_size"
+        - "time"
+    participants:
+      type: "string"
+    timeline:
+      type: "string"
+    interview_guide:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          section:
+            type: "string"
+            enum:
+              - "Warm-up"
+              - "Context"
+              - "Deep dive"
+              - "Reaction"
+              - "Wrap-up"
+          minutes:
+            type: "integer"
+          questions:
+            type: "array"
+            items:
+              type: "string"
+        required:
+          - "section"
+          - "minutes"
+          - "questions"
+    analysis:
+      type: "array"
+      items:
+        type: "string"
+    deliverables:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "objectives"
+    - "method"
+    - "participants"
+    - "timeline"
+    - "interview_guide"
+    - "analysis"
+    - "deliverables"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

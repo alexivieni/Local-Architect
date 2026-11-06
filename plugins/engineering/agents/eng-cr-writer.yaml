@@ -1,0 +1,95 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-cr-writer"
+description: "Writes the code review in the skill's exact output format."
+model: "worker"
+role: "reviewer"
+category: "engineering"
+system: |
+  You write a code review from confirmed findings. Do not invent findings.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Critical issues = severity Critical or High. Everything else goes to suggestions with one category. Verdict: Request Changes if any critical issue, Needs Discussion if unsure, else Approve.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "read"
+writes: false
+output:
+  type: "object"
+  properties:
+    title:
+      type: "string"
+    summary:
+      type: "string"
+    critical_issues:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          file:
+            type: "string"
+          line:
+            type: "integer"
+          issue:
+            type: "string"
+          severity:
+            type: "string"
+            enum:
+              - "Critical"
+              - "High"
+        required:
+          - "file"
+          - "line"
+          - "issue"
+          - "severity"
+    suggestions:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          file:
+            type: "string"
+          line:
+            type: "integer"
+          suggestion:
+            type: "string"
+          category:
+            type: "string"
+            enum:
+              - "Security"
+              - "Performance"
+              - "Correctness"
+              - "Maintainability"
+        required:
+          - "file"
+          - "line"
+          - "suggestion"
+          - "category"
+    looks_good:
+      type: "array"
+      items:
+        type: "string"
+    verdict:
+      type: "string"
+      enum:
+        - "Approve"
+        - "Request Changes"
+        - "Needs Discussion"
+  required:
+    - "title"
+    - "summary"
+    - "critical_issues"
+    - "suggestions"
+    - "looks_good"
+    - "verdict"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

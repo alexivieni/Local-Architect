@@ -1,0 +1,71 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-sd-highlevel"
+description: "System design 2-3: high-level design and deep dive."
+model: "worker"
+role: "architect"
+category: "engineering"
+system: |
+  You design the high-level architecture and its details from the requirements.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  High-level: components, data flow, API contracts, storage. Deep dive: data model, API design, caching, queues, error handling and retry.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    diagram:
+      type: "string"
+    components:
+      type: "array"
+      items:
+        type: "string"
+    data_flow:
+      type: "string"
+    api_contracts:
+      type: "array"
+      items:
+        type: "string"
+    storage:
+      type: "array"
+      items:
+        type: "string"
+    data_model:
+      type: "string"
+    api_design:
+      type: "string"
+    caching:
+      type: "string"
+    queues:
+      type: "string"
+    error_handling:
+      type: "string"
+  required:
+    - "diagram"
+    - "components"
+    - "data_flow"
+    - "api_contracts"
+    - "storage"
+    - "data_model"
+    - "api_design"
+    - "caching"
+    - "queues"
+    - "error_handling"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "high"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

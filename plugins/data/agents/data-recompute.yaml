@@ -1,0 +1,62 @@
+# data-recompute: saved by arch_squad.save_agent (validated before writing)
+name: "data-recompute"
+description: "Independently recomputes the key numbers of an analysis from the raw data and compares them."
+model: "worker"
+role: "evaluator"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Pick up to 5 key numbers. Recompute each from the raw data yourself, without trusting the analysis.
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    spot_checks:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          metric:
+            type: "string"
+          reported:
+            type: "string"
+          recomputed:
+            type: "string"
+          status:
+            type: "string"
+            enum:
+              - "Verified"
+              - "Discrepancy found"
+              - "Not recomputable"
+        required:
+          - "metric"
+          - "reported"
+          - "recomputed"
+          - "status"
+    summary:
+      type: "string"
+  required:
+    - "spot_checks"
+    - "summary"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

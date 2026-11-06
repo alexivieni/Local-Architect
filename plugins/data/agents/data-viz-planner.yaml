@@ -1,0 +1,59 @@
+# data-viz-planner: saved by arch_squad.save_agent (validated before writing)
+name: "data-viz-planner"
+description: "Chooses the chart type from the data relationship (the skill's chart table) and states the insight title."
+model: "worker"
+role: "planner"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    data_relationship:
+      type: "string"
+    chart_type:
+      type: "string"
+    why:
+      type: "string"
+    library:
+      type: "string"
+      enum:
+        - "matplotlib"
+        - "plotly"
+    title_insight:
+      type: "string"
+    audience:
+      type: "string"
+    data_source:
+      type: "string"
+  required:
+    - "data_relationship"
+    - "chart_type"
+    - "why"
+    - "library"
+    - "title_insight"
+    - "audience"
+    - "data_source"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "low"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

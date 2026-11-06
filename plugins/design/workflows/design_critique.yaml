@@ -1,0 +1,29 @@
+# /design-critique as a local crew: independent critique dimensions in parallel, then one synthesis in the skill's format.
+name: design-critique
+description: Five critics each take one dimension of the critique framework; a writer synthesizes them into the Design Critique format.
+phases:
+  - title: Critique
+    parallel:
+      - agent: design-critic
+        label: "critique:first-impression"
+        vars:
+          focus: "First impression (2 seconds) - what draws the eye first and is that correct, emotional reaction, is the purpose clear"
+      - agent: design-critic
+        label: "critique:usability"
+        vars:
+          focus: "Usability - can the user reach the goal, intuitive navigation, obvious interactive elements, unnecessary steps"
+      - agent: design-critic
+        label: "critique:hierarchy"
+        vars:
+          focus: "Visual hierarchy - reading order, right emphasis, whitespace, typography creating hierarchy"
+      - agent: design-critic
+        label: "critique:consistency"
+        vars:
+          focus: "Consistency - follows the design system, consistent spacing, colors and type, similar elements behave alike"
+      - agent: design-critic
+        label: "critique:accessibility"
+        vars:
+          focus: "Accessibility - color contrast ratios, touch target sizes, text readability, alt text for images"
+  - title: Synthesis
+    agent: design-critique-writer
+    label: synthesis

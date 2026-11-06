@@ -1,0 +1,26 @@
+# source: claude-orchestration (mined by arch_playbook; local tiers only)
+name: learned-build-x3-verify-x3-build
+description: "Mined shape: build x3+ > verify x3+ > build"
+phases:
+  - title: "Build 1"
+    parallel:
+      - agent: builder
+        label: "build1:1"
+      - agent: builder
+        label: "build1:2"
+      - agent: builder
+        label: "build1:3"
+  - title: "Verify 2"
+    panel: verifier
+    n: 3
+    vote: verdict
+    label: verify2
+  - title: "Build 3"
+    agent: builder
+    label: build3
+    owns: "{owns}"
+  - title: "Verify 4"
+    panel: verifier
+    n: 3
+    vote: verdict
+    label: verify4

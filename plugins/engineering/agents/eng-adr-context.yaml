@@ -1,0 +1,51 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-adr-context"
+description: "ADR: reads the project for constraints and prior decisions (docs/adr)."
+model: "worker"
+role: "architect"
+category: "engineering"
+system: |
+  You collect the context for an architecture decision from the project: stack, constraints, prior ADRs under docs/adr.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Collect context: situation, forces, constraints, non-functional needs, prior ADR numbers.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    situation:
+      type: "string"
+    constraints:
+      type: "array"
+      items:
+        type: "string"
+    prior_adrs:
+      type: "array"
+      items:
+        type: "string"
+    next_number:
+      type: "integer"
+  required:
+    - "situation"
+    - "constraints"
+    - "prior_adrs"
+    - "next_number"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "low"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

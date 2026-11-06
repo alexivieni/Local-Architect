@@ -18,7 +18,7 @@ import sys
 
 if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from distributed import HOLDOUT, TEST_HEAD, TEST_TAIL, _fill, _mutate  # noqa: E402  (one folder, plain import, like _bank)
+from distributed import TEST_HEAD, TEST_TAIL, _fill, _mutate  # noqa: E402  (one folder, plain import, like _bank)
 
 FLOW = "build"
 DEFAULT_N = 1
@@ -1023,6 +1023,8 @@ def t_ledger(v):
 
 
 # ------------------------------------------------------------------ the family
+HOLDOUT_TEMPLATES = ("stall", "prompt")     # held out WHOLE: no variant of these is ever trained on
+
 TEMPLATES = [
     ("gate", "easy", GATE_V, t_gate),
     ("budget", "easy", BUDGET_V, t_budget),
@@ -1041,7 +1043,7 @@ def _task(key, level, k, built):
     test_src = TEST_HEAD + tests + TEST_TAIL
     return {
         "id": f"{PREFIX}-{key}-{k:02d}", "template": key,
-        "tags": [TAG, "training", "python", "from-nothing", key, "level-" + level] + (["holdout"] if k == HOLDOUT else []),
+        "tags": [TAG, "training", "python", "from-nothing", key, "level-" + level] + (["holdout"] if key in HOLDOUT_TEMPLATES else []),
         "goal": goal, "params": {"domains": ["api"]},
         "fixture": {"files": {"fakemodel.py": FAKEMODEL, "CONVENTIONS.md": CONVENTIONS}},
         "budget": {"calls": 24, "tokens": 90000, "seconds": 1200},

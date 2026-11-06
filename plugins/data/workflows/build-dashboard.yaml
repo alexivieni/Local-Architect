@@ -1,0 +1,15 @@
+# data:build-dashboard - generated from the data plugin's build-dashboard skill (see skills/build-dashboard.md)
+name: "build-dashboard"
+description: "Build a self-contained HTML dashboard: plan the layout, then build one file."
+phases:
+  - title: "Plan"
+    agent: "data-dashboard-planner"
+    label: "plan"
+    vars:
+      focus: "steps 1-3: purpose, audience, KPIs, dimensions, data source; standard layout"
+  - title: "Build"
+    agent: "data-dashboard-builder"
+    label: "build"
+    owns: "{owns}"
+    vars:
+      focus: "steps 4-7: base template, Chart.js charts, filters, sortable table, embedded JSON"

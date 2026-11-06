@@ -1,0 +1,124 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-pm-writer"
+description: "Postmortem: the blameless postmortem document."
+model: "worker"
+role: "reliability_engineer"
+category: "engineering"
+system: |
+  You write a blameless postmortem. Systems and processes, never individuals. Status Draft.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Write the postmortem with action items that each have an owner, P0/P1/P2 and a due date.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "read"
+writes: false
+output:
+  type: "object"
+  properties:
+    title:
+      type: "string"
+    date:
+      type: "string"
+    duration:
+      type: "string"
+    severity:
+      type: "string"
+      enum:
+        - "SEV1"
+        - "SEV2"
+        - "SEV3"
+        - "SEV4"
+    authors:
+      type: "string"
+    summary:
+      type: "string"
+    impact:
+      type: "array"
+      items:
+        type: "string"
+    timeline:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          time:
+            type: "string"
+          event:
+            type: "string"
+        required:
+          - "time"
+          - "event"
+    root_cause:
+      type: "string"
+    five_whys:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          why:
+            type: "string"
+          because:
+            type: "string"
+        required:
+          - "why"
+          - "because"
+    went_well:
+      type: "array"
+      items:
+        type: "string"
+    went_poorly:
+      type: "array"
+      items:
+        type: "string"
+    action_items:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          action:
+            type: "string"
+          owner:
+            type: "string"
+          priority:
+            type: "string"
+            enum:
+              - "P0"
+              - "P1"
+              - "P2"
+          due:
+            type: "string"
+        required:
+          - "action"
+          - "owner"
+          - "priority"
+          - "due"
+    lessons:
+      type: "string"
+  required:
+    - "title"
+    - "date"
+    - "duration"
+    - "severity"
+    - "authors"
+    - "summary"
+    - "impact"
+    - "timeline"
+    - "root_cause"
+    - "five_whys"
+    - "went_well"
+    - "went_poorly"
+    - "action_items"
+    - "lessons"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

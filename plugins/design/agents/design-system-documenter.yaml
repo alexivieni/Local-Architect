@@ -1,0 +1,116 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-system-documenter"
+description: "Documents one component in the skill's Component format, from its source."
+model: "worker"
+role: "docs_writer"
+category: "ui"
+system: |
+  You document one component. Read its source first: props come from the code, states from its styles and handlers.
+  Write what is true of the code; mark anything you could not find as 'not found'. Never edit.
+task: |
+  Goal: {goal}
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    name:
+      type: "string"
+    description:
+      type: "string"
+    variants:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          variant:
+            type: "string"
+          use_when:
+            type: "string"
+        required:
+          - "variant"
+          - "use_when"
+    props:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          property:
+            type: "string"
+          type:
+            type: "string"
+          default:
+            type: "string"
+          description:
+            type: "string"
+        required:
+          - "property"
+          - "type"
+          - "default"
+          - "description"
+    states:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          state:
+            type: "string"
+          visual:
+            type: "string"
+          behavior:
+            type: "string"
+        required:
+          - "state"
+          - "visual"
+          - "behavior"
+    accessibility:
+      type: "object"
+      properties:
+        role:
+          type: "string"
+        keyboard:
+          type: "string"
+        screen_reader:
+          type: "string"
+      required:
+        - "role"
+        - "keyboard"
+        - "screen_reader"
+    dos:
+      type: "array"
+      items:
+        type: "string"
+    donts:
+      type: "array"
+      items:
+        type: "string"
+    code_example:
+      type: "string"
+  required:
+    - "name"
+    - "description"
+    - "variants"
+    - "props"
+    - "states"
+    - "accessibility"
+    - "dos"
+    - "donts"
+    - "code_example"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

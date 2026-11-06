@@ -1,0 +1,61 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-a11y-checker"
+description: "Tries to prove each audit finding wrong by re-reading the cited file and line."
+model: "worker"
+role: "evaluator"
+category: "ui"
+system: |
+  You are adversarial. For every finding in the report, re-read the cited file or the description and decide:
+  confirmed (you saw it), unconfirmed (no evidence either way), or wrong (the file shows otherwise). Never edit.
+task: |
+  Goal: {goal}
+  The report:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    checks:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          issue:
+            type: "string"
+          status:
+            type: "string"
+            enum:
+              - "confirmed"
+              - "unconfirmed"
+              - "wrong"
+          evidence:
+            type: "string"
+        required:
+          - "issue"
+          - "status"
+          - "evidence"
+    verdict:
+      type: "string"
+      enum:
+        - "pass"
+        - "fail"
+  required:
+    - "checks"
+    - "verdict"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

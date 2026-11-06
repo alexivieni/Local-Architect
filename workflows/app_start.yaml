@@ -1,0 +1,20 @@
+# Start a project from the template catalog, then build the first feature with the feature squad's agents.
+# Run: python architect.py crew workflows/app_start.yaml --goal "a todo CLI" --owns app/,tests/ [--fake]
+name: app-start
+description: The app scaffolder starts the project from a template; a coder adds the first feature to the files it owns; a verifier checks it.
+phases:
+  - title: Scaffold
+    id: scaffold
+    agent: app-scaffolder
+    label: scaffold
+    owns: "{owns}"
+  - title: Feature
+    id: feature
+    agent: coder
+    label: feature
+    owns: "{owns}"
+    task: Add the first feature the goal asks for to the scaffold, without breaking its tests.
+  - title: Verify
+    id: verify
+    agent: verifier
+    label: verify

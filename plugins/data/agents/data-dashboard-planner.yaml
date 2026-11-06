@@ -1,0 +1,98 @@
+# data-dashboard-planner: saved by arch_squad.save_agent (validated before writing)
+name: "data-dashboard-planner"
+description: "Plans a dashboard: purpose, audience, 2-4 KPIs, 1-3 charts, filters, table, data source."
+model: "worker"
+role: "planner"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    title:
+      type: "string"
+    purpose:
+      type: "string"
+    audience:
+      type: "string"
+    kpis:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          label:
+            type: "string"
+          metric:
+            type: "string"
+          format:
+            type: "string"
+        required:
+          - "label"
+          - "metric"
+          - "format"
+    charts:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          type:
+            type: "string"
+            enum:
+              - "line"
+              - "bar"
+              - "doughnut"
+              - "stacked bar"
+              - "mixed"
+          metric:
+            type: "string"
+          dimension:
+            type: "string"
+        required:
+          - "type"
+          - "metric"
+          - "dimension"
+    filters:
+      type: "array"
+      items:
+        type: "string"
+    table_columns:
+      type: "array"
+      items:
+        type: "string"
+    data_source:
+      type: "string"
+    sample_data:
+      type: "boolean"
+  required:
+    - "title"
+    - "purpose"
+    - "audience"
+    - "kpis"
+    - "charts"
+    - "filters"
+    - "table_columns"
+    - "data_source"
+    - "sample_data"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "low"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

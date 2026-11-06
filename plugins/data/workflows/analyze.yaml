@@ -1,0 +1,29 @@
+# data:analyze - generated from the data plugin's analyze skill (see skills/analyze.md)
+name: "analyze"
+description: "Answer a data question: scope, analyse, validate and recompute side by side, then report at the right depth."
+phases:
+  - title: "Understand"
+    agent: "data-scoper"
+    label: "scope"
+    vars:
+      focus: "step 1-2: complexity level, data requirements, output format, which files hold the data"
+  - title: "Analyze"
+    agent: "data-analyst"
+    label: "analyze"
+    vars:
+      focus: "step 3: metrics, aggregations, patterns, comparisons; break complex questions into sub-questions"
+  - title: "Validate"
+    parallel:
+      - agent: "data-checker"
+        label: "validate:checks"
+        vars:
+          focus: "step 4: row count sanity, null check, magnitude check, trend continuity, aggregation logic"
+      - agent: "data-recompute"
+        label: "validate:recompute"
+        vars:
+          focus: "recompute the analysis' key numbers from the raw data"
+  - title: "Present"
+    agent: "data-analyze-report"
+    label: "present"
+    vars:
+      focus: "step 5: present findings for the complexity level; include the query; note every caveat the validators raised"

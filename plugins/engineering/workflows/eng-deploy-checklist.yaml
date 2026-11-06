@@ -1,0 +1,54 @@
+# Output format: deploy-checklist (render.py turns the result into the skill's Markdown).
+name: "eng-deploy-checklist"
+description: "Deploy facts from the project, then the customized checklist."
+phases:
+  - title: "Facts"
+    agent: "eng-dc-scan"
+    label: "facts"
+  - title: "Checklist"
+    agent: "eng-dc-writer"
+    label: "checklist"
+returns:
+  type: "object"
+  properties:
+    service:
+      type: "string"
+    date:
+      type: "string"
+    deployer:
+      type: "string"
+    customizations:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          section:
+            type: "string"
+            enum:
+              - "Pre-Deploy"
+              - "Deploy"
+              - "Post-Deploy"
+          item:
+            type: "string"
+        required:
+          - "section"
+          - "item"
+    error_rate_pct:
+      type: "number"
+    p50_latency_ms:
+      type: "number"
+    critical_flow:
+      type: "string"
+    notes:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "service"
+    - "date"
+    - "deployer"
+    - "customizations"
+    - "error_rate_pct"
+    - "p50_latency_ms"
+    - "critical_flow"
+    - "notes"

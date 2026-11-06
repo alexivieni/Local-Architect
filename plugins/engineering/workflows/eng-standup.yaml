@@ -1,0 +1,37 @@
+# Output format: standup (render.py turns the result into the skill's Markdown).
+name: "eng-standup"
+description: "One agent: the standup update."
+phases:
+  - title: "Standup"
+    agent: "eng-standup"
+    label: "standup"
+returns:
+  type: "object"
+  properties:
+    date:
+      type: "string"
+    yesterday:
+      type: "array"
+      items:
+        type: "string"
+    today:
+      type: "array"
+      items:
+        type: "string"
+    blockers:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          blocker:
+            type: "string"
+          who_can_help:
+            type: "string"
+        required:
+          - "blocker"
+          - "who_can_help"
+  required:
+    - "date"
+    - "yesterday"
+    - "today"
+    - "blockers"

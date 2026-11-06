@@ -1,0 +1,126 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-sd-writer"
+description: "System design 5: trade-offs and the design document."
+model: "worker"
+role: "architect"
+category: "engineering"
+system: |
+  You assemble the design document. Make every trade-off explicit (complexity, cost, familiarity, time to market, maintainability).
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Merge the parts above, add trade-offs, assumptions, and what to revisit as the system grows.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "read"
+writes: false
+output:
+  type: "object"
+  properties:
+    title:
+      type: "string"
+    functional:
+      type: "array"
+      items:
+        type: "string"
+    non_functional:
+      type: "array"
+      items:
+        type: "string"
+    constraints:
+      type: "array"
+      items:
+        type: "string"
+    diagram:
+      type: "string"
+    components:
+      type: "array"
+      items:
+        type: "string"
+    data_flow:
+      type: "string"
+    api_contracts:
+      type: "array"
+      items:
+        type: "string"
+    storage:
+      type: "array"
+      items:
+        type: "string"
+    data_model:
+      type: "string"
+    api_design:
+      type: "string"
+    caching:
+      type: "string"
+    queues:
+      type: "string"
+    error_handling:
+      type: "string"
+    load_estimate:
+      type: "string"
+    scaling:
+      type: "string"
+    failover:
+      type: "string"
+    monitoring:
+      type: "string"
+    tradeoffs:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          decision:
+            type: "string"
+          chose:
+            type: "string"
+          over:
+            type: "string"
+          why:
+            type: "string"
+        required:
+          - "decision"
+          - "chose"
+          - "over"
+          - "why"
+    assumptions:
+      type: "array"
+      items:
+        type: "string"
+    revisit:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "title"
+    - "functional"
+    - "non_functional"
+    - "constraints"
+    - "diagram"
+    - "components"
+    - "data_flow"
+    - "api_contracts"
+    - "storage"
+    - "data_model"
+    - "api_design"
+    - "caching"
+    - "queues"
+    - "error_handling"
+    - "load_estimate"
+    - "scaling"
+    - "failover"
+    - "monitoring"
+    - "tradeoffs"
+    - "assumptions"
+    - "revisit"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

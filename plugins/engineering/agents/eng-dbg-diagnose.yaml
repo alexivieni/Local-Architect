@@ -1,0 +1,59 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-dbg-diagnose"
+description: "Debug step 3: hypotheses tested against the code."
+model: "worker"
+role: "bug_hunter"
+category: "engineering"
+system: |
+  You test hypotheses about a bug against the code and tests. Separate root cause from symptoms.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Step DIAGNOSE: list hypotheses, test each by reading code or running tests, name the root cause.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "run_tests"
+writes: false
+output:
+  type: "object"
+  properties:
+    hypotheses:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          hypothesis:
+            type: "string"
+          result:
+            type: "string"
+            enum:
+              - "confirmed"
+              - "rejected"
+              - "unknown"
+          evidence:
+            type: "string"
+        required:
+          - "hypothesis"
+          - "result"
+          - "evidence"
+    root_cause:
+      type: "string"
+  required:
+    - "hypotheses"
+    - "root_cause"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "high"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

@@ -1,0 +1,108 @@
+# data-stats-report: saved by arch_squad.save_agent (validated before writing)
+name: "data-stats-report"
+description: "Writes the statistical-analysis result: descriptives, method choices, tests, outliers, cautions."
+model: "worker"
+role: "evaluator"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Report mean AND median, a range not a point forecast, effect size with any p-value.
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    descriptive:
+      type: "object"
+      properties:
+        mean:
+          type: "string"
+        median:
+          type: "string"
+        spread:
+          type: "string"
+        percentiles:
+          type: "string"
+        shape:
+          type: "string"
+      required:
+        - "mean"
+        - "median"
+        - "spread"
+        - "percentiles"
+        - "shape"
+    trend:
+      type: "string"
+    outliers:
+      type: "object"
+      properties:
+        method:
+          type: "string"
+          enum:
+            - "z-score"
+            - "IQR"
+            - "percentile"
+            - "none"
+        count:
+          type: "string"
+        handling:
+          type: "string"
+      required:
+        - "method"
+        - "count"
+        - "handling"
+    tests:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          scenario:
+            type: "string"
+          test:
+            type: "string"
+          result:
+            type: "string"
+          effect_size:
+            type: "string"
+          practical_significance:
+            type: "string"
+        required:
+          - "scenario"
+          - "test"
+          - "result"
+          - "effect_size"
+          - "practical_significance"
+    cautions:
+      type: "array"
+      items:
+        type: "string"
+    summary:
+      type: "string"
+  required:
+    - "descriptive"
+    - "trend"
+    - "outliers"
+    - "tests"
+    - "cautions"
+    - "summary"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

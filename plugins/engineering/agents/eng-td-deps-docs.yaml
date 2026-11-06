@@ -1,0 +1,60 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-td-deps-docs"
+description: "Tech debt scan: dependency and documentation debt."
+model: "worker"
+role: "dependency_engineer"
+category: "engineering"
+system: |
+  You find dependency and documentation debt. Cite file paths.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Scan for DEPENDENCY debt (outdated or unpinned libraries in requirements/package files) and DOCUMENTATION debt (missing runbooks, stale README).
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    findings:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          file:
+            type: "string"
+          line:
+            type: "integer"
+          problem:
+            type: "string"
+          category:
+            type: "string"
+            enum:
+              - "Dependency"
+              - "Documentation"
+        required:
+          - "file"
+          - "line"
+          - "problem"
+          - "category"
+    summary:
+      type: "string"
+  required:
+    - "findings"
+    - "summary"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "low"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

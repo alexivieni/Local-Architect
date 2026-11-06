@@ -1,0 +1,90 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-td-scorer"
+description: "Tech debt: scores Impact, Risk, Effort 1-5 and plans phases (priority is computed in code)."
+model: "worker"
+role: "planner"
+category: "engineering"
+system: |
+  You score technical debt items. Impact: how much it slows the team (1-5). Risk: what happens if not fixed (1-5). Effort: how hard the fix is (1-5). Do not compute the priority; code does.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Score every finding above, give a business justification, and a phased plan that runs alongside feature work.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "read"
+writes: false
+output:
+  type: "object"
+  properties:
+    items:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          title:
+            type: "string"
+          category:
+            type: "string"
+            enum:
+              - "Code"
+              - "Architecture"
+              - "Test"
+              - "Dependency"
+              - "Documentation"
+              - "Infrastructure"
+          location:
+            type: "string"
+          impact:
+            type: "integer"
+            minimum: 1
+            maximum: 5
+          risk:
+            type: "integer"
+            minimum: 1
+            maximum: 5
+          effort:
+            type: "integer"
+            minimum: 1
+            maximum: 5
+          justification:
+            type: "string"
+        required:
+          - "title"
+          - "category"
+          - "location"
+          - "impact"
+          - "risk"
+          - "effort"
+          - "justification"
+    phases:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          phase:
+            type: "string"
+          items:
+            type: "array"
+            items:
+              type: "string"
+          alongside:
+            type: "string"
+        required:
+          - "phase"
+          - "items"
+          - "alongside"
+  required:
+    - "items"
+    - "phases"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

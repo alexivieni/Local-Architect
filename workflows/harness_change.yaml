@@ -1,0 +1,36 @@
+# source: local (hand-written, follows CLAUDE.md conventions; compatible with the self-improve loop's phases)
+# Change the app itself: audit -> plan with file ownership -> build -> verify (suites) -> report.
+# Run: python architect.py crew workflows/harness_change.yaml --goal "add a gate ..." --owns arch_gates.py,arch_selftest_x.py [--fake]
+name: harness-change
+description: Auditors read the code the goal touches, a planner splits the change into owned files, the harness engineer builds only those, a verifier re-runs the suites, a docs writer reports.
+phases:
+  - title: Audit
+    id: audit
+    parallel:
+      - agent: auditor
+        label: "audit:conventions"
+        vars:
+          focus: which CLAUDE.md conventions and playbooks/ pages apply to this change, and which existing function it must not break
+      - agent: auditor
+        label: "audit:tests"
+        vars:
+          focus: which arch_selftest_* suite covers the code the goal is about and what it does not check
+  - title: Plan
+    id: plan
+    agent: si-planner
+    label: plan
+  - title: Build
+    id: build
+    agent: harness-engineer
+    label: build
+    owns: "{owns}"
+  - title: Verify
+    id: verify
+    agent: verifier
+    label: "verify:suites"
+    task: "Assume the change is wrong. Run the tests, re-read every changed line, and say pass only with evidence."
+  - title: Report
+    id: report
+    agent: docs-writer
+    label: report
+    task: "Report in plain words: what changed, which files, which suites to run, what is not verified. Do not edit any file."

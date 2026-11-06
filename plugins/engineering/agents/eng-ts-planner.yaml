@@ -1,0 +1,85 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-ts-planner"
+description: "Testing strategy: the test plan in the skill's format."
+model: "worker"
+role: "tester"
+category: "engineering"
+system: |
+  You design a test plan with the testing pyramid: many unit, some integration, few E2E. Cover business-critical paths, error handling, edge cases, security boundaries, data integrity. Skip trivial getters/setters, framework code, one-off scripts.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Write the plan: areas with test type, coverage target and example cases; gaps; what to skip.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "read"
+writes: false
+output:
+  type: "object"
+  properties:
+    subject:
+      type: "string"
+    component_type:
+      type: "string"
+      enum:
+        - "API endpoints"
+        - "Data pipelines"
+        - "Frontend"
+        - "Infrastructure"
+        - "Other"
+    areas:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          area:
+            type: "string"
+          test_type:
+            type: "string"
+            enum:
+              - "Unit"
+              - "Integration"
+              - "E2E"
+              - "Contract"
+              - "Component"
+              - "Visual regression"
+              - "Accessibility"
+              - "Smoke"
+              - "Load"
+              - "Chaos"
+          coverage_target:
+            type: "string"
+          example_cases:
+            type: "array"
+            items:
+              type: "string"
+        required:
+          - "area"
+          - "test_type"
+          - "coverage_target"
+          - "example_cases"
+    gaps:
+      type: "array"
+      items:
+        type: "string"
+    skip:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "subject"
+    - "component_type"
+    - "areas"
+    - "gaps"
+    - "skip"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

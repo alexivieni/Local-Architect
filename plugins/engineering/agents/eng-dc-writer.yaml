@@ -1,0 +1,71 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-dc-writer"
+description: "Deploy checklist: customizations and rollback triggers."
+model: "worker"
+role: "ci_engineer"
+category: "engineering"
+system: |
+  You customize a deploy checklist. Migrations add migration checks, flags add flag checks, breaking API adds consumer notices.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Give the extra checklist items and the rollback trigger thresholds.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "read"
+writes: false
+output:
+  type: "object"
+  properties:
+    service:
+      type: "string"
+    date:
+      type: "string"
+    deployer:
+      type: "string"
+    customizations:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          section:
+            type: "string"
+            enum:
+              - "Pre-Deploy"
+              - "Deploy"
+              - "Post-Deploy"
+          item:
+            type: "string"
+        required:
+          - "section"
+          - "item"
+    error_rate_pct:
+      type: "number"
+    p50_latency_ms:
+      type: "number"
+    critical_flow:
+      type: "string"
+    notes:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "service"
+    - "date"
+    - "deployer"
+    - "customizations"
+    - "error_rate_pct"
+    - "p50_latency_ms"
+    - "critical_flow"
+    - "notes"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "low"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

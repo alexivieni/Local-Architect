@@ -1,0 +1,35 @@
+{
+  "id": "add_cli_subcommand",
+  "title": "Add a CLI subcommand",
+  "summary": "Adds one subcommand to the existing command line, with --json output and a test.",
+  "goal": "Add a CLI subcommand `{name}` to the existing command line in {cli_module}. It should {behaviour}. Existing subcommands must behave exactly as before. Add a test in {test_dir}/ that runs it and checks the exit code.",
+  "flow": "feature",
+  "workflow": "feature_squad",
+  "agents": [
+    "architect",
+    "test-author",
+    "coder"
+  ],
+  "params": [
+    {
+      "name": "name",
+      "label": "Subcommand name",
+      "default": "stats"
+    },
+    {
+      "name": "behaviour",
+      "label": "What it does",
+      "default": "print a summary of the stored data"
+    }
+  ],
+  "requires": [
+    "cli",
+    "tests"
+  ],
+  "requires_text": {
+    "http": "a server with routes",
+    "cli": "a command line with subcommands",
+    "tests": "a test suite",
+    "modules": "at least one Python module"
+  }
+}

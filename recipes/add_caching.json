@@ -1,0 +1,41 @@
+{
+  "id": "add_caching",
+  "title": "Add caching",
+  "summary": "Wraps one slow function in a bounded cache with tested expiry.",
+  "goal": "Add caching to `{function}`. Use a bounded cache (max {size} entries) with a {ttl}-second expiry; use an injectable clock so tests do not sleep. Results must be identical with the cache on or off. Add tests for a hit, a miss and an expiry in {test_dir}/.",
+  "flow": "feature",
+  "workflow": "feature_squad",
+  "agents": [
+    "architect",
+    "test-author",
+    "coder",
+    "reviewer"
+  ],
+  "params": [
+    {
+      "name": "function",
+      "label": "Function to cache",
+      "default": "the slowest public function"
+    },
+    {
+      "name": "size",
+      "label": "Max entries",
+      "default": "128"
+    },
+    {
+      "name": "ttl",
+      "label": "Seconds to keep",
+      "default": "60"
+    }
+  ],
+  "requires": [
+    "modules",
+    "tests"
+  ],
+  "requires_text": {
+    "http": "a server with routes",
+    "cli": "a command line with subcommands",
+    "tests": "a test suite",
+    "modules": "at least one Python module"
+  }
+}

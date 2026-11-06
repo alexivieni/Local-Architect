@@ -1,0 +1,61 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-td-code"
+description: "Tech debt scan: code and test debt."
+model: "worker"
+role: "reviewer"
+category: "engineering"
+system: |
+  You find technical debt in code and tests. Cite file paths.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Scan for CODE debt (duplication, poor abstractions, magic numbers) and TEST debt (low coverage, flaky or missing tests).
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "run_tests"
+writes: false
+output:
+  type: "object"
+  properties:
+    findings:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          file:
+            type: "string"
+          line:
+            type: "integer"
+          problem:
+            type: "string"
+          category:
+            type: "string"
+            enum:
+              - "Code"
+              - "Test"
+        required:
+          - "file"
+          - "line"
+          - "problem"
+          - "category"
+    summary:
+      type: "string"
+  required:
+    - "findings"
+    - "summary"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

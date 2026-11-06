@@ -1,0 +1,30 @@
+{
+  "id": "fix_bug_with_repro",
+  "title": "Fix a bug with a reproduction",
+  "summary": "Writes a failing test first, then the smallest fix.",
+  "goal": "Bug: {bug}. First write a new test in {test_dir}/ that fails because of it, then fix the code with the smallest change. Do not edit existing tests.",
+  "flow": "bugfix",
+  "workflow": "bugfix_squad",
+  "agents": [
+    "debugger",
+    "test-author",
+    "coder",
+    "verifier"
+  ],
+  "params": [
+    {
+      "name": "bug",
+      "label": "What goes wrong",
+      "default": "describe the wrong behaviour and how to trigger it"
+    }
+  ],
+  "requires": [
+    "tests"
+  ],
+  "requires_text": {
+    "http": "a server with routes",
+    "cli": "a command line with subcommands",
+    "tests": "a test suite",
+    "modules": "at least one Python module"
+  }
+}

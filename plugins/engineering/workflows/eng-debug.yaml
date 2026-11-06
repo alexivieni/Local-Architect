@@ -1,0 +1,48 @@
+# Output format: debug (render.py turns the result into the skill's Markdown).
+name: "eng-debug"
+description: "Reproduce, isolate, diagnose, fix: one agent per step."
+phases:
+  - title: "Reproduce"
+    agent: "eng-dbg-reproduce"
+    label: "reproduce"
+  - title: "Isolate"
+    agent: "eng-dbg-isolate"
+    label: "isolate"
+  - title: "Diagnose"
+    agent: "eng-dbg-diagnose"
+    label: "diagnose"
+  - title: "Fix"
+    agent: "eng-dbg-writer"
+    label: "fix"
+returns:
+  type: "object"
+  properties:
+    issue_summary:
+      type: "string"
+    expected:
+      type: "string"
+    actual:
+      type: "string"
+    steps:
+      type: "string"
+    root_cause:
+      type: "string"
+    fix:
+      type: "string"
+    prevention_tests:
+      type: "array"
+      items:
+        type: "string"
+    prevention_guards:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "issue_summary"
+    - "expected"
+    - "actual"
+    - "steps"
+    - "root_cause"
+    - "fix"
+    - "prevention_tests"
+    - "prevention_guards"

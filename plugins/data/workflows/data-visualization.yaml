@@ -1,0 +1,14 @@
+# data:data-visualization - generated from the data plugin's data-visualization skill (see skills/data-visualization.md)
+name: "data-visualization"
+description: "Chart selection and Python patterns: plan, then code with the accessibility checklist."
+phases:
+  - title: "Select"
+    agent: "data-viz-planner"
+    label: "select"
+    vars:
+      focus: "chart selection guide and when NOT to use pie/3D/dual-axis"
+  - title: "Generate"
+    agent: "data-viz-coder"
+    label: "generate"
+    vars:
+      focus: "the code patterns and the accessibility checklist as design_checks"

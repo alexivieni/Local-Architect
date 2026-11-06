@@ -1,0 +1,70 @@
+# data-sql-writer: saved by arch_squad.save_agent (validated before writing)
+name: "data-sql-writer"
+description: "Writes (or rewrites after review) one SQL query for the stated dialect, with CTEs and comments."
+model: "worker"
+role: "generator_sql"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  If the dialect is unknown, pick the one the project uses (look for .sql files) and say so.
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    dialect:
+      type: "string"
+    query:
+      type: "string"
+    explanation:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          section:
+            type: "string"
+          purpose:
+            type: "string"
+        required:
+          - "section"
+          - "purpose"
+    performance_notes:
+      type: "array"
+      items:
+        type: "string"
+    modifications:
+      type: "array"
+      items:
+        type: "string"
+    assumptions:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "dialect"
+    - "query"
+    - "explanation"
+    - "performance_notes"
+    - "modifications"
+    - "assumptions"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

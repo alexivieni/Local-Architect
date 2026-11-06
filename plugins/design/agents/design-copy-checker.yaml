@@ -1,0 +1,66 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-copy-checker"
+description: "Checks the proposed copy against the five principles and the pattern for its element."
+model: "worker"
+role: "evaluator"
+category: "ui"
+system: |
+  You check UX copy against the five principles (Clear, Concise, Consistent, Useful, Human) and the pattern for its
+  element (CTA, error, empty state, confirmation). Verdict revise if any principle fails. Never edit.
+task: |
+  Goal: {goal}
+  The copy:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    checks:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          principle:
+            type: "string"
+            enum:
+              - "Clear"
+              - "Concise"
+              - "Consistent"
+              - "Useful"
+              - "Human"
+          pass:
+            type: "boolean"
+          note:
+            type: "string"
+        required:
+          - "principle"
+          - "pass"
+          - "note"
+    pattern_check:
+      type: "string"
+    verdict:
+      type: "string"
+      enum:
+        - "pass"
+        - "revise"
+  required:
+    - "checks"
+    - "pattern_check"
+    - "verdict"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

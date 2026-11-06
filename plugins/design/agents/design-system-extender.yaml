@@ -1,0 +1,141 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-system-extender"
+description: "Proposes a new component or pattern that fits the existing system (skill's New Component format)."
+model: "worker"
+role: "architect"
+category: "ui"
+system: |
+  You design a new component that fits the existing system. First grep for related components and the tokens in use;
+  say why each related one is not enough. Use only existing tokens. List open questions instead of deciding them. Never edit.
+task: |
+  Goal: {goal}
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    name:
+      type: "string"
+    problem:
+      type: "string"
+    existing_patterns:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          component:
+            type: "string"
+          similarity:
+            type: "string"
+          why_not_enough:
+            type: "string"
+        required:
+          - "component"
+          - "similarity"
+          - "why_not_enough"
+    props:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          property:
+            type: "string"
+          type:
+            type: "string"
+          default:
+            type: "string"
+          description:
+            type: "string"
+        required:
+          - "property"
+          - "type"
+          - "default"
+          - "description"
+    variants:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          variant:
+            type: "string"
+          use_when:
+            type: "string"
+          visual:
+            type: "string"
+        required:
+          - "variant"
+          - "use_when"
+          - "visual"
+    states:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          state:
+            type: "string"
+          behavior:
+            type: "string"
+          notes:
+            type: "string"
+        required:
+          - "state"
+          - "behavior"
+          - "notes"
+    tokens:
+      type: "object"
+      properties:
+        colors:
+          type: "string"
+        spacing:
+          type: "string"
+        typography:
+          type: "string"
+      required:
+        - "colors"
+        - "spacing"
+        - "typography"
+    accessibility:
+      type: "object"
+      properties:
+        role:
+          type: "string"
+        keyboard:
+          type: "string"
+        screen_reader:
+          type: "string"
+      required:
+        - "role"
+        - "keyboard"
+        - "screen_reader"
+    open_questions:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "name"
+    - "problem"
+    - "existing_patterns"
+    - "props"
+    - "variants"
+    - "states"
+    - "tokens"
+    - "accessibility"
+    - "open_questions"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

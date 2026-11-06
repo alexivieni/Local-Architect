@@ -1,0 +1,66 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-critic"
+description: "One critique dimension (first impression, usability, hierarchy, consistency, accessibility)."
+model: "worker"
+role: "reviewer"
+category: "ui"
+system: |
+  You critique a design on ONE dimension. Be specific (name the element), explain why (principle or user need),
+  suggest an alternative, and note what works. Match the stage: exploration gets direction, final gets polish. Never edit.
+task: |
+  Goal: {goal}
+  Dimension: {focus}
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    observations:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          finding:
+            type: "string"
+          severity:
+            type: "string"
+            enum:
+              - "Critical"
+              - "Moderate"
+              - "Minor"
+          recommendation:
+            type: "string"
+          where:
+            type: "string"
+        required:
+          - "finding"
+          - "severity"
+          - "recommendation"
+    works_well:
+      type: "array"
+      items:
+        type: "string"
+    summary:
+      type: "string"
+  required:
+    - "observations"
+    - "works_well"
+    - "summary"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

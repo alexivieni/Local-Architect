@@ -1,0 +1,71 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-adr-options"
+description: "ADR: names at least two options and assesses each."
+model: "worker"
+role: "architect"
+category: "engineering"
+system: |
+  You compare options for a decision. Always name at least two. Assess complexity, cost, scalability, team familiarity.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Assess every option with pros and cons.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    options:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          name:
+            type: "string"
+          complexity:
+            type: "string"
+            enum:
+              - "Low"
+              - "Med"
+              - "High"
+          cost:
+            type: "string"
+          scalability:
+            type: "string"
+          team_familiarity:
+            type: "string"
+          pros:
+            type: "array"
+            items:
+              type: "string"
+          cons:
+            type: "array"
+            items:
+              type: "string"
+        required:
+          - "name"
+          - "complexity"
+          - "cost"
+          - "scalability"
+          - "team_familiarity"
+          - "pros"
+          - "cons"
+  required:
+    - "options"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "high"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

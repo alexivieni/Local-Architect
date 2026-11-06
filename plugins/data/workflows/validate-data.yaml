@@ -1,0 +1,35 @@
+# data:validate-data - generated from the data plugin's validate-data skill (see skills/validate-data.md)
+name: "validate-data"
+description: "QA an analysis before sharing: five lenses and two independent recomputes side by side, then one Validation Report."
+phases:
+  - title: "Review"
+    parallel:
+      - agent: "data-checker"
+        label: "lens:methodology"
+        vars:
+          focus: "step 1 methodology: question framing, data selection, population, metric definitions, baseline/comparison"
+      - agent: "data-checker"
+        label: "lens:qa-checklist"
+        vars:
+          focus: "step 2 the Pre-Delivery QA Checklist: data quality, calculation, reasonableness, presentation checks"
+      - agent: "data-checker"
+        label: "lens:pitfalls"
+        vars:
+          focus: "step 3 pitfalls: join explosion, survivorship bias, incomplete period, denominator shifting, average of averages, timezone, selection bias, Simpson's paradox"
+      - agent: "data-checker"
+        label: "lens:visuals-narrative"
+        vars:
+          focus: "steps 5-6: chart accuracy (zero baselines, scales, titles) and whether conclusions follow from the data"
+      - agent: "data-recompute"
+        label: "recompute:a"
+        vars:
+          focus: "step 4: recompute key numbers; subtotals sum to totals; percentages sum to ~100%; correct base periods"
+      - agent: "data-recompute"
+        label: "recompute:b"
+        vars:
+          focus: "step 4 again, independently: calculate each key metric a second, different way"
+  - title: "Assess"
+    agent: "data-validate-report"
+    label: "assess"
+    vars:
+      focus: "steps 7-8: improvements and the confidence assessment in the Output Format"

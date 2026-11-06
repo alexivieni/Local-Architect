@@ -1,0 +1,12 @@
+{
+  "name": "design",
+  "version": "1.2.0",
+  "description": "Local port of the Apache-2.0 Claude design plugin: critique, accessibility review, handoff specs, design system, research synthesis, user research and UX copy, as crews of small local models.",
+  "author": "Anthropic (original, Apache-2.0); local port",
+  "requires": {
+    "architect": ">=13",
+    "tiers": [
+      "worker"
+    ]
+  }
+}

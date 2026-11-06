@@ -1,0 +1,29 @@
+{
+  "id": "add_migration",
+  "title": "Add a database migration",
+  "summary": "Adds one numbered, repeatable schema change and a test that it applies once.",
+  "goal": "Add a database migration that {change}. Number it after the last existing migration, make it safe to run twice, and keep existing data. Add a test in {test_dir}/ that applies all migrations to an empty database and checks the new column or table.",
+  "flow": "migrate",
+  "workflow": "feature_squad",
+  "agents": [
+    "migration-planner",
+    "builder",
+    "auditor"
+  ],
+  "params": [
+    {
+      "name": "change",
+      "label": "The schema change",
+      "default": "adds a nullable created_at column to the main table"
+    }
+  ],
+  "requires": [
+    "tests"
+  ],
+  "requires_text": {
+    "http": "a server with routes",
+    "cli": "a command line with subcommands",
+    "tests": "a test suite",
+    "modules": "at least one Python module"
+  }
+}

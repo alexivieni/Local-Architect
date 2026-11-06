@@ -1,0 +1,82 @@
+# data-scoper: saved by arch_squad.save_agent (validated before writing)
+name: "data-scoper"
+description: "Reads a data question and the project's data files: complexity, metrics, dimensions, time range, sources."
+model: "worker"
+role: "planner"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Find the data files (ls, grep for .csv/.json/.sql) and say which tables/columns answer the question.
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    complexity:
+      type: "string"
+      enum:
+        - "quick"
+        - "full"
+        - "formal"
+    metrics:
+      type: "array"
+      items:
+        type: "string"
+    dimensions:
+      type: "array"
+      items:
+        type: "string"
+    time_range:
+      type: "string"
+    output_format:
+      type: "string"
+    sources:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          path:
+            type: "string"
+          columns:
+            type: "array"
+            items:
+              type: "string"
+        required:
+          - "path"
+          - "columns"
+    missing:
+      type: "array"
+      items:
+        type: "string"
+    summary:
+      type: "string"
+  required:
+    - "complexity"
+    - "metrics"
+    - "dimensions"
+    - "time_range"
+    - "output_format"
+    - "sources"
+    - "missing"
+    - "summary"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "low"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

@@ -1,0 +1,59 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-standup"
+description: "Standup: yesterday / today / blockers."
+model: "worker"
+role: "planner"
+category: "engineering"
+system: |
+  You format a standup update. Short, action-oriented. Use the person's notes; you may read .arch/runs and CHANGELOG for recent work.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Write Yesterday, Today, Blockers (with who can help).
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "read"
+  - "memory_read"
+writes: false
+output:
+  type: "object"
+  properties:
+    date:
+      type: "string"
+    yesterday:
+      type: "array"
+      items:
+        type: "string"
+    today:
+      type: "array"
+      items:
+        type: "string"
+    blockers:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          blocker:
+            type: "string"
+          who_can_help:
+            type: "string"
+        required:
+          - "blocker"
+          - "who_can_help"
+  required:
+    - "date"
+    - "yesterday"
+    - "today"
+    - "blockers"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "low"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

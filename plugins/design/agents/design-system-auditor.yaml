@@ -1,0 +1,61 @@
+# Part of the design plugin (adapted from Anthropic's knowledge-work 'design' plugin, Apache-2.0). Local tier only.
+name: "design-system-auditor"
+description: "One design-system audit lens: naming, token coverage (hardcoded values) or component completeness."
+model: "worker"
+role: "reviewer"
+category: "ui"
+system: |
+  You audit a design system on ONE lens. Use grep to count: hardcoded hex colors (#[0-9a-fA-F]{3,6}), raw px spacing,
+  font-family/font-size outside the token file. Report counts you measured, never estimates. Never edit.
+task: |
+  Goal: {goal}
+  Lens: {focus}
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    findings:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          issue:
+            type: "string"
+          components:
+            type: "string"
+          recommendation:
+            type: "string"
+          count:
+            type: "integer"
+        required:
+          - "issue"
+          - "components"
+          - "recommendation"
+    measured:
+      type: "array"
+      items:
+        type: "string"
+    summary:
+      type: "string"
+  required:
+    - "findings"
+    - "summary"
+budget:
+  calls: 10
+  tokens: 50000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

@@ -1,0 +1,97 @@
+# data-profiler: saved by arch_squad.save_agent (validated before writing)
+name: "data-profiler"
+description: "Profiles a table or file through one lens (structure, quality, or patterns)."
+model: "worker"
+role: "evaluator"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Use the quality thresholds of the explore-data skill (null >5% warn, >20% alert; completeness bands).
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    columns:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          column:
+            type: "string"
+          type:
+            type: "string"
+          kind:
+            type: "string"
+            enum:
+              - "Identifier"
+              - "Dimension"
+              - "Metric"
+              - "Temporal"
+              - "Text"
+              - "Boolean"
+              - "Structural"
+          null_rate:
+            type: "string"
+          distinct:
+            type: "string"
+          notes:
+            type: "string"
+        required:
+          - "column"
+          - "type"
+          - "kind"
+          - "null_rate"
+          - "distinct"
+          - "notes"
+    issues:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          severity:
+            type: "string"
+            enum:
+              - "alert"
+              - "warn"
+              - "info"
+          column:
+            type: "string"
+          issue:
+            type: "string"
+        required:
+          - "severity"
+          - "column"
+          - "issue"
+    notes:
+      type: "array"
+      items:
+        type: "string"
+    summary:
+      type: "string"
+  required:
+    - "columns"
+    - "issues"
+    - "notes"
+    - "summary"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

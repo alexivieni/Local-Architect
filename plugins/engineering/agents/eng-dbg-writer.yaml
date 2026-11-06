@@ -1,0 +1,59 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-dbg-writer"
+description: "Debug step 4: fix and the Debug Report."
+model: "worker"
+role: "bug_hunter"
+category: "engineering"
+system: |
+  You write the debug report: propose a fix with explanation, side effects, and regression tests. Do not edit files.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Step FIX: write the Debug Report from the steps above.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "read"
+writes: false
+output:
+  type: "object"
+  properties:
+    issue_summary:
+      type: "string"
+    expected:
+      type: "string"
+    actual:
+      type: "string"
+    steps:
+      type: "string"
+    root_cause:
+      type: "string"
+    fix:
+      type: "string"
+    prevention_tests:
+      type: "array"
+      items:
+        type: "string"
+    prevention_guards:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "issue_summary"
+    - "expected"
+    - "actual"
+    - "steps"
+    - "root_cause"
+    - "fix"
+    - "prevention_tests"
+    - "prevention_guards"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

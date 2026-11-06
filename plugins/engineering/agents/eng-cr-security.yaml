@@ -1,0 +1,65 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-cr-security"
+description: "Code review lens: security."
+model: "worker"
+role: "security_engineer"
+category: "engineering"
+system: |
+  You review code for security only. Report only problems you saw in the code, each with file and line. Never edit.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Lens SECURITY: SQL injection, XSS, CSRF, authentication and authorization flaws, secrets in code, insecure deserialization, path traversal, SSRF.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    findings:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          file:
+            type: "string"
+          line:
+            type: "integer"
+          problem:
+            type: "string"
+          severity:
+            type: "string"
+            enum:
+              - "Critical"
+              - "High"
+              - "Medium"
+              - "Low"
+          fix:
+            type: "string"
+        required:
+          - "file"
+          - "line"
+          - "problem"
+          - "severity"
+          - "fix"
+    summary:
+      type: "string"
+  required:
+    - "findings"
+    - "summary"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

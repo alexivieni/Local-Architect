@@ -1,0 +1,28 @@
+{
+  "id": "add_docs",
+  "title": "Document the public interface",
+  "summary": "Docstrings and a README section generated from the real signatures.",
+  "goal": "Document the public interface: a docstring on every public function and class in {target}, and an Usage section in README.md that shows one working example per public function. Do not change any code behaviour.",
+  "flow": "document",
+  "workflow": "explain_squad",
+  "agents": [
+    "docs-writer",
+    "explainer"
+  ],
+  "params": [
+    {
+      "name": "target",
+      "label": "What to document",
+      "default": "all modules"
+    }
+  ],
+  "requires": [
+    "modules"
+  ],
+  "requires_text": {
+    "http": "a server with routes",
+    "cli": "a command line with subcommands",
+    "tests": "a test suite",
+    "modules": "at least one Python module"
+  }
+}

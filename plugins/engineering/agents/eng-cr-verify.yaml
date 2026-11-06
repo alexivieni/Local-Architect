@@ -1,0 +1,66 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-cr-verify"
+description: "Re-reads each merged finding and drops the ones the code does not support."
+model: "worker"
+role: "evaluator"
+category: "engineering"
+system: |
+  You are an adversarial checker. For each finding, open the file at that line. Keep it only if the code shows the problem.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Check every finding in the list above. Return only the confirmed ones, with the same fields.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "run_tests"
+writes: false
+output:
+  type: "object"
+  properties:
+    findings:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          file:
+            type: "string"
+          line:
+            type: "integer"
+          problem:
+            type: "string"
+          severity:
+            type: "string"
+            enum:
+              - "Critical"
+              - "High"
+              - "Medium"
+              - "Low"
+          fix:
+            type: "string"
+        required:
+          - "file"
+          - "line"
+          - "problem"
+          - "severity"
+          - "fix"
+    summary:
+      type: "string"
+  required:
+    - "findings"
+    - "summary"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "high"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

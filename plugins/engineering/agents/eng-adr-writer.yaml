@@ -1,0 +1,116 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-adr-writer"
+description: "ADR: writes the record in the skill's exact format."
+model: "worker"
+role: "architect"
+category: "engineering"
+system: |
+  You write an Architecture Decision Record from the context and the options. Status Proposed unless told otherwise.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Write the ADR: trade-off analysis, consequences (easier, harder, revisit) and action items.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "read"
+writes: false
+output:
+  type: "object"
+  properties:
+    number:
+      type: "integer"
+    title:
+      type: "string"
+    status:
+      type: "string"
+      enum:
+        - "Proposed"
+        - "Accepted"
+        - "Deprecated"
+        - "Superseded"
+    date:
+      type: "string"
+    deciders:
+      type: "string"
+    context:
+      type: "string"
+    decision:
+      type: "string"
+    options:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          name:
+            type: "string"
+          complexity:
+            type: "string"
+            enum:
+              - "Low"
+              - "Med"
+              - "High"
+          cost:
+            type: "string"
+          scalability:
+            type: "string"
+          team_familiarity:
+            type: "string"
+          pros:
+            type: "array"
+            items:
+              type: "string"
+          cons:
+            type: "array"
+            items:
+              type: "string"
+        required:
+          - "name"
+          - "complexity"
+          - "cost"
+          - "scalability"
+          - "team_familiarity"
+          - "pros"
+          - "cons"
+    tradeoff_analysis:
+      type: "string"
+    easier:
+      type: "array"
+      items:
+        type: "string"
+    harder:
+      type: "array"
+      items:
+        type: "string"
+    revisit:
+      type: "array"
+      items:
+        type: "string"
+    action_items:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "number"
+    - "title"
+    - "status"
+    - "date"
+    - "deciders"
+    - "context"
+    - "decision"
+    - "options"
+    - "tradeoff_analysis"
+    - "easier"
+    - "harder"
+    - "revisit"
+    - "action_items"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "medium"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

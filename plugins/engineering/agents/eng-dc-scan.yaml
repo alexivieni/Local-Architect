@@ -1,0 +1,71 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-dc-scan"
+description: "Deploy checklist: facts from the project (tests, migrations, flags, changelog)."
+model: "worker"
+role: "ci_engineer"
+category: "engineering"
+system: |
+  You collect deploy facts from the project. Run the tests. Look for migrations, feature flags, CHANGELOG, breaking API changes.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Collect the facts. Answer unknown when the project does not show it.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "run_tests"
+writes: false
+output:
+  type: "object"
+  properties:
+    tests_pass:
+      type: "string"
+      enum:
+        - "yes"
+        - "no"
+        - "unknown"
+    migrations:
+      type: "array"
+      items:
+        type: "string"
+    feature_flags:
+      type: "array"
+      items:
+        type: "string"
+    breaking_api:
+      type: "string"
+      enum:
+        - "yes"
+        - "no"
+        - "unknown"
+    changelog:
+      type: "string"
+      enum:
+        - "yes"
+        - "no"
+    notes:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "tests_pass"
+    - "migrations"
+    - "feature_flags"
+    - "breaking_api"
+    - "changelog"
+    - "notes"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "low"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000

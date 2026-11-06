@@ -1,0 +1,91 @@
+# data-context-discover: saved by arch_squad.save_agent (validated before writing)
+name: "data-context-discover"
+description: "Discovers the schema from the project's data files and lists the analyst questions still open."
+model: "worker"
+role: "planner"
+category: "data"
+system: |
+  You are a careful data analyst on a small local model. Read the real files with your tools before you state a number. Never invent data: when the data is not in the project, say 'not available locally' and write what the person should run or paste. Follow the loaded data skill page. Answer only with the JSON the schema asks for.
+task: |
+  Request: {goal}
+  Your part: {focus}
+  {task}
+  What came before (earlier agents' JSON):
+  {prev}
+  Phase 1-2 of the data-context-extractor skill: tables, grain, keys; then the five core questions.
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+  - "view"
+writes: false
+output:
+  type: "object"
+  properties:
+    mode:
+      type: "string"
+      enum:
+        - "bootstrap"
+        - "iteration"
+    warehouse:
+      type: "string"
+    tables:
+      type: "array"
+      items:
+        type: "object"
+        properties:
+          name:
+            type: "string"
+          grain:
+            type: "string"
+          primary_key:
+            type: "string"
+          key_columns:
+            type: "array"
+            items:
+              type: "string"
+        required:
+          - "name"
+          - "grain"
+          - "primary_key"
+          - "key_columns"
+    entities:
+      type: "array"
+      items:
+        type: "string"
+    metrics:
+      type: "array"
+      items:
+        type: "string"
+    standard_filters:
+      type: "array"
+      items:
+        type: "string"
+    gotchas:
+      type: "array"
+      items:
+        type: "string"
+    questions_for_analyst:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "mode"
+    - "warehouse"
+    - "tables"
+    - "entities"
+    - "metrics"
+    - "standard_filters"
+    - "gotchas"
+    - "questions_for_analyst"
+budget:
+  calls: 10
+  tokens: 60000
+  seconds: 900
+effort: "medium"
+max_steps: 8
+context:
+  policy: "inherit"
+  max_chars: 8000

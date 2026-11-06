@@ -1,0 +1,54 @@
+# Generated from the engineering plugin spec (local, worker tier). Adapted from Anthropic's engineering plugin, Apache-2.0.
+name: "eng-doc-survey"
+description: "Documentation: reads the code the doc is about."
+model: "worker"
+role: "docs_writer"
+category: "engineering"
+system: |
+  You survey code for a document: entry points, commands, config, endpoints. Cite files.
+  Answer with the JSON object the schema asks for and nothing else.
+task: |
+  Goal: {goal}
+  Pick the doc type (README, API Documentation, Runbook, Architecture Doc, Onboarding Guide) and collect facts for it.
+  What came before:
+  {prev}
+  {task}
+tools:
+  - "ls"
+  - "grep"
+  - "search"
+  - "read"
+  - "outline"
+writes: false
+output:
+  type: "object"
+  properties:
+    doc_type:
+      type: "string"
+      enum:
+        - "README"
+        - "API Documentation"
+        - "Runbook"
+        - "Architecture Doc"
+        - "Onboarding Guide"
+    facts:
+      type: "array"
+      items:
+        type: "string"
+    files:
+      type: "array"
+      items:
+        type: "string"
+  required:
+    - "doc_type"
+    - "facts"
+    - "files"
+budget:
+  calls: 8
+  tokens: 40000
+  seconds: 900
+effort: "low"
+max_steps: 6
+context:
+  policy: "inherit"
+  max_chars: 8000
