@@ -1930,8 +1930,17 @@ function a11yPass(root){
   root=root||document;
   root.querySelectorAll("button:not([aria-label])").forEach(b=>{const t=(b.textContent||"").trim();
     if(!t||/^[↑↓←→×✕⋯…▾▸›‹+−?]$/.test(t))b.setAttribute("aria-label",b.title||({"↑":"Move up","↓":"Move down","×":"Close","✕":"Close","?":"Help","+":"Add","−":"Remove"}[t]||"Button"));});
-  root.querySelectorAll("input:not([aria-label]):not([id]),textarea:not([aria-label]):not([id]),select:not([aria-label]):not([id])").forEach(i=>{
-    if(!i.closest("label"))i.setAttribute("aria-label",i.placeholder||i.name||"Field");});
+  root.querySelectorAll("input:not([aria-label]):not([aria-labelledby]):not([type=hidden]),textarea:not([aria-label]):not([aria-labelledby]),select:not([aria-label]):not([aria-labelledby])").forEach(i=>{
+    if(i.closest("label")||(i.id&&document.querySelector('label[for="'+i.id.replace(/"/g,'\\"')+'"]')))return;     /* a real label names it; an id alone does not */
+    i.setAttribute("aria-label",i.placeholder||i.title||i.name||(i.tagName==="TEXTAREA"?"Text":"Field"));});
+  /* WCAG 2.1.1: a box that scrolls sideways must be reachable by keyboard (arrow keys scroll a focused region). Only boxes that
+     really overflow and hold nothing focusable already; the label says what it is. */
+  root.querySelectorAll("div,section,pre").forEach(el=>{
+    if(el.hasAttribute("tabindex")||el.scrollWidth<=el.clientWidth+1||el.clientWidth===0)return;
+    const ox=getComputedStyle(el).overflowX; if(ox!=="auto"&&ox!=="scroll")return;
+    if(el.querySelector("a[href],button,input,select,textarea,[tabindex]"))return;
+    el.setAttribute("tabindex","0");el.setAttribute("role","region");
+    if(!el.getAttribute("aria-label"))el.setAttribute("aria-label",el.querySelector("table")?"Table (scrolls sideways)":el.tagName==="PRE"?"Code (scrolls sideways)":"Content (scrolls sideways)");});
   root.querySelectorAll("[onclick]:not(button):not(a):not(input):not([tabindex])").forEach(el=>{el.setAttribute("tabindex","0");el.setAttribute("role",el.getAttribute("role")||"button");});
 }
 new MutationObserver(()=>{clearTimeout(a11yPass.t);a11yPass.t=setTimeout(()=>a11yPass(document.getElementById("view")||document),120);}).observe(document.documentElement,{childList:true,subtree:true});

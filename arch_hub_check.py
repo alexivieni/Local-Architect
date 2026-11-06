@@ -431,7 +431,7 @@ def run():
         rc1_ = _ah.restart_command(["C:/x/architect_hub.py", "--port", "8000", "--no-browser", "--foo"], port=8123)
         rc2_ = _ah.restart_command(["architect.py", "start"], port=8123)
         check("the restart command is the same command line (the hub's own port, no new tab)",
-              rc1_[1:] == ["C:/x/architect_hub.py", "--foo", "--port", "8123", "--no-browser"] and rc2_[1:] == ["architect.py", "start"], (rc1_, rc2_))
+              rc1_[1:] == ["C:/x/architect_hub.py", "--foo", "--port", "8123", "--no-browser"] and os.path.isabs(rc2_[1]) and os.path.basename(rc2_[1]) == "architect.py" and rc2_[2:] == ["start"], (rc1_, rc2_))   # a relative script becomes absolute: the helper runs from another folder
         _t0_ = time.time() + 5
         os.utime(os.path.join(hubdir, "arch_usage.py"), (_t0_, _t0_))
         time.sleep(3.3)
