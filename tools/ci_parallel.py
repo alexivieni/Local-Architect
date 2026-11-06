@@ -40,13 +40,24 @@ def run(name, timeout):
                PYTHONDONTWRITEBYTECODE="1", ARCHITECT_SELFTEST="1")
     flags = 0x00004000 if os.name == "nt" else 0          # BELOW_NORMAL_PRIORITY_CLASS
     t = time.time()
+    sys.path.insert(0, APP)
+    import arch_sandbox
+    job = None
     try:
-        p = subprocess.run([sys.executable, os.path.join(APP, name + ".py")], cwd=APP, env=env, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout, creationflags=flags)
-        out, rc = (p.stdout or "") + (p.stderr or ""), p.returncode
-    except subprocess.TimeoutExpired:
-        out, rc = "timed out", None
+        # Every suite runs inside a Windows job that kills ALL its descendants when it ends (finished, timed out or crashed):
+        # a suite that never reached its own stop() used to leave `python -m app.server` children holding ports for hours.
+        p = subprocess.Popen([sys.executable, os.path.join(APP, name + ".py")], cwd=APP, env=env, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", creationflags=flags)
+        job = arch_sandbox.attach(p, 16384)
+        try:
+            out, _ = p.communicate(timeout=timeout)
+            rc = p.returncode
+        except subprocess.TimeoutExpired:
+            p.kill()
+            out, rc = (p.communicate()[0] or "") + " timed out", None
+        out = out or ""
     finally:
+        arch_sandbox.close(job)                     # stops anything the suite left running
         shutil.rmtree(home, ignore_errors=True)
     lines = [l.strip() for l in out.splitlines() if l.strip()]
     summ = next((l for l in reversed(lines) if re.search(r"PASSED|FAILED|passed|failed|CHECKS|OK:", l)), lines[-1] if lines else "")

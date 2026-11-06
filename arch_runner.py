@@ -150,8 +150,20 @@ def start(root, cmd=None, port=None, extra_env=None, timeout_oneshot=600, networ
     # process group, so stop() can kill that whole group -- not just the shell wrapper `shell=True` spawns,
     # which would otherwise orphan the real server (it keeps the real port bound) while claiming "stopped".
     popen_kwargs = {"start_new_session": True} if os.name != "nt" else {}
+    # On Windows `shell=True` puts cmd.exe between us and the server, so the pid we record is the wrapper and stop()
+    # could leave the real server holding the port (seen 2026-11-05: five `python -m app.server` alive for 5+ hours).
+    # A plain command (no pipes, redirects or chaining) is started directly, so the pid IS the server.
+    import shlex as _shlex
+    plain = os.name == "nt" and not any(c in cmd for c in "&|<>^%")
     try:
-        p = subprocess.Popen(cmd, shell=True, cwd=root, env=env, stdout=logf, stderr=subprocess.STDOUT, **popen_kwargs)
+        if plain:
+            argv = _shlex.split(cmd, posix=False)
+            if argv and argv[0].lower() in ("python", "python3", "py"):
+                argv[0] = sys.executable                 # the same interpreter, not whatever `python` resolves to
+            p = subprocess.Popen(argv, cwd=root, env=env, stdout=logf, stderr=subprocess.STDOUT,
+                                 creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        else:
+            p = subprocess.Popen(cmd, shell=True, cwd=root, env=env, stdout=logf, stderr=subprocess.STDOUT, **popen_kwargs)
     except OSError as e:
         logf.close()
         return {"ok": False, "error": str(e)}
