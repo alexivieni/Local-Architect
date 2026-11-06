@@ -5248,7 +5248,7 @@ function rvPlan(el){
   const items=RV.plan_edit, ed=!!p.editable;
   const ul=h("ul",{class:"rv-plan"});
   const move=(i,d,focusMove)=>{const j=i+d;if(j<0||j>=items.length)return;const it=items.splice(i,1)[0];items.splice(j,0,it);
-    el.innerHTML="";rvPlan(el);const li=el.querySelector('[data-pid="'+it.id+'"]');
+    el.innerHTML="";rvPlan(el);const li=el.querySelector('[data-pid="'+(window.CSS&&CSS.escape?CSS.escape(String(it.id)):String(it.id).replace(/["\\\]]/g,""))+'"]');
     if(li){const t=focusMove?li:li.querySelector(d<0?".rv-up:not([disabled])":".rv-dn:not([disabled])")||li;t.focus();}
     announce("Moved to step "+(j+1)+" of "+items.length+": "+it.title);};
   items.forEach((it,i)=>{
@@ -5888,7 +5888,7 @@ function tlDraw(t,body){
   }
 }
 async function showTrace(r){
-  const d=h("div",{class:"card modal",role:"dialog","aria-label":"Run timeline"},h("div",{class:"row"},h("h2",{class:"grow"},"Run timeline -- ",r.name),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),
+  const d=h("div",{class:"card modal",role:"dialog","aria-modal":"true","aria-label":"Run timeline"},h("div",{class:"row"},h("h2",{class:"grow"},"Run timeline -- ",r.name),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),
     h("p",{class:"sub"},"Every try, with its cost and result."),learnMore("Every try of every step, read from the run's own trace: what it cost, how much of the prompt the server reused from its cache, what the checks said, and where code fixed the wiring. Prompts and replies are not shown here."),
     h("div",{id:"traceBody",style:"max-height:70vh;overflow:auto"},h("p",{class:"sub"},"Loading…")));
   document.body.append(d);
@@ -6956,6 +6956,8 @@ document.addEventListener("keydown",e=>{
     if(PAL){closePalette();return;}
     if(THPICK){e.preventDefault();closeThemePick(true);return;}  // the theme picker closes first, a run is never stopped by it
     if(document.body.classList.contains("nav-open")){e.preventDefault();navClose();return;}
+    {const m=document.querySelector(".card.modal[role=dialog]");if(m){e.preventDefault();m.remove();return;}}   // a window closes first; Esc never also arms "stop the run"
+    if(document.querySelector("dialog[open]"))return;                                                          // native dialogs close themselves
     if(EV.running){e.preventDefault();const now=Date.now();
       if(ESC_AT&&now-ESC_AT<2000){ESC_AT=0;cStop();toast("Stopping after this step");}
       else{ESC_AT=now;toast("Press Esc again within 2 s to stop the run",2000);}return;}

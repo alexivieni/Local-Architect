@@ -33,10 +33,12 @@ def _load():
     return _MEMO["data"]
 
 
-def key(role, label, structured):
+def key(role, label, structured, model=""):
+    """role|step|kind, plus the model when known: a cap learned from a terse model must not be applied to a verbose or thinking one
+    after a swap (it would cut the replies this module exists to protect)."""
     step = re.sub(r"[-_]?(?:try|cand|sample)\d+$", "", str(label or role or ""))
     step = re.sub(r"\d+$", "", step)
-    return f"{role}|{step}|{'json' if structured else 'text'}"
+    return f"{role}|{step}|{'json' if structured else 'text'}" + (f"|{model}" if model else "")
 
 
 def off(cfg=None):

@@ -1705,7 +1705,7 @@ class Engine:
             try:
                 import arch_replybudget as _rb
                 if not _rb.off(self.cfg):
-                    _rb_key = _rb.key(role, label, bool(json_out or schema))
+                    _rb_key = _rb.key(role, label, bool(json_out or schema), str(model or ""))
                     learned = _rb.cap(_rb_key, options["num_predict"])
                     if learned:
                         options["num_predict"] = learned

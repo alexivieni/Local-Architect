@@ -28,6 +28,10 @@ def run():
         check("tries, candidates and samples of one step share a key; structured and text do not",
               R.key("generator", "sprint2-try3", False) == R.key("generator", "sprint1-try1", False) == "generator|sprint|text"
               and R.key("planner", "plan", True).endswith("|json"))
+        check("a cap learned from one model is not shared with another model for the same step",
+              R.key("generator", "fix-try1", False, "terse:7b") != R.key("generator", "fix-try1", False, "chatty:8b")
+              and R.key("generator", "fix-try1", False, "terse:7b") == R.key("generator", "fix-try2", False, "terse:7b")
+              and R.key("generator", "fix-try1", False) == "generator|fix|text")
         k = R.key("generator", "fix-try1", False)
         for n in range(29):
             R.record(k, 300 + n, False)
