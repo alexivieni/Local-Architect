@@ -399,14 +399,18 @@ def run_one(say=print, runner=None, cfg=None, needs=None, lane=False):
     secs = round(time.time() - t0, 1)
     _spend(secs)
     v = res.get("verdict") or "fail"
-    if v != "pass" and environmental(res.get("why", "")):
+    _em = _re.match(r"\[env x(\d+)\] ", job.get("note") or "")
+    _env_n = int(_em.group(1)) if _em else 0
+    # The same "machine problem" three times in a row is no longer taken on faith: the words may come from the project being worked
+    # on (a test that prints "connection refused"), and an endless pause at the head of the queue blocks every other task.
+    if v != "pass" and environmental(res.get("why", "")) and _env_n < 3:
         # The machine is not ready; the approach was never really tried. Keep the task exactly as it was and stop.
         c = _open()
         try:
             old = job.get("note") or ""
             keep = old[old.find("POSTMORTEM: "):] if "POSTMORTEM: " in old else ""      # an earlier attempt's explanation stays with the task
             c.execute("update jobs set state='pending', attempts=max(0, attempts-1), note=? where id=?",
-                      (("waiting for the machine: " + (res.get("why") or ""))[:400] + ("\n" + keep if keep else ""), job["id"]))
+                      ((f"[env x{_env_n + 1}] waiting for the machine: " + (res.get("why") or ""))[:400] + ("\n" + keep if keep else ""), job["id"]))
             c.commit()
         finally:
             c.close()

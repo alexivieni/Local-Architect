@@ -62,10 +62,17 @@ def load_state():
 
 def save_state(st):
     os.makedirs(core.data_dir(), exist_ok=True)
-    tmp = state_path() + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(st, f, indent=1)
-    os.replace(tmp, state_path())
+    tmp = f"{state_path()}.{os.getpid()}.{time.time_ns()}.tmp"        # one name per writer: two processes saving at once must not share a temp file
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(st, f, indent=1)
+        os.replace(tmp, state_path())
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def resolve_binary(cfg=None):
@@ -799,6 +806,32 @@ def _img(proc):
         return ""
 
 
+def _pid_image(pid):
+    """The program name running as `pid` (lower case), or "" when it cannot be read."""
+    try:
+        if sys.platform.startswith("win"):
+            r = subprocess.run(["tasklist", "/FI", f"PID eq {int(pid)}", "/NH"], capture_output=True, text=True, timeout=8)
+            line = next((l for l in r.stdout.splitlines() if re.search(rf"\b{int(pid)}\b", l)), "")
+            return line.split()[0].lower() if line.split() else ""
+        with open(f"/proc/{int(pid)}/comm", encoding="utf-8") as f:
+            return f.read().strip().lower()
+    except Exception:
+        return ""
+
+
+def _is_llama(pid):
+    """May we stop the program holding one of our ports? Yes when it is a llama server (or the configured binary); a dev server that
+    happens to use 8081 is not ours to kill. An unreadable name keeps the old behaviour (stop it)."""
+    img = _pid_image(pid)
+    if not img:
+        return True
+    try:
+        mine = os.path.basename(resolve_binary() or "").lower()
+    except Exception:
+        mine = ""
+    return "llama" in img or (bool(mine) and (img == mine or img.rsplit(".", 1)[0] == mine.rsplit(".", 1)[0]))
+
+
 def _recorded_image(pid):
     try:
         for rec in (load_state().get("processes") or {}).values():
@@ -935,6 +968,8 @@ def _starting(say=print, wait_s=300.0):
                 say("[server] another program is starting a model server; waiting for it")
                 told = True
             time.sleep(0.5)
+        if not got:                  # never go on without the lock: an unlocked start is exactly how a healthy worker got killed mid-load
+            raise RuntimeError(f"another program has been starting model servers for {int(wait_s)} s; not starting a second set")
         yield
     finally:
         if got:
@@ -990,8 +1025,11 @@ def _start_procs(cfg, want, st, say, wait):
             _kill(cur["pid"])
         orphan = _pid_on_port(p["port"])                                           # a server we lost track of (a crash of ours, a stale state file) must not keep the port
         if orphan and orphan != cur.get("pid"):
-            say(f"[server] {p['tier']}: port {p['port']} was held by pid {orphan} (not in our records); stopping it")
-            _kill(orphan)
+            if not _is_llama(orphan):
+                say(f"[server] {p['tier']}: port {p['port']} is used by another program ({_pid_image(orphan)}, pid {orphan}); leaving it alone")
+            else:
+                say(f"[server] {p['tier']}: port {p['port']} was held by pid {orphan} (not in our records); stopping it")
+                _kill(orphan)
             time.sleep(1.0)
         log_path = os.path.join(server_dir(), f"{p['tier']}.log")
         off = _log_size(log_path)
@@ -1134,8 +1172,11 @@ def stop(tiers=None, say=print, reason="stop"):
             say(f"[server] {t}: stopped (pid {rec['pid']}" + (", cleanly" if how == "clean" else ", forced") + ")")
         orphan = _pid_on_port(rec.get("port") or 0) if rec.get("port") else None
         if orphan and orphan != rec.get("pid"):
-            _kill(orphan)
-            say(f"[server] {t}: also stopped pid {orphan}, which still held port {rec['port']}")
+            if _is_llama(orphan):
+                _kill(orphan)
+                say(f"[server] {t}: also stopped pid {orphan}, which still held port {rec['port']}")
+            else:
+                say(f"[server] {t}: port {rec['port']} is used by another program ({_pid_image(orphan)}, pid {orphan}); left alone")
     return st
 
 
@@ -1444,6 +1485,22 @@ def _watchdog(cfg, period=15.0, max_restarts=3, window=600.0):
 
 # ------------------------------------------------------------------------------------------------------------ measuring variants (tune)
 def bench_variants(cfg, hw, tier="worker", variants=None, say=print, n_tokens=160):
+    """Measure variants (see _bench_variants_run). Whatever happens inside (an exception, Ctrl+C), the tier is not left running a
+    benchmark variant, and a tier that was serving before the measurement is started again with the person's own settings."""
+    _before = (load_state().get("processes") or {}).get(tier) or {}
+    was_up = bool(_before.get("pid") and _alive(_before["pid"]))
+    try:
+        return _bench_variants_run(cfg, hw, tier, variants, say, n_tokens)
+    finally:
+        try:
+            stop([tier], say=lambda m: None)
+            if was_up:
+                start(cfg, hw, tiers=[tier], say=lambda m: None, watch=False)
+        except Exception as _swx:
+            _swallow("server.bench_restore", _swx)
+
+
+def _bench_variants_run(cfg, hw, tier="worker", variants=None, say=print, n_tokens=160):
     """Restart the tier with each variant (kv type, draft on/off, ubatch, ctx, quant file) and measure one fixed code prompt.
     -> [{"variant", "gen_tok_s", "prefill_tok_s", "vram_used_gb", "healthy", "error"}]. Keeps nothing running at the end unless `start()` is called again."""
     import arch_transport

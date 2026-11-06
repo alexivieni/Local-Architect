@@ -133,6 +133,13 @@ def run():
               dj["state"] == "pending" and dj["attempts"] == 0 and dj["tried"] == [] and "waiting for the machine" in dj["note"], dj)
         check("and the supervisor stops at once rather than failing every task behind it the same way",
               len(out["ran"]) == 1 and sv.counts()["pending"] == 2 and "not ready" in out["why"], (out["why"], sv.counts()))
+        # the same "machine problem" again and again is not taken on faith forever: it must not block the queue for good
+        sayings = lambda job, say: {"verdict": "fail", "flow": job["flow"], "why": "Ollama is not reachable (connection refused)"}
+        for _ in range(3):
+            sv.run_one(say=quiet, runner=sayings, cfg=cfg)
+        dj3 = sv.get(down)
+        check("after three identical machine-problem pauses the task is treated as a real failure, so it stops blocking the queue",
+              dj3["state"] != "pending" or dj3["attempts"] >= 1, dj3)
         check("a real failure of the approach is still treated as one", sv.environmental("assertion failed: expected 2, got 3") is False
               and sv.environmental("model 'qwen3:4b' not found, try pulling it first") is True)
         sv.clear(("pending",))

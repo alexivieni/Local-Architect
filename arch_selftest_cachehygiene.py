@@ -261,6 +261,26 @@ def _slot_io_checks(check, hyg, tmp):
         json.dump({"processes": {"worker": {"pid": os.getpid(), "port": 1, "image": "llama-server.exe"}}}, fh)
     if sys.platform.startswith("win"):
         check("a recorded server pid now held by a different program is not alive (never killed by mistake)", arch_server._alive(os.getpid()) is False and arch_server._alive(os.getpid(), owner=True) is True)
+    if sys.platform.startswith("win"):
+        check("a program on one of our ports that is not a llama server (a dev server) is left alone", arch_server._is_llama(os.getpid()) is False)
+    import arch_heavy
+    _lf = open(os.path.join(arch_server.server_dir(), "start.lock"), "a+")
+    _held = arch_heavy._try_lock(_lf)
+    _raised = False
+    try:
+        with arch_server._starting(say=lambda m: None, wait_s=0.6):
+            pass
+    except RuntimeError:
+        _raised = True
+    finally:
+        if _held:
+            arch_heavy._unlock(_lf)
+        _lf.close()
+    check("when another program keeps the start lock, starting servers is refused instead of going on unlocked", _held and _raised, (_held, _raised))
+    _names = set()
+    arch_server.save_state({"processes": {}})
+    arch_server.save_state({"processes": {}})
+    check("saving server state leaves no temp file behind", not [f for f in os.listdir(os.path.dirname(arch_server.state_path())) if f.endswith(".tmp")])
     # an expired cache row is a miss at once, not after the next sweep
     import arch_cache
     ck_ = "e" * 64

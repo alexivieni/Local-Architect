@@ -1784,6 +1784,7 @@ async function api(path,body){
     const c=_getCache[ck]; if(!fresh&&c&&Date.now()-c.t<60000)return c.v;
   }
   const v=await _api(path,body);
+  if(body!==undefined)for(const k in _getCache)delete _getCache[k];     /* any save may change what a cached read shows (team, doctor, machine...) */
   if(ck)_getCache[ck]={t:Date.now(),v};
   return v;
 }
