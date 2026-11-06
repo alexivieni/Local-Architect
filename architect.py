@@ -96,6 +96,8 @@ def build_engine(args, goal, flow_id, persist=True):
 
 def _flow_params(args):
     p = {}
+    if getattr(args, "recipe", None):
+        p["recipe"] = args.recipe
     if getattr(args, "domains", None):
         p["domains"] = [d for d in args.domains.split(",") if d in flows.DOMAINS]
     if getattr(args, "template", None):
@@ -1262,6 +1264,30 @@ def cmd_preset(args):
     return 0
 
 
+def cmd_tune_role(args):
+    """Try profile values on one role's probe tasks and report pass rate, time and tokens; --apply-best --yes writes the winner (undoable)."""
+    import arch_roleprofile as rp
+    try:
+        out = rp.tune_role(args.role, args.try_ or [], n=args.n, fake=args.fake, apply_best=args.apply_best, yes=args.yes)
+    except ValueError as ex:
+        print(f"[x] {ex}")
+        return 2
+    print(json.dumps(out, indent=1) if args.json else rp.report(out))
+    return 0
+
+
+def cmd_recommend(args):
+    """Print the recommended steps (role, tier, ctx, thinking, escalation, reason, evidence) for one flow."""
+    import arch_roleprofile as rp
+    try:
+        rec = rp.recommend(args.flow)
+    except KeyError as ex:
+        print(f"[x] {ex.args[0]}")
+        return 2
+    print(json.dumps(rec, indent=1) if args.json else rp.recommend_text(rec))
+    return 0
+
+
 def cmd_cost(args):
     """The report's loop cost model (Eq. 15-19) from this machine's traces: seconds per ACCEPTED change, per role and model."""
     import arch_costmodel as cm
@@ -1518,7 +1544,7 @@ def _run_suites(suite):
                 print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
                 rc |= 1
         # suites whose run() returns True when every check passed (art returns 0 like the older ones)
-        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "swap", "orchestration", "squad", "select", "plugins", "telemetry", "retrieval", "modelknow", "verifymachine", "selfimprove", "roleprofile"):
+        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "swap", "orchestration", "squad", "select", "plugins", "telemetry", "retrieval", "modelknow", "verifymachine", "selfimprove", "roleprofile", "eta", "notify", "effective", "playbook", "cacheplus", "overlap", "contracts", "curriculum", "harness2", "ourtasks", "reqcache", "cpuworker", "overlay", "mcpclient", "bundle", "gitflow", "onboard", "harness3", "replay"):
             try:
                 _mod = importlib.import_module("arch_selftest_" + _name)
                 _res = (getattr(_mod, "run", None) or _mod.main)()       # retrieval has only main() -> 0/1
@@ -1545,6 +1571,13 @@ def main(argv=None):
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
         import retrieval_bench
         return retrieval_bench.main(_argv[1:])
+    if _argv[:1] == ["onboard"]:             # /init: detect commands, index, draft ARCHITECT.md (arch_onboard.py)
+        import arch_onboard
+        return arch_onboard.main(_argv[1:])
+    if _argv[:1] == ["consolidate"]:         # merge/prune project lessons, propose ARCHITECT.md lines
+        import arch_memory, json as _j
+        _r = arch_memory.consolidate(_argv[_argv.index("--root") + 1] if "--root" in _argv else ".", dry_run="--dry-run" in _argv)
+        print(_j.dumps(_r, indent=1, default=str)); return 0 if _r.get("ok", True) else 1
     if _argv[:1] == ["swap"]:                # model swapping (arch_swap.py has its own arguments)
         import arch_swap
         return arch_swap.main(_argv[1:])
@@ -1564,6 +1597,7 @@ def main(argv=None):
     common.add_argument("--set", action="append", metavar="KEY.PATH=VALUE", help="override any config key, e.g. --set behavior.git=commit (repeatable)")
     r = sub.add_parser("run", parents=[common])
     r.add_argument("goal", nargs="?")
+    r.add_argument("--recipe", help="the recipe this run was started from (recorded in run.json)")
     r.add_argument("--flow", default="auto", choices=["auto", *flows.FLOWS])
     r.add_argument("--stages", help="ship flow only: comma-separated stages (build,test,hunt,secure,review); default by machine tier")
     r.add_argument("--domains", help="comma-separated: " + ",".join(flows.DOMAINS))
@@ -1818,6 +1852,17 @@ def main(argv=None):
     pr_ = sub.add_parser("preset", help="role-profile presets: Fast, Balanced (= shipped), Quality, Battery; --undo puts back the last one")
     pr_.add_argument("name", nargs="?")
     pr_.add_argument("--undo", action="store_true")
+    tr_ = sub.add_parser("tune-role", help="try role-profile values on one role's probe tasks (--try key=v1,v2 ...); --apply-best --yes writes the winner")
+    tr_.add_argument("role")
+    tr_.add_argument("--try", dest="try_", action="append", help="key=v1,v2 (repeatable; combinations capped at 8)")
+    tr_.add_argument("--n", type=int, default=4)
+    tr_.add_argument("--fake", action="store_true", help="scripted stand-in, no model")
+    tr_.add_argument("--apply-best", action="store_true")
+    tr_.add_argument("--yes", action="store_true")
+    tr_.add_argument("--json", action="store_true")
+    rc_ = sub.add_parser("recommend", help="the recommended role steps for a flow (build, bugfix, feature, refactor, test, review, secure, optimize, hunt, design, docs)")
+    rc_.add_argument("flow")
+    rc_.add_argument("--json", action="store_true")
     co_ = sub.add_parser("cost", help="seconds per ACCEPTED change per role and model (the report's C = t / p-bar), or --planner to test Eq. 19")
     co_.add_argument("--root", help="one project folder (default: every portfolio project + this folder)")
     co_.add_argument("--watts", type=float, help="average power draw, to report energy E = P * C")
@@ -1833,7 +1878,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     fn = {"run": cmd_run, "flows": cmd_flows, "templates": cmd_templates, "route": cmd_route, "undo": cmd_undo,
           "portfolio": cmd_portfolio, "show-config": cmd_show, "serve": cmd_serve, "doctor": cmd_doctor, "assess": cmd_assess, "advise": cmd_advise,
-          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "preset": cmd_preset, "swap": lambda a: __import__("arch_swap").main(list(a.rest or [])), "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "plugins": cmd_plugins, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
+          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "preset": cmd_preset, "tune-role": cmd_tune_role, "recommend": cmd_recommend, "swap": lambda a: __import__("arch_swap").main(list(a.rest or [])), "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "plugins": cmd_plugins, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
     if not fn:
         ap.print_help()
         return 0

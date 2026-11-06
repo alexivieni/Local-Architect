@@ -1,0 +1,22 @@
+{
+  "_comment": "Example MCP servers for Architect. Copy the entries you want into architect_config.json under mcp.servers, set mcp.enabled to true, then run: python arch_mcp_client.py trust <name>. Editing an entry revokes trust. Nothing here runs until trusted.",
+  "mcp": {
+    "enabled": false,
+    "timeout": 20,
+    "output_cap": 4000,
+    "servers": [
+      {
+        "name": "files",
+        "command": ["python", "my_mcp_server.py"],
+        "env": {"MY_SETTING": "value"},
+        "allowed_tools": ["read_note", "list_notes"]
+      },
+      {
+        "name": "lan-tools",
+        "url": "http://127.0.0.1:8765/mcp",
+        "headers": {},
+        "allowed_tools": ["search"]
+      }
+    ]
+  }
+}

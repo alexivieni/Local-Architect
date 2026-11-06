@@ -11,7 +11,7 @@ model, no OpenAI-style endpoint. Code decides what passes (tests, AST checks, th
 - `arch_roles.py` — the roles: prompt, group, needs, fallback chain, sampling. `arch_flows*.py` — the flows (build, bugfix, feature, cicd, purge, security, ...).
 - `arch_checks.py`, `arch_fakecode.py`, `arch_deps.py`, `arch_ci.py` — code-side verification. `arch_schemas.py` — JSON schemas for structured replies.
 - `arch_progress.py` (stall detection, escalation), `arch_resume.py`, `arch_ledger.py` (what happened in your runs; few-shot from your own successes).
-- `arch_index.py` — hybrid retrieval: function-level vector index (Ollama `/api/embed`) fused with TF-IDF; `.arch/index/` per project; `index` command.
+- `arch_index.py` — hybrid retrieval: SQLite FTS5 + TF-IDF fused by reciprocal rank (`.arch/index.db`); dense ranking optional via `retrieval.embed_model` (see `arch_fts.py`); `index` command.
 - `arch_pipeline.py` — the `ship` flow (build -> test -> hunt -> secure -> review, each an existing flow). `arch_dataset.py` — SFT/DPO export from marked traces. `arch_chat.py` — Studio (chat grounded by the index; talks only). `arch_autopilot.py` — the backlog, unattended draining within a budget, proposals from findings (code-checked).
 - `arch_chain.py` — swap-aware chains: the per-run swap ledger ("Run economics" in the report), judge batching in the build flow, the team fit sheet (`fit`).
 - `arch_hw.py`, `arch_autotune.py`, `arch_profiles.py`, `arch_modelopt.py`, `arch_power.py`, `arch_ollama.py`, `arch_hosts.py` — machine, tuning, server, laptops, other machines.
@@ -46,7 +46,7 @@ model, no OpenAI-style endpoint. Code decides what passes (tests, AST checks, th
 - `arch_costs.py` — what runs cost, read from traces (Claude dollars, tokens per model, `local_share`). `arch_tokens.py` — price before sending (`count()` is the free counter, refused when `arch_cloud.allowed()` says no; `estimate_local()` labelled estimate). `arch_batch.py` — overnight batches at half price, same gate.
 - `arch_server.py` fast lane (`server.fast_lane`, `fast_think_budget`) — worker only: all layers + cache on the card (window shrinks to fit, not below `FAST_MIN_CTX`), n-gram speculation, above-normal priority on performance cores; with it off the plan is unchanged (`arch_selftest_fastlane`).
 - `arch_plugins.py` — plugin folders (shipped, machine, project) bundling agents, workflows, skills, commands, hooks; `plugins.enabled`, `plugins.disabled`; a project's plugins load only with `plugins.trust_project`, and a `code:` agent only from a trusted plugin (`agent_allowed`). `architect.py plugins list|enable|trust|install|new|validate|pack`.
-- `arch_squad.py` — local agent workflows (`architect.py crew`): agents are `agents/*.yaml`, workflows `workflows/*.yaml` (plus enabled plugins' `agent_dirs()`/`workflow_dirs()`), run under a token/time budget with one file owner each. `crew --resume RUN_ID` replays unchanged agents of an earlier run (`squad.replay`, `--no-replay`); a step cache reuses an agent with identical inputs and files for `squad.step_cache_days` (layer "Agent steps" in `arch_cachestats`). Never under `ARCHITECT_NO_CACHE`.
+- `arch_squad.py` — local agent workflows (`architect.py crew`): agents are `agents/*.md` (`.yaml` still loads; see docs/HARNESS.md), workflows `workflows/*.yaml` (plus enabled plugins' `agent_dirs()`/`workflow_dirs()`), run under a token/time budget with one file owner each. `crew --resume RUN_ID` replays unchanged agents of an earlier run (`squad.replay`, `--no-replay`); a step cache reuses an agent with identical inputs and files for `squad.step_cache_days` (layer "Agent steps" in `arch_cachestats`). Never under `ARCHITECT_NO_CACHE`.
 - `arch_telemetry.py` — local-only usage counters and events (`behavior.telemetry`, `telemetry_mb` cap); nothing leaves the machine.
 - `arch_select.py` + `arch_jobs.py` — model choice PER JOB by measurement (`select --plan/--screen/--measure/--apply/--undo`; C = seconds per passed task); `arch_jobs.JOBS` maps roles to jobs. `arch_modelknow.py` — family facts per model (`explain --model TAG`); `behavior.model_defaults = auto` lets its sampling/thinking fill only what the person left unset (traced as `model_defaults`), off by default.
 - `arch_orchestration.py` (`architect.py orchestration`) — who delegated what to whom: Claude Code sessions/subagents/workflows, crew runs, local runs. Tokens are priced per MESSAGE model at its exact `arch_cloud.PRICES` id (family as fallback), 5-minute cache writes 1.25x, 1-hour writes 2x, `<synthetic>` skipped; "read-only" = no edit-tool calls and no shell writes outside temp. Local: exact cache hit = llama `cache_n > 0`, llama prefix reuse reported apart from Ollama estimates, worker speed = median decode tok/s of tier=worker llama calls (with n).
@@ -153,7 +153,7 @@ saved commands, `Esc` stops between steps, `j`/`k` walk the plan.
   kinds and drops flags the help marks "has been removed" (`--draft-max` made the server refuse to start). Worker: `ngram-cache` with
   the lookup cache (measured here: edits 56 -> 306-343 tok/s), or `draft-simple` with a draft. qwen3:0.6b as a draft measured 66-78
   tok/s on new code and 125 on edits, so n-gram stays the default and the draft stays opt-in (`server.draft = try`).
-- Hub navigation is four places (`TABS` in hub_ui.html: Projects, Workspace, Models, Settings); page ids are unchanged, so `go("run")`
+- Hub navigation: see `TABS` in hub_ui.html (the tab set changed several times; do not trust older lists). Page ids are unchanged, so `go("run")`
   etc. still work. Home = hero + `getStarted()` (4 steps, one action each) + starters + `teamSummary()`; the old 29-role grid lives in
   Models. Next design steps agreed with the user: the Plan card before a run, a Review screen after it, Settings by presets, plain words.
 - **Role resolution** (`Engine.model_for`): a model assigned to the role wins; else the role's OWN tier; only with no tiers set up is a
@@ -244,6 +244,12 @@ A YAML step's `tier:` is the default for that work. A model the person assigned 
 Inside the Architect, `model_hub.read_config/write_config` must target `arch_core.CONFIG_FILE`. `model_hub` now follows it automatically when
 `arch_core` is loaded; code that writes settings should still set `mh.CONFIG_FILE = core.CONFIG_FILE` at the point of use. Writing to
 `hub_config.json` instead made `port --apply` and `promote-model` change a file nothing reads.
+
+## Settings safety: tests isolate ARCHITECT_HOME
+A test or tool must never read-modify-write the real `architect_config.json`. Every suite sets a throwaway `ARCHITECT_HOME` **and** `ARCHITECT_DATA_DIR` before importing `arch_core`; anything that calls `write_config`, `port --apply`, `tune`, `select --apply` or `promote-model` in a test does so inside that folder. Back up before any manual config edit.
+
+## Transfer pack
+`py -3.12 tools/transfer_pack.py` (docs/TRANSFER.md) exports playbooks, learned workflows, Claude briefs as local agents, the harness contract and cache/model settings into `hub_data/transfer/<stamp>/`. Claude-written, tagged `source: claude-orchestration`, never training data.
 
 ## Three outcomes, never two
 A check result is `True` (ran and passed), `False` (ran and failed) or `None` (**could not run**). `Engine.mark` keeps all three on disk.

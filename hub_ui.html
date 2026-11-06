@@ -440,6 +440,11 @@ body.oneScreen .subtabs{margin-bottom:12px}
 .slash li .d{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .slash li .fl{font-size:.75rem;color:var(--faint);font-family:var(--mono)}
 .slash li[aria-selected=true]{background:var(--acc2)}
+.slash li .pdot,.pl-cmd .pdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+.rp-pop{position:fixed;top:56px;right:16px;width:min(520px,calc(100vw - 32px));max-height:calc(100vh - 80px);overflow:auto;z-index:60;box-shadow:var(--lift)}
+.rp-tabs{display:flex;flex-wrap:wrap;gap:6px}
+.rp-changes code{font-family:var(--mono)}
+.slash li .ah{color:var(--faint);font-family:var(--mono);font-size:.75rem}
 .slash li[aria-selected=true] .d{color:var(--ink)}
 .composer{position:relative}
 
@@ -1575,10 +1580,63 @@ body.sheet-wrap #subtabs,body.sheet-wrap #pageHint{display:none}
 .si-diff pre{font:12px/1.45 var(--mono);max-height:420px;overflow:auto;background:var(--soft);padding:10px;border-radius:var(--rs);white-space:pre}
 .si-diff .add{color:var(--good);background:var(--goodbg)}.si-diff .del{color:var(--bad);background:var(--badbg)}
 /* V-G: ONE reduced-motion block for the whole app, last in the sheet so nothing after it can bring motion back */
+/* Review, plan, session panel, queue board, recipe cards: theme tokens only */
+.rv-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+.rv-side{position:sticky;top:12px;min-width:0}
+@media (max-width:900px){.rv-grid{grid-template-columns:minmax(0,1fr)}.rv-side{position:static}}
+.rv-file{border:1px solid var(--line);border-radius:var(--rs);margin:8px 0;background:var(--panel)}
+.rv-file[aria-current=true]{border-color:var(--acc)}
+.rv-file>summary{display:flex;gap:8px;align-items:center;padding:8px 12px;cursor:pointer;min-height:44px;min-width:0}
+.rv-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono,monospace)}
+.rv-pm{white-space:nowrap}.rv-plus{color:var(--good)}.rv-minus{color:var(--bad)}
+.rv-diff{padding:0 12px 12px;overflow-x:auto}.rv-diff pre{margin:0;font-size:.8125rem;line-height:1.45}
+.dl{display:block}.dl-add{background:var(--goodbg)}.dl-del{background:var(--badbg)}.dl-hunk{color:var(--info)}.dl-meta{color:var(--mute)}
+.rv-tests,.rv-plan,.ses-list,.qb-list{list-style:none;margin:6px 0;padding:0}
+.rv-test,.rv-step,.ses-list li{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);min-width:0}
+.rv-tx{max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rv-off{text-decoration:line-through;color:var(--mute)}
+.rv-act textarea{width:100%;margin-top:10px;box-sizing:border-box}
+.rv-k{border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-left:4px;font-size:.75rem;background:var(--soft);color:var(--mute)}
+@media (max-width:768px){.rv-act .btn,.rv-step .btn{min-height:44px}}
+.ses>summary{cursor:pointer;padding:6px 0;font-weight:600}
+.ctxbar{position:relative;display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--soft);margin:6px 0}
+.ctxseg{display:block;height:100%}.ctxmark{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink)}
+.ses-dot{width:10px;height:10px;border-radius:99px;flex:none;display:inline-block}.ses-free{background:var(--soft);border:1px solid var(--line)}
+.qb{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:12px 0}
+@media (max-width:700px){.qb{grid-template-columns:minmax(0,1fr)}}
+.qb-col{background:var(--soft);border-radius:var(--rs);padding:10px;min-width:0}.qb-col h3{margin:0 0 6px}
+.qb-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--rs);padding:8px 10px;margin:6px 0;overflow-wrap:anywhere}
+.rc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-top:10px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
   .shimmer,.statcard[data-tone=loading] b{background:var(--soft)}
   .fm-step{opacity:1;transform:none}
   .st-load::before{border-top-color:currentColor}}
+/* Data night, Train the worker, Last night, Lessons, Advanced settings: theme tokens only; primary actions are 44px or taller */
+.btn.p,.btn.danger.dn-big{min-height:44px}
+.dn-big{min-height:48px;padding:0 var(--s5,22px);font-size:1.05rem}
+.dn-grid{margin:10px 0}.dn-f .hint{display:block;font-size:.78rem;color:var(--mute)}
+.dn-checks{display:grid;gap:8px;margin:8px 0}.dn-checks .sw{min-height:44px;align-items:center}.dn-checks .hint{display:block;font-size:.8rem;color:var(--mute)}
+.dn-actions{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0}.dn-run{margin-top:6px}
+.dn-preview{padding:8px 0}
+#twCard .sw{min-height:44px;align-items:center}
+.night-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.night-rate{font-size:1.05rem;font-weight:650;margin:0}
+.ls-wrap{overflow-x:auto;margin-top:10px}.ls-tbl td,.ls-tbl th{vertical-align:top}.ls-ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.ls-t .chip{max-width:100%;white-space:normal}
+details.adv>summary{min-height:44px;display:flex;align-items:center}.adv-body{display:grid;gap:14px;margin-top:12px}
+@media (max-width:768px){.dn-actions .btn{flex:1 1 100%}.dn-big{min-height:48px}}
+/* Background jobs, Hooks, Usage, Set up, Keep/Drop hunks: theme tokens only, 44 px targets */
+#bgCard .btn,.hk-row .btn,#hkAdd,#suAccept,.rv-hunk .btn,#rvBundle,#rvCommit,#usageChip,#spSetupBtn{min-height:44px}
+.bg-job{border:1px solid var(--line);border-radius:var(--rs);padding:10px 12px;margin:8px 0;background:var(--panel)}
+.bg-sum{min-height:44px;display:flex;align-items:center;cursor:pointer}
+.bg-tail{max-height:220px;overflow:auto;margin:6px 0 0;padding:8px;background:var(--panel2,var(--panel));border:1px solid var(--line);border-radius:var(--rs);font-family:var(--mono,monospace);font-size:.8rem;white-space:pre-wrap;word-break:break-word;color:var(--ink)}
+.bg-t{min-width:0;overflow-wrap:anywhere}
+.hk-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+.hk-row{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:var(--rs);padding:10px 12px;background:var(--panel)}
+.hk-cmd{display:block;margin-top:4px;overflow-wrap:anywhere;color:var(--ink)}
+.rv-hunk{border:1px solid var(--line);border-radius:var(--rs);margin:8px 0;padding:6px 8px;background:var(--panel)}
+.rv-hunk.dropped{opacity:.7;border-style:dashed}.rv-hunk.dropped pre{text-decoration:line-through}
+.rv-hunk pre{margin:6px 0 0;overflow:auto;max-height:320px}
+#usageChip{max-width:30ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:768px){.hk-row{flex-direction:column}#usageChip{display:none}}
 </style>
 </head>
 <body><a class="skip-link" href="#view">Skip to the main content</a>
@@ -1659,7 +1717,7 @@ body.sheet-wrap #subtabs,body.sheet-wrap #pageHint{display:none}
         <button data-acc="moss" title="Moss" aria-label="Accent: Moss"></button></div></div>
   </aside>
   <main>
-    <div class="topbar"><button class="btn sm navtoggle" id="navToggle" type="button" aria-label="Menu" aria-controls="nav" aria-expanded="false">Menu</button><button class="tsearch" id="topSearch" type="button" aria-label="Search pages and commands (Ctrl+K)"><span>Search pages and commands</span><kbd>Ctrl K</kbd></button><span class="grow"></span><span id="liveChip" class="chip livechip" role="status" aria-live="polite" hidden></span><button class="btn sm topicon" id="paletteBtn" type="button" aria-label="Commands (Ctrl+K)" title="Commands (Ctrl+K)">Commands</button><button class="btn sm topicon" id="keysBtn" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button></div>
+    <div class="topbar"><button class="btn sm navtoggle" id="navToggle" type="button" aria-label="Menu" aria-controls="nav" aria-expanded="false">Menu</button><button class="tsearch" id="topSearch" type="button" aria-label="Search pages and commands (Ctrl+K)"><span>Search pages and commands</span><kbd>Ctrl K</kbd></button><span class="grow"></span><span id="liveChip" class="chip livechip" role="status" aria-live="polite" hidden></span><button class="btn sm" id="usageChip" type="button" hidden aria-label="Usage today. Open the details." onclick="go('telemetry')"></button><button class="btn sm" id="presetBtn" type="button" aria-haspopup="dialog" aria-expanded="false" title="Fast, Balanced, Quality or Battery">Presets</button><button class="btn sm topicon" id="paletteBtn" type="button" aria-label="Commands (Ctrl+K)" title="Commands (Ctrl+K)">Commands</button><button class="btn sm topicon" id="keysBtn" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button></div>
     <div id="runBar" class="runbar" hidden role="status" aria-live="polite"></div>
     <div class="top"><div class="grow"><h1 id="pageTitle"></h1><p id="pageSub"></p></div><div class="row" id="pageActions"></div></div>
     <div class="subtabs" id="subtabs"></div>
@@ -1707,7 +1765,19 @@ function chainThumb(steps,hue){const k=Math.max(2,Math.min(6,(steps||[]).length|
 function spark(vals){const v=(vals||[]).filter(x=>x!=null&&isFinite(x)).slice(-7);if(v.length<2)return null;const lo=Math.min(...v),hi=Math.max(...v),r=hi-lo||1;
   const pts=v.map((x,i)=>`${(i*100/(v.length-1)).toFixed(1)},${(26-(x-lo)/r*22).toFixed(1)}`).join(" ");
   return h("span",{class:"spark","aria-hidden":"true",html:`<svg viewBox="0 0 100 28" preserveAspectRatio="none"><polyline points="${pts}"/></svg>`});}
+const _slowGet=/^\/api\/arch\/(doctor|advise|machine|team|cost|costs|evals|code_health)(\?|$)/, _getCache={};
 async function api(path,body){
+  /* slow read-only pages are kept for 60 s; add ?fresh=1 to bypass */
+  let ck=null;
+  if(body===undefined&&_slowGet.test(path)){
+    const fresh=/[?&]fresh=1(&|$)/.test(path); ck=path.replace(/[?&]fresh=1(?=&|$)/,"");
+    const c=_getCache[ck]; if(!fresh&&c&&Date.now()-c.t<60000)return c.v;
+  }
+  const v=await _api(path,body);
+  if(ck)_getCache[ck]={t:Date.now(),v};
+  return v;
+}
+async function _api(path,body){
   const o=body===undefined?{}:{method:"POST",headers:{"Content-Type":"application/json","X-Hub-Token":TOKEN},body:JSON.stringify(body)};
   const r=await fetch(path,o); let j={}; try{j=await r.json();}catch(_){}
   if(!r.ok) throw new Error(j.error||("HTTP "+r.status)); return j;
@@ -1736,6 +1806,7 @@ const NAV_GROUPS=[
     ["logbook","logbook","History","Everything your models and Claude did"],
     ["morning","chart","Reports","What ran overnight, what moved, and what needs you"],
     ["queue","queue","Queue","Tasks that run one by one, on their own"],
+    ["review","check","Review","What a run changed, which tests ran, and Accept, Undo or Retry"],
     ["flows","flow","My workflows","Your workflows and the checks inside them"],
     ["blueprints","blueprint","Create","Drag steps in, set the order, save"],
     ["gallery","layers","Examples","Ready-made workflows, packs and agents to use"],
@@ -1760,25 +1831,28 @@ const NAV_GROUPS=[
     ["tune","bolt","Optimise for this PC","Fit this PC, upgrades, fake-code check, self-improve"],
     ["selfimprove","refresh","Improve itself","Local agents improve this app on a copy, round by round; you promote"],
     ["settings","sliders","Limits & behaviour","Limits, behaviour and safety checks"],
+    ["effective","layers","Effective settings","The value each setting really has for a job, and which layer set it"],
+    ["hooks","bolt","Hooks","Your own commands that run at fixed points in a run"],
     ["train","train","Saved good work","Good work becomes training data for your models"],
     ["components","palette","Design samples","Every interface part, light and dark"],
     ["plugins","layers","Plugins","Add-ons that bring agents, workflows, skills, commands and hooks"],
     ["telemetry","chart","Telemetry","Calls, tokens, cache reuse, errors and graphics memory, live"],
+    ["lessons","check","Lessons","What we learned, and the code that keeps each lesson true"],
     ["squadruns","crew","Squad runs","Every local crew run; resume one and reuse what is cached"]]],
 ];
 const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
 /* The sidebar: [section, [[place id, icon, label, [page ids = its sub-tabs, at most 5, so no overflow menu]]]]. */
 const SIDEBAR=[
   ["Work",[["home","home","Home",["overview","studio","start","portfolio","launch"]],
-           ["runs","play","Runs",["console","run","logbook","morning","queue"]],
+           ["runs","play","Runs",["console","review","run","logbook","queue"]],
            ["workflows","flow","Workflows",["flows","blueprints","gallery","library","plugins"]],
            ["agentsp","crew","Agent teams",["agents","crewbuild","fleet","monitor","map"]]]],
   ["Models",[["team","chip","Models",["models","tiers","roles","bench","score"]],
              ["cachesp","db","Caches",["caches"]],
              ["cost","target","Speed",["costmap","byjob","telemetry"]]]],
   ["System",[["machine","server","Machine",["doctor","assess","computers","tune","selfimprove"]],
-             ["settings","sliders","Settings",["settings","train"]],
-             ["help","palette","Help",["orchestra","squadruns","components"]]]],
+             ["settings","sliders","Settings",["settings","effective","hooks","train"]],
+             ["help","palette","Help",["orchestra","squadruns","lessons","morning","components"]]]],
 ];
 const TABS=SIDEBAR.flatMap(([,places])=>places);
 /* old ids (and words people type) that are not pages any more: each still lands somewhere sensible */
@@ -1897,7 +1971,7 @@ async function simpleStart(){
   const g=(run.goal||"").trim(); if(!g){toast("Type what you want done");$("#spGoal")&&$("#spGoal").focus();return;}
   if(!run.root){goalError("Choose a project first");rootError("Choose the project folder first, or use the practice project.");return;}
   rootError("");goalError("");goLoading(true);
-  try{await api("/api/arch/run",{goal:g,flow:"auto",review:"auto",root:run.root});rememberRoot(run.root);EV.verdict=null;run._kept=false;RUNBAR.goal=g;toast("Started");simpleDraw();}
+  try{await api("/api/arch/run",{goal:g,flow:run.homeFlow||"auto",review:"auto",root:run.root});run.homeFlow="";rememberRoot(run.root);EV.verdict=null;run._kept=false;RUNBAR.goal=g;toast("Started");simpleDraw();}
   catch(e){goalError("Could not start: "+e.message+". Check the folder, then try again.");toast.err("Could not start: "+e.message);}
   finally{goLoading(false);}
 }
@@ -1948,7 +2022,7 @@ function runBar(){
   b.hidden=!show;if(!show)return;b.innerHTML="";
   const n=(EV.steps||[]).length;
   if(EV.running){b.className="runbar live";
-    b.append(h("span",{class:"dot busy","aria-hidden":"true"}),h("span",{class:"grow"},h("b",null,"Working on: "),(RUNBAR.goal||run.goal||"your job").slice(0,80),` · step ${n+1}`),
+    b.append(h("span",{class:"dot busy","aria-hidden":"true"}),h("span",{class:"grow"},h("b",null,"Working on: "),(RUNBAR.goal||run.goal||"your job").slice(0,80),` · step ${n+1}`,ETA.line?h("span",{class:"rb-eta",title:"estimated from measured seconds per task"}," · "+ETA.line):null),
       h("button",{class:"btn sm",type:"button",onclick:()=>go("console")},"Watch"),
       h("button",{class:"btn sm ghost-danger",type:"button",onclick:()=>{if(typeof cStop==="function")cStop();}},"Stop"),
       h("span",{class:"rb-fill shimmer","aria-hidden":"true"}));}
@@ -1957,7 +2031,11 @@ function runBar(){
       h("button",{class:"btn sm",type:"button",onclick:()=>go("overview")},"Review"),
       h("button",{class:"btn sm",type:"button","aria-label":"Hide this bar",onclick:()=>{RUNBAR.dismissed=EV.verdict;runBar();}},"×"));}
 }
-setInterval(()=>{if(page==="overview")simpleDraw();runBar();},1500);
+/* how long is left (arch_eta): the running job's own progress line, else the queue's */
+const ETA={line:"",t:0};
+async function pollEta(){ if(Date.now()-ETA.t<6000)return; ETA.t=Date.now();
+  try{ const r=await api("/api/arch/eta"); const q=r.queue||{}; ETA.line=(r.job&&r.job.running&&r.job.line)||(q.left?q.line:"")||""; }catch(_){ ETA.line=""; } }
+setInterval(()=>{if(page==="overview")simpleDraw();if(typeof EV!=="undefined"&&EV.running)pollEta();else ETA.line="";runBar();if(typeof recipeReviewTick==="function")recipeReviewTick();},1500);
 
 /* ===== Crew builder (Agents place), By job (Models place) and the Home quick-launch options. Every call is defensive: when
    arch_squad / arch_select are not in this install yet the endpoint says {available:false, why} and the page says so. ===== */
@@ -2177,11 +2255,15 @@ function homeHero(){
       h("div",{class:"sp-try",role:"group","aria-labelledby":"spTryL"},h("span",{class:"sp-try-l",id:"spTryL"},"Try:"),
         h("div",{class:"sp-recipes"},...QUICK.map(([l,t])=>h("button",{class:"sp-recipe",type:"button",onclick:()=>{ta.value=t;run.goal=t;goalSize(ta);goSync();goalError("");ta.focus();ta.setSelectionRange(t.length,t.length);}},l)))),
       h("div",{class:"hero-row sp-proj"},h("div",{class:"f grow"},h("label",{for:"spRoot"},"Project folder (the code to work on)"),rootCombo()),
-        h("button",{class:"btn"+(run.root?"":" p"),type:"button",onclick:usePractice},icon("sprout"),"Use the practice project")),
+        h("button",{class:"btn"+(run.root?"":" p"),type:"button",onclick:usePractice},icon("sprout"),"Use the practice project"),
+        h("button",{class:"btn",type:"button",id:"spSetupBtn",onclick:setupProject},icon("check"),"Set up this project")),
+      h("div",{id:"spSetup",hidden:true}),
       h("p",{class:"note warn",id:"spRootErr",role:"alert",hidden:true}),
       h("p",{class:"small"},h("button",{class:"btn link",type:"button",onclick:()=>go("run")},"Need every option? Open New run"))),
     h("section",{class:"card sp-progress",id:"spProgress",role:"status","aria-live":"polite","aria-label":"Progress",hidden:true}),
+    h("div",{id:"homeNight"}),
     h("h2",{class:"hsec"},"Recent runs"),
+    h("div",{id:"homeRecipes"}),
     h("div",{id:"homeFeed",class:"card feed","aria-busy":"true"},h("div",{class:"skeleton",style:"height:56px"})),
     h("details",{class:"card thispc",id:"homePc",open:true},h("summary",{class:"more-sum"},"This computer"),
       h("div",{class:"statrow"},stat("stPass","Tests passed","check","template"),stat("stTok","Words per second","bolt","cost"),stat("stRuns","Runs this week","play","flow"),stat("stGpu","Graphics memory free","chip","model")))];
@@ -2214,9 +2296,40 @@ async function loadHome(){
       for(const r of newest){const st=r.verdict||r.state||"",tone=/pass|complete/.test(st)?"good":/fail/.test(st)?"bad":"warn";
         const word=/pass|complete/.test(st)?"worked":/fail/.test(st)?"did not work":st?"could not check":"?";
         feed.append(h("div",{class:"feedrow"},h("span",{class:"ic-box sm",style:"--hue:var(--c-flow)"},icon("play")),h("span",{class:"grow",title:r.goal||r.name||""},r.goal||r.name),
-          h("span",{class:"chip "+tone},word),h("small",{class:"mute"},relTime(r.ts||r.started)),h("button",{class:"btn sm",type:"button",onclick:()=>showReport(r)},"Open")));}}
+          h("span",{class:"chip "+tone},word),h("small",{class:"mute"},relTime(r.ts||r.started)),h("button",{class:"btn sm",type:"button",onclick:()=>showReport(r)},"Open"),h("button",{class:"btn sm",type:"button",onclick:()=>{RV.run=r.name||"";built.review=0;go("review");}},"Review")));}}
   }catch(e){done();setStat("stRuns","—","could not read runs");if(feed){feed.innerHTML="";feed.append(h("p",{class:"note warn"},"Could not read the runs of this folder. Check the path, then reload."));}}
+  loadRecipes();
+  loadNight();
   liveChip();
+}
+/* The morning report card: last data night / eval, from GET /api/arch/overnight. Empty state when nothing has run. */
+function nightRate(c){return c&&c.rate!=null?fmt(c.rate,0)+"% ("+c.passed+" of "+c.n+" passed; 95% range "+fmt(c.ci[0],0)+"-"+fmt(c.ci[1],0)+"%)":"no result";}
+async function loadNight(){
+  const el=$("#homeNight"); if(!el)return;
+  let d; try{ d=await api("/api/arch/overnight"); }catch(_){ el.innerHTML=""; return; }
+  el.innerHTML="";
+  const card=h("section",{class:"card night","aria-labelledby":"nightT"},h("h2",{class:"hsec",id:"nightT"},"Last night"));
+  const run_=d.running&&d.running.running;
+  if(run_)card.append(h("p",{class:"note info",role:"status"},d.running.stopping?"A data night is stopping safely.":"A data night is running"+(d.running.line?": "+d.running.line:"")+"."));
+  if(!d.ran){
+    card.append(h("p",{class:"sub"},"No data night or test run yet. Start one before you sleep and the result shows here in the morning."),
+      h("button",{class:"btn p",type:"button",onclick:()=>go("queue")},icon("play"),"Set up a data night"));
+    el.append(card); return;
+  }
+  const s=d.samples||{}, lessons=Object.entries(s.by_lesson||{}).sort((a,b)=>b[1]-a[1]);
+  card.append(h("div",{class:"night-grid"},
+    h("div",null,h("p",{class:"lbl"},"Samples by lesson"),
+      lessons.length?h("div",{class:"row",style:"gap:6px;flex-wrap:wrap"},...lessons.map(([k,v])=>h("span",{class:"chip"},k+" ",h("b",null,String(v))))):
+        h("p",{class:"small mute"},s.total?s.total+" samples, none tagged with a lesson yet":"No samples exported yet")),
+    h("div",null,h("p",{class:"lbl"},"Pass rate, "+(d.basis||"")),
+      d.latest?h("p",{class:"night-rate"},nightRate(d.latest)):h("p",{class:"small mute"},"No finished test run yet"),
+      d.previous?h("p",{class:"small mute"},"Before that: "+nightRate(d.previous)+(d.delta!=null?". "+(d.delta>0?"Up "+fmt(d.delta,1)+" points.":d.delta<0?"Down "+fmt(-d.delta,1)+" points.":"No change."):"")):null,
+      d.latest&&d.previous&&d.latest.ci&&d.previous.ci&&(d.latest.ci[0]<=d.previous.ci[1]&&d.previous.ci[0]<=d.latest.ci[1])?h("p",{class:"small mute"},"The ranges overlap, so this is not a clear change."):null),
+    h("div",null,h("p",{class:"lbl"},"Fastest worker measured"),
+      d.fastest?h("p",null,h("b",null,cmName(d.fastest.model))," on "+d.fastest.flow+": "+d.fastest.secs_per_pass+" s per passing task ("+d.fastest.pass_rate+"% pass, "+d.fastest.tasks+" tasks)"):h("p",{class:"small mute"},"Not enough measured tasks yet"))));
+  card.append(h("div",{class:"row",style:"gap:8px;margin-top:10px"},h("button",{class:"btn",type:"button",onclick:()=>go("morning")},"Open the full report"),
+    h("button",{class:"btn",type:"button",onclick:()=>go("queue")},"Data night and training")));
+  el.append(card);
 }
 /* the top-bar chip: short "5.2/6 GB · model loaded" (or "GPU 74%" while busy); the full sentence lives in title. Polled every 10 s on every page. */
 let OLLAMA_OK=true;
@@ -2273,6 +2386,8 @@ function render(){
   if(wsPage){ if(!built[page]){v.innerHTML="";put(v,...wsPage());built[page]=1;} return; }
   if(page==="tiers"){ if(!built.tiers){v.innerHTML="";put(v,...tiersPage());built.tiers=1;loadTeam();} return; }
   if(page==="queue"){ if(!built.queue){v.innerHTML="";put(v,...queuePage());built.queue=1;} loadQueue(); return; }
+  if(page==="hooks"){ if(!built.hooks){v.innerHTML="";put(v,...hooksPage());built.hooks=1;} loadHooks(); return; }
+  if(page==="effective"){ if(!built.effective){v.innerHTML="";put(v,...effectivePage());built.effective=1;} loadEffective(); return; }
   if(page==="run"){ if(!built.run){v.innerHTML="";put(v,...runPage());built.run=1;fillExtras();} else updateRunLists(); return; }
   if(page==="launch"){ if(!built.launch){v.innerHTML="";put(v,...launchPage());built.launch=1;} pollLaunch(); return; }
   if(page==="doctor"){ if(!built.doctor){v.innerHTML="";put(v,...healthPage());built.doctor=1;} return; }   /* audit 21: Health = advisor + doctor */
@@ -2284,12 +2399,14 @@ function render(){
   if(page==="squadruns"){ if(!built.squadruns){v.innerHTML="";put(v,...squadRunsPage());built.squadruns=1;} loadSquadRuns(); return; }
   if(page==="advisor"){ if(!built.advisor){v.innerHTML="";put(v,...advisorPage());built.advisor=1;runAdvise();} return; }
   if(page==="bench"){ if(!built.bench){v.innerHTML="";put(v,...benchPage());built.bench=1;} loadBench(); return; }
+  if(page==="review"){ if(!built.review){v.innerHTML="";put(v,...reviewPage());built.review=1;loadReview();} return; }
   if(page==="morning"){ v.innerHTML="";put(v,...morningPage());loadMorning(); return; }
   if(page==="costmap"){ if(!built.costmap){v.innerHTML="";put(v,...costmapPage());built.costmap=1;} loadCostmap(); return; }
   if(page==="crewbuild"){ if(!built.crewbuild){v.innerHTML="";put(v,...crewBuilderPage());built.crewbuild=1;} return; }
   if(page==="byjob"){ if(!built.byjob){v.innerHTML="";put(v,...byJobPage());built.byjob=1;} return; }
   if(page==="orchestra"){ if(!built.orchestra){v.innerHTML="";put(v,...orchPage());built.orchestra=1;} loadOrch(); return; }
   if(page==="caches"){ if(!built.caches){v.innerHTML="";put(v,...cachesPage());built.caches=1;} loadCaches(); return; }
+  if(page==="lessons"){ if(!built.lessons){v.innerHTML="";put(v,...lessonsPage());built.lessons=1;} loadLessons(); return; }
   v.innerHTML=""; const fn={overview,start,models,roles,flows,portfolio,score:scoreboard,settings,train}[page]; put(v,...fn());
 }
 
@@ -2385,6 +2502,8 @@ function renderStrip(){
   if(EV.nowModel) kids.push(h("span",{class:"sep"}),
     h("span",{class:"sg",title:"the tier answering right now"},icon("spark"),h("b",{},EV.nowModel),
       EV.nowTier?h("span",{},EV.nowTier):null));
+  if(EV.running&&ETA.line) kids.push(h("span",{class:"sep"}),
+    h("span",{class:"sg",id:"cEta",title:"time left, estimated from measured seconds per task (p25-p75)"},h("b",{},"left"),h("span",{class:"num"},ETA.line)));
   if(EV.tok_s) kids.push(h("span",{class:"sep"}),
     h("span",{class:"sg",title:"generation speed the server itself reported on the last call"},
       h("b",{class:"num"},fmt(EV.tok_s,1)),"tokens/s"));
@@ -2724,11 +2843,11 @@ function slashDraw(){
   let box=$(".slash",comp);
   if(!box){ box=h("div",{class:"slash",role:"listbox"},h("ul",{})); comp.append(box); }
   const ul=box.querySelector("ul"); ul.innerHTML="";
-  SLASH.items.forEach((c,n)=>ul.append(h("li",{role:"option","aria-selected":n===SLASH.idx?"true":"false",
+  SLASH.items.forEach((c,n)=>ul.append(h("li",{role:"option","aria-selected":n===SLASH.idx?"true":"false",title:c.plugin?"From the plugin "+c.plugin:"",
     onmousedown:e=>{e.preventDefault();slashPick(c);}},
-    h("b",{},"/"+c.name),
-    h("span",{class:"d"},c.description),
-    h("span",{class:"fl"},c.flow||""))));
+    h("b",{},c.plugin?h("span",{class:"pdot",style:"background:var(--c-"+plHue(c.plugin)+")","aria-hidden":"true"}):null,"/"+c.name),
+    h("span",{class:"d"},c.description,c.args_hint?h("span",{class:"ah"}," · "+c.args_hint):(c.needs_args?h("span",{class:"ah"}," · needs a target"):null)),
+    h("span",{class:"fl"},c.plugin?c.plugin:(c.flow||"")))));
   SLASH.open=true;
 }
 function slashClose(){ const b=$(".slash"); if(b)b.remove(); SLASH.open=false; SLASH.idx=0; }
@@ -3139,7 +3258,7 @@ function queuePage(){
     onkeydown:e=>{if(e.key==="Enter"){e.preventDefault();qAdd();}}});
   const flow=h("select",{id:"qFlow","aria-label":"Flow"},h("option",{value:""},"router decides"),
     ...["bugfix","build","feature","refactor","test","optimize","review","secure","explore","hunt"].map(f=>h("option",{value:f},f)));
-  return [h("div",{class:"card"},
+  return [bgJobsCard(),h("div",{class:"card"},
     h("h2",{},"Work it does on its own"),
     h("p",{class:"sub"},"Add tasks. They run one by one."),learnMore("Add tasks and let it work through them. Each runs in its own process, inside the day's limits. When one fails or ends 'not sure', it is tried again with a different approach -- a bug that would not reproduce gets a bug hunt instead -- and it gives up honestly when the approaches run out."),
     h("div",{class:"qadd"},goal,flow,h("button",{class:"btn pri",onclick:qAdd},icon("arrow"),"Add")),
@@ -3148,10 +3267,99 @@ function queuePage(){
       h("button",{class:"btn",onclick:()=>qRun(1)},icon("play"),"Work through it for an hour"),
       h("button",{class:"btn",id:"qStopBtn",onclick:qToggleStop},icon("stop"),"Stop"),
       h("button",{class:"btn sm",onclick:qClear},"Clear finished")),
-    h("ul",{class:"qlist",id:"qList"},h("li",{class:"skeleton",style:"height:44px;border:0"})))];
+    h("div",{id:"qBoard","aria-live":"polite"}),
+    h("ul",{class:"qlist",id:"qList"},h("li",{class:"skeleton",style:"height:44px;border:0"}))),
+    ...dataNightCard()];
+}
+/* Data night: the one-click path. Your own models work through the training tasks until an end time, stopping between tasks, then the
+   dataset is exported. One big "Start data night"; while it runs a big "Stop safely" (writes STOP: the task in hand finishes first);
+   "Train the worker" turns the samples into a LoRA (dry run unless asked). State changes are announced in #dnLive. */
+const DN={prev:"",t:0};
+function dnField(label,ctl,hint){return h("label",{class:"f dn-f"},label,ctl,hint?h("span",{class:"hint"},hint):null);}
+function dataNightCard(){
+  const cur=((cfg.tiers||{}).worker)||"";
+  const names=[...new Set([cur,...((S&&S.models)||[]).filter(m=>!m.embed).map(m=>m.name)].filter(Boolean))];
+  const w=h("select",{id:"dnWorker",onchange:dnPreview},
+    h("option",{value:""},"current worker"+(cur?" ("+cur+")":"")),...names.filter(n=>n!==cur).map(n=>h("option",{value:n},n)));
+  const u=h("input",{id:"dnUntil",type:"time",value:"07:00",onchange:dnPreview});
+  const mx=h("input",{id:"dnMax",type:"number",min:"1",max:"2000",placeholder:"no limit",onchange:dnPreview});
+  const teach=h("input",{id:"dnTeacher",type:"checkbox",checked:true,onchange:dnPreview});
+  const cur2=h("input",{id:"dnCur",type:"checkbox",checked:true,onchange:dnPreview});
+  setTimeout(()=>{dnPreview();dnPoll();twLoad();},0);
+  return [h("section",{class:"card dn",id:"dnCard","aria-labelledby":"dnT"},
+    h("h2",{id:"dnT"},"Data night"),
+    h("p",{class:"sub"},"Your own models work through the training tasks while you sleep. Nothing leaves this PC and Claude is never used."),
+    h("div",{class:"fgrid dn-grid"},dnField("End time",u,"It starts no task that would not finish before this"),dnField("Worker model",w),
+      dnField("Most tasks (optional)",mx)),
+    h("div",{class:"dn-checks"},
+      h("label",{class:"sw"},teach,"Teacher model on",h("span",{class:"hint"},"The bigger local model retries what the worker failed")),
+      h("label",{class:"sw"},cur2,"Curriculum on",h("span",{class:"hint"},"Adds new tasks aimed at what failed before"))),
+    h("div",{class:"dn-preview",role:"status","aria-live":"polite"},h("p",{class:"small",id:"dnEta"},"Estimating..."),h("p",{class:"small mute",id:"dnExpect"},"")),
+    h("div",{class:"dn-actions"},
+      h("button",{class:"btn p dn-big",id:"dnStart",type:"button",onclick:dnStart},icon("play"),"Start data night"),
+      h("button",{class:"btn danger dn-big",id:"dnStop",type:"button",hidden:true,onclick:dnStop},icon("stop"),"Stop safely"),
+      h("button",{class:"btn dn-big",id:"dnWatch",type:"button",hidden:true,onclick:()=>go("console")},"Watch it on the Console")),
+    h("div",{class:"dn-run",id:"dnRun",role:"status","aria-live":"polite"}),
+    h("p",{class:"sr-only",id:"dnLive",role:"status","aria-live":"assertive"}),
+    h("p",{class:"small mute"},"The result shows on Home as a report card in the morning."),
+    learnMore("It runs the distributed-systems and harness-building tasks one at a time, with fresh task variants each night. It never stops in the middle of a task: before each one it checks whether that task would finish before the end time. Stop safely finishes the task in hand, then exports the passing work as training data (Saved good work).")),
+  h("section",{class:"card dn",id:"twCard","aria-labelledby":"twT"},
+    h("h2",{id:"twT"},"Train the worker"),
+    h("p",{class:"sub",id:"twInfo"},"Reading the samples..."),
+    h("label",{class:"sw"},h("input",{id:"twReal",type:"checkbox",onchange:twLoad}),"Real training",h("span",{class:"hint"},"Off = a dry run that only shows what would be trained on. On needs the graphics card and the training packages.")),
+    h("div",{class:"dn-actions"},h("button",{class:"btn p dn-big",id:"twGo",type:"button","aria-describedby":"twWhy",onclick:twStart},icon("train"),"Train the worker")),
+    h("p",{class:"small",id:"twWhy",role:"status","aria-live":"polite"},""))];
+}
+async function dnPreview(){
+  const e=$("#dnEta"); if(!e)return;
+  const q=new URLSearchParams({until:($("#dnUntil")||{}).value||"",max:($("#dnMax")||{}).value||"",worker:($("#dnWorker")||{}).value||""});
+  try{ const r=await api("/api/arch/datanight?"+q); const p=r.preview||{};
+       if(r.error){e.textContent=r.error;return;}
+       e.textContent=p.line?("Estimate: "+p.line+" ("+p.source+")"):"No estimate yet";
+       const x=r.expected||{}, d=$("#dnExpect"); if(d){
+         const teach=($("#dnTeacher")||{}).checked;
+         d.textContent=x.tasks!=null?("About "+x.tasks+" tasks fit before "+(($("#dnUntil")||{}).value||"the end")+(x.passing!=null?"; about "+x.passing+" should pass (each becomes training samples), from a "+x.pass_share+"% pass share in your last runs.":"; no earlier runs to guess the pass share from.")+(teach&&!(r.defaults||{}).heavy?" Teacher: no heavy model is set, so it is skipped.":"")):"";}
+  }catch(err){ e.textContent="No estimate: "+err.message; }
+}
+async function dnPoll(){
+  if(page!=="queue")return;
+  let r; try{ r=await api("/api/arch/datanight"); }catch(_){ return; }
+  const s=r.state||{}, st=s.running?(s.stopping?"stopping":"running"):"idle";
+  const go_=$("#dnStart"),stop=$("#dnStop"),watch=$("#dnWatch"),run_=$("#dnRun"),live=$("#dnLive");
+  if(go_){go_.hidden=!!s.running;} if(stop){stop.hidden=!s.running;stop.disabled=!!s.stopping;stop.textContent="";stop.append(icon("stop"),s.stopping?"Stopping after this task...":"Stop safely");} if(watch)watch.hidden=!s.running;
+  if(run_){run_.innerHTML="";if(s.running)run_.append(h("p",{class:"note "+(s.stopping?"warn":"info")},s.stopping?"Stopping safely: the task in hand finishes, then the samples are exported.":"Running"+(s.line?": "+s.line:"")+"."));}
+  if(live&&DN.prev&&DN.prev!==st){live.textContent=st==="running"?"Data night started.":st==="stopping"?"Stopping safely. The task in hand finishes first.":"Data night finished.";
+    if(st==="idle"){toast("Data night finished. The result is on Home.");twLoad();}}
+  DN.prev=st;
+}
+async function dnStart(){
+  const b={until:($("#dnUntil")||{}).value||"",worker:($("#dnWorker")||{}).value||"",teacher:!!($("#dnTeacher")||{}).checked,curriculum:!!($("#dnCur")||{}).checked};
+  const m=($("#dnMax")||{}).value; if(m)b.max=Number(m);
+  const btn=$("#dnStart"); if(btn)btn.disabled=true;
+  try{ await api("/api/arch/datanight",b); DN.prev="idle"; toast("Data night started"); await dnPoll(); const s=$("#dnStop"); if(s)s.focus(); }
+  catch(e){ toast.err(e.message); }
+  finally{ if(btn)btn.disabled=false; }
+}
+async function dnStop(){
+  try{ await api("/api/arch/datanight/stop",{}); toast("Stopping safely: the task in hand finishes first"); await dnPoll(); }
+  catch(e){ toast.err(e.message); }
+}
+async function twLoad(){
+  const info=$("#twInfo"); if(!info)return;
+  let v; try{ v=await api("/api/arch/trainworker"); }catch(e){ info.textContent="Could not read the samples: "+e.message; return; }
+  const real=!!($("#twReal")||{}).checked, ok=real?v.can_real:v.can_dry, why=real?v.why_real:v.why_dry;
+  info.textContent=v.samples+" training samples for the worker so far"+(v.worker?" ("+v.worker+")":"")+". Training exports the data first, then runs "+(real?"the real QLoRA training":"train_lora.py as a dry run")+".";
+  const go_=$("#twGo"),w=$("#twWhy"); if(go_)go_.disabled=!ok; if(w){w.textContent=ok?"":why;w.className="small "+(ok?"":"note warn");}
+}
+async function twStart(){
+  const real=!!($("#twReal")||{}).checked;
+  if(real&&!confirm("Start real training? It uses the graphics card for a long time and needs the training packages."))return;
+  try{ await api("/api/arch/trainworker",{real:real}); toast(real?"Training the worker":"Dry run started"); go("console"); }
+  catch(e){ toast.err(e.message); }
 }
 async function loadQueue(){
   clearTimeout(loadQueue._t); if(page!=="queue")return;
+  dnPoll(); loadBgJobs();
   let d; try{ d=await api("/api/arch/queue"); }catch(_){ loadQueue._t=setTimeout(loadQueue,5000); return; }
   const c=d.counts||{}, s=d.spent_today||{};
   const st=$("#qStats"); if(st){st.innerHTML=""; put(st,h("div",{class:"qstats"},
@@ -3160,7 +3368,9 @@ async function loadQueue(){
     h("span",{},h("b",{},c.not_sure||0)," not sure"),
     h("span",{},"today: ",h("b",{},s.runs||0)," runs, ",h("b",{},s.minutes||0)," min"),
     d.stopped?h("span",{style:"color:var(--bad)"},icon("stop")," stopped"):null,
-    d.budget?h("span",{style:"color:var(--warn)"},d.budget):null));}
+    d.budget?h("span",{style:"color:var(--warn)"},d.budget):null,
+    d.eta&&d.eta.left?h("span",{id:"qEta",title:d.eta.source||""},"left: ",h("b",{},d.eta.line)):null));}
+  const qb=$("#qBoard"); if(qb){qb.innerHTML="";put(qb,queueBoard(d));}
   const sb=$("#qStopBtn"); if(sb){sb.innerHTML="";sb.append(icon(d.stopped?"play":"stop"),document.createTextNode(d.stopped?"Resume":"Stop"));}
   const ul=$("#qList"); if(ul){ ul.innerHTML="";
     if(!(d.jobs||[]).length) put(ul,h("li",{class:"cancelled",style:"grid-template-columns:1fr;text-align:center;color:var(--faint)"},"Nothing queued yet. Type a task above and press Add, then “Work through it for an hour”."));
@@ -3171,6 +3381,246 @@ async function loadQueue(){
       j.state==="pending"?h("button",{class:"btn sm",onclick:()=>qCancel(j.id)},"Cancel"):h("span",{})));
   }
   loadQueue._t=setTimeout(loadQueue,(c.running?2000:6000));
+}
+/* ===== Background jobs (Runs > Queue), Hooks (Settings), Usage (top bar + Telemetry), Set up this project (Home), Keep/Drop hunks and the commit
+   button (Review). All plain words; every state change is announced in a polite live region; buttons are 44 px; theme tokens only. ===== */
+const BG={prev:null,t:0};
+function bgJobsCard(){
+  return h("section",{class:"card",id:"bgCard","aria-labelledby":"bgT"},
+    h("h2",{id:"bgT"},"Running now"),
+    h("p",{class:"sub"},"Everything working in the background, with its latest lines. Stop ends it (a queued task stops after its current step)."),
+    h("p",{class:"sr-only",id:"bgLive",role:"status","aria-live":"polite"}),
+    h("div",{id:"bgList"},h("p",{class:"sub"},"Looking…")));
+}
+function bgAnnounce(jobs){
+  const now=new Map(jobs.map(j=>[j.id,j])), live=$("#bgLive"); if(!live)return;
+  if(BG.prev){const msg=[];
+    for(const [id,j] of now) if(!BG.prev.has(id)) msg.push("Started: "+j.title);
+    for(const [id,j] of BG.prev) if(!now.has(id)) msg.push("Finished or stopped: "+j.title);
+    if(msg.length) live.textContent=msg.join(". ");}
+  BG.prev=now;
+}
+async function loadBgJobs(){
+  const box=$("#bgList"); if(!box)return;
+  let d; try{d=await api("/api/arch/bgjobs");}catch(e){box.innerHTML="";put(box,h("p",{class:"note bad",role:"alert"},"Could not read the background jobs: "+e.message));return;}
+  const jobs=d.jobs||[]; bgAnnounce(jobs);
+  const open=new Set([...box.querySelectorAll("details[open]")].map(x=>x.dataset.id));
+  box.innerHTML="";
+  if(!jobs.length){put(box,h("p",{class:"sub"},"Nothing is running in the background."));return;}
+  for(const j of jobs){
+    const tail=j.tail||[];
+    put(box,h("div",{class:"bg-job",role:"group","aria-label":j.title},
+      h("div",{class:"row",style:"gap:8px;align-items:center;flex-wrap:wrap"},
+        h("span",{class:"chip "+(j.state==="running"?"info":"")},j.state==="running"?"Running":"Waiting"),
+        h("b",{class:"grow bg-t"},j.title),
+        j.state==="running"?h("span",{class:"mute"},"for "+humanSecs(j.secs||0)):null,
+        h("button",{class:"btn danger",type:"button","aria-label":j.stop_word+": "+j.title,onclick:()=>bgStop(j)},icon("stop"),j.stop_word||"Stop")),
+      tail.length?h("details",{"data-id":j.id,open:open.has(j.id)},h("summary",{class:"bg-sum"},"Latest lines ("+tail.length+")"),
+        h("pre",{class:"bg-tail",role:"log","aria-live":"off","aria-label":"Latest lines of "+j.title,tabindex:"0"},tail.join("\n"))):null));
+  }
+}
+async function bgStop(job){
+  try{const r=await api("/api/arch/bgjobs/stop",{id:job.id});toast(r.ok?(r.how==="cancelled"?"Cancelled.":"Stopping: "+r.how):"Nothing to stop: "+r.how);}
+  catch(e){toast.err(e.message);}
+  loadBgJobs();
+}
+setInterval(()=>{if(page==="queue"&&!document.hidden)loadBgJobs();},2000);
+
+/* Hooks */
+const HOOK_WORDS={before_run:"Before a run starts",after_apply:"After files are written",after_check:"After the checks run",after_verdict:"When the result is known",after_run:"After a run ends"};
+const HK={d:null};
+function hooksPage(){
+  const sel=h("select",{id:"hkOn","aria-label":"When it runs"},...Object.entries(HOOK_WORDS).map(([k,t])=>h("option",{value:k,selected:k==="after_apply"},t)));
+  const scope=h("select",{id:"hkScope","aria-label":"Where it applies"},h("option",{value:"project"},"This project only (needs your OK)"),h("option",{value:"machine"},"Everything I do on this PC"));
+  return [h("section",{class:"card"},h("h2",null,"Hooks"),
+      h("p",{class:"sub"},"A hook is a command that runs on this PC by itself, at a fixed point in a run. Use one to format code, run a linter or stage a change."),
+      h("p",{class:"note warn",role:"note"},"A hook runs a real command with your permissions. It can change or delete files and start programs. Only add commands you understand. A project’s own hooks never run until you have read them and said yes; editing the file takes that yes back."),
+      learnMore("“Stops the step if it fails” means a failing command is handed back to the model like a failing test. Otherwise the result is only reported. Placeholders such as {files} are filled in for you.")),
+    h("section",{class:"card","aria-labelledby":"hkAddT"},h("h3",{id:"hkAddT"},"Add a hook"),
+      h("div",{class:"dn-grid"},
+        h("label",{class:"f"},"When",sel),
+        h("label",{class:"f"},"Command (one line)",h("input",{id:"hkRun",type:"text",placeholder:"python -m pyflakes {files}",maxlength:400,autocomplete:"off"})),
+        h("label",{class:"f"},"Only for files like (optional)",h("input",{id:"hkMatch",type:"text",placeholder:"*.py",maxlength:80,autocomplete:"off"})),
+        h("label",{class:"f"},"Where",scope)),
+      h("div",{class:"dn-checks"},
+        h("label",{class:"sw"},h("input",{type:"checkbox",id:"hkBlock"})," Stop the step if the command fails"),
+        h("label",{class:"sw"},h("input",{type:"checkbox",id:"hkSure"})," I have read this command and I want it to run on this PC")),
+      h("button",{class:"btn p",type:"button",id:"hkAdd",onclick:hkAdd},icon("plus"),"Add this hook"),
+      h("p",{class:"note",id:"hkMsg",role:"status","aria-live":"polite"})),
+    h("div",{id:"hkBody","aria-busy":"true"},h("div",{class:"skeleton",style:"height:80px"}))];
+}
+function hkRow(r,scope){
+  return h("li",{class:"hk-row"},
+    h("div",{class:"grow"},h("div",null,h("b",null,HOOK_WORDS[r.on]||r.on),r.name?" · "+r.name:""),h("code",{class:"hk-cmd"},r.run),
+      h("div",{class:"row",style:"gap:6px;flex-wrap:wrap;margin-top:4px"},
+        h("span",{class:"chip "+(r.blocking?"warn":"")},r.blocking?"Stops the step if it fails":"Only reports"),
+        r.match?h("span",{class:"chip"},"Files: "+r.match):null,r.when?h("span",{class:"chip"},"Only when "+r.when):null,
+        h("span",{class:"chip"},"Time limit "+r.timeout+" s"))),
+    h("button",{class:"btn danger",type:"button","aria-label":"Remove the hook: "+r.run,onclick:()=>hkRemove(scope,r)},icon("x"),"Remove"));
+}
+async function loadHooks(){
+  const box=$("#hkBody"); if(!box)return;
+  let d; try{d=await api("/api/arch/hooks?root="+encodeURIComponent(run.root||""));}catch(e){box.innerHTML="";put(box,emptyState(null,"Could not read the hooks",e.message,"Try again",loadHooks));return;}
+  HK.d=d; box.innerHTML=""; box.removeAttribute("aria-busy");
+  const m=d.machine, p=d.project;
+  put(box,h("section",{class:"card","aria-labelledby":"hkMT"},h("h3",{id:"hkMT"},"On this PC ("+m.hooks.length+")"),
+      h("p",{class:"sub"},"Yours: these run without asking, for every project."),
+      m.hooks.length?h("ul",{class:"hk-list"},...m.hooks.map(r=>hkRow(r,"machine"))):h("p",{class:"sub"},"No hooks yet.")),
+    h("section",{class:"card","aria-labelledby":"hkPT"},h("div",{class:"row",style:"gap:8px;align-items:center;flex-wrap:wrap"},h("h3",{id:"hkPT",class:"grow",style:"margin:0"},"In this project ("+p.hooks.length+")"),
+        p.exists?h("span",{class:"chip "+((p.trusted||p.trust_all)?"good":"warn"),role:"status"},(p.trusted||p.trust_all)?"You said yes: they run":"Waiting for your yes: they do not run"):null),
+      !run.root?h("p",{class:"sub"},"Pick a project folder on Home to see its hooks."):null,
+      p.hooks.length?h("ul",{class:"hk-list"},...p.hooks.map(r=>hkRow(r,"project"))):h("p",{class:"sub"},"No hooks in this project."),
+      (p.hooks.length&&!p.trusted&&!p.trust_all)?h("div",{class:"row",style:"gap:8px;margin-top:8px;flex-wrap:wrap"},
+        h("button",{class:"btn p",type:"button",onclick:hkTrust},icon("check"),"I read them: let them run"),
+        h("span",{class:"small mute"},"They came with the project, so read each command above first.")):null,
+      (p.hooks.length&&p.trusted)?h("button",{class:"btn",type:"button",style:"margin-top:8px",onclick:hkUntrust},"Take back my yes"):null),
+    (d.plugins_waiting||[]).length?h("section",{class:"card"},h("h3",null,"Waiting in plugins"),
+      h("p",{class:"sub"},"These come from plugins you have not trusted, so they do not run. Trust a plugin on the Plugins page."),
+      h("ul",{class:"hk-list"},...d.plugins_waiting.map(w=>h("li",null,h("b",null,w.plugin||"plugin")," ("+w.count+"): ",h("code",null,(w.commands||[]).join("; ")))))):null);
+}
+function hkMsg(t,bad){const m=$("#hkMsg");if(m){m.textContent=t;m.className="note"+(bad?" bad":"");}}
+async function hkAdd(){
+  const run_=($("#hkRun").value||"").trim();
+  if(!run_){hkMsg("Type the command first.",1);$("#hkRun").focus();return;}
+  if(!$("#hkSure").checked){hkMsg("Tick the box to say you have read the command.",1);$("#hkSure").focus();return;}
+  try{const r=await api("/api/arch/hooks",{root:run.root||"",action:"add",scope:$("#hkScope").value,confirm:true,
+      hook:{on:$("#hkOn").value,run:run_,match:$("#hkMatch").value,blocking:$("#hkBlock").checked}});
+    $("#hkRun").value="";$("#hkSure").checked=false;hkMsg("Added."+(r.note?" "+r.note:""));loadHooks();}
+  catch(e){hkMsg(e.message,1);}
+}
+async function hkRemove(scope,r){
+  if(!confirm("Remove this hook?\n\n"+r.run))return;
+  try{await api("/api/arch/hooks",{root:run.root||"",action:"remove",scope:scope,index:r.index});hkMsg("Removed."+(scope==="project"?" Your yes for the rest of this project’s hooks was taken back.":""));loadHooks();}
+  catch(e){hkMsg(e.message,1);}
+}
+async function hkTrust(){
+  const cmds=((HK.d||{}).project||{}).hooks||[];
+  if(!confirm("These commands will run on this PC whenever a run in this project reaches their point:\n\n"+cmds.map(c=>c.run).join("\n")+"\n\nLet them run?"))return;
+  try{await api("/api/arch/hooks",{root:run.root||"",action:"trust",scope:"project",confirm:true});hkMsg("Approved. Editing the file takes this back.");loadHooks();}catch(e){hkMsg(e.message,1);}
+}
+async function hkUntrust(){try{await api("/api/arch/hooks",{root:run.root||"",action:"untrust",scope:"project"});hkMsg("Taken back: this project’s hooks no longer run.");loadHooks();}catch(e){hkMsg(e.message,1);}}
+
+/* Usage: a short chip in the top bar, the full figures in Telemetry */
+const US={w:"day",d:null};
+async function loadUsageChip(){
+  const b=$("#usageChip"); if(!b)return;
+  try{const d=await api("/api/arch/usage?window=day");US.d=d;b.textContent=d.headline||"usage";b.hidden=false;b.title="Today: "+(d.headline||"")+". Open the details.";}
+  catch(_){b.hidden=true;}
+}
+function usageCard(){
+  const sel=h("select",{"aria-label":"Time span",onchange:e=>{US.w=e.target.value;loadUsageCard();}},h("option",{value:"day"},"Today (last 24 hours)"),h("option",{value:"week"},"This week"));
+  return h("section",{class:"card","aria-labelledby":"usT"},h("div",{class:"row",style:"gap:10px;align-items:center;flex-wrap:wrap"},
+      h("div",{class:"grow"},h("h2",{id:"usT",style:"margin:0"},"Usage"),h("p",{class:"sub",style:"margin:0"},"What your models and Claude used. Read from this PC’s run records.")),sel),
+    h("div",{id:"usBody","aria-live":"polite"},loadingLine("Reading usage…")));
+}
+async function loadUsageCard(){
+  const box=$("#usBody"); if(!box)return;
+  let d; try{d=await api("/api/arch/usage?window="+US.w);}catch(e){box.innerHTML="";put(box,h("p",{class:"note bad",role:"alert"},"Could not read usage: "+e.message));return;}
+  const l=d.local||{}, c=d.cache||{}, cl=d.claude||{}, g=d.gpu_hours||{}, n=x=>(x||0).toLocaleString();
+  const li=(t)=>h("li",null,t), rate=v=>v==null?"not enough yet":Math.round(v*100)+"%";
+  box.innerHTML="";
+  put(box,h("p",{class:"night-rate"},d.headline||""),
+    h("ul",{class:"ls-ul"},
+      li("Runs: "+(d.runs||0)+", of which "+(d.passed||0)+" passed"+(d.pass_rate==null?"":" ("+rate(d.pass_rate)+").")),
+      li("Local models: "+n(l.calls)+" calls, "+n(l.tokens_in)+" words read in, "+n(l.tokens_out)+" written."),
+      li("Graphics card held by the model servers for about "+(g.total||0)+" hours."),
+      li("Replies reused: "+rate(c.exact_hit_rate)+" came from the saved answers; the server reused the start of the prompt in "+rate(c.prefix_hit_rate)+" of calls."),
+      li("Claude: "+(cl.usd?("$"+Number(cl.usd).toFixed(2)+" billed"):"nothing billed")+" ("+n(cl.tokens_in)+" in, "+n(cl.tokens_out)+" out).")),
+    (l.by_model||[]).length?h("details",{class:"more"},h("summary",null,"By model"),h("ul",{class:"ls-ul"},...l.by_model.slice(0,12).map(m=>li(m.model+": "+n(m.calls)+" calls, "+n(m.tokens_in+m.tokens_out)+" tokens")))):null,
+    (l.by_tier||[]).length?h("details",{class:"more"},h("summary",null,"By job size (tier)"),h("ul",{class:"ls-ul"},...l.by_tier.slice(0,8).map(m=>li(m.tier+": "+n(m.calls)+" calls, "+n(m.tokens_in+m.tokens_out)+" tokens")))):null);
+}
+setInterval(()=>{if(!document.hidden)loadUsageChip();},60000); setTimeout(loadUsageChip,1500);
+
+/* Set up this project (Home): reads the project, no model; the person accepts the ARCHITECT.md draft */
+const SU={d:null};
+async function setupProject(){
+  const box=$("#spSetup"); if(!box)return;
+  if(!run.root){box.hidden=false;box.innerHTML="";put(box,h("p",{class:"note warn",role:"alert"},"Pick a project folder first."));const i=$("#spRoot");if(i)i.focus();return;}
+  box.hidden=false;box.innerHTML="";put(box,loadingLine("Looking at the project…"));
+  let d; try{d=await api("/api/arch/onboard",{root:run.root});}catch(e){box.innerHTML="";put(box,h("p",{class:"note bad",role:"alert"},e.message));return;}
+  SU.d=d; box.innerHTML="";
+  if(!d.ok){put(box,h("p",{class:"note bad",role:"alert"},d.why||"Could not read the project."));return;}
+  const list=(t,xs)=>(xs||[]).length?h("div",null,h("b",null,t),h("ul",{class:"ls-ul"},...xs.slice(0,8).map(x=>h("li",null,h("code",null,String(x)))))):null;
+  put(box,h("section",{class:"card","aria-labelledby":"suT"},h("h3",{id:"suT"},"What I found in this project"),
+    h("p",{class:"sub"},(d.language||"Unknown language")+(d.frameworks&&d.frameworks.length?" · "+d.frameworks.join(", "):"")+" · "+(d.files||0)+" files"),
+    h("div",{class:"night-grid"},
+      h("div",null,h("b",null,"Run the tests with"),h("p",null,d.test_command?h("code",null,d.test_command):"Not found. Tell me how in ARCHITECT.md.")),
+      h("div",null,h("b",null,"Start the app with"),h("p",null,d.run_command?h("code",null,d.run_command):"Not found."))),
+    list("Where it starts",d.entry_points),list("Things to know (gotchas)",d.gotchas),list("Habits in the code",d.conventions),
+    h("details",{class:"more"},h("summary",null,"Draft of ARCHITECT.md"),h("pre",{class:"bg-tail",tabindex:"0"},d.draft||"")),
+    h("div",{class:"row",style:"gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center"},
+      h("button",{class:"btn p",type:"button",id:"suAccept",onclick:()=>setupAccept(false)},icon("check"),"Accept ARCHITECT.md"),
+      h("span",{class:"small mute"},d.existing_architect_md?"This project already has an ARCHITECT.md. Accepting asks before it replaces it.":"Saves the draft as ARCHITECT.md in the project.")),
+    h("p",{class:"note",id:"suMsg",role:"status","aria-live":"polite"})));
+}
+async function setupAccept(force){
+  const m=$("#suMsg");
+  try{const r=await api("/api/arch/onboard",{root:run.root,accept:true,force:force});
+    if(r.ok){if(m){m.textContent="Saved: "+r.path;m.className="note";}toast("ARCHITECT.md saved.");}
+    else if(!force&&/already exists/.test(r.why||"")){if(confirm("ARCHITECT.md already exists. Replace it with this draft?"))return setupAccept(true);}
+    else if(m){m.textContent=r.why||"Could not save it.";m.className="note bad";}}
+  catch(e){if(m){m.textContent=e.message;m.className="note bad";}}
+}
+
+/* Review: Keep / Drop per part of a file, the report bundle, and the commit button */
+async function rvHunk(f,hid,box){
+  const cur=new Set((f.hunks||[]).filter(x=>x.kept).map(x=>x.id));
+  if(cur.has(hid))cur.delete(hid);else cur.add(hid);
+  try{const r=await api("/api/arch/review/hunks",{root:run.root||"",run:RV.run,file:f.file,keep:[...cur].sort((a,b)=>a-b)});
+    if(!r.ok){toast.err(r.why||"Could not change the file.");return;}
+    f.hunks=r.hunks.hunks; f.added=f.hunks.filter(x=>x.kept).reduce((s,x)=>s+x.added,0); f.removed=f.hunks.filter(x=>x.kept).reduce((s,x)=>s+x.removed,0);
+    rvHunkBox(f,box);
+    const live=$("#rvLive"); if(live)live.textContent=(r.removed?f.file+" removed (nothing of it kept). ":"")+r.kept+" of "+r.of+" parts of "+f.file+" kept.";
+  }catch(e){toast.err(e.message);}
+}
+function rvHunkBox(f,box){
+  box.innerHTML="";
+  const kept=(f.hunks||[]).filter(x=>x.kept).length;
+  box.append(h("p",{class:"sub"},"Keep or drop each part. "+kept+" of "+f.hunks.length+" kept."+(f.new_file?" Dropping every part of a new file removes the file.":"")));
+  f.hunks.forEach((x,i)=>{
+    const pre=h("pre",null); for(const l of x.lines){const c=l.startsWith("+")?"dl-add":l.startsWith("-")?"dl-del":"";pre.append(h("span",{class:"dl "+c},l+"\n"));}
+    box.append(h("div",{class:"rv-hunk"+(x.kept?"":" dropped")},
+      h("div",{class:"row",style:"gap:8px;align-items:center"},h("span",{class:"dl-hunk grow"},"Part "+(i+1)+" of "+f.hunks.length+" · @@ "+x.header+" @@ · +"+x.added+" −"+x.removed),
+        h("button",{class:"btn "+(x.kept?"":"p"),type:"button","aria-pressed":x.kept?"true":"false","aria-label":(x.kept?"Drop":"Keep")+" part "+(i+1)+" of "+f.file,onclick:()=>rvHunk(f,x.id,box)},
+          icon(x.kept?"x":"check"),x.kept?"Drop":"Keep")),pre));
+  });
+}
+async function rvBundle(){
+  const o=$("#rvOut"); try{const r=await api("/api/arch/bundle",{root:run.root||"",run:RV.run});
+    if(o)o.textContent="Report bundle saved: "+r.path+". Names and secrets are removed; look inside before you share it.";}
+  catch(e){if(o)o.textContent="Could not make the bundle: "+e.message;toast.err(e.message);}
+}
+async function rvCommit(){
+  const o=$("#rvOut"); if(!o)return; o.textContent="Committing…";
+  try{const r=await api("/api/arch/git/commit",{root:run.root||"",run:RV.run}); o.innerHTML="";
+    if(!r.ok){put(o,h("b",null,"Not committed. "),r.why||"",r.todo?h("div",null,"What to do: "+r.todo):null);return;}
+    put(o,h("b",null,r.already?"Already committed. ":"Committed. "),"Branch ",h("code",null,r.branch||""),", commit ",h("code",null,String(r.sha||"").slice(0,10)),". Nothing was pushed.",
+      h("details",{class:"more"},h("summary",null,"Pull request summary ("+(r.files||[]).length+" files)"),h("p",{class:"small mute"},"Saved at "+r.summary_path),h("pre",{class:"bg-tail",tabindex:"0"},r.summary||"")));
+  }catch(e){o.textContent="Could not commit: "+e.message;}
+}
+/* Settings > Effective settings: per job, the value each setting really has and the layer that set it (arch_effective) */
+const EFF_LAYER={"explicit arg":"warn","person role profile":"good","preset":"warn","shipped role profile":"","model family default":"","built-in default":"mute"};
+const EFF_WORDS={"explicit arg":"Set for this one call","person role profile":"Your own role setting","preset":"A preset you applied","shipped role profile":"The job's built-in profile",
+  "model family default":"This model family's default","built-in default":"Built-in default"};
+function effectivePage(){
+  const r0=store.get("effRole","generator");
+  const pick=h("select",{id:"effRole","aria-label":"Job (role)",onchange:loadEffective},h("option",{value:r0},r0));
+  return [h("div",{class:"card"},h("h2",{},"Effective settings"),
+    h("p",{class:"sub"},"Pick a job to see the value each setting really has, and which layer set it."),
+    learnMore("Strongest first: a value passed for one call, your own role and model overrides, a preset, the job's shipped profile, the model family's defaults (only with model_defaults = auto, and only where you set nothing), then the built-in default."),
+    h("label",{},"Job ",pick),h("div",{id:"effBody"},h("div",{class:"skeleton",style:"height:120px"})))];
+}
+async function loadEffective(){
+  const sel=$("#effRole"); if(!sel)return; const role=sel.value||"generator"; store.set("effRole",role);
+  let d; try{ d=await api("/api/arch/effective?role="+encodeURIComponent(role)); }
+  catch(e){ const b=$("#effBody"); if(b){b.innerHTML="";put(b,emptyState(null,"Could not read the settings",e.message,"Retry",loadEffective));} return; }
+  if(sel.options.length<2){ sel.innerHTML=""; for(const r of d.roles||[]) sel.append(h("option",{value:r,selected:r===role},r)); }
+  const b=$("#effBody"); if(!b)return; b.innerHTML="";
+  put(b,h("p",{class:"sub"},"Model: ",h("b",{},d.model||"first installed")," (",d.model_why||"",") · source: ",d.source||""),
+    h("table",{class:"tbl"},h("thead",{},h("tr",{},h("th",{},"Setting"),h("th",{},"Value"),h("th",{},"Set by"))),
+      h("tbody",{},...Object.entries(d.keys||{}).map(([k,v])=>h("tr",{},h("td",{},h("code",{},k)),h("td",{},String(v.value==null?"(unset)":v.value)),
+        h("td",{},h("span",{class:"chip "+(EFF_LAYER[v.layer]||""),title:v.why||v.layer},EFF_WORDS[v.layer]||v.layer)))))),
+    h("p",{class:"small mute"},"Strongest first: "+["explicit arg","person role profile","preset","shipped role profile","model family default","built-in default"].map(k=>EFF_WORDS[k]).join(", then ")+"."));
 }
 async function qAdd(){
   const g=$("#qGoal"); const goal=(g.value||"").trim(); if(!goal){g.focus();return;}
@@ -3258,7 +3708,7 @@ function tplCatalogGrid(t0,pick){
         h("div",{class:"row tmeta"},h("span",{class:"chip "+hue},t.category||"Other"),t.difficulty?h("span",{class:"chip diff"},String(t.difficulty)):null),
         h("h3",null,t.name||t.id),h("p",{class:"sub"},t.description||""),
         stack.length?h("div",{class:"ttags"},...stack.slice(0,5).map(x=>h("span",{class:"tag"},x))):null,
-        t.long||(t.next_steps||[]).length?learnMore(t.long||"",(t.next_steps||[]).length?h("ul",null,...t.next_steps.map(x=>h("li",null,String(x)))):null):null),
+        t.long||(t.next_steps||[]).length||t.contract?learnMore(t.long||"",tplContract(t.contract),(t.next_steps||[]).length?h("ul",null,...t.next_steps.map(x=>h("li",null,String(x)))):null):null),
       on?h("span",{class:"sel"},icon("check")):null);};
   return [filt,h("div",{class:"tgal2"},card(auto),...shown.map(card))];
 }
@@ -4336,6 +4786,7 @@ async function loadPlugins(){
   try{PL.data=await api("/api/arch/plugins");}catch(e){PL.data={available:false,why:e.message,plugins:[],error:true};}
   plDraw();
 }
+function plHue(name){let x=0;for(const ch of String(name||""))x=(x*31+ch.charCodeAt(0))>>>0;return TPL_HUES[x%TPL_HUES.length];}
 function plCount(v){return Array.isArray(v)?v.length:(+v||0);}
 function plDraw(){
   const out=$("#plOut"); if(!out||!PL.data) return; out.innerHTML="";
@@ -4352,6 +4803,10 @@ function plDraw(){
           h("span",{class:"chip "+(p.enabled?"good":"")},p.enabled?"enabled":"disabled"),h("span",{class:"chip "+(p.trusted?"good":"warn")},p.trusted?"trusted":"not trusted")),
         p.description?h("p",{class:"sub",style:"margin:4px 0"},p.description):null,
         h("div",{class:"row",style:"gap:6px;flex-wrap:wrap"},chips.length?chips:h("span",{class:"small mute"},"Provides nothing yet")),
+        (p.command_info||[]).length?h("ul",{class:"pl-cmds",style:"list-style:none;margin:6px 0 0;padding:0"},...p.command_info.map(c=>h("li",{class:"pl-cmd small"},
+          h("span",{class:"pdot",style:"background:var(--c-"+plHue(p.name)+")","aria-hidden":"true"}),h("code",{},"/"+c.name),
+          h("span",{class:"mute"}," "+(c.description||"")),c.args_hint?h("span",{class:"mute"}," · "+c.args_hint):null,
+          p.enabled?null:h("span",{class:"chip",style:"margin-left:6px"},"after you enable it")))):null,
         (p.problems||[]).length?h("ul",{class:"note bad"},...p.problems.map(x=>h("li",null,x))):null),
       h("div",{class:"row",style:"gap:6px;flex-wrap:wrap"},
         h("button",{class:"btn sm",type:"button",onclick:()=>act(p.enabled?"disable":"enable",p.name)},p.enabled?"Disable":"Enable"),
@@ -4374,7 +4829,7 @@ const TE={win:3600,sum:null,ev:null,t:0};
 function telemetryPage(){
   const sel=h("select",{"aria-label":"Time window",onchange:e=>{TE.win=+e.target.value;loadTelemetry();}},
     ...[[900,"Last 15 minutes"],[3600,"Last hour"],[86400,"Last day"],[604800,"Last week"]].map(([v,t])=>h("option",{value:v,selected:v===TE.win},t)));
-  return [h("section",{class:"card"},h("div",{class:"row",style:"gap:10px;align-items:center;flex-wrap:wrap"},
+  return [usageCard(),h("section",{class:"card"},h("div",{class:"row",style:"gap:10px;align-items:center;flex-wrap:wrap"},
       h("div",{class:"grow"},h("h2",{style:"margin:0"},"Telemetry"),h("p",{class:"sub",style:"margin:0"},"What the local models did: calls, tokens, cache reuse, errors.")),
       sel,h("button",{class:"btn sm",type:"button","aria-label":"Read telemetry again",onclick:()=>loadTelemetry()},"Refresh"))),
     h("div",{id:"teCards",class:"kcards"},loadingLine("Reading telemetry…")),
@@ -4382,7 +4837,7 @@ function telemetryPage(){
     h("section",{class:"card"},h("h3",{style:"margin:0 0 8px"},"Run timeline"),h("div",{id:"teTl"},h("p",{class:"sub"},"Pick a run above.")))];
 }
 async function loadTelemetry(){
-  clearTimeout(TE.t);
+  clearTimeout(TE.t); loadUsageCard();
   try{[TE.sum,TE.ev]=await Promise.all([api("/api/arch/telemetry/summary?window="+TE.win),api("/api/arch/telemetry/events?since="+Math.floor(Date.now()/1000-TE.win))]);}
   catch(e){TE.sum={available:false,why:e.message,error:true};TE.ev={events:[]};}
   teDraw();
@@ -4602,6 +5057,252 @@ function caDraw(){
   out.append(caDisk(L));
 }
 /* ---- Benchmarks: every saved `eval` report, live and scripted kept apart. Nothing here starts a run. ---- */
+/* ===== Review after a run: changed files as diff cards, the tests, the verdict, what it cost; Accept / Undo / Retry (keys A / U / R, J / K between files).
+   Beside it: the editable plan and the session panel. Everything comes from /api/arch/review, /plan and /session, which read the run's own trace. ===== */
+const RV={run:"",data:null,idx:0,armed:0,plan:null,plan_edit:null,session:null};
+const RV_WORD={pass:["good","Passed"],fail:["bad","Did not pass"],not_sure:["warn","Not sure"]};
+function rvQuery(){return "root="+encodeURIComponent(run.root||"")+"&run="+encodeURIComponent(RV.run||"");}
+function costLine(c){c=c||{};const usd=Number(c.usd||0);
+  return "$"+(usd?usd.toFixed(2):"0")+" · "+(c.local?"local":"billed")+" · "+(c.calls||0)+" calls · "+Math.round(c.secs||0)+" s";}
+function reviewPage(){
+  return [h("div",{class:"rv-grid"},
+    h("div",{class:"rv-main"},h("div",{id:"rvHead"}),h("div",{id:"rvPlan"}),h("div",{id:"rvFiles"}),h("div",{id:"rvTests"}),h("div",{id:"rvAct"})),
+    h("aside",{class:"rv-side","aria-label":"Session"},h("div",{id:"rvSession"})))];
+}
+async function loadReview(){
+  const head=$("#rvHead"); if(!head)return;
+  const [r,p,s]=await Promise.allSettled([api("/api/arch/review?"+rvQuery()),api("/api/arch/plan?"+rvQuery()),api("/api/arch/session?"+rvQuery())]);
+  RV.data=r.status==="fulfilled"?r.value:{error:r.reason&&r.reason.message};
+  RV.plan=p.status==="fulfilled"?p.value:null; RV.plan_edit=null;
+  RV.session=s.status==="fulfilled"?s.value:null;
+  if(RV.data&&RV.data.run)RV.run=RV.data.run;
+  RV.idx=0; rvDraw();
+}
+/* the session panel follows the run only while this page is visible (every 2 s) */
+let _rvBusy=false;
+setInterval(async()=>{
+  if(document.visibilityState!=="visible"||page!=="review"||!built.review||!RV.run||_rvBusy)return;
+  _rvBusy=true;
+  try{const s=await api("/api/arch/session?"+rvQuery()),se=$("#rvSession");
+    if(se&&JSON.stringify(s)!==JSON.stringify(RV.session)){RV.session=s;se.innerHTML="";rvSession(se);}}catch(_){}
+  _rvBusy=false;
+},2000);
+function rvDraw(){
+  const d=RV.data||{};
+  const head=$("#rvHead"),pl=$("#rvPlan"),fl=$("#rvFiles"),ts=$("#rvTests"),ac=$("#rvAct"),se=$("#rvSession"); if(!head)return;
+  for(const el of [head,pl,fl,ts,ac,se])el.innerHTML="";
+  if(d.error||d.empty||!d.run){
+    put(head,emptyState("console",d.error?"Could not read the run":"Nothing to review yet",d.error||"Finish a run and its changes, tests and result show up here.","Start a run",()=>go("overview")));
+    rvSession(se); return;
+  }
+  const v=RV_WORD[(d.verdict||{}).verdict]||["info",d.status?String(d.status):"No result yet"];
+  put(head,h("div",{class:"card"},
+    h("div",{class:"row",style:"gap:8px;flex-wrap:wrap;align-items:center"},h("h2",{style:"margin:0"},"Review"),
+      h("span",{class:"chip "+v[0],role:"status"},v[1]),d.flow?h("span",{class:"chip"},d.flow):null,
+      d.accepted?h("span",{class:"chip good"},"Accepted"):null),
+    h("p",{class:"sub"},d.goal||"(no goal recorded)"),
+    (d.verdict&&d.verdict.why)?h("p",{class:"note"},d.verdict.why):null,
+    h("p",{class:"sub",id:"rvCost",title:(d.cost.models||[]).join(", ")},costLine(d.cost))));
+  rvPlan(pl);
+  /* files */
+  const files=d.files||[];
+  const box=h("div",{class:"card"},h("h3",null,"Files changed ("+files.length+")"));
+  if(!files.length)box.append(h("p",{class:"sub"},"This run did not change any files."));
+  files.forEach((f,i)=>box.append(rvFile(f,i)));
+  put(fl,box);
+  /* tests */
+  const tests=d.tests||[], tt=tests.filter(x=>x.test), other=tests.filter(x=>!x.test);
+  const tb=h("div",{class:"card"},h("h3",null,"Tests"+(tt.length?" ("+tt.filter(x=>x.ok).length+" of "+tt.length+" passed)":"")));
+  if(!tests.length)tb.append(h("p",{class:"sub"},"No tests or checks ran in this run."));
+  else if(!tt.length)tb.append(h("p",{class:"sub"},"No test ran; these checks did:"));
+  const li=x=>h("li",{class:"rv-test"},h("span",{class:"chip "+(x.ok?"good":"bad")},x.ok?"Passed":"Failed"),h("span",{class:"grow"},x.name),
+    x.text?h("span",{class:"mute rv-tx",title:x.text},x.text):null);
+  if(tt.length)tb.append(h("ul",{class:"rv-tests"},...tt.map(li)));
+  if(other.length)tb.append(tt.length?h("details",{class:"more"},h("summary",null,"Other checks ("+other.length+")"),h("ul",{class:"rv-tests"},...other.map(li))):h("ul",{class:"rv-tests"},...other.map(li)));
+  put(ts,tb);
+  /* actions */
+  const note=h("textarea",{id:"rvNote",rows:2,"aria-label":"Note for the retry",placeholder:"For a retry: what should it do differently?",
+    onkeydown:e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();rvRetry();}if(e.key==="Escape")e.target.blur();}});
+  const key=k=>h("kbd",{class:"rv-k","aria-hidden":"true"},k);
+  put(ac,h("div",{class:"card rv-act"},
+    h("div",{class:"row",style:"gap:8px;flex-wrap:wrap"},
+      h("button",{class:"btn p",id:"rvAccept",type:"button",onclick:rvAccept,"aria-keyshortcuts":"A"},icon("check"),"Accept ",key("A")),
+      h("button",{class:"btn danger",id:"rvUndo",type:"button",onclick:rvUndo,"aria-keyshortcuts":"U"},icon("x"),h("span",{id:"rvUndoT"},"Undo "),key("U")),
+      h("button",{class:"btn",id:"rvRetry",type:"button",onclick:rvRetry,"aria-keyshortcuts":"R"},icon("refresh"),"Retry ",key("R")),
+      d.accepted?h("button",{class:"btn",id:"rvCommit",type:"button",onclick:rvCommit},icon("check"),"Commit to a branch"):null,
+      (d.verdict&&d.verdict.verdict!=="pass")?h("button",{class:"btn",id:"rvBundle",type:"button",onclick:rvBundle},icon("layers"),"Make a report bundle"):null),
+    h("p",{class:"sr-only",id:"rvLive",role:"status","aria-live":"polite"}),
+    h("div",{class:"note",id:"rvOut",role:"status","aria-live":"polite"}),
+    note,h("p",{class:"sub"},"J and K move between files. R jumps to the note; Ctrl+Enter sends the retry.")));
+  rvSession(se);
+}
+function rvFile(f,i){
+  const lines=(f.diff||"").split("\n"); const cap=400;
+  const body=h("div",{class:"rv-diff"});
+  if(f.hunks&&f.hunks.length)rvHunkBox(f,body);
+  else if(!f.diff)body.append(h("p",{class:"sub"},"No diff was recorded for this file."+(f.source==="none"?" (No git history to compare either.)":"")));
+  else{const pre=h("pre",null);
+    for(const l of lines.slice(0,cap)){const c=l.startsWith("+++")||l.startsWith("---")?"dl-meta":l.startsWith("@@")?"dl-hunk":l.startsWith("+")?"dl-add":l.startsWith("-")?"dl-del":"";
+      pre.append(h("span",{class:"dl "+c},l+"\n"));}
+    body.append(pre);if(lines.length>cap||f.truncated)body.append(h("p",{class:"sub"},"Showing the first "+Math.min(cap,lines.length)+" lines."));}
+  if(!f.splittable&&f.split_why&&f.diff)body.append(h("p",{class:"note"},"Keep or Drop by part is not available for this file: "+f.split_why));
+  const d=h("details",{class:"rv-file","data-i":i,"aria-current":i===RV.idx?"true":"false",open:i===0&&(RV.data.files||[]).length<=3},
+    h("summary",{onfocus:()=>{RV.idx=i;rvMark();}},h("span",{class:"rv-name"},f.file),
+      f.new_file?h("span",{class:"chip info"},"new"):null,
+      h("span",{class:"rv-pm"},h("b",{class:"rv-plus"},"+"+f.added)," ",h("b",{class:"rv-minus"},"−"+f.removed))),body);
+  return d;
+}
+function rvMark(){document.querySelectorAll(".rv-file").forEach((e,i)=>e.setAttribute("aria-current",i===RV.idx?"true":"false"));}
+function rvMove(dir){const els=[...document.querySelectorAll(".rv-file")];if(!els.length)return;
+  RV.idx=Math.max(0,Math.min(els.length-1,RV.idx+dir));rvMark();const s=els[RV.idx].querySelector("summary");s.focus();els[RV.idx].scrollIntoView({block:"nearest"});}
+async function rvAccept(){try{await api("/api/arch/review/accept",{root:run.root||"",run:RV.run});toast("Accepted. Nothing was changed on disk.");if(RV.data)RV.data.accepted=true;rvDraw();}catch(e){toast.err(e.message);}}
+async function rvUndo(){
+  const t=$("#rvUndoT");
+  if(!RV.armed||Date.now()-RV.armed>5000){RV.armed=Date.now();if(t)t.textContent="Undo the whole run? Press again ";toast("Press Undo again to put every file back.",4000,"warn");return;}
+  RV.armed=0;try{await api("/api/arch/undo",{root:run.root||""});toast("Undoing the run. Watch the Console.");go("console");}catch(e){toast.err(e.message);}
+}
+async function rvRetry(){
+  const n=(($("#rvNote")||{}).value||"").trim(), d=RV.data||{};
+  if(!d.goal){toast.err("This run has no goal to repeat.");return;}
+  try{await api("/api/arch/run",{goal:d.goal+(n?"\n\nLast time it went wrong. "+n:""),root:run.root||"",flow:d.flow||"",review:"ask"});toast("Trying again.");go("console");}
+  catch(e){toast.err(e.message);}
+}
+document.addEventListener("keydown",e=>{
+  if(page!=="review"||e.ctrlKey||e.metaKey||e.altKey)return;
+  const a=document.activeElement; if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
+  const k=e.key.toLowerCase();
+  if(k==="a"){e.preventDefault();rvAccept();}else if(k==="u"){e.preventDefault();rvUndo();}
+  else if(k==="r"){e.preventDefault();const n=$("#rvNote");if(n)n.focus();}
+  else if(k==="j"){e.preventDefault();rvMove(1);}else if(k==="k"){e.preventDefault();rvMove(-1);}
+});
+/* the plan: a checklist. Editable only when the engine reads an override; otherwise read-only with one honest line. */
+function rvPlan(el){
+  const p=RV.plan; if(!p||!(p.items||[]).length)return;
+  if(!RV.plan_edit)RV.plan_edit=p.items.map((x,i)=>({id:x.id||("s"+i),title:x.title||String(x),status:x.status==="skipped"?"skipped":"pending",was:x.status}));
+  const items=RV.plan_edit, ed=!!p.editable;
+  const ul=h("ul",{class:"rv-plan"});
+  items.forEach((it,i)=>{
+    const on=it.status!=="skipped";
+    const cb=h("input",{type:"checkbox",checked:on,disabled:!ed,"aria-label":"Do this step: "+it.title,onchange:e=>{it.status=e.target.checked?"pending":"skipped";}});
+    ul.append(h("li",{class:"rv-step"},cb,h("span",{class:"grow"+(on?"":" rv-off")},it.title),
+      it.was&&it.was!=="pending"?h("span",{class:"chip "+(it.was==="done"?"good":it.was==="failed"?"bad":"")},it.was):null,
+      ed?h("span",{class:"row",style:"gap:4px"},
+        h("button",{class:"btn sm",type:"button","aria-label":"Move up: "+it.title,disabled:i===0,onclick:()=>{items.splice(i-1,0,items.splice(i,1)[0]);rvDraw();}},"↑"),
+        h("button",{class:"btn sm",type:"button","aria-label":"Move down: "+it.title,disabled:i===items.length-1,onclick:()=>{items.splice(i+1,0,items.splice(i,1)[0]);rvDraw();}},"↓")):null));});
+  const card=h("div",{class:"card"},h("h3",null,"Plan ("+items.length+" steps)"),ul);
+  if(ed){
+    const add=h("input",{type:"text",class:"grow","aria-label":"Add a step",placeholder:"Add a step",onkeydown:e=>{if(e.key==="Enter"&&e.target.value.trim()){items.push({id:"u"+Date.now(),title:e.target.value.trim(),status:"pending"});rvDraw();}}});
+    card.append(h("div",{class:"row",style:"gap:8px"},add),h("div",{class:"row",style:"gap:8px;margin-top:8px"},
+      h("button",{class:"btn p",type:"button",onclick:rvPlanRun},icon("play"),"Run this plan")));
+  }else card.append(h("p",{class:"sub"},"Edit is not available yet."),learnMore(p.why||"The engine does not read an edited plan yet."));
+  put(el,card);
+}
+async function rvPlanRun(){
+  try{const r=await api("/api/arch/plan",{root:run.root||"",run:RV.run,items:RV.plan_edit.map(x=>({id:x.id,title:x.title,status:x.status}))});
+    if(!r.ok){toast.err(r.why||"Edit is not available yet.");return;}
+    await api("/api/arch/resume",{root:run.root||""});toast("Running your plan.");go("console");}
+  catch(e){toast.err(e.message);}
+}
+/* the session panel: where the context window goes, what is plugged in, what changed, what is serving, what runs in the background. Tokens only. */
+const SES_HUE={"system prompt":"system","skills":"flow","memory":"agent","tools":"template","project files":"model","conversation":"cost"};
+const nTok=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1)+"k":String(n||0);
+function sesBox(key,title,open,...kids){
+  const d=h("details",{class:"ses",open:store.get("ses."+key,open?"1":"0")==="1"},h("summary",null,title),...kids);
+  d.addEventListener("toggle",()=>store.set("ses."+key,d.open?"1":"0"));return d;
+}
+function rvSession(el){
+  const s=RV.session;
+  const box=h("div",{class:"card ses-card"},h("h3",null,"This session"));
+  if(!s){box.append(h("p",{class:"sub"},"Not available for this run."));put(el,box);return;}
+  const w=s.window||0, free=Math.max(0,w-(s.used||0));
+  const ctx=h("div",null);
+  if(!w)ctx.append(h("p",{class:"sub"},"No model call was recorded, so there is no context to show."));
+  else{
+    const bar=h("div",{class:"ctxbar",role:"img","aria-label":"Context use: "+nTok(s.used)+" of "+nTok(w)+" tokens"});
+    const sum=s.sections.reduce((a,x)=>a+x.tokens,0);
+    const tot=(sum>(s.used||0)?sum:(s.used||0));
+    for(const x of s.sections){if(x.tokens>0)bar.append(h("span",{class:"ctxseg",style:"width:"+(x.tokens*100/w).toFixed(2)+"%;background:var(--c-"+SES_HUE[x.name]+")",title:x.name+": "+x.tokens+" tokens"}));}
+    if(s.used>sum)bar.append(h("span",{class:"ctxseg",style:"width:"+((s.used-sum)*100/w).toFixed(2)+"%;background:var(--mute)",title:"other: "+(s.used-sum)+" tokens"}));
+    if(s.compaction)bar.append(h("i",{class:"ctxmark",style:"left:"+(s.compaction*100/w).toFixed(1)+"%",title:"Compaction point ("+s.compaction_note+")"}));
+    ctx.append(bar,h("p",{class:"sub"},nTok(s.used)+" of "+nTok(w)+" tokens used · compaction at "+nTok(s.compaction)+" ("+s.compaction_note+")"));
+    const ul=h("ul",{class:"ses-list"});
+    for(const x of s.sections)ul.append(h("li",null,h("i",{class:"ses-dot",style:"background:var(--c-"+SES_HUE[x.name]+")"}),h("span",{class:"grow"},x.name),h("span",{class:"mute"},x.tokens?nTok(x.tokens):"—")));
+    ul.append(h("li",null,h("i",{class:"ses-dot ses-free"}),h("span",{class:"grow"},"free space"),h("span",{class:"mute"},nTok(free))));
+    ctx.append(ul);
+    if(s.estimated)ctx.append(h("p",{class:"sub"},"Estimated from the last call's text (about 4 characters a token), scaled to the tokens the server counted. Skills, memory, tools and files are not split out yet."));
+  }
+  box.append(sesBox("ctx","Context window",true,ctx));
+  const li=(a,b,c)=>h("li",null,h("span",{class:"grow"},a),b?h("span",{class:"mute"},b):null,c||null);
+  const list=(rows,none)=>rows.length?h("ul",{class:"ses-list"},...rows):h("p",{class:"sub"},none);
+  box.append(sesBox("plug","Plugins and connectors",false,list([
+    ...(s.plugins||[]).map(p=>li(p.name,"plugin",h("span",{class:"chip "+(p.enabled?"good":"")},p.enabled?"on":"off"))),
+    ...(s.connectors||[]).map(c=>li(c.name,"machine",h("span",{class:"chip"},c.state)))],"None set up.")));
+  box.append(sesBox("out","Outputs",false,list((s.outputs||[]).map(o=>li(o.file,o.new?"new":"changed")),"No files written.")));
+  const c=s.changes||{};
+  box.append(sesBox("chg","Changes",true,h("p",{class:"sub"},c.files+" files · ",h("b",{class:"rv-plus"},"+"+(c.added||0))," ",h("b",{class:"rv-minus"},"−"+(c.removed||0)))));
+  box.append(sesBox("srv","Servers",false,list((s.servers||[]).map(x=>li(x.tier+(x.name?" · "+x.name:""),(x.port?"port "+x.port+" · ":"")+x.place,h("span",{class:"chip "+(x.up?"good":"bad")},x.up?"up":"down"))),
+    s.server_mode==="ollama"?"Using Ollama; no separate servers.":"No servers running.")));
+  box.append(sesBox("job","Background jobs",false,list((s.jobs||[]).map(j=>li(j.title,Math.floor(j.secs/60)+" min "+(j.secs%60)+" s")),"Nothing running in the background.")));
+  put(el,box);
+}
+/* Queue board: waiting / running / done, with a time estimate (arch_eta) */
+function queueBoard(d){
+  const jobs=d.jobs||[], e=d.eta||{};
+  const col=(title,rows,none)=>h("section",{class:"qb-col","aria-label":title},h("h3",null,title+" ("+rows.length+")"),
+    rows.length?h("ul",{class:"qb-list"},...rows):h("p",{class:"sub"},none));
+  const per=(e.left&&e.secs_mid)?e.secs_mid/e.left:0;
+  const card=(j,extra)=>h("li",{class:"qb-card"},h("div",{class:"goal"},j.goal),h("div",{class:"meta"},"#"+j.id+" · "+(j.flow||"router decides")+(extra?" · "+extra:"")));
+  const waiting=jobs.filter(j=>j.state==="pending").reverse(), running=jobs.filter(j=>j.state==="running"), done=jobs.filter(j=>!["pending","running"].includes(j.state));
+  let acc=0;
+  const wr=waiting.map((j,i)=>{acc+=per;return card(j,per?"starts in about "+humanSecs(acc-per+(running.length?per/2:0)):"");});
+  const rr=running.map(j=>card(j,(j.started?"for "+humanSecs(Date.now()/1000-j.started):"")+(per?" · about "+humanSecs(per)+" a task":"")));
+  const dr=done.slice(0,12).map(j=>card(j,(Q_WORD[j.state]||j.state)+(j.secs?" · "+fmt(j.secs,0)+" s":"")));
+  return h("div",{class:"qb"},col("Waiting",wr,"Nothing waiting."),col("Running",rr,"Nothing running."),col("Done",dr,"Nothing finished yet."));
+}
+function humanSecs(s){s=Math.max(0,Math.round(s));return s<90?s+" s":s<5400?Math.round(s/60)+" min":(s/3600).toFixed(1)+" h";}
+/* Recipe cards (arch_recipes): one click puts the filled-in goal in the Home box and picks the flow. */
+function recipeSuccess(r){const s=r.success||{};return s.measured?(s.pass+"/"+s.n+" · "+(s.source==="flow"?"flow-level":"this recipe")):"not measured";}
+async function loadRecipes(){
+  const el=$("#homeRecipes"); if(!el)return;
+  let d; try{d=await api("/api/arch/recipes");}catch(_){return;}
+  el.innerHTML="";
+  const rows=(d&&d.available&&Array.isArray(d.recipes))?d.recipes:[]; if(!rows.length)return;
+  const grid=h("div",{class:"rc-grid"});
+  for(const r of rows.slice(0,12)){
+    grid.append(h("div",{class:"card rc-card"},h("h3",null,r.title||r.id),h("p",{class:"sub"},r.summary||""),
+      h("div",{class:"row",style:"gap:6px;flex-wrap:wrap"},r.flow?h("span",{class:"chip flow"},r.flow):null,h("span",{class:"chip "+((r.success||{}).measured?"info":"")},recipeSuccess(r))),
+      h("p",{class:"sub rc-need",id:"rcNeed-"+r.id}),
+      h("button",{class:"btn sm",type:"button","aria-label":"Use the recipe: "+(r.title||r.id),onclick:()=>useRecipe(r)},"Use this")));
+  }
+  el.append(h("details",{class:"card more rc",open:store.get("rcOpen","0")==="1",ontoggle:e=>store.set("rcOpen",e.target.open?"1":"0")},
+    h("summary",{class:"more-sum"},"Recipes that worked before"),grid));
+}
+/* "Use this": fill the goal, and when the project has what the recipe needs, start the run with the recipe id (run.json records it).
+   When that run finishes the hub opens Review for it by itself (recipeReviewTick). */
+const REC_RUN={armed:false,id:""};
+async function useRecipe(r){
+  try{const f=await api("/api/arch/recipes/fill",{recipe:r.id,root:run.root||"",params:{}});
+    run.goal=f.goal||""; run.homeFlow=f.flow||""; const ta=$("#spGoal"); if(ta){ta.value=run.goal;ta.dispatchEvent(new Event("input",{bubbles:true}));ta.focus();}
+    const n=$("#rcNeed-"+r.id); const miss=(f.missing_text||[]);
+    if(n)n.textContent=miss.length?"needs: "+miss.join(", "):"";
+    if(miss.length||!run.root||!(f.goal||"").trim()){
+      toast(!run.root?"Filled in. Choose a project folder, then press Do it.":miss.length?"Filled in, but this project lacks: "+miss.join(", "):"Filled in. Check the goal, then press Do it.",5000,"warn");
+      if(!run.root)rootError("Choose the project folder first, or use the practice project."); return;}
+    await api("/api/arch/run",{goal:f.goal,flow:f.flow||"auto",review:"auto",root:run.root,recipe:r.id});
+    run.homeFlow="";rememberRoot(run.root);EV.verdict=null;run._kept=false;RUNBAR.goal=f.goal;REC_RUN.armed=true;REC_RUN.id=r.id;
+    toast("Started the recipe: "+(r.title||r.id)+". Review opens when it finishes.",5000);announce("Recipe run started. Review opens when it finishes.");simpleDraw();}
+  catch(e){toast.err(e.message);}
+}
+function recipeReviewTick(){
+  if(!REC_RUN.armed||EV.running||!EV.verdict)return;
+  REC_RUN.armed=false; announce("The recipe run finished. Opening the review."); go("review");
+}
+function tplContract(c){
+  if(!c||typeof c!=="object")return null;
+  const routes=Array.isArray(c.http)?c.http.length:0, cmds=(c.cli&&Array.isArray(c.cli.commands))?c.cli.commands.length:0;
+  const tests=(c.tests&&Array.isArray(c.tests.files))?c.tests.files.length:0;
+  return h("p",{class:"sub"},"Contract: "+routes+" routes · "+cmds+" commands · "+tests+" test files");
+}
 /* ===== Overnight report (Projects): tools/morning_report.py's page, rendered from its Markdown as text nodes only ===== */
 function morningPage(){
   return [h("div",{class:"card"},h("div",{id:"mrOut",style:"display:flex;flex-direction:column;gap:10px"},h("p",{class:"sub"},"Reading the overnight report…")))];
@@ -4643,6 +5344,37 @@ async function loadMorning(){
   if(!r.text){ out.append(h("p",{class:"sub"},"No overnight report yet. python tools/morning_report.py writes one; the night queue runs it when it finishes.")); return; }
   out.append(h("p",{class:"small mute",style:"margin:0"},"From "+(r.file||"the newest report")+", written "+when(r.t)+"."));
   out.append(...mrRender(r.text));
+}
+/* ===== Lessons (Help): arch_lessons as a table. Enforced-by targets are green when the code or file exists, red when it does not ===== */
+function lessonsPage(){
+  return [h("div",{class:"card"},h("h2",null,"Lessons"),
+    h("p",{class:"sub"},"What we learned building this, the evidence, and the code that keeps each lesson true."),
+    h("div",{id:"lsOut","aria-busy":"true"},h("div",{class:"skeleton",style:"height:120px"})))];
+}
+function lsTarget(t){
+  return h("li",{class:"ls-t"},h("span",{class:"chip "+(t.ok?"good":"bad"),title:t.ok?"":t.why},icon(t.ok?"check":"x"),h("code",null,t.target),
+    h("span",{class:"sr-only"},t.ok?" (present)":" (missing: "+t.why+")")));
+}
+async function loadLessons(){
+  const out=$("#lsOut"); if(!out)return;
+  let d; try{ d=await api("/api/arch/lessons"); }catch(e){ out.innerHTML=""; out.append(emptyState(null,"Could not read the lessons",e.message,"Retry",loadLessons)); return; }
+  out.innerHTML=""; out.setAttribute("aria-busy","false");
+  if(!d.available){ out.append(emptyState(null,"Lessons are not available",d.why||"","Retry",loadLessons)); return; }
+  if(!d.lessons.length){ out.append(emptyState(null,"No lessons yet","data/lessons.json has none.","Retry",loadLessons)); return; }
+  const bad=d.problems||[];
+  out.append(h("p",{class:"chip "+(bad.length?"bad":"good"),role:"status"},icon(bad.length?"x":"check"),bad.length?bad.length+" lesson problem"+(bad.length>1?"s":"")+" found":"Every lesson is complete and every target exists"));
+  if(bad.length)out.append(h("ul",{class:"small"},...bad.map(x=>h("li",null,x))));
+  const has=d.dataset&&d.dataset.total>0;
+  out.append(h("div",{class:"ls-wrap",role:"region","aria-label":"Lessons table",tabindex:"0"},h("table",{class:"tbl ls-tbl"},
+    h("caption",{class:"sr-only"},"Lessons, their evidence, what enforces and checks them, how they are trained and samples so far"),
+    h("thead",null,h("tr",null,...["Lesson","Evidence","Enforced by","Checked by","Trains via","Samples so far"].map(x=>h("th",{scope:"col"},x)))),
+    h("tbody",null,...d.lessons.map(L=>h("tr",null,
+      h("td",null,h("b",null,L.id),h("div",null,L.lesson),h("span",{class:"chip "+(L.status==="enforced"?"good":L.status==="partial"?"warn":"")},L.status)),
+      h("td",{class:"small"},L.evidence),
+      h("td",null,h("ul",{class:"ls-ul"},...L.enforced_by.map(lsTarget))),
+      h("td",null,h("ul",{class:"ls-ul"},...L.checked_by.map(lsTarget))),
+      h("td",null,L.trains_via?h("code",null,L.trains_via):h("span",{class:"mute"},"none yet")),
+      h("td",{class:"n"},L.samples==null?h("span",{class:"mute",title:has?"This lesson has no tagged samples yet":"No dataset with lesson tags yet"},"not counted yet"):String(L.samples))))))));
 }
 /* ===== Cost map (Models): the report's C = t / p for every model on every kind of task, from this machine's live benchmark runs.
    Each point is (pass rate, seconds per task); every point on one dashed ray costs the same per accepted change. Read-only: it shows
@@ -5182,22 +5914,49 @@ async function saveSettings(){
   try{await api("/api/arch/settings",{settings:patch});dirty=false;toast("Settings saved");await refresh(true);}
   catch(e){toast.err(e.message,7000);}
 }
-async function applyPreset(id){
-  if(dirty&&!confirm("You have unsaved changes to Settings. Applying a preset will overwrite the fields it touches. Continue?"))return;
-  try{await api("/api/arch/preset",{name:id});dirty=false;toast("Applied the \""+(S.presets.find(p=>p.id===id)||{}).label+"\" preset");await refresh(true);}
-  catch(e){toast.err(e.message,7000);}
+/* Presets: Fast / Balanced / Quality / Battery (the same as `architect.py preset NAME`). Shows what changes before applying; Undo puts it back. */
+const RP={data:null,sel:null,busy:false};
+async function rpLoad(){ try{ RP.data=await api("/api/arch/rpresets"); }catch(e){ RP.data={available:false,why:e.message,presets:[],undo:""}; } rpDraw(); }
+function rpShow(v){ return v===null||v===undefined?"(not set)":typeof v==="object"?JSON.stringify(v):String(v); }
+function rpBody(){
+  const d=RP.data, box=h("div",{class:"rp-body"});
+  if(!d){ box.append(h("div",{class:"skeleton",style:"height:90px"})); return box; }
+  if(!d.available){ box.append(h("p",{class:"note bad",role:"alert"},"Could not read the presets: "+(d.why||""))); return box; }
+  if(!RP.sel||!d.presets.find(p=>p.id===RP.sel)) RP.sel=(d.presets.find(p=>p.active)||d.presets.find(p=>p.id==="balanced")||d.presets[0]||{}).id;
+  const cur=d.presets.find(p=>p.id===RP.sel);
+  box.append(h("div",{class:"rp-tabs",role:"group","aria-label":"Preset"},...d.presets.map(p=>h("button",{type:"button",class:"btn"+(p.id===RP.sel?" pri":""),"aria-pressed":p.id===RP.sel?"true":"false",
+    onclick:()=>{RP.sel=p.id;rpDraw();}},p.label,p.active?h("span",{class:"chip good",style:"margin-left:6px"},"in force"):null))));
+  if(cur){
+    box.append(h("p",{class:"sub",style:"margin:8px 0"},cur.blurb));
+    box.append(cur.changes.length
+      ?h("div",{class:"rp-changes"},h("b",{class:"small"},"Applying "+cur.label+" changes "+cur.changes.length+" setting"+(cur.changes.length>1?"s":"")+":"),
+         h("ul",{class:"small",style:"margin:4px 0 0 18px"},...cur.changes.map(c=>h("li",{},h("code",{},c.what),": "+rpShow(c.from)+" → ",h("b",{},rpShow(c.to))))))
+      :h("p",{class:"small mute"},"Already in force: nothing would change."));
+  }
+  box.append(h("div",{class:"row",style:"gap:8px;margin-top:10px;flex-wrap:wrap"},
+    h("button",{type:"button",class:"btn p",disabled:RP.busy||!cur||!cur.changes.length,onclick:rpApply},"Apply "+(cur?cur.label:"")),
+    h("button",{type:"button",class:"btn",disabled:RP.busy||!d.undo,onclick:rpUndo,title:d.undo?"Put back what "+d.undo+" changed":"Nothing to undo"},d.undo?"Undo: "+d.undo:"Undo")));
+  return box;
 }
-function presetsCard(){
-  const ps=S.presets||[];
-  if(!ps.length)return null;
-  return h("div",{class:"card"},h("h2",null,"Quick presets"),
-    h("p",{class:"sub"},"One-click bundles of the settings below. Applying one only changes the fields it lists -- everything else stays as it is."),
-    h("div",{class:"fgrid",style:"margin-top:10px"},...ps.map(p=>h("div",{class:"note info",style:"display:flex;flex-direction:column;gap:8px"},
-      h("div",{style:"font-weight:650"},p.label),
-      h("div",{class:"small"},p.blurb),
-      h("details",{class:"small mute"},h("summary",{style:"cursor:pointer"},"What it changes ("+Object.keys(p.settings).length+" settings)"),h("div",{style:"margin-top:6px;font-family:var(--mono);font-size:.75rem"},...Object.entries(p.settings).map(([k,v])=>h("div",null,k.replace(/^\w+\./,"").replace(/_/g," ")+": "+v)))),
-      h("button",{class:"btn",onclick:()=>applyPreset(p.id)},"Apply")))));
+function rpDraw(){ for(const m of document.querySelectorAll(".rp-mount")){ m.innerHTML=""; m.append(rpBody()); } }
+async function rpApply(){ RP.busy=true; rpDraw();
+  try{ RP.data=await api("/api/arch/rpreset",{name:RP.sel}); toast("Applied "+RP.data.applied+". Undo is next to it."); try{await refresh(true);}catch(_){} }
+  catch(e){ toast.err(e.message,7000); } RP.busy=false; rpDraw(); }
+async function rpUndo(){ RP.busy=true; rpDraw();
+  try{ RP.data=await api("/api/arch/rpreset",{undo:true}); toast(RP.data.undone?"Undone: "+RP.data.undone:"Nothing to undo"); try{await refresh(true);}catch(_){} }
+  catch(e){ toast.err(e.message,7000); } RP.busy=false; rpDraw(); }
+function rpresetCard(){ const m=h("div",{class:"rp-mount"}); setTimeout(rpLoad,0);
+  return h("div",{class:"card",id:"rpCard"},h("h2",null,"Presets"),
+    h("p",{class:"sub"},"Fast, Balanced, Quality or Battery. See what changes first; Undo puts it back."),m); }
+function rpTop(){
+  let pop=$("#rpPop");
+  if(pop){ pop.remove(); $("#presetBtn").setAttribute("aria-expanded","false"); return; }
+  pop=h("div",{id:"rpPop",class:"card rp-pop",role:"dialog","aria-label":"Presets",tabindex:"-1"},h("div",{class:"row"},h("b",{class:"grow"},"Presets"),
+    h("button",{type:"button",class:"btn sm","aria-label":"Close presets",onclick:rpTop},"Close")),h("div",{class:"rp-mount"}));
+  document.body.append(pop); $("#presetBtn").setAttribute("aria-expanded","true"); rpLoad(); pop.focus();
 }
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&$("#rpPop")){ e.preventDefault(); rpTop(); const b=$("#presetBtn"); if(b)b.focus(); } });
+document.addEventListener("mousedown",e=>{ const p=$("#rpPop"); if(p&&!p.contains(e.target)&&!e.target.closest("#presetBtn"))rpTop(); });
 /* ============================================================================================
    Components: every part of the interface on one page, the light and the dark theme side by side. No tab shows it; Settings
    links to it and Ctrl+K finds it. Built from the classes the real pages use, so a stylesheet change shows here first.
@@ -5417,16 +6176,20 @@ function settings(){
   const schema=S.settings_schema||{};
   const out=[h("div",{class:"card"},h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Settings"),
       h("p",{class:"sub",style:"margin:0"},"Empty fields use the built-in default. Every change is checked before saving, and can be undone.")),
-    h("button",{class:"btn p",id:"saveCfg",disabled:!dirty,onclick:saveSettings},dirty?"Save changes":"Saved")),
+    h("button",{class:"btn p",id:"saveCfg",disabled:!dirty,onclick:saveSettings},dirty?"Save changes":"Saved"),
+    h("button",{class:"btn",type:"button",onclick:()=>go("effective")},"See what each setting really is")),
     h("label",{class:"f row",style:"gap:8px;align-items:center;margin-top:10px"},
       h("input",{type:"checkbox",id:"showAdv",checked:showAdvanced(),onchange:e=>{store.set("showAdvanced",e.target.checked?"1":"0");buildNav();}}),
       "Show advanced pages",h("span",{class:"small mute"},"Off: report cards, recipes, maps and samples stay in Ctrl+K only.")))];
-  const rc=recCard(); if(rc)out.push(rc);
-  const pc=presetsCard(); if(pc)out.push(pc);
-  for(const [t,l] of Object.entries(schema))out.push(h("div",{class:"card"},h("h2",null,t),h("div",{class:"fgrid",style:"margin-top:10px"},...l.map(([p,ty,lb,hn])=>ctl(p,ty,lb,hn)))));
-  out.push(h("div",{class:"card"},h("details",null,h("summary",null,"Everything as JSON (advanced, unvalidated)"),h("textarea",{rows:16,id:"allTxt",spellcheck:false},JSON.stringify(cfg,null,2)),
+  out.push(rpresetCard());                       /* Presets first: Fast / Balanced / Quality / Battery, "now -> new" preview, Undo */
+  const adv=[]; const rc=recCard(); if(rc)adv.push(rc);
+  for(const [t,l] of Object.entries(schema))adv.push(h("div",{class:"card"},h("h2",null,t),h("div",{class:"fgrid",style:"margin-top:10px"},...l.map(([p,ty,lb,hn])=>ctl(p,ty,lb,hn)))));
+  adv.push(h("div",{class:"card"},h("details",null,h("summary",null,"Everything as JSON (advanced, unvalidated)"),h("textarea",{rows:16,id:"allTxt",spellcheck:false},JSON.stringify(cfg,null,2)),
     h("p",{class:"small mute",style:"margin:6px 0"},"This writes the whole file directly and skips the checks above -- for scripting or restoring a backup, not everyday edits."),
     h("div",{class:"row",style:"margin-top:8px"},h("button",{class:"btn",onclick:async()=>{try{const parsed=JSON.parse($("#allTxt").value||"{}");await api("/api/config",{config:parsed});dirty=false;toast("Saved");await refresh(true);}catch(e){toast.err("Not saved: "+e.message,6000);}}},"Save this JSON")))));
+  /* everything but Presets lives under Advanced, closed until the person opens it (the choice is remembered) */
+  out.push(h("details",{class:"card adv",id:"setAdv",open:store.get("setAdvOpen","0")==="1",ontoggle:e=>store.set("setAdvOpen",e.target.open?"1":"0")},
+    h("summary",{class:"more-sum"},"Advanced: every limit, behaviour and safety setting"),h("div",{class:"adv-body"},...adv)));
   return out;
 }
 
@@ -6104,6 +6867,7 @@ function openPalette(){
 }
 function closePalette(){ if(PAL){PAL.remove();PAL=null;const b=openPalette.back;openPalette.back=null;if(b&&b.isConnected&&b.focus)try{b.focus();}catch(_){}} }
 $("#paletteBtn").addEventListener("click",openPalette);
+$("#presetBtn").addEventListener("click",rpTop);
 $("#keysBtn").addEventListener("click",()=>openKeys());
 
 /* ---------- keyboard: the whole app without reaching for the mouse ---------- */
@@ -6379,6 +7143,8 @@ const HINTS={
   map:["Map","How the pieces of one run, fleet or workflow connect. Drag them about; click one for its details."],
   library:["Library","Agent briefs that worked, kept as templates. Each says what it does and why; one button fills it in for the fleet."],
   blueprints:["Blueprints","Draw your own workflow from steps and checks. Saving runs the same validator as the built-in ones.","blueprints"],
+  effective:["Effective settings","The value each setting really has for one job, and which layer set it."],
+  hooks:["Hooks","Commands of your own that run by themselves at fixed points in a run. A project’s hooks wait for your yes."],
   queue:["Queue","Tasks the machine works through on its own. A failed task is tried again a different way; a machine problem pauses the queue instead."],
   launch:["Run the app","Start and stop your project for real and see whether it is actually alive."],
   tiers:["Your models","Which installed model does which job on this machine, and why. Measured against this card, not looked up by name."],

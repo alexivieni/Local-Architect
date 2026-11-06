@@ -1541,7 +1541,11 @@ def squad_agents():
 
 def _workflow_path(name):
     import arch_squad as sq
-    return os.path.join(getattr(sq, "WORKFLOWS_DIR", os.path.join(HERE, "workflows")), name + ".yaml")
+    d = getattr(sq, "WORKFLOWS_DIR", os.path.join(HERE, "workflows"))
+    for ext in (".yaml", ".md"):             # workflows may live as .yaml or .md
+        if os.path.isfile(os.path.join(d, name + ext)):
+            return os.path.join(d, name + ext)
+    return os.path.join(d, name + ".yaml")
 
 
 def squad_workflows():
@@ -1631,6 +1635,641 @@ def squad_run(b):
     return {"ok": True, "argv": argv[1:]}
 
 
+# ---- Review screen, editable plan and session panel. All of it is read from the run's own files (.arch/runs/<id>/trace.jsonl, run.json);
+# a record or module that is missing leaves its part empty, never an error.
+_RUN_RE = re.compile(r"[A-Za-z0-9._-]{1,80}")
+_TESTLIKE = re.compile(r"test|pytest|unittest|spec|contract|smoke|syntax|compile|lint|build", re.I)
+
+
+def _run_dir_of(root, run):
+    base = os.path.join(root, ".arch", "runs")
+    run = str(run or "").strip()
+    if not run:                                              # newest run that has a trace
+        names = sorted(os.listdir(base), reverse=True) if os.path.isdir(base) else []
+        run = next((n for n in names if os.path.isfile(os.path.join(base, n, "trace.jsonl"))), names[0] if names else "")
+    if not run:
+        return "", ""
+    if not _RUN_RE.fullmatch(run):
+        raise ValueError("that is not a run id")
+    return run, os.path.join(base, run)
+
+
+def _trace_records(d, cap=20000):
+    out = []
+    try:
+        with open(os.path.join(d, "trace.jsonl"), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if len(out) >= cap:
+                    break
+                try:
+                    j = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(j, dict):
+                    out.append(j)
+    except OSError:
+        pass
+    return out
+
+
+def _read_json(p):
+    try:
+        with open(p, encoding="utf-8") as f:
+            j = json.load(f)
+        return j if isinstance(j, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _git_diff(root, files, cap=20000):
+    """Read-only `git diff` for these files; {} when git or a repository is missing."""
+    import subprocess
+    out = {}
+    for rel in files[:40]:
+        if ".." in rel.replace("\\", "/").split("/") or os.path.isabs(rel):
+            continue
+        try:
+            r = subprocess.run(["git", "-C", root, "diff", "--no-color", "-U3", "--", rel], capture_output=True, text=True, timeout=8,
+                               encoding="utf-8", errors="replace")
+            if r.returncode == 0 and r.stdout.strip():
+                out[rel] = r.stdout[:cap]
+        except (OSError, subprocess.SubprocessError):
+            break
+    return out
+
+
+def _diff_counts(text):
+    a = sum(1 for l in text.splitlines() if l.startswith("+") and not l.startswith("+++"))
+    r = sum(1 for l in text.splitlines() if l.startswith("-") and not l.startswith("---"))
+    return a, r
+
+
+def review_view(root, run):
+    """GET /api/arch/review?root=&run= -> files with diffs (trace `diff` records, else git diff), tests, verdict, cost, plan."""
+    run, d = _run_dir_of(root, run)
+    if not run or not os.path.isdir(d):
+        return {"run": "", "empty": True}
+    recs = _trace_records(d)
+    st = _read_json(os.path.join(d, "run.json"))
+    files, order = {}, []
+    for r in recs:
+        if r.get("type") == "diff" and r.get("file"):
+            f = str(r["file"])
+            if f not in files:
+                order.append(f)
+            files[f] = {"file": f, "added": int(r.get("added") or 0), "removed": int(r.get("removed") or 0), "new_file": bool(r.get("new_file")),
+                        "diff": str(r.get("diff") or ""), "truncated": bool(r.get("truncated")), "source": "trace"}
+    changed = []
+    for r in recs:
+        if r.get("type") == "step":
+            for f in r.get("changed") or []:
+                if isinstance(f, str) and f not in files and f not in changed:
+                    changed.append(f)
+    gd = _git_diff(root, changed) if changed else {}
+    for f in changed:
+        t = gd.get(f, "")
+        a, rm = _diff_counts(t)
+        files[f] = {"file": f, "added": a, "removed": rm, "new_file": False, "diff": t, "truncated": False, "source": "git" if t else "none"}
+        order.append(f)
+    checks = [r for r in recs if r.get("type") == "check" and r.get("ok") is not None and r.get("gate")]
+    tests = [{"name": str(c["gate"])[:80], "ok": bool(c["ok"]), "text": str(c.get("text") or "")[:300], "step": c.get("step")} for c in checks]
+    for t in tests:
+        t["test"] = bool(_TESTLIKE.search(t["name"]))
+    verdict = next(({"verdict": r.get("verdict"), "why": str(r.get("why") or "")[:400]} for r in reversed(recs) if r.get("type") == "verdict"), None)
+    calls = [r for r in recs if r.get("type") == "call"]
+    usd = sum(float(c.get("usd") or 0) for c in calls)
+    todo = next((r.get("items") for r in reversed(recs) if r.get("type") == "todo"), None) or st.get("todo") or []
+    accepted = _read_json(os.path.join(d, "accepted.json"))
+    _attach_hunks(root, d, [files[f] for f in order][:60])
+    return {"run": run, "goal": st.get("goal") or "", "flow": st.get("flow") or "", "status": st.get("status") or "", "verdict": verdict,
+            "files": [files[f] for f in order][:60], "tests": tests[:80],
+            "cost": {"usd": round(usd, 4), "calls": len(calls), "secs": round(sum(float(c.get("secs") or 0) for c in calls), 1),
+                     "local": usd == 0, "models": sorted({str(c.get("model")) for c in calls if c.get("model")})[:6]},
+            "plan": todo, "accepted": bool(accepted.get("t")), "root": root}
+
+
+def _attach_hunks(root, d, files):
+    """Adds the Keep / Drop hunk lists to review_view's file entries (only where a copy from before the run exists)."""
+    for f in files:
+        try:
+            h = hunks_for(root, d, f["file"])
+        except Exception as ex:
+            h = {"splittable": False, "why": f"{type(ex).__name__}: {str(ex)[:120]}", "hunks": []}
+        f["splittable"], f["split_why"] = h["splittable"], h["why"]
+        if h["splittable"]:
+            f["hunks"] = h["hunks"]
+
+
+def review_decide(b):
+    """POST /api/arch/review/accept {root, run}: marks the run accepted (a note beside the run; nothing else changes)."""
+    root = safe_root(b.get("root") or HERE)
+    run, d = _run_dir_of(root, b.get("run"))
+    if not run or not os.path.isdir(d):
+        raise ValueError("there is no run by that name")
+    with open(os.path.join(d, "accepted.json"), "w", encoding="utf-8") as f:
+        json.dump({"t": time.time()}, f)
+    return {"ok": True, "run": run}
+
+
+def _plan_hook():
+    return hasattr(core.Engine, "plan_override")
+
+
+def plan_view(root, run):
+    """GET /api/arch/plan -> the run's plan as a list; editable only when the engine reads an override."""
+    run, d = _run_dir_of(root, run)
+    if not run:
+        return {"run": "", "items": [], "editable": False}
+    ok = _plan_hook()
+    return {"run": run, "items": review_view(root, run).get("plan") or [], "editable": ok,
+            "why": "" if ok else "Edit is not available yet: the engine does not read a plan override (needs Engine.plan_override reading <run>/plan_override.json)."}
+
+
+def plan_save(b):
+    """POST /api/arch/plan {root, run, items:[{id,title,status}]}: writes <run>/plan_override.json when the engine reads it."""
+    root = safe_root(b.get("root") or HERE)
+    run, d = _run_dir_of(root, b.get("run"))
+    if not run or not os.path.isdir(d):
+        raise ValueError("there is no run by that name")
+    items = []
+    for i, it in enumerate(b.get("items") or []):
+        if isinstance(it, dict) and str(it.get("title") or "").strip():
+            items.append({"id": str(it.get("id") or f"u{i}")[:40], "title": str(it["title"]).strip()[:120],
+                          "status": "skipped" if it.get("status") == "skipped" else "pending"})
+    if not items:
+        raise ValueError("the plan needs at least one step")
+    if not _plan_hook():
+        return {"ok": False, "supported": False, "why": "Edit is not available yet: the engine does not read a plan override."}
+    with open(os.path.join(d, "plan_override.json"), "w", encoding="utf-8") as f:
+        json.dump({"t": time.time(), "items": items}, f)
+    return {"ok": True, "supported": True, "run": run, "items": items}
+
+
+# ---- Per-hunk Keep / Drop in Review. The hunks are always computed from the copy of the file BEFORE the run against the file as the run
+# left it, so their ids stay the same however often the person changes their mind. Without a pre-run copy there is nothing to rebuild from.
+def _rel_safe(root, rel):
+    rel = str(rel or "").replace("\\", "/").lstrip("/")
+    if not rel or ".." in rel.split("/") or rel.startswith(".arch/") or re.match(r"^[A-Za-z]:", rel):
+        raise ValueError("that is not a file inside the project")
+    full = os.path.realpath(os.path.join(root, rel))
+    if not (full + os.sep).startswith(os.path.realpath(root) + os.sep):
+        raise ValueError("that is not a file inside the project")
+    return rel, full
+
+
+def _prerun_bytes(root, d, rel):
+    """-> (bytes | None, kind, why). kind: backup | new | checkpoint | none. `new` = the run created the file (pre-run content is empty)."""
+    bk = os.path.join(d, "backup", *rel.split("/"))
+    if os.path.isfile(bk):
+        with open(bk, "rb") as f:
+            return f.read(), "backup", ""
+    try:
+        with open(os.path.join(d, "created.txt"), encoding="utf-8") as f:
+            if rel in {x.strip().replace("\\", "/") for x in f.read().splitlines()}:
+                return b"", "new", ""
+    except OSError:
+        pass
+    try:
+        import arch_checkpoint as ck
+        run_id = os.path.basename(d)
+        cps = ck.list_checkpoints(root, run_id)
+        if cps:
+            repo = ck._repo(root)
+            env = ck._env(repo, root)
+            ref = cps[0]["ref"]
+            if ck._run(["rev-parse", "--verify", "-q", ref + "^"], env, root, check=False).returncode == 0:
+                p = ck._run(["cat-file", "blob", f"{ref}^:{rel}"], env, root, check=False)
+                if p.returncode == 0:
+                    return p.stdout, "checkpoint", ""
+                return b"", "new", ""                     # the parent has no such file: this run made it
+    except Exception:
+        pass
+    return None, "none", ("There is no copy of this file from before the run (no backup in the run folder and no checkpoint of the first try), "
+                          "so the file cannot be rebuilt from parts. Accept or Undo the whole run instead.")
+
+
+def _hunk_groups(pre, post):
+    """-> [{i1,i2,j1,j2,header,lines,added,removed}] using the same grouping `diff -U3` uses."""
+    import difflib
+    a, b = pre.splitlines(True), post.splitlines(True)
+    groups = difflib.SequenceMatcher(None, a, b, autojunk=False).get_grouped_opcodes(3)
+    out = []
+    for g in groups:
+        i1, i2, j1, j2 = g[0][1], g[-1][2], g[0][3], g[-1][4]
+        lines = []
+        for tag, x1, x2, y1, y2 in g:
+            if tag == "equal":
+                lines += [" " + l for l in a[x1:x2]]
+            else:
+                if tag in ("replace", "delete"):
+                    lines += ["-" + l for l in a[x1:x2]]
+                if tag in ("replace", "insert"):
+                    lines += ["+" + l for l in b[y1:y2]]
+        out.append({"i1": i1, "i2": i2, "j1": j1, "j2": j2,
+                    "header": f"-{i1 + 1},{i2 - i1} +{j1 + 1},{j2 - j1}",
+                    "lines": [l.rstrip("\r\n") for l in lines],
+                    "added": sum(1 for l in lines if l[0] == "+"), "removed": sum(1 for l in lines if l[0] == "-")})
+    return out
+
+
+def _hunk_state(d):
+    return _read_json(os.path.join(d, "hunks.json"))
+
+
+def _post_bytes(d, rel, full):
+    """The file as the run left it: the copy kept the first time a hunk was dropped, else what is on disk now."""
+    keep = os.path.join(d, "post", *rel.split("/"))
+    src = keep if os.path.isfile(keep) else full
+    try:
+        with open(src, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def hunks_for(root, d, rel):
+    """-> {"splittable", "why", "hunks": [{id, header, added, removed, lines, kept}]} for one changed file."""
+    try:
+        rel, full = _rel_safe(root, rel)
+    except ValueError as ex:
+        return {"splittable": False, "why": str(ex), "hunks": []}
+    pre, kind, why = _prerun_bytes(root, d, rel)
+    if pre is None:
+        return {"splittable": False, "why": why, "hunks": []}
+    post = _post_bytes(d, rel, full)
+    if post is None:
+        return {"splittable": False, "why": "The file is not there any more, so there is nothing to split.", "hunks": []}
+    try:
+        a, b = pre.decode("utf-8"), post.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"splittable": False, "why": "This file is not plain text, so it cannot be split into parts.", "hunks": []}
+    groups = _hunk_groups(a, b)
+    if len(groups) > 200:
+        return {"splittable": False, "why": "This file changed in more than 200 places; Keep or Drop the whole run instead.", "hunks": []}
+    st = (_hunk_state(d).get(rel) or {})
+    kept = set(st["keep"]) if isinstance(st.get("keep"), list) else set(range(len(groups)))
+    return {"splittable": True, "why": "", "kind": kind, "hunks": [
+        {"id": i, "header": g["header"], "added": g["added"], "removed": g["removed"], "lines": g["lines"][:400], "kept": i in kept}
+        for i, g in enumerate(groups)]}
+
+
+def review_hunks(b):
+    """POST /api/arch/review/hunks {root, run, file, keep:[hunk ids]}: the file becomes its pre-run content plus the kept hunks."""
+    root = safe_root(b.get("root") or HERE)
+    run, d = _run_dir_of(root, b.get("run"))
+    if not run or not os.path.isdir(d):
+        raise ValueError("there is no run by that name")
+    rel, full = _rel_safe(root, b.get("file"))
+    keep = b.get("keep")
+    if not isinstance(keep, list) or not all(isinstance(x, int) and not isinstance(x, bool) for x in keep):
+        raise ValueError("keep must be a list of hunk numbers")
+    pre, kind, why = _prerun_bytes(root, d, rel)
+    if pre is None:
+        return {"ok": False, "supported": False, "why": why}
+    post = _post_bytes(d, rel, full)
+    if post is None:
+        return {"ok": False, "supported": False, "why": "The file is not there any more."}
+    try:
+        a, bb = pre.decode("utf-8"), post.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"ok": False, "supported": False, "why": "This file is not plain text, so it cannot be split into parts."}
+    groups = _hunk_groups(a, bb)
+    if any(k < 0 or k >= len(groups) for k in keep):
+        raise ValueError("one of those hunks does not exist")
+    keepset = set(keep)
+    al, bl = a.splitlines(True), bb.splitlines(True)
+    out, pos = [], 0
+    for i, g in enumerate(groups):
+        out += al[pos:g["i1"]]
+        out += bl[g["j1"]:g["j2"]] if i in keepset else al[g["i1"]:g["i2"]]
+        pos = g["i2"]
+    out += al[pos:]
+    new = "".join(out).encode("utf-8")
+    keep_copy = os.path.join(d, "post", *rel.split("/"))
+    if not os.path.isfile(keep_copy):                     # remember the run's own result once, so a dropped hunk can come back
+        os.makedirs(os.path.dirname(keep_copy), exist_ok=True)
+        with open(keep_copy, "wb") as f:
+            f.write(post)
+    removed = False
+    if kind == "new" and not keepset:                       # the run made this file and nothing of it is kept
+        if os.path.isfile(full):
+            os.remove(full)
+        removed = True
+    else:
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        tmp = full + ".arch-tmp"
+        with open(tmp, "wb") as f:
+            f.write(new)
+        os.replace(tmp, full)
+    st = _hunk_state(d)
+    st[rel] = {"keep": sorted(keepset), "t": time.time(), "removed": removed}
+    with open(os.path.join(d, "hunks.json"), "w", encoding="utf-8") as f:
+        json.dump(st, f)
+    return {"ok": True, "supported": True, "run": run, "file": rel, "removed": removed, "kept": len(keepset), "of": len(groups),
+            "hunks": hunks_for(root, d, rel)}
+
+
+# ---- Background jobs: the hub's own job and the queue's running / waiting tasks, with a live tail. Stop = the same stops the app already has.
+def _tail_lines(text, n=12):
+    ls = [l.rstrip() for l in str(text or "").splitlines() if l.strip()]
+    return [l[:240] for l in ls[-n:]]
+
+
+def _trace_tail(run_dir, n=10):
+    out = []
+    for r in _trace_records(run_dir, cap=4000)[-60:]:
+        t = r.get("type")
+        txt = r.get("text") or r.get("label") or r.get("gate") or r.get("name") or r.get("step") or r.get("verdict") or ""
+        if t and txt:
+            out.append(f"{t}: {str(txt)[:160]}")
+    return out[-n:]
+
+
+def bgjobs_view():
+    """GET /api/arch/bgjobs -> running and waiting background jobs: {id, kind, title, state, secs, tail[], can_stop, stop_word}."""
+    now = time.time()
+    jobs = []
+    j = mh.JOB
+    try:
+        with j.lock:
+            if j.running():
+                jobs.append({"id": "hub", "kind": "hub", "title": j.title or "Job", "state": "running", "secs": round(now - (j.started or now)),
+                             "tail": _tail_lines(j.buf), "can_stop": True, "stop_word": "Stop"})
+    except Exception:
+        pass
+    try:
+        import arch_supervisor as sv
+        for q in sv.listing(states=["running", "pending"], limit=40):
+            running = q.get("state") == "running"
+            tail, secs = [], 0
+            if running:
+                started = float(q.get("started") or now)
+                secs = round(now - started)
+                try:
+                    rd = sv._newest_run(q.get("root") or "", started)
+                    tail = _trace_tail(rd) if rd else []
+                except Exception:
+                    tail = []
+            jobs.append({"id": f"q{q['id']}", "kind": "queue", "title": str(q.get("goal") or "")[:100], "state": "running" if running else "waiting",
+                         "secs": secs, "flow": q.get("flow") or "", "tail": tail, "can_stop": True,
+                         "stop_word": "Stop after this step" if running else "Cancel"})
+    except Exception:
+        pass
+    return {"jobs": jobs, "t": now}
+
+
+def bgjobs_stop(b):
+    """POST /api/arch/bgjobs/stop {id}: hub job -> stop the process; waiting queue task -> cancel; running queue task -> .arch/STOP in its project."""
+    jid = str(b.get("id") or "")
+    if jid == "hub":
+        mh.JOB.stop()
+        return {"ok": True, "how": "stopped"}
+    m = re.fullmatch(r"q(\d+)", jid)
+    if not m:
+        raise ValueError("that is not a job")
+    import arch_supervisor as sv
+    q = sv.get(int(m.group(1)))
+    if not q:
+        raise ValueError("there is no such task")
+    if q.get("state") == "pending":
+        return {"ok": bool(sv.cancel(q["id"])), "how": "cancelled"}
+    if q.get("state") == "running":
+        root = q.get("root") or ""
+        if not os.path.isdir(root):
+            raise ValueError("the project folder is gone")
+        os.makedirs(os.path.join(root, ".arch"), exist_ok=True)
+        with open(os.path.join(root, ".arch", "STOP"), "w", encoding="utf-8") as f:
+            f.write("stopped from the background jobs panel\n")
+        return {"ok": True, "how": "stopping after the current step"}
+    return {"ok": False, "how": "it was not running"}
+
+
+# ---- Hooks: your own commands at fixed points. Machine hooks are yours; a project's hook file needs trust, and any edit revokes it.
+def _hooks_doc(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return {"hooks": []}
+    if isinstance(d, list):
+        d = {"hooks": d}
+    if not isinstance(d, dict) or not isinstance(d.get("hooks"), list):
+        d = dict(d) if isinstance(d, dict) else {}
+        d["hooks"] = []
+    return d
+
+
+def hooks_view(root):
+    import arch_hooks as hk
+    mf, pf = hk.machine_file(), hk.project_file(root)
+
+    def rows(path):
+        out = []
+        for i, r in enumerate(_hooks_doc(path)["hooks"]):
+            if isinstance(r, dict) and r.get("run") and r.get("on") in hk.POINTS:
+                out.append({"index": i, "on": r["on"], "run": str(r["run"])[:400], "match": str(r.get("match") or ""), "when": str(r.get("when") or ""),
+                            "blocking": bool(r.get("blocking")), "timeout": int(r.get("timeout") or hk.DEFAULT_TIMEOUT), "name": str(r.get("name") or "")[:60]})
+        return out
+    cfg_ = core.load_config()
+    plugin_wait = [{"plugin": u.get("plugin"), "count": len(u["hooks"]), "commands": [x["run"][:200] for x in u["hooks"]]}
+                   for u in hk.load(root, cfg_)["untrusted"] if u.get("plugin")]
+    return {"points": list(hk.POINTS), "root": root,
+            "machine": {"path": mf, "exists": os.path.isfile(mf), "hooks": rows(mf)},
+            "project": {"path": pf, "exists": os.path.isfile(pf), "hooks": rows(pf), "trusted": bool(os.path.isfile(pf) and hk.trusted(pf)),
+                        "trust_all": bool((cfg_.get("hooks") or {}).get("trust_project"))},
+            "plugins_waiting": plugin_wait}
+
+
+def hooks_change(b):
+    """POST /api/arch/hooks {root, action: add|remove|trust|untrust, scope: machine|project, hook:{...}, index, confirm}."""
+    import arch_hooks as hk
+    root = safe_root(b.get("root") or HERE)
+    action, scope = str(b.get("action") or ""), str(b.get("scope") or "project")
+    if scope not in ("machine", "project"):
+        raise ValueError("scope must be machine or project")
+    path = hk.machine_file() if scope == "machine" else hk.project_file(root)
+    if action in ("add", "trust") and b.get("confirm") is not True:
+        raise ValueError("Hooks run commands on this PC. Say confirm: true after reading the command.")
+    if action == "trust":
+        if scope != "project" or not os.path.isfile(path):
+            raise ValueError("there is no project hook file to trust")
+        return {"ok": bool(hk.trust(path)), "view": hooks_view(root)}
+    if action == "untrust":
+        hk.trust(path, False)
+        return {"ok": True, "view": hooks_view(root)}
+    doc = _hooks_doc(path)
+    if action == "add":
+        h = b.get("hook") or {}
+        run_ = str(h.get("run") or "").strip()
+        if not run_ or len(run_) > 400 or "\n" in run_:
+            raise ValueError("the command must be one line, up to 400 characters")
+        if h.get("on") not in hk.POINTS:
+            raise ValueError("pick a point: " + ", ".join(hk.POINTS))
+        row = {"on": h["on"], "run": run_, "blocking": bool(h.get("blocking"))}
+        if str(h.get("name") or "").strip():
+            row["name"] = str(h["name"]).strip()[:60]
+        if str(h.get("match") or "").strip():
+            row["match"] = str(h["match"]).strip()[:80]
+        if h.get("when") in ("pass", "fail", "not_sure"):
+            row["when"] = h["when"]
+        try:
+            row["timeout"] = max(1, min(900, int(h.get("timeout") or hk.DEFAULT_TIMEOUT)))
+        except (TypeError, ValueError):
+            pass
+        if len(doc["hooks"]) >= 50:
+            raise ValueError("that is a lot of hooks (50 is the limit)")
+        doc["hooks"].append(row)
+    elif action == "remove":
+        i = b.get("index")
+        if not isinstance(i, int) or isinstance(i, bool) or not 0 <= i < len(doc["hooks"]):
+            raise ValueError("there is no hook with that number")
+        del doc["hooks"][i]
+    else:
+        raise ValueError("action must be add, remove, trust or untrust")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    core._atomic_write(path, json.dumps(doc, indent=2))
+    return {"ok": True, "view": hooks_view(root),
+            "note": "Editing a project's hook file takes back your approval; trust it again to run it." if scope == "project" else ""}
+
+
+# ---- After Accept: one commit on its own branch (arch_gitflow; never pushes) and a PR-style summary. Refusals come back in plain words.
+def git_commit_run(b):
+    """POST /api/arch/git/commit {root, run}: commits exactly the run's changed files on a branch architect/<run>, then writes the PR summary."""
+    import arch_gitflow as gf
+    root = safe_root(b.get("root") or HERE)
+    rv = review_view(root, b.get("run"))
+    if not rv.get("run"):
+        raise ValueError("there is no run by that name")
+    run = rv["run"]
+    files = [f["file"] for f in rv.get("files") or []]
+    if not files:
+        return {"ok": False, "why": "This run did not change any files, so there is nothing to commit.", "todo": ""}
+    ok, why = gf.available(root)
+    if not ok:
+        return {"ok": False, "why": why, "todo": "Git needs to be installed and this folder needs to be a git project (git init)."}
+    st = gf.load_state(root, run)
+    if not st:                                   # the run ran without a branch: make one now; the run's own files are not "your earlier edits"
+        pend = sorted(gf.status(root))
+        others = [p for p in pend if p not in set(files)]
+        started = gf.start_run(root, run, allow_dirty=True)
+        if not started.get("ok"):
+            return {"ok": False, "why": started.get("why") or "could not make a branch", "todo": "Fix that and press the button again."}
+        st = gf.load_state(root, run) or {}
+        st["dirty_before"] = others
+        gf._save_state(root, run, st)
+    res = gf.commit_run(root, run, files, goal=rv.get("goal") or "")
+    if not res.get("ok"):
+        why = res.get("why") or "the commit was refused"
+        todo = ("Commit or set aside your own edits to " + ", ".join((res.get("mixed") or [])[:3]) + ", then try again.") if res.get("mixed") else \
+               ("Add those files to the run or commit them yourself first, then try again.") if res.get("unrelated") else \
+               ("Switch back with: git switch " + str(st.get("branch"))) if "not on the run's branch" in why or "not on" in why else \
+               "Fix that and press the button again."
+        return {"ok": False, "why": why, "todo": todo}
+    checks = [(t["name"], t["ok"]) for t in rv.get("tests") or []][:30]
+    summary = gf.pr_summary(root, run, goal=rv.get("goal") or "", checks=checks, verdict=((rv.get("verdict") or {}).get("verdict") or ""))
+    return {"ok": True, "already": bool(res.get("already")), "sha": res.get("sha"), "branch": res.get("branch"), "files": res.get("files"),
+            "message": res.get("message") or "", "summary_path": os.path.join(root, ".arch", "gitflow", re.sub(r"[^\w.-]+", "_", run) + ".PR.md"),
+            "summary": summary[:6000], "pushed": False}
+
+
+# ---- Set up this project: arch_onboard reads the project (no model) and drafts ARCHITECT.md; the person accepts it.
+def onboard_project(b):
+    """POST /api/arch/onboard {root[, accept, force]}: look at the project and draft ARCHITECT.md, or accept the draft."""
+    import arch_onboard as ob
+    root = safe_root(b.get("root") or HERE)
+    if b.get("accept"):
+        return ob.accept_draft(root, force=bool(b.get("force")))
+    rep = ob.onboard(root, build_index=False)
+    if not rep.get("ok"):
+        return rep
+    keep = ("ok", "root", "files", "language", "languages", "frameworks", "test_command", "run_command", "entry_points", "cli_commands",
+            "http_routes", "conventions", "gotchas", "git", "existing_architect_md", "draft_path")
+    out = {k: rep.get(k) for k in keep}
+    out["draft"] = str(rep.get("draft") or "")[:12000]
+    return out
+
+
+def _plugins_plain():
+    f, _why = _optional("arch_plugins", "list")
+    if not f:
+        return []
+    rows, err = _guarded(f)
+    if err:
+        return []
+    return [{"name": str(r["name"]), "enabled": bool(r.get("enabled"))} for r in (rows.values() if isinstance(rows, dict) else rows or [])
+            if isinstance(r, dict) and r.get("name")]
+
+
+def session_view(root, run):
+    """GET /api/arch/session: context use by section, plugins/connectors, outputs, changes, servers, background jobs."""
+    run, d = _run_dir_of(root, run)
+    recs = _trace_records(d) if run else []
+    calls = [r for r in recs if r.get("type") == "call"]
+    last = calls[-1] if calls else {}
+    window = int(last.get("num_ctx") or 0)
+    used = int(last.get("prompt_tokens") or 0) + int(last.get("gen_tokens") or 0)
+    secs = last.get("sections") if isinstance(last.get("sections"), dict) else None
+    keys = ["system prompt", "skills", "memory", "tools", "project files", "conversation"]
+    parts = {k: 0 for k in keys}
+    if secs:
+        for k, v in secs.items():
+            kk = str(k).replace("_", " ")
+            if kk in parts:
+                parts[kk] = int(v or 0)
+    elif last:
+        for m in last.get("messages") or []:
+            if isinstance(m, dict):
+                c = m.get("content")
+                n = len(c if isinstance(c, str) else json.dumps(c)) // 4
+                parts["system prompt" if m.get("role") == "system" else "conversation"] += n
+        tot = sum(parts.values())
+        if tot and last.get("prompt_tokens"):
+            sc = int(last["prompt_tokens"]) / tot             # scale the estimate to the tokens the server counted
+            parts = {k: int(v * sc) for k, v in parts.items()}
+    diffs = {}
+    for r in recs:
+        if r.get("type") == "diff" and r.get("file"):
+            diffs[str(r["file"])] = r
+    out = {"run": run, "window": window, "used": min(used, window) if window else used, "estimated": secs is None,
+           "sections": [{"name": k, "tokens": v} for k, v in parts.items()], "compaction": int(window * 0.85) if window else 0,
+           "compaction_note": "assumed at 85% of the window", "calls": len(calls),
+           "outputs": [{"file": f, "new": bool(r.get("new_file"))} for f, r in diffs.items()][:30],
+           "changes": {"files": len(diffs), "added": sum(int(r.get("added") or 0) for r in diffs.values()),
+                       "removed": sum(int(r.get("removed") or 0) for r in diffs.values())}}
+    try:
+        out["plugins"] = _plugins_plain()
+    except Exception:
+        out["plugins"] = []
+    try:
+        import arch_hosts
+        out["connectors"] = [{"name": str(x), "state": "configured"} for x in list(arch_hosts.hosts_of(core.load_config()))[:10]]
+    except Exception:
+        out["connectors"] = []
+    try:
+        import arch_server
+        s = arch_server.status()
+        out["servers"] = [{"tier": p["tier"], "name": p.get("name"), "port": p.get("port"), "ctx": p.get("ctx"), "up": bool(p.get("up")),
+                           "place": "memory (RAM)" if p.get("on_cpu") else "graphics card"} for p in s.get("processes") or []]
+        out["server_mode"] = s.get("mode")
+    except Exception:
+        out["servers"] = []
+    jobs = []
+    try:
+        with mh.JOB.lock:
+            if mh.JOB.running():
+                jobs.append({"title": mh.JOB.title, "secs": round(time.time() - (mh.JOB.started or time.time()))})
+    except Exception:
+        pass
+    try:
+        import arch_supervisor as sv
+        for j in sv.listing(states=["running"], limit=10):
+            jobs.append({"title": "Queue: " + str(j.get("goal"))[:60], "secs": round(time.time() - float(j.get("started") or time.time()))})
+    except Exception:
+        pass
+    out["jobs"] = jobs
+    return out
+
+
 # ---- Plugins, Telemetry and Squad runs pages (arch_plugins / arch_telemetry / arch_squad are optional; a missing module or
 # function answers {"available": False, "why": ...}). Expensive GETs are cached for a few seconds; a change clears the cache.
 _TTL_CACHE = {}
@@ -1661,6 +2300,78 @@ def _ttl_drop(prefix):
             _TTL_CACHE.pop(k, None)
 
 
+def commands_view(root=None):
+    """Every enabled command for the Console's slash palette: shipped, project and enabled plugins' commands, with the plugin that brought
+    it. A plugin command whose bare name is taken is listed under plugin:name (arch_commands.expand accepts both)."""
+    import arch_commands
+    out = []
+    for key, c in sorted(arch_commands.load_all(root).items()):
+        out.append({"name": key, "description": c.get("description", ""), "flow": c.get("flow", ""), "scope": c.get("scope", ""),
+                    "needs_args": bool(c.get("needs_args")), "args_hint": c.get("args_hint", ""), "plugin": c.get("plugin", "")})
+    return out
+
+
+def _plugin_commands(folder):
+    """The commands one plugin folder holds (enabled or not): [{name, description, args_hint, needs_args}]."""
+    out = []
+    try:
+        import arch_commands
+        d = os.path.join(folder, "commands")
+        for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if fn.lower().endswith(".md"):
+                with open(os.path.join(d, fn), encoding="utf-8", errors="replace") as f:
+                    rec = arch_commands.parse(f.read(), os.path.join(d, fn), "plugin")
+                if rec:
+                    out.append({"name": rec["name"], "description": rec["description"], "args_hint": rec["args_hint"], "needs_args": rec["needs_args"]})
+    except Exception:
+        pass
+    return out[:50]
+
+
+def rpresets_view(raw=None):
+    """Settings > Presets: Fast / Balanced / Quality / Battery (data/presets, applied by `architect.py preset NAME`), each with exactly what
+    it would change from the settings in force now, and the last applied one for Undo. -> {available, presets:[...], undo}."""
+    try:
+        import arch_roleprofile as rp
+        raw = rp._mh().read_config() if raw is None else raw
+        out = []
+        for name, p in rp.presets().items():
+            ch = []
+            for path_, v in (p.get("settings") or {}).items():
+                cur = rp._get(raw, path_)
+                if cur == rp._MISSING:
+                    cur = None
+                    d = core.DEFAULTS
+                    for part in path_.split("."):
+                        d = d.get(part) if isinstance(d, dict) else None
+                    cur = d
+                if cur != v:
+                    ch.append({"what": path_, "from": cur, "to": v})
+            for role, vals in (p.get("role_profiles") or {}).items():
+                mine = (raw.get("role_profiles") or {}).get(role) or {}
+                for k, v in vals.items():
+                    if mine.get(k) != v:
+                        ch.append({"what": f"{role}: {k}", "from": mine.get(k), "to": v})
+            out.append({"id": name, "label": p.get("label") or name.title(), "blurb": p.get("blurb", ""), "changes": ch, "active": not ch})
+        und = rp._load_undo()
+        return {"available": True, "presets": out, "undo": (und[-1].get("what") if und else "")}
+    except Exception as ex:
+        return {"available": False, "why": f"{type(ex).__name__}: {str(ex)[:160]}", "presets": [], "undo": ""}
+
+
+def rpreset_change(b):
+    """POST /api/arch/rpreset {name} applies a preset (with an undo record); {undo: true} puts back what the last write changed."""
+    import arch_roleprofile as rp
+    if b.get("undo"):
+        rec = rp.undo()
+        return {"ok": True, "undone": rec["what"] if rec else "", **rpresets_view()}
+    try:
+        rec = rp.apply_preset(str(b.get("name") or ""))
+    except (KeyError, ValueError) as ex:
+        raise ValueError(str(ex))
+    return {"ok": True, "applied": rec["what"], **rpresets_view()}
+
+
 _PROVIDES = ("agents", "workflows", "skills", "commands", "hooks")
 
 
@@ -1682,7 +2393,8 @@ def plugins_list():
                         "enabled": bool(r.get("enabled")), "trusted": bool(r.get("trusted")),
                         "provides": {k: [str(x) for x in (pv.get(k) or [])][:50] if isinstance(pv.get(k), (list, tuple))
                                      else (pv.get(k) or 0) for k in _PROVIDES},
-                        "problems": [str(x) for x in (r.get("problems") or [])][:10], "source": str(r.get("source") or r.get("path") or "")})
+                        "problems": [str(x) for x in (r.get("problems") or [])][:10], "source": str(r.get("source") or r.get("path") or ""),
+                        "command_info": _plugin_commands(r["dir"]) if r.get("dir") else []})
         return {"available": True, "plugins": out}
     return _plain(_ttl("plugins", 5, get))
 
@@ -1838,7 +2550,7 @@ def select_screen(b):
 
 
 
-_TPL_KEYS = ("id", "name", "description", "long", "category", "stack", "types", "difficulty", "colour", "files", "next_steps")
+_TPL_KEYS = ("id", "name", "description", "long", "category", "stack", "types", "difficulty", "colour", "files", "next_steps", "contract")
 
 
 def templates_catalog():
@@ -1858,6 +2570,297 @@ def templates_catalog():
     return {"available": True, "templates": out}
 
 
+def recipes_list():
+    """GET /api/arch/recipes -> {available, recipes:[...]} from arch_recipes.list(); a missing module answers available False."""
+    try:
+        import arch_recipes as rc
+        rows = rc.list()
+    except Exception as e:
+        return {"available": False, "why": type(e).__name__ + ": " + str(e)[:200], "recipes": []}
+    return {"available": True, "recipes": [r for r in rows if isinstance(r, dict) and r.get("id")]}
+
+
+def recipes_fill(b):
+    """POST /api/arch/recipes/fill {recipe, root, params} -> arch_recipes.fill(...): the goal text, the flow and what the project lacks."""
+    rid = str(b.get("recipe") or "")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", rid):
+        raise ValueError("Pick a recipe.")
+    root = safe_root(b.get("root") or HERE)
+    params = b.get("params") if isinstance(b.get("params"), dict) else {}
+    params = {str(k): str(v)[:200] for k, v in params.items() if re.fullmatch(r"[a-z_]{1,30}", str(k))}
+    import arch_recipes as rc
+    try:
+        return rc.fill(rid, root, **params)
+    except KeyError:
+        raise ValueError("There is no recipe by that name.")
+
+
+# ---------------------------------------------------------------- page registry, lessons, overnight report, data night, train the worker
+def ui_registry():
+    """GET /api/arch/ui/registry: the sidebar places, the pages (id, icon, label, description), the old-id map and the page functions,
+    parsed from hub_ui.html by arch_uireg (cached; re-read only when the file changes). Warmed at server start."""
+    import arch_uireg
+    return arch_uireg.load(os.path.join(HERE, "hub_ui.html"))
+
+
+try:
+    ui_registry()
+except Exception:
+    pass
+
+
+def dataset_lesson_counts(out_dir=None):
+    """Samples per curriculum lesson in the per-model tier SFT files (meta.lesson). -> {counts, total, files}."""
+    out_dir = out_dir or os.path.join(core.data_dir(), "datasets")
+    counts, total, files = {}, 0, 0
+    try:
+        names = sorted(os.listdir(out_dir))
+    except OSError:
+        names = []
+    for fn in names:
+        if not (fn.startswith("tier-") and fn.endswith(".sft.jsonl") and fn.count(".") >= 3):
+            continue
+        files += 1
+        try:
+            with open(os.path.join(out_dir, fn), encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        r = json.loads(line)
+                    except ValueError:
+                        continue
+                    total += 1
+                    lsn = (r.get("meta") or {}).get("lesson") or "(none)"
+                    counts[lsn] = counts.get(lsn, 0) + 1
+        except OSError:
+            continue
+    return {"counts": counts, "total": total, "files": files}
+
+
+def lessons_view():
+    """GET /api/arch/lessons: arch_lessons.load() + check() as rows. Each target says whether it exists (green), samples so far come from
+    the dataset's lesson counts (null when no dataset has lesson tags yet)."""
+    try:
+        import arch_lessons as al
+        rows = al.load()
+        problems = al.check(rows)
+    except Exception as ex:
+        return {"available": False, "why": f"{type(ex).__name__}: {str(ex)[:160]}", "lessons": [], "problems": []}
+    ds = dataset_lesson_counts()
+    tagged = ds["total"] and any(k != "(none)" for k in ds["counts"])
+    out = []
+    for L in rows:
+        def tg(v):
+            res = []
+            for x in al._targets(v):
+                ok, why = al.target_ok(x)
+                res.append({"target": x, "ok": bool(ok), "why": "" if ok else why})
+            return res
+        n = None
+        if tagged:
+            n = ds["counts"].get(L.get("id"), 0)
+            tv = L.get("trains_via")
+            if tv and tv != L.get("id"):
+                n += ds["counts"].get(tv, 0)
+        out.append({"id": L.get("id"), "lesson": L.get("lesson"), "evidence": L.get("evidence"), "status": L.get("status"),
+                    "enforced_by": tg(L.get("enforced_by")), "checked_by": tg(L.get("checked_by")), "trains_via": L.get("trains_via"),
+                    "samples": n})
+    return {"available": True, "lessons": out, "problems": problems, "dataset": {"total": ds["total"], "files": ds["files"]}}
+
+
+def _wilson(k, n):
+    try:
+        import arch_select
+        lo, hi = arch_select.wilson(k, n)
+    except Exception:
+        lo, hi = (0.0, 1.0) if n <= 0 else (max(0.0, k / n - 0.2), min(1.0, k / n + 0.2))
+    return [round(lo * 100, 1), round(hi * 100, 1)]
+
+
+def _eval_card(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if d.get("fake"):
+        return None
+    rs = d.get("results") or []
+    k = sum(1 for r in rs if r.get("verdict") == "pass")
+    fl = sum(1 for r in rs if r.get("verdict") == "fail")
+    n = k + fl
+    return {"label": d.get("label") or "", "ts": d.get("ts"), "passed": k, "n": n, "not_sure": len(rs) - n,
+            "rate": round(100.0 * k / n, 1) if n else None, "ci": _wilson(k, n) if n else None, "file": os.path.basename(path)}
+
+
+def _glob_evals():
+    import glob as _glob
+    return sorted(_glob.glob(os.path.join(core.data_dir(), "evals", "*.json")), key=os.path.getmtime)
+
+
+def datanight_state():
+    j = mh.JOB
+    try:
+        run_ = bool(j.running()) and str(j.title).startswith("Data night")
+    except Exception:
+        run_ = False
+    stop = os.path.exists(os.path.join(core.data_dir(), "STOP"))
+    out = {"running": run_, "stopping": bool(run_ and stop), "title": j.title if run_ else "", "started": j.started if run_ else None}
+    if run_:
+        out["line"] = job_eta().get("line", "")
+    return out
+
+
+def overnight_view():
+    """GET /api/arch/overnight: the Home report card for the last data night / eval. {ran:false} when nothing ran yet.
+    Pass rate = the newest two non-fake evals whose label says holdout, else the newest two non-fake evals (basis says which)."""
+    d = core.data_dir()
+    night = {}
+    try:
+        with open(os.path.join(d, "data_night.json"), encoding="utf-8") as f:
+            night = (json.load(f) or {}).get("last") or {}
+    except (OSError, ValueError):
+        pass
+    ds = dataset_lesson_counts()
+    paths = _glob_evals()
+    cards = [c for c in (_eval_card(p) for p in paths[-14:]) if c]
+    hold = [c for c in cards if "holdout" in c["label"].lower()]
+    pool, basis = (hold, "holdout") if hold else (cards, "latest runs (none is labelled holdout yet)")
+    latest = pool[-1] if pool else None
+    prev = pool[-2] if len(pool) > 1 else None
+    fastest = None
+    try:
+        import arch_costmodel as cm
+        rows = [r for r in cm.from_evals(paths) if r.get("passed") and (r.get("tasks") or 0) >= 3 and r.get("C")]
+        if rows:
+            r = min(rows, key=lambda x: x["C"])
+            fastest = {"model": r.get("model"), "flow": r.get("flow"), "tasks": r.get("tasks"), "secs_per_task": round(r.get("t") or 0, 1),
+                       "secs_per_pass": round(r["C"], 1), "pass_rate": round(100.0 * (r.get("p") or 0), 1)}
+    except Exception:
+        pass
+    per = {k: v for k, v in ds["counts"].items() if k != "(none)"}
+    ran = bool(night or ds["total"] or latest)
+    return {"ran": ran, "night": night, "samples": {"total": ds["total"], "by_lesson": per, "untagged": ds["counts"].get("(none)", 0)},
+            "basis": basis, "latest": latest, "previous": prev,
+            "delta": (round(latest["rate"] - prev["rate"], 1) if latest and prev and latest["rate"] is not None and prev["rate"] is not None else None),
+            "fastest": fastest, "running": datanight_state()}
+
+
+def datanight_view(q=None):
+    """GET /api/arch/datanight[?until=&max=&worker=]: running state, the plain defaults and an ETA / expected-passes preview."""
+    q = q or {}
+    cfg = core.load_config()
+    tiers = cfg.get("tiers") or {}
+    out = {"state": datanight_state(), "defaults": {"until": "07:00", "worker": tiers.get("worker") or "", "teacher": bool(tiers.get("heavy")),
+                                                    "heavy": tiers.get("heavy") or "", "curriculum": True}}
+    try:
+        import arch_eta
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("train_traces", os.path.join(HERE, "tools", "train_traces.py"))
+        tt = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tt)
+        until = (q.get("until") or [""])[0]
+        t_end = tt.until_epoch(until) if until else None
+        mx = int((q.get("max") or ["0"])[0] or 0)
+        worker = (q.get("worker") or [""])[0] or tiers.get("worker") or None
+        est = arch_eta.estimate(0, mx or 105, family="distributed", model=worker, until=t_end)
+        out["preview"] = est
+        fits = est.get("fits") if est.get("fits") is not None else est.get("left")
+        cards = [c for c in (_eval_card(p) for p in _glob_evals()[-6:]) if c and c["n"]]
+        share = (sum(c["passed"] for c in cards) / max(1, sum(c["n"] for c in cards))) if cards else None
+        out["expected"] = {"tasks": fits, "passing": (round(fits * share) if (share is not None and fits is not None) else None),
+                           "pass_share": (round(share * 100, 1) if share is not None else None)}
+    except ValueError as ex:
+        out["error"] = str(ex)
+    except Exception as ex:
+        out["preview_error"] = f"{type(ex).__name__}: {str(ex)[:120]}"
+    return out
+
+
+MIN_SAMPLES_DRY, MIN_SAMPLES_REAL = 10, 50
+
+
+def trainworker_view():
+    """GET /api/arch/trainworker: how many worker samples exist, and whether the button may run (and why not)."""
+    d = os.path.join(core.data_dir(), "datasets")
+    n = 0
+    try:
+        for fn in os.listdir(d):
+            if fn.startswith("tier-worker") and fn.endswith(".sft.jsonl") and fn.count(".") >= 3:
+                with open(os.path.join(d, fn), encoding="utf-8", errors="replace") as f:
+                    n += sum(1 for line in f if line.strip())
+    except OSError:
+        pass
+    try:
+        busy = bool(mh.JOB.running())
+    except Exception:
+        busy = False
+    why_dry = ("A job is already running: stop it or wait." if busy else
+               (f"Only {n} worker samples so far; a dry run needs {MIN_SAMPLES_DRY}. Run a data night first." if n < MIN_SAMPLES_DRY else ""))
+    why_real = why_dry or (f"Only {n} worker samples so far; a real run needs {MIN_SAMPLES_REAL}." if n < MIN_SAMPLES_REAL else "")
+    return {"samples": n, "min_dry": MIN_SAMPLES_DRY, "min_real": MIN_SAMPLES_REAL, "can_dry": not why_dry, "why_dry": why_dry,
+            "can_real": not why_real, "why_real": why_real, "worker": (core.load_config().get("tiers") or {}).get("worker") or ""}
+
+
+def datanight_start(b):
+    argv = ["tools/train_traces.py"]
+    until = str(b.get("until") or "").strip()
+    if until:
+        if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", until):
+            raise ValueError("say the end time as HH:MM")
+        argv += ["--until", until]
+    if b.get("max"):
+        argv += ["--max-tasks", str(max(1, min(2000, int(b["max"]))))]
+    worker = str(b.get("worker") or "").strip()
+    if worker:
+        if not re.fullmatch(r"[A-Za-z0-9._:/@+-]{1,160}", worker):
+            raise ValueError("that is not a model name")
+        argv += ["--worker", worker]
+    if b.get("curriculum"):
+        argv += ["--curriculum"]
+    teacher = b.get("teacher")
+    if teacher is True:
+        heavy = str(b.get("heavy") or (core.load_config().get("tiers") or {}).get("heavy") or "").strip()
+        if heavy and re.fullmatch(r"[A-Za-z0-9._:/@+-]{1,160}", heavy):
+            argv += ["--heavy", heavy]
+    elif teacher is False:
+        argv += ["--heavy-retries", "0"]
+    try:
+        os.remove(os.path.join(core.data_dir(), "STOP"))          # an old Stop must not end tonight's run before it starts
+    except OSError:
+        pass
+    mh.JOB.start("Data night" + (f" until {until}" if until else ""), argv)
+    _ttl_drop("overnight")
+    return {"ok": True, "argv": argv[1:]}
+
+
+def _cli_has(flag):
+    """True when architect.py's source mentions the flag (so the hub never passes an option the CLI would refuse)."""
+    try:
+        with open(os.path.join(HERE, "architect.py"), encoding="utf-8", errors="replace") as f:
+            return f'"{flag}"' in f.read()
+    except OSError:
+        return False
+
+
+def datanight_stop():
+    """Stop safely: write the STOP file; the night finishes the task it is in, then exports and ends."""
+    p = os.path.join(core.data_dir(), "STOP")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("stop requested from the hub\n")
+    return {"ok": True, "stopping": True, "state": datanight_state()}
+
+
+def trainworker_start(b):
+    v = trainworker_view()
+    real = bool(b.get("real"))
+    if not (v["can_real"] if real else v["can_dry"]):
+        raise ValueError(v["why_real"] if real else v["why_dry"])
+    argv = ["tools/train_worker.py"] + (["--real"] if real else []) + (["--model", v["worker"]] if v["worker"] else [])
+    mh.JOB.start("Train the worker" + (" (real)" if real else " (dry run)"), argv)
+    return {"ok": True, "argv": argv[1:], "real": real}
+
+
 class AHandler(mh.Handler):
     def do_GET(self):
         u = urlparse(self.path)
@@ -1866,6 +2869,20 @@ class AHandler(mh.Handler):
                 return self._send(403, {"error": "bad host"})
             try:
                 return self._send(200, run_listing(safe_root((parse_qs(u.query).get("root") or [HERE])[0])))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+        if u.path == "/api/arch/recipes":
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            return self._send(200, recipes_list())
+        if u.path in ("/api/arch/review", "/api/arch/plan", "/api/arch/session"):
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            q = parse_qs(u.query)
+            try:
+                root = safe_root((q.get("root") or [HERE])[0])
+                fn = {"/api/arch/review": review_view, "/api/arch/plan": plan_view, "/api/arch/session": session_view}[u.path]
+                return self._send(200, fn(root, (q.get("run") or [""])[0]))
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
         if u.path == "/api/arch/trace":
@@ -2241,14 +3258,67 @@ class AHandler(mh.Handler):
         if u.path == "/api/arch/queue":
             import arch_supervisor as sv
             return self._send(200, {"jobs": sv.listing(limit=60), "counts": sv.counts(), "spent_today": sv.spent_today(),
-                                    "stopped": sv.stopped(), "budget": sv.budget_left() or ""})
+                                    "stopped": sv.stopped(), "budget": sv.budget_left() or "", "eta": sv.eta()})
+        if u.path == "/api/arch/rpresets":
+            return self._send(200, rpresets_view())
+        if u.path == "/api/arch/bgjobs":
+            return self._send(200, bgjobs_view())
+        if u.path == "/api/arch/hooks":
+            try:
+                return self._send(200, hooks_view(safe_root((parse_qs(u.query).get("root") or [HERE])[0])))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+        if u.path == "/api/arch/usage":
+            import arch_usage
+            w = (parse_qs(u.query).get("window") or ["day"])[0]
+            return self._send(200, arch_usage.usage(w if w in ("day", "week") else "day"))
+        if u.path == "/api/arch/ui/registry":
+            return self._send(200, ui_registry())
+        if u.path == "/api/arch/lessons":
+            return self._send(200, _ttl("lessons", 20, lessons_view))
+        if u.path == "/api/arch/overnight":
+            return self._send(200, _ttl("overnight", 8, overnight_view))
+        if u.path == "/api/arch/datanight":
+            return self._send(200, datanight_view(parse_qs(u.query)))
+        if u.path == "/api/arch/trainworker":
+            return self._send(200, trainworker_view())
+        if u.path == "/api/arch/eta":
+            # How long is left: the queue, the running job's own progress line, or a preview for a planned data night (arch_eta).
+            import arch_eta
+            q = parse_qs(u.query)
+            out = {"job": job_eta()}
+            try:
+                import arch_supervisor as sv
+                out["queue"] = sv.eta()
+            except Exception:
+                out["queue"] = {}
+            if q.get("preview"):
+                try:
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location("train_traces", os.path.join(HERE, "tools", "train_traces.py"))
+                    tt = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(tt)
+                    until = (q.get("until") or [""])[0]
+                    t_end = tt.until_epoch(until) if until else None
+                    mx = int((q.get("max") or ["0"])[0] or 0)
+                    total = mx or int((q.get("total") or ["105"])[0] or 105)
+                    out["preview"] = arch_eta.estimate(0, total, family="distributed", model=(q.get("worker") or [""])[0] or None, until=t_end)
+                except ValueError as ex:
+                    return self._send(400, {"error": str(ex)})
+            return self._send(200, out)
+        if u.path == "/api/arch/effective":
+            import arch_effective
+            role = (parse_qs(u.query).get("role") or ["generator"])[0]
+            if role not in roles.ROLES:
+                return self._send(400, {"error": "no such role"})
+            return self._send(200, dict(arch_effective.effective_settings(core.load_config(), role), roles=sorted(roles.ROLES)))
         if u.path == "/api/arch/commands":
             import arch_commands
             try:
                 root = safe_root((parse_qs(u.query).get("root") or [HERE])[0])
             except ValueError:
                 root = HERE
-            return self._send(200, {"commands": arch_commands.summary(root)})
+            return self._send(200, {"commands": commands_view(root)})
         if u.path == "/api/arch/events":
             # What the running job is doing, as structured records rather than console text: one plan step, one tool call, one check
             # result, one verdict per event. `since` is the cursor the previous reply handed back.
@@ -2678,6 +3748,8 @@ class AHandler(mh.Handler):
             except Exception:
                 hub_port = 8766
             return self._send(200, doctor.fix(root, hub_port))
+        if path == "/api/arch/rpreset":
+            return rpreset_change(b)
         if path == "/api/arch/preset":
             name = b.get("name")
             try:
@@ -2755,6 +3827,12 @@ class AHandler(mh.Handler):
                 argv += ["--no-build"]
             if b.get("autofix"):
                 argv += ["--autofix"]
+            rid = str(b.get("recipe") or "")
+            if rid:
+                if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", rid):
+                    raise ValueError("that is not a recipe id")
+                if _cli_has("--recipe"):            # run_flow writes params.recipe into run.json; the flag arrives with the CLI patch
+                    argv += ["--recipe", rid]
             opts = {k: v for k, v in (b.get("options") or {}).items() if v not in ("", None) and params.is_known_setting(k)}
             if opts:
                 try:
@@ -2810,6 +3888,13 @@ class AHandler(mh.Handler):
             if "stop" in b:
                 return {"ok": True, "stopped": sv.stop(bool(b["stop"]))}
             raise ValueError("say add, cancel, clear or stop")
+        if path == "/api/arch/datanight":
+            # A data night: the training tasks on the LOCAL models until an end time, then the dataset export (tools/train_traces.py).
+            return datanight_start(b)
+        if path == "/api/arch/datanight/stop":
+            return datanight_stop()
+        if path == "/api/arch/trainworker":
+            return trainworker_start(b)
         if path == "/api/arch/supervise":
             hours = max(0.05, min(24.0, float(b.get("hours") or 1)))
             mh.JOB.start(f"Supervisor ({hours:g} h)", ["architect.py", "supervise", "--hours", str(hours), "--max", str(int(b.get("max") or 20))])
@@ -2846,6 +3931,33 @@ class AHandler(mh.Handler):
                 with open(os.path.join(root, ".arch", "STOP"), "w", encoding="utf-8") as f:
                     f.write(msg[:200])
             return {"ok": True, "run": run, "message": msg, "stopping": bool(b.get("stop", True))}
+        if path == "/api/arch/recipes/fill":
+            return recipes_fill(b)
+        if path == "/api/arch/review/accept":
+            return review_decide(b)
+        if path == "/api/arch/review/hunks":
+            return review_hunks(b)
+        if path == "/api/arch/git/commit":
+            return git_commit_run(b)
+        if path == "/api/arch/onboard":
+            return onboard_project(b)
+        if path == "/api/arch/bgjobs/stop":
+            return bgjobs_stop(b)
+        if path == "/api/arch/hooks":
+            return hooks_change(b)
+        if path == "/api/arch/bundle":
+            import arch_bundle
+            import arch_receipt
+            root = safe_root(b.get("root") or HERE)
+            run = str(b.get("run") or "")
+            if run and not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", run):
+                raise ValueError("that is not a run id")
+            rd = os.path.join(root, ".arch", "runs", run) if run else arch_receipt.latest_run(root)
+            if not rd or not os.path.isdir(rd):
+                raise ValueError("there is no run by that name")
+            return {"path": arch_bundle.bundle(rd)}
+        if path == "/api/arch/plan":
+            return plan_save(b)
         if path == "/api/arch/undo":
             mh.JOB.start("Undo last run", ["architect.py", "undo", "--root", safe_root(b.get("root") or HERE)])
             return {"ok": True}
@@ -2908,12 +4020,53 @@ def main(argv=None):
         except Exception:
             pass   # a freeze then leaves evidence
     start_crew_scheduler()
+    start_notify_watch()
     try:                                                   # closing the hub closes what the app started (behavior.close_on_exit)
         import arch_cleanup
         arch_cleanup.install_exit_hook(core.load_config, say=print)
     except Exception:
         pass
     return mh.serve(a.port, not a.no_browser)
+
+
+_JOB_ETA = re.compile(r"^\s*(\d+/\d+, (?:~.+ left.*|about \d+ more fit.*|finished))\s*$", re.M)
+
+
+def job_eta():
+    """The newest ETA line the running job printed (eval / data night / supervisor progress), or ''."""
+    try:
+        with mh.JOB.lock:
+            buf, running = mh.JOB.buf[-20000:], mh.JOB.running()
+        m = _JOB_ETA.findall(buf)
+        if not m:
+            m = re.findall(r"\[supervisor\] queue: (.+?)  \(", buf)
+        return {"line": m[-1] if m else "", "running": running, "title": mh.JOB.title}
+    except Exception:
+        return {"line": "", "running": False, "title": ""}
+
+
+# jobs whose own process already notifies at its end (they know more than "it exited")
+_SELF_NOTIFYING = ("Supervisor", "Data night")
+
+
+def start_notify_watch(poll=3.0):
+    """A desktop notification when a hub job ends (a run, a self-improve round, ...): arch_notify, gated by behavior.notify."""
+    def loop():
+        seen = None
+        while True:
+            time.sleep(poll)
+            try:
+                ended, title, code = mh.JOB.ended, mh.JOB.title or "", mh.JOB.code
+                if ended and ended != seen:
+                    if seen is not None or time.time() - ended < 2 * poll:
+                        if not title.startswith(_SELF_NOTIFYING):
+                            import arch_notify
+                            arch_notify.notify("Architect: " + (title or "job")[:60] + " finished",
+                                               "it ended normally" if code == 0 else f"it ended with exit code {code}")
+                    seen = ended
+            except Exception:
+                pass
+    threading.Thread(target=loop, daemon=True, name="notify-watch").start()
 
 
 def start_crew_scheduler():
