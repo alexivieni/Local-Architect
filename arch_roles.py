@@ -500,7 +500,9 @@ def score_for_role(role, model, weights=None):
         s -= 15 if ROLES[role]["latency"] == "must be fast" else 6
         note.append("mostly runs from RAM, slow")
     elif verdict == "split":
-        s -= 8 if ROLES[role]["latency"] == "must be fast" else 2
+        gpu_r = float((model.get("rec") or {}).get("gpu_ratio") or 1.0)
+        pen = 8 if ROLES[role]["latency"] == "must be fast" else (6 if gpu_r < 0.7 else 2)
+        s -= pen
         note.append("splits GPU and RAM")
     return round(max(s, 0), 1), basis, {"cats": detail, "cover": round(cover, 2), "notes": note}
 

@@ -70,6 +70,13 @@ def run(name, timeout):
 def main():
     jobs, timeout = int(arg("--jobs", max(2, (os.cpu_count() or 4) // 2))), int(arg("--timeout", 900))
     names = suites()
+    # The person's own settings and data must survive a test run untouched. A suite (or a tool "cleaning up") that removes them is a
+    # bug worth a red line, not something to notice days later (2026-11-07: hub_data/ and architect_config.json were deleted by a
+    # testing tool and nobody saw it until the hub came up empty).
+    sys.path.insert(0, APP)
+    import arch_core as _core
+    _mine = {"settings file": _core.CONFIG_FILE, "data folder": _core.data_dir()}
+    _had = {k: os.path.exists(p) for k, p in _mine.items()}
     print(f"running {len(names)} suites, {jobs} at a time")
     res = []
     with cf.ThreadPoolExecutor(jobs) as ex:
@@ -85,6 +92,11 @@ def main():
     print(f"\n{len(res) - len(bad)}/{len(res)} suites green" + (f"; failing: {', '.join(r['suite'] for r in bad)}" if bad else "") + f"  ({out})")
     for r in bad:
         print(f"\n--- {r['suite']}: {r['summary']}\n" + "\n".join("    " + f for f in r["fails"]))
+    lost = [k for k, p in _mine.items() if _had[k] and not os.path.exists(p)]
+    if lost:
+        print(f"\nWARNING: your {' and '.join(lost)} disappeared during this run ({', '.join(_mine[k] for k in lost)}). "
+              "A suite must never touch them: treat this as a failure and look at what ran.")
+        return 1
     return 1 if bad else 0
 
 

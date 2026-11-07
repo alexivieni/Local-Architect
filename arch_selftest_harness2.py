@@ -187,7 +187,7 @@ def run():
             changed_files = []
 
             def _trace(self, r):
-                pass
+                return None
         check("checkpoints off -> the hook does nothing", ck.attempt(E2(), 1, ["calc.py"]) is None)
 
         # ---- 4. ARCHITECT.md

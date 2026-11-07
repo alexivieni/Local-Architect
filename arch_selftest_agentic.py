@@ -177,7 +177,7 @@ def _hooks(check, proj):
             self.root, self.cfg, self.flow, self.run_id, self.traced = root, cfg, "bugfix", "r1", []
 
         def say(self, m):
-            pass
+            return None
 
         def _trace(self, rec):
             self.traced.append(rec)
@@ -266,6 +266,11 @@ def _port(check, proj, home):
     ]
     plan = P.pick_tiers(hw=hw, cfg=core.load_config(proj), models=models)
     t = plan["tiers"]
+    try:                                                    # shared-memory machines (Apple, APU) take the same path; seen: NameError on `unified`
+        uplan = P.pick_tiers(hw=dict(hw, unified=True), cfg=core.load_config(proj), models=models)
+        check("tier picking works on a unified-memory machine too", bool(uplan["tiers"].get("worker")), uplan["tiers"].keys())
+    except Exception as _ux:
+        check("tier picking works on a unified-memory machine too", False, repr(_ux))
     check("the worker is the best model that fits entirely on the card, not simply the biggest file",
           t["worker"]["model"] == "coder:7b" and t["worker"]["full_gpu"] is True, t["worker"])
     check("a 9B squeezed to 2 bits is passed over for a 7B at 4 bits, even though it is smaller on disk",

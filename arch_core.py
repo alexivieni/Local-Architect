@@ -1335,6 +1335,7 @@ class Engine:
         self._srv_ctx = {}             # model -> the window its llama-server was started with (None = not served by one)
         self.persist_runs = persist
         self.down_hosts = set()        # machines found unreachable this run (their roles run locally for the rest of it)
+        self.down_roles = set()        # the roles whose machine died this run: they stay on THIS computer, whatever the route says now
         self.gpu_seen = set()          # (model, window) pairs already checked for GPU spill this run
         self.reuse = {"calls": 0, "tokens": 0, "cached": 0}   # calls served from a cached prefill, the tokens that saved (estimate; see call()), and whole replies reused (arch_cache)
         self._lock = threading.RLock()  # several candidates can be generated at once (best-of-N on a server with parallel slots); the
@@ -1652,7 +1653,7 @@ class Engine:
             raise BudgetExceeded(f"stopped after {self.calls} model calls (Settings > Limits > max calls)")
         if self.calls == 0 and self.persist_runs:
             self._prepare_server()
-        if self.persist_runs and role not in self.__dict__.setdefault("_role_restored", set()):
+        if self.persist_runs and self.calls == 0 and not getattr(self, "_project_slot_restored", False) and role not in self.__dict__.setdefault("_role_restored", set()):
             self._role_restored.add(role)                 # a role's first call: its saved prompt start is put back into the slot, best effort
             try:
                 import arch_server
@@ -1847,7 +1848,9 @@ class Engine:
                 raise
 
         import arch_hosts
-        rt0 = None if self.pins.get(role) else arch_hosts.route_of(self.cfg, role)
+        # NOT down=self.down_hosts here: a machine that died mid-run leaves its role on THIS computer for the rest of the run (said once);
+        # passing `down` would send the role to the next machine instead. mark_down() below still steers other callers away from it.
+        rt0 = None if (self.pins.get(role) or role in self.down_roles) else arch_hosts.route_of(self.cfg, role)
         if not (rt0 and rt0[0] not in self.down_hosts):          # only a model on THIS machine shares its graphics card
             if not str(model).startswith("claude:"):              # a cloud call uses no graphics memory here
                 self._bring_back(model)
@@ -1860,7 +1863,7 @@ class Engine:
         t0 = time.time()
 
         import arch_hosts
-        rt = None if self.pins.get(role) else arch_hosts.route_of(self.cfg, role)       # an escalated role runs on a local model, not on its machine
+        rt = None if (self.pins.get(role) or role in self.down_roles) else arch_hosts.route_of(self.cfg, role)   # an escalated role runs on a local model, not on its machine
         cur = {"model": model, "host": rt[1] if rt and rt[0] not in self.down_hosts else None, "name": rt[0] if rt else None}
 
         def skey():                                    # speeds are remembered per machine: a model is not equally fast everywhere
@@ -1915,22 +1918,36 @@ class Engine:
                     self.pins[role] = big                  # nothing else to step back to (a step that pins a tier): the normal recovery below
                 if not cur["host"] and "not reachable" in str(ex) and self._restart_local(ex):
                     return stream_chat(cur["model"], msgs, options, th, self._ka(), timeouts(), fmt, host=None, on_token=tok)
-                if not cur["host"] or "not reachable" not in str(ex):
+                if not cur["host"]:
                     raise
                 local = self.cfg.get("default_model") or next(iter(self.installed()), None)
                 if not local:
                     raise
                 self.down_hosts.add(cur["name"])
+                self.down_roles.add(role)
+                try:
+                    arch_hosts.mark_down(cur["name"], cur["host"])
+                except Exception:
+                    pass
                 self.say(f"[!] {cur['name']} is not reachable; the {role} role continues on {local} on this computer for the rest of this run")
                 self.report(f"- Host `{cur['name']}` was unreachable: `{role}` ran on `{local}` here instead of `{cur['model']}` there.")
                 cur.update(model=local, host=None)
+                mo_loc = self._model_override(local)
+                options["num_ctx"] = max(int(mo_loc.get("num_ctx", lim["num_ctx"])), self.ctx_floor.get(local, 0))
+                est_loc = arch_tune.estimate_tokens(prompt_chars, arch_tune.cpt_for(self.stats, local))
+                options["num_predict"] = arch_tune.clamp_num_predict(options["num_ctx"], est_loc, options["num_predict"])[0]
                 self._note_ollama(local, None)
                 return stream_chat(local, msgs, options, th, self._ka(), timeouts(), fmt, on_token=tok)
 
         self._inflight[model] += 1
+        _h_url = cur.get("host")
+        if _h_url:
+            arch_hosts._IN_FLIGHT[_h_url] = arch_hosts._IN_FLIGHT.get(_h_url, 0) + 1
         try:
             r = self._unlocked(chat)
         finally:
+            if _h_url:
+                arch_hosts._IN_FLIGHT[_h_url] = max(0, arch_hosts._IN_FLIGHT.get(_h_url, 1) - 1)
             self._inflight[model] -= 1
         model = cur["model"]
         ov = arch_tune.overflow(r["prompt_tokens"], options["num_ctx"], options["num_predict"])
@@ -2365,17 +2382,24 @@ class Engine:
             sv = arch_server.serving(model, self.cfg)
             if not sv or not sv.get("url"):
                 return None
+            base_url = sv["url"].rstrip("/")
+            tcache = self.__dict__.setdefault("_tok_section_cache", {})
             out = {}
             for k, t in texts.items():
                 if not t:
                     out[k] = 0
                     continue
-                req = urllib.request.Request(sv["url"].rstrip("/") + "/tokenize", data=json.dumps({"content": t, "add_special": False}).encode("utf-8"),
+                ck = (base_url, hashlib.sha1(t.encode("utf-8", "replace")).hexdigest())
+                if ck in tcache:
+                    out[k] = tcache[ck]
+                    continue
+                req = urllib.request.Request(base_url + "/tokenize", data=json.dumps({"content": t, "add_special": False}).encode("utf-8"),
                                              headers={"Content-Type": "application/json"})
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     toks = json.loads(resp.read().decode("utf-8", "replace")).get("tokens")
                 if not isinstance(toks, list):
                     return None
+                tcache[ck] = len(toks)
                 out[k] = len(toks)
             return out
         except Exception as e:                     # no server / older build without /tokenize / slow: fall back to the estimate
@@ -2397,6 +2421,7 @@ class Engine:
             _kw = {}
         arch_server.ensure(self.cfg, say=self.say, wanted=wanted, **_kw)           # the resident llama-server, when installed and planned; else nothing happens
         if arch_server.slot_io("restore", self.cfg, os.path.abspath(self.root), slot=int(getattr(self, "slot_id", 0) or 0)):
+            self._project_slot_restored = True
             self.say("[server] this project's prompt memory restored from disk")
         self._srv_ctx = {}                                                         # windows read before the servers started are stale
         team = {m for m in (self.cfg.get("roles") or {}).values() if m} | {m for m in (self.cfg.get("tiers") or {}).values() if m} | ({self.cfg["default_model"]} if self.cfg.get("default_model") else set())

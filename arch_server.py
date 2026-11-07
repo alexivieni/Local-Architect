@@ -198,7 +198,7 @@ def profile_for(hw):
     vram, ram = float(hw.get("vram_gb") or 0), float(hw.get("ram_gb") or 0)
     if hw.get("unified"):
         vram = ram * 0.7
-    if vram >= 5:
+    if vram >= 3.5:
         for cls in (24, 16, 12, 8, 6):
             if vram >= cls - 0.5:
                 return f"gpu{cls}"
@@ -512,7 +512,14 @@ def plan(cfg=None, hw=None, caps_=None):
     desk, vt, vf = 0.7, float(hw.get("vram_gb") or 0), hw.get("vram_free_gb")
     desk_measured = False
     if hw.get("vendor") == "nvidia" and vt and vf is not None and not ours_up:
-        desk = min(max(vt - float(vf), 0.15), vt)
+        ol_vram = 0.0
+        if not os.environ.get("ARCHITECT_SELFTEST"):
+            try:
+                import arch_ollama
+                ol_vram = sum((m.get("size_vram") or 0) for m in (arch_ollama.status(timeout=1).get("loaded") or [])) / GB
+            except Exception:
+                ol_vram = 0.0
+        desk = min(max(vt - float(vf) - ol_vram, 0.15), vt)
         desk_measured = True
         if desk > 1.0:
             notes.append(f"The desktop and other apps hold {round(desk, 1)} GB of the graphics card right now (measured): an external "
@@ -536,7 +543,8 @@ def plan(cfg=None, hw=None, caps_=None):
         arch = _arch_for(spec)
         if not arch.get("layers"):
             arch = _arch_for(rm["gguf"])
-        ctx = int(srv.get("ctx") or (tiers.get(tier) or {}).get("ctx") or prof.get("ctx") or 8192)
+        ov_ctx = ((cfg.get("model_overrides") or {}).get(rm["name"]) or {}).get("num_ctx") or ((cfg.get("model_overrides") or {}).get(spec) or {}).get("num_ctx")
+        ctx = int(srv.get("ctx") or (tiers.get(tier) or {}).get("ctx") or ov_ctx or prof.get("ctx") or (cfg.get("limits") or {}).get("num_ctx") or 8192)
         ngl_pref = (tiers.get(tier) or {}).get("ngl")
         kv_t = kv                                                                  # this tier's cache type (heavy may differ: server.kv_heavy)
         slots = max(1, int(srv.get("parallel") or 1)) if tier == "worker" else 1      # decided BEFORE the fit math: every slot pays for the window again
@@ -565,7 +573,7 @@ def plan(cfg=None, hw=None, caps_=None):
             if slots > 1:
                 notes.append(f"{tier}: {slots} conversations at once, so the {ctx}-token memory is held {slots} times over "
                              f"(about {kv_gb_per_slot(arch, ctx, kv)} GB each). Lower Settings > Server > Parallel if the GPU runs short.")
-            moe = (not full and ngl_pref is None and arch.get("experts") and arch.get("experts_used")
+            moe = (not full and ngl_pref is None and not hw.get("unified") and arch.get("experts") and arch.get("experts_used")
                    and ("--n-cpu-moe" in flags or "-ncmoe" in flags))
             split = _moe_split(rm["size"], arch, hw, ctx, kv, slots=slots, desktop_gb=desk) if moe else None
             if split:

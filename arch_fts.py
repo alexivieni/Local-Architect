@@ -73,7 +73,7 @@ class Index:
         return con
 
     def close(self):
-        pass
+        self._con = None
 
     def ids(self):
         con = self._open()

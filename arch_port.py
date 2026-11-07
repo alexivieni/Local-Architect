@@ -201,8 +201,10 @@ def pick_tiers(hw=None, cfg=None, models=None, say=None):
                                          "free it up; this costs about a second and a half per run as it is."}
 
     # ---- heavy: the most capable model that still fits in system memory, used only after the worker fails
+    unified = bool((hw or {}).get("unified"))          # Apple/APU shared memory: the GPU and the system share one pool
+    max_hvy_gb = max(0.0, (ram * 0.70 if unified else ram - 4))
     bigger = [m for m in ms
-              if quality(m) > quality(worker) + 1 and (m["eff_b"] or 99) <= HEAVY_MAX_B and m["size_gb"] <= max(0.0, ram - 4)]
+              if quality(m) > quality(worker) + 1 and (m["eff_b"] or 99) <= HEAVY_MAX_B and m["size_gb"] <= max_hvy_gb]
     if bigger:
         hvy = sorted(bigger, key=lambda m: -quality(m))[0]
         ngl, gb, full = _fit(hvy, hw, w_ctx, kv)

@@ -282,6 +282,12 @@ def route(model, host=None, cfg=None):
     """-> a transport for this model. A named remote host is Ollama; a model the local llama-server serves goes there; else local Ollama."""
     import arch_core as core
     if host:
+        try:
+            import arch_hosts
+            if arch_hosts.is_llama_host(host):
+                return LlamaTransport(host[:-3] if host.rstrip("/").endswith("/v1") else host)
+        except Exception:
+            pass
         return OllamaTransport(host)
     try:
         import arch_server

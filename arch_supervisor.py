@@ -91,6 +91,7 @@ create table if not exists jobs (
   note        text default '',
   created     real,
   started     real,
+  heartbeat   real,
   finished    real,
   secs        real default 0
 );
@@ -108,12 +109,19 @@ def _open():
     c = sqlite3.connect(db_path(), timeout=5.0)
     c.row_factory = sqlite3.Row
     c.executescript(SCHEMA)
-    if not any(r[1] == "needs" for r in c.execute("pragma table_info(jobs)")):        # a queue made before resources existed
+    cols = {r[1] for r in c.execute("pragma table_info(jobs)")}
+    if "needs" not in cols:                                                            # a queue made before resources existed
         try:
             c.execute("alter table jobs add column needs text default 'gpu'")
             c.commit()
         except sqlite3.OperationalError:
             pass                                                                       # another process added it first
+    if "heartbeat" not in cols:
+        try:
+            c.execute("alter table jobs add column heartbeat real")
+            c.commit()
+        except sqlite3.OperationalError:
+            pass
     return c
 
 
@@ -230,13 +238,26 @@ def claim(needs=None):
         c.close()
 
 
-def recover():
-    """Tasks left 'running' by a supervisor that was killed go back to pending. -> how many."""
+def beat(job_id):
+    """Record a liveness heartbeat on a running task so another supervisor's recover() leaves it alone."""
     c = _open()
     try:
-        n = c.execute("update jobs set state='pending', note='recovered after the supervisor stopped mid-task' || "
+        c.execute("update jobs set heartbeat=? where id=? and state='running'", (time.time(), int(job_id)))
+        c.commit()
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        c.close()
+
+
+def recover(stale_after=15.0):
+    """Tasks left 'running' by a supervisor that was killed (no heartbeat within `stale_after` seconds) go back to pending. -> how many."""
+    c = _open()
+    try:
+        cutoff = time.time() - float(stale_after or 0)
+        n = c.execute("update jobs set state='pending', heartbeat=null, note='recovered after the supervisor stopped mid-task' || "
                       "case when instr(note, 'POSTMORTEM: ') > 0 then char(10) || substr(note, instr(note, 'POSTMORTEM: ')) else '' end "
-                      "where state='running'").rowcount                        # an earlier attempt's explanation survives the recovery
+                      "where state='running' and (heartbeat is null or heartbeat < ?)", (cutoff,)).rowcount
         c.commit()
         return n
     finally:
@@ -246,7 +267,7 @@ def recover():
 def _finish(job_id, state, verdict="", why="", run_id="", secs=0.0):
     c = _open()
     try:
-        c.execute("update jobs set state=?, verdict=?, why=?, run_id=?, finished=?, secs=? where id=?",
+        c.execute("update jobs set state=?, heartbeat=null, verdict=?, why=?, run_id=?, finished=?, secs=? where id=?",
                   (state, verdict, (why or "")[:1000], run_id or "", time.time(), float(secs or 0), int(job_id)))
         c.commit()
     finally:
@@ -387,6 +408,15 @@ def run_one(say=print, runner=None, cfg=None, needs=None, lane=False):
         return None
     say(f"\n[supervisor] task {job['id']}: {job['goal'][:90]}" + (f"  (flow {job['flow']})" if job["flow"] else "  (the router picks the flow)"))
     t0 = time.time()
+    beat(job["id"])
+    hb_stop = threading.Event()
+
+    def _hb_loop():
+        while not hb_stop.wait(2.0):
+            beat(job["id"])
+
+    hb_th = threading.Thread(target=_hb_loop, name=f"sv-hb-{job['id']}", daemon=True)
+    hb_th.start()
     try:
         if lane and (job.get("needs") or "gpu") == "gpu":
             import arch_heavy
@@ -396,6 +426,8 @@ def run_one(say=print, runner=None, cfg=None, needs=None, lane=False):
             res = (runner or _subprocess_runner)(job, say)
     except Exception as ex:                                   # one broken task must never stop the queue
         res = {"verdict": "fail", "why": f"{type(ex).__name__}: {ex}"[:300], "run_id": "", "flow": job.get("flow") or "", "code": -1}
+    finally:
+        hb_stop.set()
     secs = round(time.time() - t0, 1)
     _spend(secs)
     v = res.get("verdict") or "fail"

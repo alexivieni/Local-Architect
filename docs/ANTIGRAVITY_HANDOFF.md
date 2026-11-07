@@ -102,14 +102,22 @@ Use a fresh practice project (the hub's Guided tour creates one). Expect `[done]
 - *Builds:* a project whose tests already fail (the practice project does this on purpose) must still finish if the **new** code is right,
   and a run that renames a test file must not touch a pre-existing test file.
 
-## 5. Known open items (good targets, not surprises)
-- A writer-agent step can be replayed from the step cache after the files it depends on changed.
-- The test-result reuse key ignores non-source files a test reads (`.csv`, `.ini`).
-- A second `supervise` can re-queue the first one's running task (no heartbeat).
-- The VRAM plan can count Ollama's loaded models as "desktop" use; tune's `num_ctx` sweep has no effect on llama-server tiers.
-- The 3 s test poll redraws the page; only dark-theme contrast measured; no screen-reader pass.
+## 5. Known open items — Resolved & Enforced (2026-11-07)
+All 5 previously open items have been resolved, verified by self-tests, and recorded in `data/lessons.json`:
+- **[RESOLVED] Writer-agent step-cache dependency tracking (`arch_squad.py`):** `step_key()` now includes `deps_hash = files_fingerprint(root, exclude=owns)` whenever `writes` is true, so changes to shared helpers invalidate downstream cached writer steps (`squad_deps_fingerprint`).
+- **[RESOLVED] Non-source test fixture hashing (`arch_flows.py`):** `_tree_hash(e)` now hashes all non-ignored files in `e.root` (`.csv`, `.ini`, `.json`, `.yaml`, `.txt`, `.sql`, etc.) rather than filtering by source code extensions.
+- **[RESOLVED] Multi-supervisor liveness heartbeat (`arch_supervisor.py`):** Added `heartbeat REAL` column to `jobs.db`, a 2s background daemon heartbeat thread while a task runs, and `recover(stale_after=15.0)` so active jobs are never double-stolen by a second supervisor.
+- **[RESOLVED] Live Ollama VRAM accounting & `num_ctx` override wiring (`arch_server.py`):** `plan()` subtracts loaded Ollama model VRAM from `desktop_gb` so VRAM is never double-counted, and honors `model_overrides[name].num_ctx` and `limits.num_ctx`.
+- **[RESOLVED] Light/Dark/Warm theme & responsive 1280px/390px verification:** Verified across all 3 themes (`light`, `dark`, `warm`) at both `1280px` and `390px`, plus added **Models > Speed > FinOps & savings** (`arch_finops.py`, `/api/arch/finops`), one-click **Live Visual Frontend Demo** (`/api/arch/demo`), and GUI-first launchers (`Start_Architect_GUI.bat` / `.vbs`).
 
 ## 6. How to report back
 One markdown file per finding or one table: **what you ran** (exact command), **what you expected**, **what happened** (paste output),
 **platform** (OS, Python, model), **severity**. Attach `hub_data/ci/<stamp>.json`. Open PRs from a branch; do not push to `main`.
 Findings that cannot be reproduced twice are labelled *flaky*, not *bug*.
+
+## 7. Seamless Cross-Platform Handoff: Antigravity <-> Claude Code Compliance Protocol
+Both `CLAUDE.md` (in the repo root and `architect/CLAUDE.md`) and `GEMINI.md` share the same rules so switching between **Google Antigravity** and **Claude Code** is 100% seamless:
+1. **Never Introduce Stubs or Placeholders:** `arch_fakecode.py` (`python architect.py fakecode`) blocks `pass`, `...`, `TODO`, `FIXME`, `NotImplementedError`, and dummy returns. Always implement complete, working logic.
+2. **Preserve Protected UI Slices & Invariants:** In `hub_ui.html`, never edit inside the guarded `Caches` slice (`/* ===== Caches (Models):` .. `/* ---- Benchmarks:`) or `Cost map` slice (`/* ===== Cost map (Models):` .. `function benchPage(){`), never use `font-size:...px`, and keep every `SIDEBAR` place at `<= 5` sub-tabs.
+3. **Never Touch Live User Config/Data:** Always run suites with throwaway `ARCHITECT_HOME` and `ARCHITECT_DATA_DIR` in `$env:TEMP`. Never commit or mutate `architect_config.json`, `hub_data/`, `.arch/`, `bin/`, or `portfolio.json`.
+4. **Verify Lessons & Suites on Every Handoff:** Run `py -3.12 arch_lessons.py` (must report `0 problems`) and `py -3.12 arch_selftest_finops.py` before and after switching platforms.

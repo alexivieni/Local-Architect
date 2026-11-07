@@ -29,6 +29,20 @@ HEALTH_TIMEOUT = 3.0         # seconds a health check waits; a machine that take
 HEALTH_TTL = 60.0            # seconds a health answer is trusted inside this process before routing asks again
 TINY_PROMPT = "Reply with the single word: ready"
 _LIVE = {}                   # (name, url) -> last health answer in this process
+_IN_FLIGHT = {}              # url -> active concurrent requests
+_LLAMA_HOSTS = set()         # urls detected as llama-server (/v1/models)
+
+
+def mark_down(name, url=None):
+    """Mark a remote host unreachable in this process's health cache immediately so parallel calls skip it."""
+    for (n, u), rec in list(_LIVE.items()):
+        if n == name or (url and u == url):
+            _LIVE[(n, u)] = dict(rec, ok=False, error="found unreachable in this run", ts=time.time())
+
+
+def is_llama_host(url):
+    u = (url or "").rstrip("/")
+    return u in _LLAMA_HOSTS or u.endswith("/v1")
 
 
 def path():
@@ -76,10 +90,20 @@ def probe(url, get=None):
     t0 = time.time()
     try:
         tags = get(url + "/api/tags")
+        models = [{"name": m.get("name"), "size_gb": round((m.get("size") or 0) / 1024 ** 3, 1)} for m in (tags.get("models") or []) if m.get("name")]
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and get is _get:
+            try:
+                v1 = get(url + "/v1/models") or {}
+                models = [{"name": m.get("id"), "size_gb": 0.0} for m in (v1.get("data") or []) if m.get("id")]
+                _LLAMA_HOSTS.add(url.rstrip("/"))
+            except Exception as e2:
+                return {"ok": False, "error": f"not reachable ({str(getattr(e2, 'reason', e2))[:80]})"}
+        else:
+            return {"ok": False, "error": f"not reachable ({str(getattr(e, 'reason', e))[:80]})"}
     except (urllib.error.URLError, OSError, ValueError) as e:
         return {"ok": False, "error": f"not reachable ({str(getattr(e, 'reason', e))[:80]})"}
     ms = round((time.time() - t0) * 1000)
-    models = [{"name": m.get("name"), "size_gb": round((m.get("size") or 0) / 1024 ** 3, 1)} for m in (tags.get("models") or []) if m.get("name")]
     try:
         loaded = [m.get("name") for m in (get(url + "/api/ps").get("models") or [])]
     except (urllib.error.URLError, OSError, ValueError):
@@ -219,6 +243,17 @@ def health(name, cfg=None, get=None, timeout=None):
         tags = get(url + "/api/tags", timeout=timeout) or {}
         models = [m.get("name") for m in (tags.get("models") or []) if m.get("name")][:200]
         ok, err = True, None
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and get is _get:
+            try:
+                v1 = get(url + "/v1/models", timeout=timeout) or {}
+                models = [m.get("id") for m in (v1.get("data") or []) if m.get("id")][:200]
+                _LLAMA_HOSTS.add(url.rstrip("/"))
+                ok, err = True, None
+            except Exception as e2:
+                ok, models, err = False, None, f"not reachable ({str(getattr(e2, 'reason', e2))[:80]})"
+        else:
+            ok, models, err = False, None, f"not reachable ({str(getattr(e, 'reason', e))[:80]})"
     except Exception as e:                               # refused, timed out, not Ollama, garbage: all mean "not usable now"
         why = getattr(e, "reason", e)
         slow = isinstance(e, TimeoutError) or isinstance(why, TimeoutError) or "timed out" in str(why).lower()
@@ -301,7 +336,7 @@ def rank_hosts(role, cfg=None, live=False, down=(), get=None, first=False):
         rec = rec if rec.get("url") == url else {}
         cands.append({"name": name, "url": url, "model": model, "tok_s": b["gen_tok_s"], "latency_ms": b.get("latency_ms") or rec.get("ms"),
                       "healthy": rec.get("ok") if rec else None, "checked": rec.get("ts"), "error": rec.get("error"), "models": rec.get("models")})
-    cands.sort(key=lambda c: (-c["tok_s"], c["latency_ms"] if c["latency_ms"] is not None else 1e9))
+    cands.sort(key=lambda c: (-(c["tok_s"] / (1 + _IN_FLIGHT.get(c["url"], 0))), c["latency_ms"] if c["latency_ms"] is not None else 1e9))
     out = []
     for c in cands:
         if c["name"] in down:
@@ -320,7 +355,7 @@ def rank_hosts(role, cfg=None, live=False, down=(), get=None, first=False):
         if first and c["healthy"]:
             break
     order = {True: 0, None: 1, False: 2}
-    return sorted(out, key=lambda c: (order[c["healthy"]], -c["tok_s"], c["latency_ms"] if c["latency_ms"] is not None else 1e9))
+    return sorted(out, key=lambda c: (order[c["healthy"]], -(c["tok_s"] / (1 + _IN_FLIGHT.get(c["url"], 0))), c["latency_ms"] if c["latency_ms"] is not None else 1e9))
 
 
 # ------------------------------------------------------------------------------------------------ CPU work on another machine

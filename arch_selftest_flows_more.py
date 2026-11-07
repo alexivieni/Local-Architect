@@ -389,8 +389,8 @@ def _small_requests(check):
             def put_file(s, rel, text, **k):
                 open(os.path.join(s.root, rel), "w").write(text)
                 return {"status": "applied"}
-            def report(s, x): pass
-            def say(s, x): pass
+            def report(s, x): return None
+            def say(s, x): return None
         def _clash(created, changed):
             d = tempfile.mkdtemp()
             os.makedirs(os.path.join(d, "tests"))

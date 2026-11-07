@@ -40,6 +40,30 @@ def _nvidia(run):
     return gpus or None
 
 
+def _win_gpu(run):
+    """Windows WMI fallback for discrete AMD Radeon / Intel Arc GPUs when nvidia-smi and rocm-smi are not present."""
+    rc, out = run(["powershell", "-NoProfile", "-Command",
+                   "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress"])
+    if rc != 0 or not out.strip():
+        return None
+    import json
+    try:
+        items = json.loads(out)
+        items = items if isinstance(items, list) else ([items] if isinstance(items, dict) else [])
+    except ValueError:
+        return None
+    gpus = []
+    for d in items:
+        name = str(d.get("Name") or "").strip()
+        ram_b = int(d.get("AdapterRAM") or 0)
+        if ram_b < 2 * GB or re.search(r"microsoft basic|parsec|virtual|remote|uhd graphics|iris", name, re.I):
+            continue
+        v = round(ram_b / GB, 2)
+        vendor = "amd" if re.search(r"amd|radeon", name, re.I) else ("intel" if re.search(r"intel|arc", name, re.I) else "other")
+        gpus.append({"name": name, "vram_gb": v, "free_gb": round(v * 0.85, 2), "vendor": vendor})
+    return gpus or None
+
+
 def _amd(run):
     rc, out = run(["rocm-smi", "--showmeminfo", "vram", "--showproductname", "--json"])
     if rc != 0 or not out.strip():
@@ -606,7 +630,7 @@ def detect(run=_run):
           "notes": [], "gpus": [], "vendor": None, "unified": False}
     ram, ram_free = _ram_gb()
     hw["ram_gb"], hw["ram_free_gb"] = ram, (ram_free if ram_free is not None else ram * 0.6)
-    gpus = _nvidia(run) or _amd(run)
+    gpus = _nvidia(run) or _amd(run) or (_win_gpu(run) if sys.platform.startswith("win") and run is _run else None)
     if gpus:
         hw["gpus"] = gpus
         hw["gpu"] = gpus[0]["name"] + (f" (+{len(gpus) - 1} more)" if len(gpus) > 1 else "")

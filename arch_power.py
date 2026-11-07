@@ -9,6 +9,9 @@ import os
 import re
 import subprocess
 import sys
+import time
+
+_BAT_CACHE = {}
 
 
 def _run(cmd, timeout=6):
@@ -21,6 +24,13 @@ def _run(cmd, timeout=6):
 
 def battery(run=_run, sys_root="/sys/class/power_supply", platform=None):
     """-> {"present": bool, "on_battery": bool|None, "pct": int|None, "source": str}. present=False on desktops and when unknown."""
+    default_call = (run is _run and sys_root == "/sys/class/power_supply" and platform is None)
+    if default_call:
+        if os.environ.get("ARCHITECT_SELFTEST") == "1":
+            return {"present": False, "on_battery": None, "pct": None, "source": "none"}
+        now = time.time()
+        if _BAT_CACHE.get("val") is not None and now - _BAT_CACHE.get("ts", 0) < 30.0:
+            return dict(_BAT_CACHE["val"])
     plat = platform or sys.platform
     out = {"present": False, "on_battery": None, "pct": None, "source": "none"}
     if plat.startswith("linux"):
@@ -49,6 +59,9 @@ def battery(run=_run, sys_root="/sys/class/power_supply", platform=None):
             d = None
         if isinstance(d, dict):
             out.update(present=True, on_battery=(d.get("BatteryStatus") == 1), pct=d.get("EstimatedChargeRemaining"), source="powershell")
+    if default_call:
+        _BAT_CACHE["val"] = dict(out)
+        _BAT_CACHE["ts"] = time.time()
     return out
 
 

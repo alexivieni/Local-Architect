@@ -104,6 +104,7 @@ IMAGES = "\n".join([
 
 def run():
     results = []
+    not_sure = []
 
     def check(name, ok, detail=""):
         results.append(bool(ok))
@@ -221,39 +222,48 @@ def run():
 
         # keeper.py copies through the scrubber
         kp = os.path.join(HERE, "hub_data", "learning", "keeper.py")
-        spec = importlib.util.spec_from_file_location("arch_keeper_under_test", kp)
-        keeper = importlib.util.module_from_spec(spec)
-        old_argv = sys.argv
-        sys.argv = [kp]
-        try:
-            spec.loader.exec_module(keeper)
-        finally:
-            sys.argv = old_argv
-        src = os.path.join(tmp, "ag_demo.log")
-        dst = os.path.join(tmp, "learning", "agent_logs", "ag_demo.log")
-        with open(src, "w", encoding="utf-8") as f:
-            f.write("start\nANTHROPIC_API_KEY=" + "sk-ant-" + F(40, "kk") + "\n=== STATUS done | cost $0.12 | turns 3\n")
-        seen = {}
-        wrote = keeper.copy_new(src, dst, seen)
-        kept = open(dst, encoding="utf-8").read()
-        check("keeper: the copy is scrubbed", wrote and F(40, "kk") not in kept and "[REDACTED:" in kept, kept)
-        check("keeper: the status line survives for the ledger", "=== STATUS done | cost $0.12 | turns 3" in kept)
-        check("keeper: an unchanged source is not copied again", keeper.copy_new(src, dst, seen) is False)
-        with open(src, "a", encoding="utf-8") as f:
-            f.write("more " + "gh" + "p_" + F(36, "kg") + "\n")
-        check("keeper: a grown source is copied again, scrubbed",
-              keeper.copy_new(src, dst, seen) and F(36, "kg") not in open(dst, encoding="utf-8").read())
-        saved = keeper.arch_redact
-        keeper.arch_redact = None
-        try:
-            dst2 = os.path.join(tmp, "learning", "agent_logs", "other.log")
-            check("keeper: no scrubber, no copy", keeper.copy_new(src, dst2, {}) is False and not os.path.exists(dst2))
-        finally:
-            keeper.arch_redact = saved
+        if not os.path.isfile(kp):
+            # keeper.py lives in the data folder (hub_data/learning), not in the code: without it these checks cannot run, which is
+            # not the same as failing (three outcomes).
+            not_sure.append("keeper.py copies through the scrubber")
+            print(f"  NOT_SURE keeper.py copies through the scrubber  -- could not run: {kp} is not there")
+        else:
+            spec = importlib.util.spec_from_file_location("arch_keeper_under_test", kp)
+            keeper = importlib.util.module_from_spec(spec)
+            old_argv = sys.argv
+            sys.argv = [kp]
+            try:
+                spec.loader.exec_module(keeper)
+            finally:
+                sys.argv = old_argv
+            src = os.path.join(tmp, "ag_demo.log")
+            dst = os.path.join(tmp, "learning", "agent_logs", "ag_demo.log")
+            with open(src, "w", encoding="utf-8") as f:
+                f.write("start\nANTHROPIC_API_KEY=" + "sk-ant-" + F(40, "kk") + "\n=== STATUS done | cost $0.12 | turns 3\n")
+            seen = {}
+            wrote = keeper.copy_new(src, dst, seen)
+            kept = open(dst, encoding="utf-8").read()
+            check("keeper: the copy is scrubbed", wrote and F(40, "kk") not in kept and "[REDACTED:" in kept, kept)
+            check("keeper: the status line survives for the ledger", "=== STATUS done | cost $0.12 | turns 3" in kept)
+            check("keeper: an unchanged source is not copied again", keeper.copy_new(src, dst, seen) is False)
+            with open(src, "a", encoding="utf-8") as f:
+                f.write("more " + "gh" + "p_" + F(36, "kg") + "\n")
+            check("keeper: a grown source is copied again, scrubbed",
+                  keeper.copy_new(src, dst, seen) and F(36, "kg") not in open(dst, encoding="utf-8").read())
+            saved = keeper.arch_redact
+            keeper.arch_redact = None
+            try:
+                dst2 = os.path.join(tmp, "learning", "agent_logs", "other.log")
+                check("keeper: no scrubber, no copy", keeper.copy_new(src, dst2, {}) is False and not os.path.exists(dst2))
+            finally:
+                keeper.arch_redact = saved
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
     n = sum(results)
+    if not_sure:
+        print(f"\n  {len(results) - n} of {len(results)} REDACT CHECKS FAILED, {len(not_sure)} COULD NOT RUN (not a pass)")
+        return 1
     print(f"\n  {'ALL ' + str(n) + ' REDACT CHECKS PASSED' if n == len(results) else str(len(results) - n) + ' of ' + str(len(results)) + ' REDACT CHECKS FAILED'}")
     return 0 if n == len(results) else 1
 

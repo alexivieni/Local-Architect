@@ -143,11 +143,19 @@ SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".venv"}
 FP_MAX_FILES = 3000
 
 
-def files_fingerprint(root, owns=None):
-    """sha256 over file contents: the owned files/folders, or (owns None) the project's files outside dot-folders. A missing file
-    counts as missing (so creating it changes the fingerprint)."""
+def files_fingerprint(root, owns=None, exclude=None):
+    """sha256 over file contents: the owned files/folders, or (owns None) the project's files outside dot-folders (optionally
+    skipping `exclude`). A missing file counts as missing (so creating it changes the fingerprint)."""
     h = hashlib.sha256()
     root = os.path.abspath(root)
+    ex_abs = [os.path.normcase(os.path.abspath(os.path.join(root, str(x)))) for x in (exclude or [])]
+
+    def _excluded(p):
+        if not ex_abs:
+            return False
+        np = os.path.normcase(os.path.abspath(p))
+        return any(np == ex or np.startswith(ex + os.sep) for ex in ex_abs)
+
     paths = []
     if owns:
         for o in owns:
@@ -155,13 +163,14 @@ def files_fingerprint(root, owns=None):
             if os.path.isdir(p):
                 for dp, dns, fns in os.walk(p):
                     dns[:] = sorted(x for x in dns if not x.startswith(".") and x not in SKIP_DIRS)
-                    paths += [os.path.join(dp, f) for f in sorted(fns)]
-            else:
+                    paths += [os.path.join(dp, f) for f in sorted(fns) if not _excluded(os.path.join(dp, f))]
+            elif not _excluded(p):
                 paths.append(p)
     else:
         for dp, dns, fns in os.walk(root):
-            dns[:] = sorted(x for x in dns if not x.startswith(".") and x not in SKIP_DIRS)
-            paths += [os.path.join(dp, f) for f in sorted(fns) if not f.endswith((".pyc", ".log"))]
+            dns[:] = sorted(x for x in dns if not x.startswith(".") and x not in SKIP_DIRS and not _excluded(os.path.join(dp, x)))
+            paths += [os.path.join(dp, f) for f in sorted(fns)
+                      if not f.endswith((".pyc", ".log")) and not _excluded(os.path.join(dp, f))]
             if len(paths) > FP_MAX_FILES:
                 break
     for p in paths[:FP_MAX_FILES]:
@@ -778,7 +787,7 @@ def parse_sets(items):
 # ---------------------------------------------------------------- the crew
 
 def _quiet(_m):
-    pass
+    return None
 
 
 class _Keep(dict):
@@ -906,6 +915,7 @@ class Crew:
         self.phase_times = []
         self.loop_counts = {}
         self._sem = threading.Semaphore(self.slots)
+        self._host_sems = {}
         self._lock = threading.RLock()
         self._local = threading.local()
         self.running = 0
@@ -1065,8 +1075,17 @@ class Crew:
         self._event({"type": "started", "agentId": aid, "label": label, "phase": ph, "agent": d["name"], "parent": parent,
                      "overrides": applied})
         e = None
+        _sem = self._sem
         try:
-            with self._sem:
+            import arch_hosts
+            _rt = arch_hosts.route_of(self.cfg, d["role"]) if not self.engine_factory else None
+            if _rt and _rt[0]:
+                with self._lock:
+                    _sem = self._host_sems.setdefault(_rt[0], threading.Semaphore(1))
+        except Exception:
+            _sem = self._sem
+        try:
+            with _sem:
                 with self._lock:
                     self.running += 1
                     self.peak_concurrency = max(self.peak_concurrency, self.running)
@@ -1093,6 +1112,7 @@ class Crew:
                 self._harvest(e, rec)
         if writer:
             rec["post_hash"] = files_fingerprint(self.root, owns)
+            rec["deps_hash"] = files_fingerprint(self.root, exclude=owns)
         self._finish(rec)
         t = rec["totals"]
         self.budget.charge(t["calls"], t["tokens_in"] + t["tokens_out"])
@@ -1140,13 +1160,21 @@ class Crew:
             parts["root"] = os.path.normcase(os.path.abspath(self.root))
             if not (d["writes"] and owns):
                 parts["files"] = files_fingerprint(self.root, owns or None)
+            else:
+                parts["deps"] = files_fingerprint(self.root, exclude=owns)
         parts["def"].pop("_source", None)
         return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
     def _usable(self, old, owns, writer):
         if not isinstance(old, dict) or old.get("verdict") != "ok" or old.get("result") is None:
             return False
-        return not writer or (old.get("post_hash") and old["post_hash"] == files_fingerprint(self.root, owns))
+        if not writer:
+            return True
+        if not (old.get("post_hash") and old["post_hash"] == files_fingerprint(self.root, owns)):
+            return False
+        if old.get("deps_hash") and old["deps_hash"] != files_fingerprint(self.root, exclude=owns):
+            return False
+        return True
 
     def _lookup(self, key, ckey, owns, writer):
         if self.replay and key in self._prior and ckey and self._prior[key].get("cache_key") == ckey                 and self._usable(self._prior[key], owns, writer):   # same project, same files it read: never a stale replay
@@ -1161,7 +1189,7 @@ class Crew:
         try:
             d = os.path.join(self.data_dir, "orchestration", "cache")
             os.makedirs(d, exist_ok=True)
-            row = {k: rec.get(k) for k in ("verdict", "result", "edited", "model", "brief", "post_hash", "agent", "label")}
+            row = {k: rec.get(k) for k in ("verdict", "result", "edited", "model", "brief", "post_hash", "deps_hash", "agent", "label")}
             row.update(_run=self.run_id, saved=time.time())
             tmp = os.path.join(d, key + f".tmp{os.getpid()}_{threading.get_ident()}")
             with open(tmp, "w", encoding="utf-8") as f:
@@ -1198,10 +1226,24 @@ class Crew:
             h = getattr(self, "_shared_hdr", None)
             if h is None:
                 contract = str(self.vars.get("contract") or self.goal or "").strip()[:2000]
+                tfiles = self.vars.get("target_files")
+                outline_blk = ""
+                if isinstance(tfiles, (list, tuple)) and tfiles:
+                    try:
+                        import arch_core as core
+                        lines = []
+                        for tf in tfiles[:6]:
+                            p = os.path.join(self.root, str(tf))
+                            if os.path.isfile(p):
+                                lines.append(f"--- {tf} ---\n" + (core.outline(p) or "")[:600])
+                        if lines:
+                            outline_blk = "\nTarget Outlines:\n" + "\n".join(lines)[:2400]
+                    except Exception:
+                        outline_blk = ""
                 h = ("[crew team context]\nRules: stay inside the files you own; never claim a check passed that you did not see; "
                      "answer in the form the task asks for; say plainly when you are not sure.\n"
                      f"Project: {os.path.basename(os.path.normpath(self.root))} {(' - ' + str(self.vars.get('project_summary'))[:600]) if self.vars.get('project_summary') else ''}\n"
-                     f"Contract:\n{contract}\n[end team context]")
+                     f"Contract:\n{contract}{outline_blk}\n[end team context]")
                 self._shared_hdr = h
             return h
 
@@ -1236,7 +1278,10 @@ class Crew:
         m = local_model(e, d)                    # always pinned: a crew agent runs on a local tier, never on a cloud tier
         if not m:
             return None, "failed", f"no local model for tier/model {d['model']!r} (Settings > Tiers)"
-        e.pins[role] = m
+        if not (self.cfg.get("role_hosts") or {}).get(role):
+            e.pins[role] = m
+        else:
+            e.cfg.setdefault("roles", {})[role] = m
         rec["model"] = m
         schema = arch_tools.schema(allowed)
         tool_text = arch_tools.describe(allowed)

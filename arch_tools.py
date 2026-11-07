@@ -328,11 +328,16 @@ def _fingerprint(e, name, args):
     """What the answer depends on: one file's size+mtime (outline), or every project file's (the tree tools)."""
     if name == "outline":
         return _stat(_rel(e, args.get("path", "")))
+    c = _tc(e)
+    if c.get("tree_fp"):
+        return c["tree_fp"]
     import hashlib
     h = hashlib.sha1()
     for f in core.list_files(e.root, e.cfg):
         h.update(f"{f}|{_stat(os.path.join(e.root, f))}\n".encode("utf-8", "replace"))
-    return h.hexdigest()
+    fp = h.hexdigest()
+    c["tree_fp"] = fp
+    return fp
 
 
 def invalidate(e, paths=None):
@@ -340,6 +345,7 @@ def invalidate(e, paths=None):
     c = _tc(e)
     n = len(c["d"])
     c["d"].clear()
+    c.pop("tree_fp", None)
     if paths is None:
         c["files"].clear()
     else:

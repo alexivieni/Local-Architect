@@ -1775,7 +1775,7 @@ function chainThumb(steps,hue){const k=Math.max(2,Math.min(6,(steps||[]).length|
 function spark(vals){const v=(vals||[]).filter(x=>x!=null&&isFinite(x)).slice(-7);if(v.length<2)return null;const lo=Math.min(...v),hi=Math.max(...v),r=hi-lo||1;
   const pts=v.map((x,i)=>`${(i*100/(v.length-1)).toFixed(1)},${(26-(x-lo)/r*22).toFixed(1)}`).join(" ");
   return h("span",{class:"spark","aria-hidden":"true",html:`<svg viewBox="0 0 100 28" preserveAspectRatio="none"><polyline points="${pts}"/></svg>`});}
-const _slowGet=/^\/api\/arch\/(doctor|advise|machine|team|cost|costs|evals|code_health)(\?|$)/, _getCache={};
+const _slowGet=/^\/api\/arch\/(doctor|advise|machine|team|cost|costs|evals|code_health|finops)(\?|$)/, _getCache={};
 async function api(path,body){
   /* slow read-only pages are kept for 60 s; add ?fresh=1 to bypass */
   let ck=null;
@@ -1891,7 +1891,8 @@ const NAV_GROUPS=[
     ["plugins","layers","Plugins","Add-ons that bring agents, workflows, skills, commands and hooks"],
     ["telemetry","chart","Telemetry","Calls, tokens, cache reuse, errors and graphics memory, live"],
     ["lessons","check","Lessons","What we learned, and the code that keeps each lesson true"],
-    ["squadruns","crew","Squad runs","Every local crew run; resume one and reuse what is cached"]]],
+    ["squadruns","crew","Squad runs","Every local crew run; resume one and reuse what is cached"],
+    ["finops","coin","FinOps & savings","Cloud vs. local cost model, 10-way optimization savings, and ROI calculator"]]],
 ];
 const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
 /* The sidebar: [section, [[place id, icon, label, [page ids = its sub-tabs, at most 5, so no overflow menu]]]]. */
@@ -1902,7 +1903,7 @@ const SIDEBAR=[
            ["agentsp","crew","Agent teams",["agents","crewbuild","fleet","monitor","map"]]]],
   ["Models",[["team","chip","Models",["models","tiers","roles","bench","score"]],
              ["cachesp","db","Caches",["caches"]],
-             ["cost","target","Speed",["costmap","byjob","telemetry"]]]],
+             ["cost","target","Speed",["costmap","byjob","telemetry","finops"]]]],
   ["System",[["machine","server","Machine",["doctor","assess","computers","tune","selfimprove"]],
              ["settings","sliders","Settings",["settings","effective","hooks","train"]],
              ["help","palette","Help",["orchestra","squadruns","lessons","morning","components"]]]],
@@ -1915,7 +1916,7 @@ const SUBNAME=Object.fromEntries(PAGES.map(p=>[p[0],p[2]]));
 const PAGE_ICON=Object.fromEntries(PAGES.map(p=>[p[0],p[1]]));
 const PAGE_ART={console:"console",run:"task",launch:"task",studio:"studio",agents:"crew",fleet:"fleet",map:"map",monitor:"monitor",
   logbook:"logbook",library:"library",blueprints:"blueprints",queue:"queue",overview:"journey",start:"projects",portfolio:"projects",
-  tiers:"models",models:"models",roles:"models",score:"models",bench:"models",costmap:"models",caches:"models"};
+  tiers:"models",models:"models",roles:"models",score:"models",bench:"models",costmap:"models",caches:"models",finops:"models"};
 const SEC_ART={home:"projects",runs:"console",workflows:"console",agentsp:"console",team:"models",cachesp:"models",cost:"models",machine:"settings",settings:"settings",help:"settings"};
 const tabOf=id=>TABS.find(t=>t[3].includes(id))||TABS[0];
 
@@ -2469,6 +2470,7 @@ function render(){
   if(page==="orchestra"){ if(!built.orchestra){v.innerHTML="";put(v,...orchPage());built.orchestra=1;} loadOrch(); return; }
   if(page==="caches"){ if(!built.caches){v.innerHTML="";put(v,...cachesPage());built.caches=1;} loadCaches(); return; }
   if(page==="lessons"){ if(!built.lessons){v.innerHTML="";put(v,...lessonsPage());built.lessons=1;} loadLessons(); return; }
+  if(page==="finops"){ if(!built.finops){v.innerHTML="";put(v,...finopsPage());built.finops=1;} loadFinops(); return; }
   v.innerHTML=""; const fn={overview,start,models,roles,flows,portfolio,score:scoreboard,settings,train}[page]; put(v,...fn());
 }
 
@@ -4201,6 +4203,9 @@ function oneShotCard(){
       act("New job queue here","layers","Worker/job-queue template, built in this folder now",()=>{if(needRoot())oneShotTemplate("worker","Job queue");}),
       act("New REST API here","server","Stdlib JSON API template, built in this folder now",()=>{if(needRoot())oneShotTemplate("rest_api","REST API");}),
             act("Improve this app safely","refresh","Works on a copy, must pass the gates, then asks before it changes anything",()=>go("tune")),
+            act("FinOps & cost savings","coin","Cloud API vs. local $0 cost model, 10-way optimization scorecard & ROI report",()=>go("finops")),
+            act("Launch visual frontend demo","monitor","Builds, tests (pytest) and starts a live interactive web app for calls & demos",launchVisualDemo),
+            act("Put Architect on my Desktop","rocket","Creates a one-click desktop launcher so anyone can open the GUI like a regular app",makeDesktopShortcut),
     ));
 }
 async function oneShotTemplate(tid,label){
@@ -5448,6 +5453,173 @@ async function loadLessons(){
       h("td",null,h("ul",{class:"ls-ul"},...L.checked_by.map(lsTarget))),
       h("td",null,L.trains_via?h("code",null,L.trains_via):h("span",{class:"mute"},"none yet")),
       h("td",{class:"n"},L.samples==null?h("span",{class:"mute",title:has?"This lesson has no tagged samples yet":"No dataset with lesson tags yet"},"not counted yet"):String(L.samples))))))));
+}
+/* ===== FinOps & savings (Models > Speed): Cloud API vs. Local $0 cost model, 10-way optimization scorecard, and team ROI simulator. ===== */
+const FO={devs:Number(store.get("foDevs","5"))||5,tasks:Number(store.get("foTasks","20"))||20,days:Number(store.get("foDays","30"))||30,model:store.get("foModel","claude-sonnet-4-6"),data:null};
+const foUsd=x=>x==null||isNaN(Number(x))?"–":"$"+(Number(x)>=100?Math.round(Number(x)).toLocaleString("en-US"):Number(x).toFixed(2));
+async function makeDesktopShortcut(){
+  try{
+    const r=await api("/api/arch/shortcut",{});
+    if(r&&r.ok)toast("Desktop launcher created: "+r.path,5000);
+    else toast.err((r&&r.why)||"Could not create the desktop launcher",6000);
+  }catch(e){toast.err(e.message,6000);}
+}
+async function launchVisualDemo(){
+  toast("Building, testing & starting live visual frontend demo…",4000);
+  try{
+    const r=await api("/api/arch/demo",{start:true});
+    if(r&&r.root){run.root=r.root;store.set("root",r.root);}
+    const b=$("#foDemoBar");
+    if(b){
+      b.innerHTML="";
+      b.append(h("div",{class:"note good row",style:"gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px"},
+        h("span",{class:"chip good"},r.tests_ok?"pytest passed":"checked"),
+        h("span",{class:"grow"},h("b",null,"Live Visual Frontend Demo is running at "),h("code",null,r.url||r.root)),
+        r.url?h("a",{class:"btn p sm",href:r.url,target:"_blank",rel:"noopener"},"Open live visual app ↗"):null,
+        h("button",{class:"btn sm",type:"button",onclick:()=>{run.root=r.root;store.set("root",r.root);run.goal="Add a Dark/Neon theme toggle and an Export CSV button to the visual dashboard, with tests";go("run");}},"Live-edit with Architect →")));
+    }
+    if(r&&r.url){try{window.open(r.url,"_blank","noopener");}catch(_){}}
+    toast("Visual frontend demo is live at "+(r.url||r.root),6000);
+  }catch(e){toast.err(e.message,6000);}
+}
+function finopsPage(){
+  const devsIn=h("input",{type:"number",min:"1",max:"500",value:String(FO.devs),"aria-label":"Developers on the team",
+    oninput:e=>{FO.devs=Math.max(1,Math.min(500,parseInt(e.target.value,10)||1));store.set("foDevs",String(FO.devs));finopsDraw();}});
+  const tasksIn=h("input",{type:"number",min:"1",max:"500",value:String(FO.tasks),"aria-label":"Tasks per developer per day",
+    oninput:e=>{FO.tasks=Math.max(1,Math.min(500,parseInt(e.target.value,10)||1));store.set("foTasks",String(FO.tasks));finopsDraw();}});
+  const modSel=h("select",{"aria-label":"Cloud baseline model",onchange:e=>{FO.model=e.target.value;store.set("foModel",FO.model);finopsDraw();}},
+    ...[["claude-opus-4-6","Claude Opus 4.6 ($15 / $75 per 1M)"],["claude-sonnet-4-6","Claude Sonnet 4.6 ($3 / $15 per 1M)"],["gpt-4o","GPT-4o ($2.50 / $10 per 1M)"],["claude-haiku-4-5","Claude Haiku 4.5 ($0.80 / $4 per 1M)"]].map(([v,l])=>h("option",{value:v,selected:FO.model===v},l)));
+  return [
+    h("section",{class:"card"},
+      h("div",{class:"row",style:"gap:10px;align-items:center;flex-wrap:wrap"},
+        h("div",{class:"grow"},
+          h("h2",{style:"margin:0"},"FinOps & optimization savings"),
+          h("p",{class:"sub",style:"margin:2px 0 0"},"How Local-Architect saves cloud spend, memory and time across 10 optimization layers — and what your runs would cost on cloud APIs.")),
+        h("button",{class:"btn",type:"button",onclick:launchVisualDemo},icon("monitor"),"Launch live visual demo (for calls)"),
+        h("button",{class:"btn",type:"button",onclick:makeDesktopShortcut},icon("rocket"),"Put Architect on my Desktop"),
+        h("button",{class:"btn",type:"button",onclick:()=>loadFinops(true)},"Refresh"),
+        h("button",{class:"btn p",type:"button",onclick:copyFinopsReport},icon("book"),"Copy FinOps report (.md)")),
+      h("div",{id:"foDemoBar"})),
+    h("div",{id:"foHead",class:"btiles"}),
+    h("section",{class:"card"},
+      h("h2",{style:"margin:0"},"Team ROI & cloud vs. local cost simulator"),
+      h("p",{class:"sub"},"Adjust team size and daily agentic coding tasks to compare Local-Architect ($0 API + $0 seat fees, 100% on-premise) against cloud APIs and seat subscriptions."),
+      h("div",{class:"fgrid",style:"margin-top:10px"},
+        h("label",{class:"f"},"Developers on team",devsIn),
+        h("label",{class:"f"},"Tasks per dev / day",tasksIn),
+        h("label",{class:"f"},"Cloud API comparison baseline",modSel)),
+      h("div",{id:"foSim",style:"margin-top:12px"})),
+    h("section",{class:"card"},
+      h("h2",{style:"margin:0"},"10 ways we save, optimize & compete vs. the start"),
+      h("p",{class:"sub"},"Every caching, memory, hardware, distributed LAN and verification layer active on this machine compared against the unoptimized baseline."),
+      h("div",{id:"foOpts",style:"margin-top:10px"},loadingLine("Reading FinOps & optimization metrics…"))),
+    h("section",{class:"card"},
+      h("details",null,
+        h("summary",{style:"cursor:pointer;font-weight:600"},"Executive Markdown report template (ready to paste into docs or slides)"),
+        h("pre",{id:"foMd",class:"term",style:"margin-top:10px;white-space:pre-wrap"},"Loading…")))
+  ];
+}
+async function copyFinopsReport(){
+  const md=(FO.data&&FO.data.markdown)||($("#foMd")&&$("#foMd").textContent)||"";
+  if(!md){toast("Report is still loading");return;}
+  try{await navigator.clipboard.writeText(md);toast("Executive FinOps Markdown report copied to clipboard",3600);}
+  catch(_){toast("Select the Markdown text at the bottom of the page to copy",4000);}
+}
+async function loadFinops(fresh){
+  const q=`?days=${FO.days}&devs=${FO.devs}&tasks=${FO.tasks}`+(fresh?"&fresh=1":"");
+  try{FO.data=await api("/api/arch/finops"+q);}
+  catch(e){const o=$("#foOpts");if(o){o.innerHTML="";o.append(emptyState("models","Could not load FinOps model",e.message,"Retry",()=>loadFinops(true)));}return;}
+  finopsDraw();
+}
+function finopsDraw(){
+  const d=FO.data; if(!d||!$("#foOpts"))return;
+  const m=d.measured||{}, hw=d.hardware||{}, rates=d.cloud_rates||{};
+  const tile=(big,lbl,cls)=>h("div",{class:"btile "+(cls||"")},h("b",{class:"num"},big),h("span",{class:"mute small"},lbl));
+  const monthlyTasks=FO.devs*FO.tasks*22;
+  const ref=d.projection&&d.projection.reference_task||{tokens_in_per_task:18000,tokens_cached_per_task:11500,tokens_out_per_task:2400};
+  const calcModel=(rk)=>{
+    const r=rates[rk]||{input:3,cached_input:0.3,output:15,label:rk,tier:""};
+    const tin=ref.tokens_in_per_task, tca=ref.tokens_cached_per_task, tout=ref.tokens_out_per_task;
+    const perTask=((tin-tca)*r.input + tca*r.cached_input + tout*r.output)/1e6;
+    const perTaskUncached=(tin*r.input + tout*r.output)/1e6;
+    const mo=perTask*monthlyTasks;
+    return {label:r.label||rk,tier:r.tier||"",perTask,perTaskUncached,mo,yr:mo*12,yr3:mo*36};
+  };
+  const curM=calcModel(FO.model);
+  const head=$("#foHead");
+  if(head){
+    head.innerHTML="";
+    put(head,
+      tile("$0.00","local inference bill ("+Math.round((m.local_share??1)*100)+"% local)","good"),
+      tile(foUsd(curM.yr)+"/yr","projected team savings vs. "+curM.label,"good"),
+      tile(Math.round((m.prefix_reuse_rho||0.64)*100)+"%","prompt prefix reuse (rho)"),
+      tile((d.active_optimizations||10)+" / "+(d.optimization_count||10),"optimization layers active","good"),
+      tile(m.local_calls?(m.local_calls.toLocaleString()+" calls"):(hw.worker||"ready"),m.local_calls?("saved "+foUsd(m.saved_vs_opus_usd)+" vs. Opus"):"100% GPU-resident local team"));
+  }
+  const sim=$("#foSim");
+  if(sim){
+    sim.innerHTML="";
+    const rows=["claude-opus-4-6","claude-sonnet-4-6","gpt-4o","claude-haiku-4-5"].map(k=>{
+      const c=calcModel(k);
+      return h("tr",{style:k===FO.model?"font-weight:600":""},
+        h("td",null,c.label,h("div",{class:"small mute"},c.tier)),
+        h("td",{class:"n"},"$"+c.perTask.toFixed(4)),
+        h("td",{class:"n"},foUsd(c.mo)),
+        h("td",{class:"n"},foUsd(c.yr)),
+        h("td",{class:"n"},foUsd(c.yr3)),
+        h("td",null,h("span",{class:"chip good"},"Save 100% ("+foUsd(c.yr)+"/yr)")));
+    });
+    const proMo=FO.devs*20, maxMo=FO.devs*200;
+    put(sim,
+      h("div",{class:"note good",style:"margin-bottom:10px"},
+        h("b",null,`${FO.devs} developer${FO.devs===1?"":"s"} × ${FO.tasks} tasks/day = ${monthlyTasks.toLocaleString()} tasks/month. `),
+        `Running locally saves `,h("b",null,foUsd(curM.mo)+"/month"),` (`,h("b",null,foUsd(curM.yr)+"/year"),` · `,h("b",null,foUsd(curM.yr3)+" over 3 years"),`) against ${curM.label} API pricing, or `,
+        h("b",null,foUsd(proMo*12)+"–"+foUsd(maxMo*12)+"/year"),` against $20–$200/seat cloud coding subscriptions — while keeping 100% of source code on your own hardware.`),
+      h("div",{style:"overflow-x:auto"},
+        h("table",{class:"tbl"},
+          h("thead",null,h("tr",null,...["Provider / Model","Cost / task","Monthly","1-Year","3-Year","Local-Architect advantage"].map((x,i)=>h("th",{class:i>=1&&i<=4?"n":""},x)))),
+          h("tbody",null,
+            h("tr",null,
+              h("td",null,h("b",null,"Local-Architect v12 (This PC / LAN)"),h("div",{class:"small mute"},`${hw.gpu||"Local GPU"} · ${hw.vram_gb||0} GB VRAM · ${hw.ram_gb||0} GB RAM`)),
+              h("td",{class:"n"},h("b",null,"$0.0000")),
+              h("td",{class:"n"},h("b",null,"$0.00")),
+              h("td",{class:"n"},h("b",null,"$0.00")),
+              h("td",{class:"n"},h("b",null,"$0.00")),
+              h("td",null,h("span",{class:"chip good"},"100% private · $0 API · $0 seats"))),
+            ...rows,
+            h("tr",null,
+              h("td",null,"Cloud Coding Seats ($20/dev/mo)",h("div",{class:"small mute"},"Standard per-seat subscription")),
+              h("td",{class:"n"},"–"),
+              h("td",{class:"n"},foUsd(proMo)),
+              h("td",{class:"n"},foUsd(proMo*12)),
+              h("td",{class:"n"},foUsd(proMo*36)),
+              h("td",null,h("span",{class:"chip good"},"Save "+foUsd(proMo*12)+"/yr"))),
+            h("tr",null,
+              h("td",null,"Power Cloud Agent Seats ($200/dev/mo)",h("div",{class:"small mute"},"Max / enterprise agent subscription")),
+              h("td",{class:"n"},"–"),
+              h("td",{class:"n"},foUsd(maxMo)),
+              h("td",{class:"n"},foUsd(maxMo*12)),
+              h("td",{class:"n"},foUsd(maxMo*36)),
+              h("td",null,h("span",{class:"chip good"},"Save "+foUsd(maxMo*12)+"/yr")))))));
+  }
+  const ob=$("#foOpts");
+  if(ob){
+    ob.innerHTML="";
+    put(ob,h("div",{style:"overflow-x:auto"},
+      h("table",{class:"tbl"},
+        h("thead",null,h("tr",null,...["#","Optimization layer","At the start (baseline)","Optimized now (v12)","Measured gain & live status"].map(x=>h("th",null,x)))),
+        h("tbody",null,...(d.optimizations||[]).map(o=>h("tr",null,
+          h("td",{class:"n"},h("b",null,String(o.num))),
+          h("td",null,h("b",null,o.title),h("div",{class:"row",style:"gap:6px;margin-top:4px"},
+            h("span",{class:"chip "+(o.status==="active"?"good":"info")},o.status),
+            h("span",{class:"chip"},o.category),
+            h("code",{class:"small mute"},o.code_ref||""))),
+          h("td",{class:"small mute"},o.before),
+          h("td",{class:"small"},o.after),
+          h("td",null,h("span",{class:"chip good"},o.gain_label),h("div",{class:"small mute",style:"margin-top:4px"},o.measured||""))))))));
+  }
+  const md=$("#foMd");
+  if(md)md.textContent=d.markdown||"";
 }
 /* ===== Cost map (Models): the report's C = t / p for every model on every kind of task, from this machine's live benchmark runs.
    Each point is (pass rate, seconds per task); every point on one dashed ray costs the same per accepted change. Read-only: it shows
@@ -7237,7 +7409,8 @@ const HINTS={
   doctor:["Health","One checkup: ranked next steps first, then the real checks of Python, the model server, disk, the port, git and the network."],
   assess:["Readiness","Is this machine and model lineup ready, per kind of work."],
   flows:["Workflows","The workflows and the checks inside them: which step uses which model, and which check decides it."],
-  train:["Training data","Only work that passed its checks becomes training data. Claude-written text never does."]};
+  train:["Training data","Only work that passed its checks becomes training data. Claude-written text never does."],
+  finops:["FinOps & savings","What your local runs would have cost on cloud APIs, every optimization layer active on this machine, and a team ROI calculator."]};
 function pageHint(id){
   const box=$("#pageHint"); if(!box)return; box.innerHTML="";
   const x=HINTS[id]; if(!x)return;

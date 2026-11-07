@@ -78,6 +78,8 @@ def ensure_running(say=print, wait_s=20):
     flags = (0x00000008 | 0x00000200) if os.name == "nt" else 0          # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     try:
         env = dict(os.environ, OLLAMA_HOST=f"{'[' + hn + ']' if ':' in hn else hn}:{port}")   # the port this install is set to use
+        env.setdefault("OLLAMA_FLASH_ATTENTION", "1")
+        env.setdefault("OLLAMA_KV_CACHE_TYPE", "q8_0")
         proc = subprocess.Popen([exe, "serve"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          creationflags=flags, start_new_session=(os.name != "nt"), close_fds=True, env=env)
     except OSError as e:

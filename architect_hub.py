@@ -3327,6 +3327,33 @@ class AHandler(mh.Handler):
                                         "formula": "C = t / p_bar (seconds per accepted change, Eq. 17)"})
             except Exception as ex:
                 return self._send(200, {"evals": [], "calls": [], "error": str(ex)[:200]})
+        if u.path == "/api/arch/finops":                # Cloud vs. local FinOps cost model, 10-way optimization scorecard & ROI (read-only)
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            import arch_finops
+            q = parse_qs(u.query)
+            try:
+                days = int((q.get("days") or ["30"])[0])
+            except (TypeError, ValueError):
+                days = 30
+            try:
+                devs = int((q.get("devs") or ["5"])[0])
+            except (TypeError, ValueError):
+                devs = 5
+            try:
+                tasks = int((q.get("tasks") or ["20"])[0])
+            except (TypeError, ValueError):
+                tasks = 20
+            roots = [safe_root(r) for r in (q.get("root") or []) if r]
+            try:
+                return self._send(200, arch_finops.report(days=days, roots=roots or None, team_devs=devs, tasks_per_day=tasks))
+            except Exception as ex:
+                return self._send(200, {"available": False, "error": str(ex)[:200], "optimizations": []})
+        if u.path == "/api/arch/shortcut":              # Desktop shortcut status (read-only)
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            import arch_launch
+            return self._send(200, arch_launch.shortcut_status())
         if u.path == "/api/arch/recommend":
             import arch_recommend
             try:
@@ -4061,6 +4088,22 @@ class AHandler(mh.Handler):
             cfg.setdefault("roles", {}).update(plan["assignment"])
             mh.write_config(cfg)
             return {"ok": True, "assignment": plan["assignment"]}
+        if path == "/api/arch/shortcut":
+            import arch_launch
+            dest = str(b.get("dest_dir") or "").strip() or None
+            if dest:
+                dest = safe_root(dest)
+            p_out = arch_launch.make_shortcut(dest_dir=dest)
+            if not p_out:
+                return {"ok": False, "why": "Could not write the desktop shortcut (the Desktop folder was not found or already has another file with that name)."}
+            return {"ok": True, "path": p_out}
+        if path == "/api/arch/demo":
+            import arch_finops
+            dest_root = str(b.get("root") or "").strip() or None
+            if dest_root:
+                dest_root = safe_root(dest_root, create_ok=True)
+            start_srv = bool(b.get("start", True))
+            return arch_finops.create_visual_demo(root=dest_root, start_server=start_srv)
         if path == "/api/arch/portfolio":
             return {"ok": True, "apps": save_portfolio(b.get("apps"))}
         if path == "/api/arch/route":

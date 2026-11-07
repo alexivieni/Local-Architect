@@ -313,15 +313,30 @@ def _best_of_n_batched(e, role, ask, label, k, changed, pro, best, best_score, s
 
 
 def _tree_hash(e):
-    """A fingerprint of every project file (path, size, modification time): equal means no file changed since it was taken."""
+    """A fingerprint of every project file (path, size, modification time), including non-code fixtures (.csv, .ini, etc.):
+    equal means no file changed since it was taken."""
     import hashlib
     h = hashlib.sha1()
-    for f in core.list_files(e.root, e.cfg):
-        try:
-            st = os.stat(os.path.join(e.root, f))
-            h.update(f"{f}|{st.st_size}|{st.st_mtime_ns}\n".encode())
-        except OSError:
-            pass
+    root = os.path.abspath(e.root)
+    ign = set(((e.cfg or {}).get("files") or {}).get("ignore_dirs") or []) | {".git", ".arch", "__pycache__", "node_modules", ".venv", "venv"}
+    count = 0
+    for dp, dns, fns in os.walk(root):
+        dns[:] = sorted(d for d in dns if d not in ign and not d.startswith("."))
+        for fn in sorted(fns):
+            if fn.endswith((".pyc", ".pyo")):
+                continue
+            p = os.path.join(dp, fn)
+            rel = os.path.relpath(p, root).replace("\\", "/")
+            try:
+                st = os.stat(p)
+                h.update(f"{rel}|{st.st_size}|{st.st_mtime_ns}\n".encode())
+            except OSError:
+                pass
+            count += 1
+            if count >= 5000:
+                break
+        if count >= 5000:
+            break
     return h.hexdigest()
 
 

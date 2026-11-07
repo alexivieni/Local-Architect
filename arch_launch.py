@@ -42,13 +42,25 @@ def make_shortcut(dest_dir=None, platform=None):
     hub = os.path.join(HERE, "architect_hub.py")
     if plat.startswith("win"):
         path = os.path.join(desk, "Architect.bat")
-        body = f'@echo off\r\ncd /d "{HERE}"\r\n"{py}" "{hub}"\r\n'
+        body = (
+            f'@echo off\r\n'
+            f'set OLLAMA_FLASH_ATTENTION=1\r\n'
+            f'set OLLAMA_KV_CACHE_TYPE=q8_0\r\n'
+            f'cd /d "{HERE}"\r\n'
+            f'"{py}" "{hub}"\r\n'
+        )
     elif plat == "darwin":
         path = os.path.join(desk, "Architect.command")
-        body = f'#!/bin/bash\ncd "{HERE}"\n"{py}" "{hub}"\n'
+        body = (
+            f'#!/bin/bash\n'
+            f'export OLLAMA_FLASH_ATTENTION=1\n'
+            f'export OLLAMA_KV_CACHE_TYPE=q8_0\n'
+            f'cd "{HERE}"\n'
+            f'"{py}" "{hub}"\n'
+        )
     else:
         path = os.path.join(desk, "Architect.desktop")
-        body = f'[Desktop Entry]\nType=Application\nName=Architect\nComment=Local agentic coding team\nExec={py} "{hub}"\nPath={HERE}\nTerminal=true\n'
+        body = f'[Desktop Entry]\nType=Application\nName=Architect\nComment=Local agentic coding team\nExec=env OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 {py} "{hub}"\nPath={HERE}\nTerminal=true\n'
     if os.path.exists(path):
         try:
             if "architect_hub.py" not in open(path, encoding="utf-8", errors="replace").read():
@@ -60,3 +72,13 @@ def make_shortcut(dest_dir=None, platform=None):
     if not plat.startswith("win"):
         os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP)
     return path
+
+
+def shortcut_status(dest_dir=None, platform=None):
+    """-> {exists, path, desktop_dir} for the desktop launcher without writing anything."""
+    plat = platform or sys.platform
+    desk = dest_dir or os.path.join(os.path.expanduser("~"), "Desktop")
+    name = "Architect.bat" if plat.startswith("win") else ("Architect.command" if plat == "darwin" else "Architect.desktop")
+    path = os.path.join(desk, name)
+    exists = os.path.isfile(path)
+    return {"exists": exists, "path": path if exists else os.path.join(desk, name), "desktop_dir": desk, "dir_exists": os.path.isdir(desk)}
