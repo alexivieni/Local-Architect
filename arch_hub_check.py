@@ -441,8 +441,11 @@ def run():
               _raw("GET", "/api/arch/chat", host="evil.example") == 403 and _raw("GET", "/api/arch/events?since=0", host="evil.example:80") == 403
               and _raw("GET", "/api/arch/events?since=0") == 200)
         check("a negative Content-Length is refused", _raw("POST", "/api/arch/undo", headers={"Content-Length": "-1", "X-Hub-Token": tok, "Content-Type": "application/json"}) == 413)
+        _hud = urllib.request.urlopen(base + "/hud").read().decode("utf-8", "replace")
+        check("the Harness HUD is served at /hud, wires itself to the hub's event stream and has a page in the Help group",
+              "ArchitectHUD" in _hud and "/api/arch/events/stream" in _hud and "translate(" in _hud
+              and any(p.get("id") == "hud" for p in call("/api/arch/ui/registry").get("pages", [])), len(_hud))
         import arch_core as _core0
-
         import model_hub as _mh0
         _iso = tempfile.mkdtemp()                       # these two saves write a config: never the person's real one
         _old_cf, _old_ccf, _old_dd = _mh0.CONFIG_FILE, _core0.CONFIG_FILE, os.environ.get("ARCHITECT_DATA_DIR")

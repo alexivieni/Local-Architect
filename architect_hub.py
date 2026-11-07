@@ -1882,8 +1882,9 @@ def _git_diff(root, files, cap=20000):
         if ".." in rel.replace("\\", "/").split("/") or os.path.isabs(rel):
             continue
         try:
+            kw = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)} if os.name == "nt" else {}
             r = subprocess.run(["git", "-C", root, "diff", "--no-color", "-U3", "--", rel], capture_output=True, text=True, timeout=8,
-                               encoding="utf-8", errors="replace")
+                               encoding="utf-8", errors="replace", **kw)
             if r.returncode == 0 and r.stdout.strip():
                 out[rel] = r.stdout[:cap]
         except (OSError, subprocess.SubprocessError):
@@ -3284,6 +3285,12 @@ class AHandler(mh.Handler):
                     return self._send(200, f.read(), "image/svg+xml")
             except OSError:
                 return self._send(404, {"error": "thumbnail missing"})
+        if u.path in ("/hud", "/hud.html"):             # the Harness HUD (circuit visualization of the live run)
+            try:
+                with open(os.path.join(HERE, "static", "hud", "architect_harness_hud.html"), "rb") as f:
+                    return self._send(200, f.read(), "text/html; charset=utf-8")
+            except OSError:
+                return self._send(404, {"error": "harness hud missing"})
         if u.path == "/api/arch/templates/catalog":     # the project template catalog (arch_templates_catalog), read-only
             if not self._host_ok():
                 return self._send(403, {"error": "bad host"})

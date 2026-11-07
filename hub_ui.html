@@ -1888,6 +1888,7 @@ const NAV_GROUPS=[
     ["hooks","bolt","Hooks","Your own commands that run at fixed points in a run"],
     ["train","train","Saved good work","Good work becomes training data for your models"],
     ["components","palette","Design samples","Every interface part, light and dark"],
+    ["hud","monitor","Harness HUD","The run as a live circuit: gates, state bus, crew orchestration"],
     ["plugins","layers","Plugins","Add-ons that bring agents, workflows, skills, commands and hooks"],
     ["telemetry","chart","Telemetry","Calls, tokens, cache reuse, errors and graphics memory, live"],
     ["lessons","check","Lessons","What we learned, and the code that keeps each lesson true"],
@@ -1903,7 +1904,7 @@ const SIDEBAR=[
            ["agentsp","crew","Agent teams",["agents","crewbuild","fleet","monitor","map"]]]],
   ["Models",[["team","chip","Models",["models","tiers","roles","bench","score"]],
              ["cachesp","db","Caches",["caches"]],
-             ["cost","target","Speed",["costmap","byjob","telemetry","finops"]]]],
+             ["cost","target","Speed",["costmap","byjob","telemetry","finops","hud"]]]],
   ["System",[["machine","server","Machine",["doctor","assess","computers","tune","selfimprove"]],
              ["settings","sliders","Settings",["settings","effective","hooks","train"]],
              ["help","palette","Help",["orchestra","squadruns","lessons","morning","components"]]]],
@@ -2468,6 +2469,7 @@ function render(){
   if(page==="crewbuild"){ if(!built.crewbuild){v.innerHTML="";put(v,...crewBuilderPage());built.crewbuild=1;} return; }
   if(page==="byjob"){ if(!built.byjob){v.innerHTML="";put(v,...byJobPage());built.byjob=1;} return; }
   if(page==="orchestra"){ if(!built.orchestra){v.innerHTML="";put(v,...orchPage());built.orchestra=1;} loadOrch(); return; }
+  if(page==="hud"){ if(!built.hud){v.innerHTML="";put(v,...hudPage());built.hud=1;} const _hf=$("#view iframe"), _hs="/hud?live=1&root="+encodeURIComponent(run.root||""); if(_hf&&_hf.getAttribute("src")!==_hs)_hf.src=_hs; return; }
   if(page==="caches"){ if(!built.caches){v.innerHTML="";put(v,...cachesPage());built.caches=1;} loadCaches(); return; }
   if(page==="lessons"){ if(!built.lessons){v.innerHTML="";put(v,...lessonsPage());built.lessons=1;} loadLessons(); return; }
   if(page==="finops"){ if(!built.finops){v.innerHTML="";put(v,...finopsPage());built.finops=1;} loadFinops(); return; }
@@ -6266,6 +6268,17 @@ function cmpFrame(theme){
     cmpSec("Empty, loading, error",h("div",{class:"empty"},"Nothing here yet. Run a task and it shows up here."),h("p",{class:"st-load",style:"margin:0"},"Loading the queue…"),
       h("p",{class:"st-err",style:"margin:0"},"Could not reach the server: is it running?"),h("div",{class:"note info"},"A note: what this means, in plain words."),h("div",{class:"note warn"},"A warning, with the way out.")),
     cmpSec("The live board",cmpBoard()));
+}
+/* Harness HUD: the run drawn as a live circuit (static/hud, served at /hud). It listens to the same event stream as the Console, so
+   what it shows is what happened, never a guess; the simulation buttons are for learning the layout with no run going. */
+function hudPage(){
+  const fr=h("iframe",{src:"/hud?live=1&root="+encodeURIComponent(run.root||""),title:"Harness HUD: the run as a live circuit",style:"width:100%;height:calc(100vh - 170px);min-height:560px;border:1px solid var(--line);border-radius:var(--rs);background:#07090e"});
+  return [h("div",{class:"card",style:"padding:12px 16px"},
+    h("div",{class:"row",style:"gap:12px;align-items:center;flex-wrap:wrap"},
+      h("div",{class:"grow"},h("h2",{style:"margin:0 0 4px"},"Harness HUD"),
+        h("p",{class:"sub",style:"margin:0"},"Every step, model call, check and verdict of the current run, drawn as a circuit. LIVE follows the run in the Console; REPLAY plays the newest finished run; SIMULATE shows the layout with no run going.")),
+      h("a",{class:"btn",href:"/hud",target:"_blank",rel:"noopener"},"Open in its own tab"))),
+    fr];
 }
 function componentsPage(){
   return [h("div",{class:"card"},h("div",{class:"chead"},h("div",{class:"t"},h("h2",null,"Components"),

@@ -1,0 +1,1770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architect // Cybernetic State-Bus, Orchestration & Harness HUD</title>
+<style>
+  :root {
+    --bg-dark: #07090e;
+    --bg-card: #0c1017;
+    --bg-card-inner: #080c12;
+    --border-dim: #1a2230;
+    --border-bright: #2d3b52;
+    --green-neon: #00ff9d;
+    --green-dim: #008753;
+    --cyan-neon: #00e5ff;
+    --cyan-dim: #007a8c;
+    --orange-neon: #ff9100;
+    --orange-dim: #8c4f00;
+    --pink-neon: #ff2a85;
+    --red-neon: #ff2a55;
+    --purple-neon: #b537f2;
+    --yellow-neon: #ffe600;
+    --text-main: #d4e0f0;
+    --text-dim: #5c708a;
+    --text-bright: #ffffff;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg-dark);
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+    position: relative;
+  }
+
+  /* Scanline Overlay */
+  body::before {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0; left: 0; bottom: 0; right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 255, 0, 0.03));
+    z-index: 100;
+    background-size: 100% 3px, 6px 100%;
+    pointer-events: none;
+    opacity: 0.7;
+  }
+
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    background-image: 
+      linear-gradient(to right, rgba(26, 34, 48, 0.25) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(26, 34, 48, 0.25) 1px, transparent 1px);
+    background-size: 32px 32px;
+    pointer-events: none;
+  }
+
+  /* Top Bar & Facet Switcher */
+  header.top-bar {
+    height: 42px;
+    background: rgba(10, 14, 22, 0.98);
+    border-bottom: 1px solid var(--border-dim);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    position: relative;
+    z-index: 20;
+  }
+
+  .top-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .hud-badge {
+    color: #fff;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .hud-badge .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green-neon);
+    box-shadow: 0 0 8px var(--green-neon);
+    animation: pulse-dot 1.5s infinite;
+  }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .hud-live-strip { color: var(--text-dim); font-size: 10px; letter-spacing: 0; margin-right: 8px; white-space: nowrap; }
+  .hud-live-strip b { color: var(--green-neon); font-weight: 600; }
+  .hud-live-strip.warn b { color: var(--orange-neon); }
+  .btn-hud.on { color: var(--green-neon); border-color: var(--green-dim); box-shadow: 0 0 8px rgba(0,255,157,.25); }
+  /* Facet Tabs */
+  .nav-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #06090e;
+    border: 1px solid var(--border-dim);
+    padding: 2px;
+    border-radius: 3px;
+  }
+  .nav-tab {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    padding: 5px 12px;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .nav-tab:hover {
+    color: #fff;
+    background: rgba(0, 229, 255, 0.08);
+  }
+  .nav-tab.active {
+    background: rgba(0, 229, 255, 0.15);
+    color: var(--cyan-neon);
+    border-bottom: 2px solid var(--cyan-neon);
+    box-shadow: inset 0 0 8px rgba(0, 229, 255, 0.2);
+  }
+
+  .top-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn-hud {
+    background: #111823;
+    border: 1px solid var(--border-bright);
+    color: var(--cyan-neon);
+    padding: 4px 10px;
+    font-size: 10px;
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s;
+  }
+  .btn-hud:hover {
+    background: var(--cyan-neon);
+    color: #000;
+    box-shadow: 0 0 10px var(--cyan-neon);
+  }
+  .btn-hud.alert {
+    color: var(--red-neon);
+    border-color: var(--red-neon);
+  }
+  .btn-hud.alert:hover {
+    background: var(--red-neon);
+    color: #fff;
+    box-shadow: 0 0 10px var(--red-neon);
+  }
+  .btn-hud.live {
+    color: var(--green-neon);
+    border-color: var(--green-neon);
+  }
+  .btn-hud.live:hover {
+    background: var(--green-neon);
+    color: #000;
+    box-shadow: 0 0 10px var(--green-neon);
+  }
+
+  /* Main Views Container */
+  .workspace {
+    position: relative;
+    height: calc(100vh - 42px);
+    overflow: hidden;
+  }
+
+  .tab-pane {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+  }
+  .tab-pane.active {
+    display: flex;
+  }
+
+  /* ========================================================
+     FACET 1: HARNESS GRAPH & BOTTOM DECKS
+     ======================================================== */
+  .graph-viewport {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  svg#wires-layer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .state-bus-spine {
+    position: absolute;
+    left: 48%;
+    top: 20px;
+    bottom: 20px;
+    width: 44px;
+    transform: translateX(-50%);
+    background: rgba(14, 20, 30, 0.90);
+    border: 1px solid rgba(0, 229, 255, 0.4);
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.15), inset 0 0 10px rgba(0, 229, 255, 0.1);
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .state-bus-spine:hover {
+    border-color: var(--cyan-neon);
+    box-shadow: 0 0 25px rgba(0, 229, 255, 0.35);
+  }
+  .bus-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    color: var(--cyan-neon);
+    font-size: 8.5px;
+    letter-spacing: 2px;
+    font-weight: 700;
+    text-shadow: 0 0 8px var(--cyan-neon);
+    margin: 8px 0;
+  }
+  .bus-taps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    align-items: center;
+  }
+  .bus-tap {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 4px;
+    font-size: 7.5px;
+    color: var(--text-dim);
+  }
+  .bus-tap::before, .bus-tap::after {
+    content: "";
+    width: 4px;
+    height: 4px;
+    background: var(--cyan-neon);
+    border-radius: 50%;
+    box-shadow: 0 0 6px var(--cyan-neon);
+  }
+
+  .gate-hold-banner {
+    position: absolute;
+    top: 14px;
+    left: 28%;
+    background: rgba(30, 8, 14, 0.95);
+    border: 1px solid var(--red-neon);
+    box-shadow: 0 0 16px rgba(255, 42, 85, 0.4), inset 0 0 10px rgba(255, 42, 85, 0.2);
+    color: #fff;
+    padding: 6px 16px;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    z-index: 4;
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: all 0.2s;
+  }
+  .gate-hold-banner .badge {
+    background: var(--red-neon);
+    color: #000;
+    padding: 2px 6px;
+    font-size: 9px;
+    font-weight: 900;
+    border-radius: 2px;
+  }
+  .gate-hold-banner span.sub {
+    color: var(--yellow-neon);
+    font-size: 10px;
+    font-weight: normal;
+  }
+
+  .hud-node {
+    position: absolute;
+    width: 195px;
+    background: rgba(12, 16, 24, 0.96);
+    border: 1px solid var(--border-bright);
+    border-radius: 3px;
+    padding: 8px 10px;
+    z-index: 3;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+    transition: transform 0.15s, box-shadow 0.15s;
+    cursor: pointer;
+  }
+  .hud-node:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(0, 229, 255, 0.25);
+    border-color: var(--cyan-neon);
+  }
+  .hud-node.active-step {
+    border-color: var(--yellow-neon);
+    box-shadow: 0 0 20px rgba(255, 230, 0, 0.4);
+    animation: pulse-node 1.2s infinite;
+  }
+  @keyframes pulse-node {
+    0%, 100% { border-color: var(--yellow-neon); }
+    50% { border-color: #fff; }
+  }
+
+  .node-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-dim);
+    padding-bottom: 5px;
+    margin-bottom: 6px;
+  }
+  .node-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .node-badge {
+    font-size: 8px;
+    padding: 1px 4px;
+    border-radius: 2px;
+    text-transform: uppercase;
+    font-weight: 800;
+  }
+
+  .node-green { border-left: 3px solid var(--green-neon); }
+  .node-green .node-title { color: var(--green-neon); }
+  .node-green .node-badge { background: rgba(0, 255, 157, 0.15); color: var(--green-neon); }
+
+  .node-cyan { border-left: 3px solid var(--cyan-neon); }
+  .node-cyan .node-title { color: var(--cyan-neon); }
+  .node-cyan .node-badge { background: rgba(0, 229, 255, 0.15); color: var(--cyan-neon); }
+
+  .node-orange { border-left: 3px solid var(--orange-neon); }
+  .node-orange .node-title { color: var(--orange-neon); }
+  .node-orange .node-badge { background: rgba(255, 145, 0, 0.15); color: var(--orange-neon); }
+
+  .node-pink { border-left: 3px solid var(--pink-neon); }
+  .node-pink .node-title { color: var(--pink-neon); }
+  .node-pink .node-badge { background: rgba(255, 42, 133, 0.15); color: var(--pink-neon); }
+
+  .node-red { border-left: 3px solid var(--red-neon); }
+  .node-red .node-title { color: var(--red-neon); }
+  .node-red .node-badge { background: rgba(255, 42, 85, 0.15); color: var(--red-neon); }
+
+  .node-purple { border-left: 3px solid var(--purple-neon); }
+  .node-purple .node-title { color: var(--purple-neon); }
+  .node-purple .node-badge { background: rgba(181, 55, 242, 0.15); color: var(--purple-neon); }
+
+  .node-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 3px 0;
+    font-size: 9px;
+  }
+  .node-row .label { color: var(--text-dim); }
+  .node-row .val { color: #fff; font-weight: 600; }
+  .node-bar-wrap {
+    width: 60px;
+    height: 4px;
+    background: #141b24;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .node-bar-fill {
+    height: 100%;
+    background: var(--cyan-neon);
+    border-radius: 2px;
+    box-shadow: 0 0 6px var(--cyan-neon);
+  }
+  .node-green .node-bar-fill { background: var(--green-neon); box-shadow: 0 0 6px var(--green-neon); }
+  .node-orange .node-bar-fill { background: var(--orange-neon); box-shadow: 0 0 6px var(--orange-neon); }
+  .node-pink .node-bar-fill { background: var(--pink-neon); box-shadow: 0 0 6px var(--pink-neon); }
+  .node-red .node-bar-fill { background: var(--red-neon); box-shadow: 0 0 6px var(--red-neon); }
+
+  .pin {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #000;
+    border: 1.5px solid var(--cyan-neon);
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    box-shadow: 0 0 6px var(--cyan-neon);
+  }
+  .pin-left { left: -4px; }
+  .pin-right { right: -4px; }
+  .node-green .pin { border-color: var(--green-neon); box-shadow: 0 0 6px var(--green-neon); }
+  .node-orange .pin { border-color: var(--orange-neon); box-shadow: 0 0 6px var(--orange-neon); }
+  .node-pink .pin { border-color: var(--pink-neon); box-shadow: 0 0 6px var(--pink-neon); }
+  .node-red .pin { border-color: var(--red-neon); box-shadow: 0 0 6px var(--red-neon); }
+
+  /* Slide-Over Node Inspector Drawer */
+  .inspector-drawer {
+    position: absolute;
+    top: 0; right: -430px;
+    width: 420px;
+    height: 100%;
+    background: rgba(10, 14, 22, 0.98);
+    border-left: 1px solid var(--cyan-neon);
+    box-shadow: -8px 0 28px rgba(0, 0, 0, 0.8), -2px 0 14px rgba(0, 229, 255, 0.2);
+    z-index: 50;
+    transition: right 0.25s cubic-bezier(0.1, 0.9, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    overflow-y: auto;
+  }
+  .inspector-drawer.open { right: 0; }
+  .drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-dim);
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+  }
+  .drawer-title { font-size: 13px; font-weight: 700; color: #fff; }
+  .drawer-close {
+    background: transparent;
+    border: 1px solid var(--border-bright);
+    color: var(--text-dim);
+    padding: 2px 8px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 10px;
+  }
+  .drawer-close:hover { color: #fff; border-color: var(--red-neon); }
+  .drawer-section { margin-bottom: 12px; }
+  .drawer-section-title {
+    font-size: 9px;
+    color: var(--cyan-neon);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    font-weight: 700;
+  }
+  .drawer-box {
+    background: #070a0f;
+    border: 1px solid var(--border-dim);
+    padding: 8px;
+    font-size: 9.5px;
+    line-height: 1.4;
+    border-radius: 2px;
+    color: #cadbee;
+  }
+
+  /* Bottom Telemetry Decks */
+  .bottom-decks {
+    height: 230px;
+    background: rgba(8, 11, 16, 0.98);
+    border-top: 1px solid var(--border-dim);
+    display: grid;
+    grid-template-columns: 28% 24% 28% 20%;
+    z-index: 10;
+  }
+
+  .deck-pane {
+    border-right: 1px solid var(--border-dim);
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .deck-pane:last-child { border-right: none; }
+
+  .deck-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-dim);
+    padding-bottom: 4px;
+    margin-bottom: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.8px;
+  }
+  .deck-header strong { color: #fff; }
+  .deck-header .tag { color: var(--green-neon); font-size: 9px; }
+
+  .log-stream {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 9.5px;
+  }
+  .log-line { display: flex; gap: 6px; line-height: 1.3; }
+  .log-tag { font-weight: 700; width: 65px; flex-shrink: 0; }
+  .log-tag.queue { color: var(--yellow-neon); }
+  .log-tag.gate { color: var(--red-neon); }
+  .log-tag.ask { color: var(--cyan-neon); }
+  .log-tag.code { color: var(--green-neon); }
+  .log-tag.bus { color: var(--purple-neon); }
+  .log-tag.llm { color: var(--orange-neon); }
+  .log-msg { color: var(--text-main); word-break: break-all; }
+  .log-msg strong { color: #fff; }
+
+  .dispatch-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .worker-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 9px;
+  }
+  .worker-name { width: 24px; color: var(--text-dim); font-weight: bold; }
+  .worker-bar {
+    flex: 1;
+    height: 6px;
+    background: #111822;
+    margin: 0 8px;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .worker-fill {
+    height: 100%;
+    background: var(--cyan-neon);
+    box-shadow: 0 0 6px var(--cyan-neon);
+    transition: width 0.3s;
+  }
+  .worker-fill.hold { background: var(--red-neon); box-shadow: 0 0 6px var(--red-neon); }
+  .worker-stat { width: 55px; text-align: right; color: #fff; }
+  .worker-stat.hold-text { color: var(--red-neon); font-weight: bold; }
+
+  .queue-gauges {
+    border-top: 1px solid var(--border-dim);
+    padding-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .gauge-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8.5px;
+    color: var(--text-dim);
+  }
+  .gauge-row strong { color: var(--yellow-neon); }
+
+  .code-pane {
+    flex: 1;
+    background: #090d14;
+    border: 1px solid var(--border-dim);
+    padding: 6px 8px;
+    font-size: 9px;
+    line-height: 1.4;
+    overflow-y: auto;
+    color: #9cb3d1;
+    border-radius: 2px;
+  }
+  .code-kw { color: var(--pink-neon); font-weight: bold; }
+  .code-str { color: var(--green-neon); }
+  .code-fn { color: var(--cyan-neon); }
+  .code-comment { color: #475a73; font-style: italic; }
+
+  .cost-display {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    justify-content: space-between;
+  }
+  .telemetry-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+  }
+  .telemetry-row .val { color: #fff; font-weight: bold; }
+  .big-cost {
+    background: rgba(18, 24, 34, 0.6);
+    border: 1px solid rgba(255, 230, 0, 0.3);
+    padding: 8px;
+    text-align: center;
+    border-radius: 3px;
+    box-shadow: 0 0 12px rgba(255, 230, 0, 0.1);
+  }
+  .big-cost-title { font-size: 8.5px; color: var(--text-dim); letter-spacing: 1px; }
+  .big-cost-num {
+    font-size: 26px;
+    font-weight: 900;
+    color: var(--yellow-neon);
+    text-shadow: 0 0 12px rgba(255, 230, 0, 0.5);
+    margin: 2px 0;
+  }
+  .cost-compare-bar {
+    width: 100%;
+    height: 8px;
+    background: #111822;
+    border-radius: 2px;
+    overflow: hidden;
+    display: flex;
+  }
+  .bar-local { width: 92%; background: var(--green-neon); box-shadow: 0 0 8px var(--green-neon); }
+  .bar-cloud { width: 8%; background: var(--pink-neon); }
+  .cost-legend {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8px;
+    color: var(--text-dim);
+  }
+
+  /* ========================================================
+     FACET 2: STATE BUS DEEP MATRIX
+     ======================================================== */
+  .bus-matrix-container {
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 1fr 420px;
+    gap: 16px;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .channels-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap: 10px;
+    overflow-y: auto;
+  }
+
+  .channel-card {
+    background: rgba(12, 16, 24, 0.95);
+    border: 1px solid var(--border-bright);
+    border-radius: 3px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .channel-card:hover, .channel-card.selected {
+    border-color: var(--cyan-neon);
+    box-shadow: 0 0 14px rgba(0, 229, 255, 0.25);
+    transform: translateY(-2px);
+  }
+  .channel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-dim);
+    padding-bottom: 6px;
+  }
+  .channel-id { font-size: 11px; font-weight: 700; color: var(--cyan-neon); }
+  .channel-size { font-size: 9px; color: var(--yellow-neon); }
+  .channel-desc { font-size: 9.5px; color: var(--text-main); margin: 6px 0; }
+  .channel-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8.5px;
+    color: var(--text-dim);
+  }
+  .channel-meta strong { color: #fff; }
+
+  .bus-payload-viewer {
+    background: #090d14;
+    border: 1px solid var(--border-bright);
+    border-radius: 3px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .payload-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-dim);
+    padding-bottom: 8px;
+  }
+  .payload-title { font-size: 12px; font-weight: bold; color: #fff; }
+  .payload-code {
+    flex: 1;
+    background: #05080c;
+    border: 1px solid var(--border-dim);
+    padding: 10px;
+    font-size: 9.5px;
+    line-height: 1.45;
+    overflow-y: auto;
+    color: #00ff9d;
+    border-radius: 2px;
+  }
+
+  /* ========================================================
+     FACET 3: CREW ORCHESTRATION & SWARM
+     ======================================================== */
+  .orchestration-container {
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 280px 1fr 340px;
+    gap: 16px;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .orchestration-panel {
+    background: rgba(12, 16, 24, 0.95);
+    border: 1px solid var(--border-bright);
+    border-radius: 3px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .panel-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--cyan-neon);
+    letter-spacing: 0.8px;
+    border-bottom: 1px solid var(--border-dim);
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .tier-card {
+    background: #080c12;
+    border: 1px solid var(--border-dim);
+    border-left: 3px solid var(--cyan-neon);
+    padding: 8px;
+    margin-bottom: 8px;
+    border-radius: 2px;
+  }
+  .tier-card.active { border-left-color: var(--green-neon); }
+  .tier-card-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 4px; }
+  .tier-card-meta { font-size: 8.5px; color: var(--text-dim); }
+
+  .fleet-file-locks {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .file-lock-row {
+    background: #070a0f;
+    border: 1px solid var(--border-dim);
+    padding: 6px 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 2px;
+    font-size: 9px;
+  }
+  .file-lock-row .file { color: #fff; font-weight: bold; }
+  .file-lock-row .agent { color: var(--pink-neon); font-size: 8.5px; }
+
+  /* ========================================================
+     FACET 4: AST SURGICAL DIFF COMPARATOR
+     ======================================================== */
+  .diff-container {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 12px;
+  }
+  .diff-header-bar {
+    background: rgba(12, 16, 24, 0.95);
+    border: 1px solid var(--border-bright);
+    padding: 10px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 3px;
+  }
+  .diff-metrics { display: flex; gap: 16px; font-size: 10px; }
+  .diff-metrics strong { color: var(--green-neon); }
+
+  .diff-split {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    overflow: hidden;
+  }
+  .diff-pane-box {
+    background: #070a0f;
+    border: 1px solid var(--border-dim);
+    border-radius: 3px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .diff-pane-title {
+    background: #0d121b;
+    border-bottom: 1px solid var(--border-dim);
+    padding: 6px 10px;
+    font-size: 9.5px;
+    font-weight: bold;
+    color: var(--text-dim);
+  }
+  .diff-content {
+    flex: 1;
+    padding: 10px;
+    font-size: 9.5px;
+    line-height: 1.5;
+    overflow-y: auto;
+  }
+  .line-del { background: rgba(255, 42, 85, 0.15); color: #ff8ca3; display: block; }
+  .line-add { background: rgba(0, 255, 157, 0.15); color: #8cffc7; display: block; font-weight: bold; }
+  .line-context { color: #5f748d; display: block; }
+</style>
+</head>
+<body>
+
+<div class="grid-bg"></div>
+
+<!-- Top HUD Bar & Facet Navigation Switcher -->
+<header class="top-bar">
+  <div class="top-left">
+    <div class="hud-badge"><span class="dot"></span> <strong>ARCHITECT // OS</strong></div>
+    
+    <!-- 4 Facet Navigation Tabs -->
+    <nav class="nav-tabs">
+      <button class="nav-tab active" data-tab="tab-graph">&#11041; 01 // HARNESS GRAPH</button>
+      <button class="nav-tab" data-tab="tab-statebus">&#11041; 02 // STATE BUS MATRIX</button>
+      <button class="nav-tab" data-tab="tab-orchestrate">&#11041; 03 // CREW ORCHESTRATION</button>
+      <button class="nav-tab" data-tab="tab-ast">&#11041; 04 // AST SURGICAL DIFF</button>
+    </nav>
+  </div>
+
+  <div class="top-right">
+    <span id="hud-live-strip" class="hud-live-strip" title="Live from this machine: the worker's layers on the card, graphics memory and speed"></span>
+    <button class="btn-hud live" id="btn-go-live" title="Follow the run that is happening in the hub right now">&#9679; LIVE</button>
+    <button class="btn-hud" id="btn-replay" title="Play the newest finished run through the circuit">&#8635; REPLAY LAST RUN</button>
+    <button class="btn-hud live" id="btn-run-sim">&#9654; SIMULATE FLOW</button>
+    <button class="btn-hud alert" id="btn-sim-stub">&#9889; TRIGGER STUB HOLD</button>
+    <button class="btn-hud" id="btn-sim-ratchet">&#9889; TEST RATCHET</button>
+    <button class="btn-hud" id="btn-toggle-sim">PAUSE SIM</button>
+  </div>
+</header>
+
+<div class="workspace">
+
+  <!-- ========================================================
+       FACET 1: HARNESS GRAPH & BOTTOM DECKS
+       ======================================================== -->
+  <div class="tab-pane active" id="tab-graph">
+    <div class="graph-viewport" id="viewport">
+      <svg id="wires-layer"></svg>
+
+      <div class="gate-hold-banner" id="gate-banner">
+        <span class="badge">04 GATE HOLDS</span>
+        <span id="gate-banner-msg">0.71 &lt; 0.85 &rarr; review</span>
+        <span class="sub" id="gate-banner-sub">[AST Fakecode Verified // Tests Pass]</span>
+      </div>
+
+      <!-- State Bus Spine -->
+      <div class="state-bus-spine" id="graph-bus-spine" title="Click to open State Bus Matrix">
+        <div class="bus-taps">
+          <div class="bus-tap" title="00: prompt_prefix"><span>00</span><span>01</span></div>
+          <div class="bus-tap" title="04: repo_tree"><span>04</span><span>05</span></div>
+          <div class="bus-tap" title="08: interface_contract"><span>08</span><span>09</span></div>
+          <div class="bus-tap" title="12: active_sprint"><span>12</span><span>13</span></div>
+        </div>
+        <div class="bus-label">STATE BUS C.256K // HYBRID ROUTER</div>
+        <div class="bus-taps">
+          <div class="bus-tap" title="16: diff_buffer"><span>16</span><span>17</span></div>
+          <div class="bus-tap" title="20: gate_verdicts"><span>20</span><span>21</span></div>
+          <div class="bus-tap" title="24: test_telemetry"><span>24</span><span>25</span></div>
+          <div class="bus-tap" title="28: swap_ledger"><span>28</span><span>29</span></div>
+        </div>
+      </div>
+
+      <!-- Nodes -->
+      <div class="hud-node node-green" id="node-intake" style="top: 25px; left: 40px;" data-node-key="intake">
+        <div class="pin pin-right"></div>
+        <div class="node-header"><span class="node-title">1. intake_spec</span><span class="node-badge">ready</span></div>
+        <div class="node-row"><span class="label">tokens</span><span class="val">1 559</span></div>
+        <div class="node-row"><span class="label">intent</span><span class="val">build / fix</span></div>
+        <div class="node-row"><span class="label">contract</span><div class="node-bar-wrap"><div class="node-bar-fill" style="width: 95%"></div></div></div>
+      </div>
+
+      <div class="hud-node node-green" id="node-fts5" style="top: 145px; left: 40px;" data-node-key="fts5">
+        <div class="pin pin-right"></div>
+        <div class="node-header"><span class="node-title">2. repo_index.fts5</span><span class="node-badge">cached</span></div>
+        <div class="node-row"><span class="label">fusion</span><span class="val">FTS5 + TFIDF</span></div>
+        <div class="node-row"><span class="label">depth</span><span class="val">top_5 ranks</span></div>
+        <div class="node-row"><span class="label">reciprocal</span><div class="node-bar-wrap"><div class="node-bar-fill" style="width: 88%"></div></div></div>
+      </div>
+
+      <div class="hud-node node-green" id="node-interface" style="top: 265px; left: 40px;" data-node-key="interface">
+        <div class="pin pin-right"></div>
+        <div class="node-header"><span class="node-title">3. plan_interface</span><span class="node-badge">contract</span></div>
+        <div class="node-row"><span class="label">signatures</span><span class="val">14 public</span></div>
+        <div class="node-row"><span class="label">shape</span><span class="val">exact_match</span></div>
+        <div class="node-row"><span class="label">stability</span><div class="node-bar-wrap"><div class="node-bar-fill" style="width: 100%"></div></div></div>
+      </div>
+
+      <div class="hud-node node-pink" id="node-router" style="top: 385px; left: 40px;" data-node-key="router">
+        <div class="pin pin-right"></div>
+        <div class="node-header"><span class="node-title">4. router_tier</span><span class="node-badge">ollama</span></div>
+        <div class="node-row"><span class="label">tier_model</span><span class="val">qwen3:1.7b</span></div>
+        <div class="node-row"><span class="label">target_flow</span><span class="val">flows/build</span></div>
+        <div class="node-row"><span class="label">confidence</span><div class="node-bar-wrap"><div class="node-bar-fill" style="width: 98%"></div></div></div>
+      </div>
+
+      <div class="hud-node node-purple" id="node-worker" style="top: 60px; left: 52%;" data-node-key="worker">
+        <div class="pin pin-left"></div><div class="pin pin-right"></div>
+        <div class="node-header"><span class="node-title">5. llama-server.cpp</span><span class="node-badge">gpu:36/36</span></div>
+        <div class="node-row"><span class="label">decode</span><span class="val">116.4 tok/s</span></div>
+        <div class="node-row"><span class="label">prefix_reuse</span><span class="val">2191/2192</span></div>
+        <div class="node-row"><span class="label">kv_cache</span><div class="node-bar-wrap"><div class="node-bar-fill" style="width: 44%"></div></div></div>
+      </div>
+
+      <div class="hud-node node-orange" id="node-replace-def" style="top: 240px; left: 52%;" data-node-key="replace_def">
+        <div class="pin pin-left"></div><div class="pin pin-right"></div>
+        <div class="node-header"><span class="node-title">6. DEF:replace_def</span><span class="node-badge">surgical</span></div>
+        <div class="node-row"><span class="label">ast_patch</span><span class="val">module::func</span></div>
+        <div class="node-row"><span class="label">preserved</span><span class="val">100% outer</span></div>
+        <div class="node-row"><span class="label">clean_ast</span><div class="node-bar-wrap"><div class="node-bar-fill" style="width: 94%"></div></div></div>
+      </div>
+
+      <div class="hud-node node-cyan" id="node-wire-contract" style="top: 25px; left: 75%;" data-node-key="wire_contract">
+        <div class="pin pin-left"></div>
+        <div class="node-header"><span class="node-title">7. wire_contract</span><span class="node-badge">ast-auto</span></div>
+        <div class="node-row"><span class="label">exports</span><span class="val">__init__.py</span></div>
+        <div class="node-row"><span class="label">cli_main</span><span class="val">wired</span></div>
+        <div class="node-row"><span class="label">auto_fix</span><div class="node-bar-wrap"><div class="node-bar-fill" style="width: 100%"></div></div></div>
+      </div>
+
+      <div class="hud-node node-red" id="node-eval-fakecode" style="top: 145px; left: 75%;" data-node-key="eval_fakecode">
+        <div class="pin pin-left"></div>
+        <div class="node-header"><span class="node-title">8. eval_fakecode</span><span class="node-badge">gate-ast</span></div>
+        <div class="node-row"><span class="label">stubs</span><span class="val" id="val-stub-count">0 stubs</span></div>
+        <div class="node-row"><span class="label">todo_checks</span><span class="val">clean</span></div>
+        <div class="node-row"><span class="label">gate_hold</span><div class="node-bar-wrap"><div class="node-bar-fill" id="bar-fakecode" style="width: 0%"></div></div></div>
+      </div>
+
+      <div class="hud-node node-cyan" id="node-pytest" style="top: 265px; left: 75%;" data-node-key="pytest">
+        <div class="pin pin-left"></div>
+        <div class="node-header"><span class="node-title">9. pytest_runner</span><span class="node-badge">runner</span></div>
+        <div class="node-row"><span class="label">passed</span><span class="val">14/14</span></div>
+        <div class="node-row"><span class="label">regressions</span><span class="val">0</span></div>
+        <div class="node-row"><span class="label">duration</span><span class="val">0.04s</span></div>
+      </div>
+
+      <div class="hud-node node-orange" id="node-best-state" style="top: 385px; left: 52%;" data-node-key="best_state">
+        <div class="pin pin-left"></div><div class="pin pin-right"></div>
+        <div class="node-header"><span class="node-title">10. best_state</span><span class="node-badge">ratchet</span></div>
+        <div class="node-row"><span class="label">try_ratchet</span><span class="val">best_try_1</span></div>
+        <div class="node-row"><span class="label">rollback</span><span class="val">auto_ready</span></div>
+        <div class="node-row"><span class="label">hold_guard</span><div class="node-bar-wrap"><div class="node-bar-fill" style="width: 100%"></div></div></div>
+      </div>
+
+      <div class="hud-node node-green" id="node-verdict" style="top: 385px; left: 75%;" data-node-key="verdict">
+        <div class="pin pin-left"></div>
+        <div class="node-header"><span class="node-title">11. verdict_receipt</span><span class="node-badge">pass</span></div>
+        <div class="node-row"><span class="label">receipt.html</span><span class="val">written</span></div>
+        <div class="node-row"><span class="label">ledger.jsonl</span><span class="val">logged</span></div>
+        <div class="node-row"><span class="label">swap_cost</span><span class="val">$0.00</span></div>
+      </div>
+    </div>
+
+    <!-- Slide-Over Inspector Drawer -->
+    <aside class="inspector-drawer" id="inspector-drawer">
+      <div class="drawer-header">
+        <span class="drawer-title" id="drawer-node-title">NODE INSPECTOR</span>
+        <button class="drawer-close" id="drawer-close-btn">&times; CLOSE</button>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">Architectural Role</div>
+        <div class="drawer-box" id="drawer-node-role">Click any node on the graph to inspect its live state, context keys, and gate rules.</div>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">State Bus Inputs (Context Read)</div>
+        <div class="drawer-box" id="drawer-node-inputs">--</div>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">State Bus Outputs (Mutations Written)</div>
+        <div class="drawer-box" id="drawer-node-outputs">--</div>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">Code-Side Verification Rule</div>
+        <div class="drawer-box" id="drawer-node-code">--</div>
+      </div>
+    </aside>
+
+    <!-- Bottom Decks -->
+    <footer class="bottom-decks">
+      <div class="deck-pane">
+        <div class="deck-header"><span>RUN LOG <strong>[live]</strong></span><span class="tag">18 L/s</span></div>
+        <div class="log-stream" id="log-container">
+          <div class="log-line"><span class="log-tag queue">queue</span><span class="log-msg">saved <strong>4f245f9.json</strong></span></div>
+          <div class="log-line"><span class="log-tag bus">bus.attach</span><span class="log-msg">state:into readers:14</span></div>
+          <div class="log-line"><span class="log-tag ask">ask</span><span class="log-msg">router_tier &rarr; flows/build.yaml</span></div>
+          <div class="log-line"><span class="log-tag llm">worker</span><span class="log-msg">llama-server 116.4 tok/s (prefix 2191/2192)</span></div>
+          <div class="log-line"><span class="log-tag code">code</span><span class="log-msg">wire_contract auto-wire __init__.py</span></div>
+          <div class="log-line"><span class="log-tag gate">gate</span><span class="log-msg">eval_fakecode AST check: <strong>0 stubs</strong> [PASS]</span></div>
+          <div class="log-line"><span class="log-tag code">code</span><span class="log-msg">pytest_runner 14/14 passed in 0.04s</span></div>
+        </div>
+      </div>
+
+      <div class="deck-pane">
+        <div class="deck-header"><span>DISPATCH <strong>[8 workers]</strong></span><span class="tag">PARALLEL: 6</span></div>
+        <div class="dispatch-grid">
+          <div class="worker-row"><span class="worker-name">w1</span><div class="worker-bar"><div class="worker-fill" style="width: 34%"></div></div><span class="worker-stat">34% run</span></div>
+          <div class="worker-row"><span class="worker-name">w2</span><div class="worker-bar"><div class="worker-fill" style="width: 59%"></div></div><span class="worker-stat">59% run</span></div>
+          <div class="worker-row"><span class="worker-name">w3</span><div class="worker-bar"><div class="worker-fill" style="width: 21%"></div></div><span class="worker-stat">21% run</span></div>
+          <div class="worker-row"><span class="worker-name">w4</span><div class="worker-bar"><div class="worker-fill" style="width: 71%"></div></div><span class="worker-stat">71% run</span></div>
+          <div class="worker-row"><span class="worker-name">w5</span><div class="worker-bar"><div class="worker-fill" style="width: 72%"></div></div><span class="worker-stat">72% run</span></div>
+          <div class="worker-row"><span class="worker-name">w6</span><div class="worker-bar"><div class="worker-fill" style="width: 65%"></div></div><span class="worker-stat">65% run</span></div>
+        </div>
+        <div class="queue-gauges">
+          <div class="gauge-row"><span>queue/research</span><strong>1 039</strong></div>
+          <div class="gauge-row"><span>queue/write</span><strong>1 993</strong></div>
+          <div class="gauge-row"><span>queue/review</span><strong>615</strong></div>
+        </div>
+      </div>
+
+      <div class="deck-pane">
+        <div class="deck-header"><span>HARNESS EXECUTOR <strong>[arch_core.py]</strong></span><span class="tag">AST RATIO</span></div>
+        <div class="code-pane">
+<span class="code-comment"># Code decides, LLM writes. Zero stubs.</span>
+<span class="code-kw">from</span> arch_gates <span class="code-kw">import</span> GATES
+<span class="code-kw">from</span> arch_fakecode <span class="code-kw">import</span> scan
+
+core.replace_def(target=<span class="code-str">"report.py::run"</span>, replacement=llm_body)
+stubs = scan(project_root)
+<span class="code-kw">if</span> stubs:
+    engine.hold(<span class="code-str">"Fakecode Gate tripped: 0 stubs permitted"</span>)
+best_state.ratchet(tests_passed=14, regressions=0)
+        </div>
+      </div>
+
+      <div class="deck-pane">
+        <div class="deck-header"><span>GRAPH COST <strong>[telemetry]</strong></span><span class="tag">FINOPS</span></div>
+        <div class="cost-display">
+          <div class="telemetry-row"><span>edges</span><span class="val">18</span></div>
+          <div class="telemetry-row"><span>decisions</span><span class="val">6 943</span></div>
+          <div class="telemetry-row"><span>median latency</span><span class="val">116 ms</span></div>
+          <div class="big-cost">
+            <div class="big-cost-title">10 000 DECISIONS EQUIVALENT</div>
+            <div class="big-cost-num">$0.26</div>
+            <div class="cost-compare-bar"><div class="bar-local"></div><div class="bar-cloud"></div></div>
+            <div class="cost-legend"><span style="color:var(--green-neon)">Local: $0.00 (100% saved)</span><span style="color:var(--pink-neon)">API: $0.26</span></div>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ========================================================
+       FACET 2: STATE BUS DEEP MATRIX
+       ======================================================== -->
+  <div class="tab-pane" id="tab-statebus">
+    <div class="bus-matrix-container">
+      <div class="channels-grid">
+        
+        <div class="channel-card selected" data-channel="00">
+          <div class="channel-header"><span class="channel-id">CH 00 // PROMPT_PREFIX</span><span class="channel-size">2 192 TOK</span></div>
+          <div class="channel-desc">Cache-stable system prompt prefix. Few-shot suffix kept in user turn to guarantee 100% KV reuse.</div>
+          <div class="channel-meta"><span>LOCKED: <strong>TRUE</strong></span><span>REUSE: <strong>2191/2192</strong></span></div>
+        </div>
+
+        <div class="channel-card" data-channel="04">
+          <div class="channel-header"><span class="channel-id">CH 04 // REPO_TREE_AST</span><span class="channel-size">42 SYMBOLS</span></div>
+          <div class="channel-desc">Compact AST hierarchy index. Functions, class definitions, and cross-file import graph.</div>
+          <div class="channel-meta"><span>INDEX: <strong>FTS5</strong></span><span>DEPTH: <strong>TOP_5</strong></span></div>
+        </div>
+
+        <div class="channel-card" data-channel="08">
+          <div class="channel-header"><span class="channel-id">CH 08 // INTERFACE_CONTRACT</span><span class="channel-size">14 SIGS</span></div>
+          <div class="channel-desc">Interface-first public contracts. Every function signature and argument list locked before sprint.</div>
+          <div class="channel-meta"><span>STATUS: <strong>LOCKED</strong></span><span>STABILITY: <strong>1.000</strong></span></div>
+        </div>
+
+        <div class="channel-card" data-channel="12">
+          <div class="channel-header"><span class="channel-id">CH 12 // ACTIVE_SPRINT</span><span class="channel-size">1 MODULE</span></div>
+          <div class="channel-desc">Single-module sprint boundary (behavior.merge_small_plans) to prevent multi-file context drops.</div>
+          <div class="channel-meta"><span>SPRINT: <strong>01/01</strong></span><span>TARGET: <strong>report.py</strong></span></div>
+        </div>
+
+        <div class="channel-card" data-channel="16">
+          <div class="channel-header"><span class="channel-id">CH 16 // DIFF_BUFFER</span><span class="channel-size">+42 / -12 LINES</span></div>
+          <div class="channel-desc">Surgical DEF replacement block before AST validation and file tree application.</div>
+          <div class="channel-meta"><span>MODE: <strong>REPLACE_DEF</strong></span><span>OUTER: <strong>100% KEPT</strong></span></div>
+        </div>
+
+        <div class="channel-card" data-channel="20">
+          <div class="channel-header"><span class="channel-id">CH 20 // GATE_VERDICTS</span><span class="channel-size">4 GATES OK</span></div>
+          <div class="channel-desc">Code-side gate evaluation state. AST Fakecode (0 stubs), wire_contract, syntax check.</div>
+          <div class="channel-meta"><span>STUBS: <strong>0</strong></span><span>VERDICT: <strong>PASS</strong></span></div>
+        </div>
+
+        <div class="channel-card" data-channel="24">
+          <div class="channel-header"><span class="channel-id">CH 24 // TEST_TELEMETRY</span><span class="channel-size">14/14 PASS</span></div>
+          <div class="channel-desc">Sandboxed pytest execution results, duration, and failure digest tracebacks.</div>
+          <div class="channel-meta"><span>DURATION: <strong>0.04s</strong></span><span>REGRESS: <strong>0</strong></span></div>
+        </div>
+
+        <div class="channel-card" data-channel="28">
+          <div class="channel-header"><span class="channel-id">CH 28 // SWAP_LEDGER</span><span class="channel-size">0 SWAPS</span></div>
+          <div class="channel-desc">Resident GPU model swap tracking. Models co-exist on VRAM with zero PCIe transfer penalty.</div>
+          <div class="channel-meta"><span>VRAM: <strong>36/36 LAYERS</strong></span><span>COST: <strong>$0.00</strong></span></div>
+        </div>
+
+      </div>
+
+      <!-- Channel Payload Inspector -->
+      <div class="bus-payload-viewer">
+        <div class="payload-header">
+          <span class="payload-title" id="payload-title">CHANNEL 00 // PROMPT_PREFIX PAYLOAD</span>
+          <span style="color:var(--cyan-neon); font-size:9px;">READ-ONLY LIVE TAP</span>
+        </div>
+        <pre class="payload-code" id="payload-code">
+{
+  "prefix_hash": "a4f89d31c0e",
+  "stable_instructions": "You are Architect Worker. Reply strictly in surgical DEF blocks.",
+  "project_context": {
+    "root": "c:/Users/alexi/Downloads/architect_v12",
+    "files": ["report.py", "test_report.py", "cli.py"]
+  },
+  "kv_cache_state": {
+    "cached_tokens": 2191,
+    "total_prefix_tokens": 2192,
+    "hit_rate": 0.9995
+  }
+}
+        </pre>
+        <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--text-dim);">
+          <span>BUS LINE: <strong>C.256K / TAP 00</strong></span>
+          <span style="color:var(--green-neon)">SYNCHRONIZED</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================
+       FACET 3: CREW ORCHESTRATION & SWARM
+       ======================================================== -->
+  <div class="tab-pane" id="tab-orchestrate">
+    <div class="orchestration-container">
+      
+      <!-- Tier Grid -->
+      <div class="orchestration-panel">
+        <div class="panel-title"><span>HARDWARE TIERS</span><span>4 ACTIVE</span></div>
+        
+        <div class="tier-card active">
+          <div class="tier-card-header"><span style="color:var(--cyan-neon)">TIER 1: ROUTER</span><span>Ollama</span></div>
+          <div class="tier-card-meta">Model: <strong>qwen3:1.7b</strong> (VRAM 1.4 GB)</div>
+          <div class="tier-card-meta">Role: Intent classification & YAML flow selection</div>
+        </div>
+
+        <div class="tier-card active">
+          <div class="tier-card-header"><span style="color:var(--purple-neon)">TIER 2: WORKER</span><span>GPU 36/36</span></div>
+          <div class="tier-card-meta">Model: <strong>qwen2.5-coder-14b</strong> (VRAM 4.2 GB)</div>
+          <div class="tier-card-meta">Speed: <strong>116.4 tok/s</strong> | q8_0 KV Cache</div>
+        </div>
+
+        <div class="tier-card">
+          <div class="tier-card-header"><span style="color:var(--orange-neon)">TIER 3: HEAVY</span><span>Standby</span></div>
+          <div class="tier-card-meta">Model: <strong>qwen3:32b</strong> or Cloud Escalation</div>
+          <div class="tier-card-meta">Trigger: Stalled runs after 2 failed retries</div>
+        </div>
+
+        <div class="tier-card">
+          <div class="tier-card-header"><span style="color:var(--green-neon)">TIER 4: DRAFT</span><span>Resident</span></div>
+          <div class="tier-card-meta">Model: <strong>qwen3:0.6b</strong> (Speculative Decode)</div>
+          <div class="tier-card-meta">Role: N-gram token acceleration</div>
+        </div>
+      </div>
+
+      <!-- Fleet Ownership Locks & Swarm Pipeline -->
+      <div class="orchestration-panel">
+        <div class="panel-title"><span>FLEET FILE OWNERSHIP LOCKS</span><span>arch_fleet.py</span></div>
+        <div class="fleet-file-locks">
+          <div class="file-lock-row">
+            <span class="file">salesreport/report.py</span>
+            <span class="agent">OWNER: Worker Agent #1</span>
+          </div>
+          <div class="file-lock-row">
+            <span class="file">salesreport/__init__.py</span>
+            <span class="agent">OWNER: WireContract Gate</span>
+          </div>
+          <div class="file-lock-row">
+            <span class="file">tests/test_report.py</span>
+            <span class="agent" style="color:var(--green-neon)">LOCKED (READ-ONLY)</span>
+          </div>
+          <div class="file-lock-row">
+            <span class="file">pyproject.toml</span>
+            <span class="agent" style="color:var(--green-neon)">LOCKED (READ-ONLY)</span>
+          </div>
+        </div>
+
+        <div class="panel-title" style="margin-top:16px;"><span>SWARM SPRINT LIFECYCLE</span><span>RATIO 1:1</span></div>
+        <div style="font-size:9.5px; line-height:1.6; color:#a2b7d4;">
+          <div>1. <strong style="color:var(--cyan-neon)">Router Agent</strong> claims task &rarr; writes flow plan to State Bus.</div>
+          <div>2. <strong style="color:var(--purple-neon)">Worker Agent</strong> locks target file owner &rarr; streams DEF block.</div>
+          <div>3. <strong style="color:var(--yellow-neon)">WireContract Agent</strong> checks package shape & exports.</div>
+          <div>4. <strong style="color:var(--red-neon)">FakeCode Gate</strong> audits AST: passes or halts sprint.</div>
+          <div>5. <strong style="color:var(--green-neon)">Judge Agent</strong> runs pytest suite & updates BestState ratchet.</div>
+        </div>
+      </div>
+
+      <!-- Live Orchestrator Controls -->
+      <div class="orchestration-panel">
+        <div class="panel-title"><span>ORCHESTRATION DECK</span><span>CONTROL</span></div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <button class="btn-hud live" id="orch-btn-sprint">FORCE SPRINT DISPATCH</button>
+          <button class="btn-hud" id="orch-btn-escalate">TRIGGER CLOUD ESCALATION ($0.004)</button>
+          <button class="btn-hud alert" id="orch-btn-lock">ENGAGE .ARCH/STOP LOCK</button>
+        </div>
+
+        <div style="margin-top:14px; background:#070a0f; border:1px solid var(--border-dim); padding:10px; border-radius:2px;">
+          <div style="font-size:9px; color:var(--text-dim); margin-bottom:4px;">SWARM CONCURRENCY BUDGET</div>
+          <div style="display:flex; justify-content:space-between; font-size:10px; font-weight:bold; margin-bottom:4px;">
+            <span>Parallel Agents: <strong>6</strong></span>
+            <span>Thread Ceiling: <strong>8</strong></span>
+          </div>
+          <div class="worker-bar" style="margin:0;"><div class="worker-fill" style="width:75%"></div></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========================================================
+       FACET 4: AST SURGICAL DIFF COMPARATOR
+       ======================================================== -->
+  <div class="tab-pane" id="tab-ast">
+    <div class="diff-container">
+      <div class="diff-header-bar">
+        <div>
+          <span style="font-weight:bold; color:#fff; font-size:11px;">TARGET: salesreport/report.py::build_summary</span>
+          <span style="color:var(--cyan-neon); font-size:9.5px; margin-left:10px;">[replace_def AST mode]</span>
+        </div>
+        <div class="diff-metrics">
+          <span>Outer AST Preserved: <strong>100%</strong></span>
+          <span>Fakecode Stubs: <strong>0</strong></span>
+          <span>Tests Passing: <strong>14/14</strong></span>
+        </div>
+      </div>
+
+      <div class="diff-split">
+        <div class="diff-pane-box">
+          <div class="diff-pane-title">ORIGINAL AST NODE (Existing Source File)</div>
+          <div class="diff-content">
+<span class="line-context">import os, json</span>
+<span class="line-context"></span>
+<span class="line-del">- def build_summary(items: list[dict]) -> dict:</span>
+<span class="line-del">-     # Buggy implementation returning page 0 for page 1</span>
+<span class="line-del">-     total = sum(i.get('amount', 0) for i in items)</span>
+<span class="line-del">-     return {'count': len(items), 'page': 0}</span>
+<span class="line-context"></span>
+<span class="line-context">def format_currency(val: float) -> str:</span>
+<span class="line-context">    return f"${val:,.2f}"</span>
+          </div>
+        </div>
+
+        <div class="diff-pane-box">
+          <div class="diff-pane-title" style="color:var(--green-neon);">SURGICAL REPLACEMENT (Worker DEF Block Applied)</div>
+          <div class="diff-content">
+<span class="line-context">import os, json</span>
+<span class="line-context"></span>
+<span class="line-add">+ def build_summary(items: list[dict], page: int = 1) -> dict:</span>
+<span class="line-add">+     total = sum(i.get('amount', 0) for i in items)</span>
+<span class="line-add">+     return {</span>
+<span class="line-add">+         'count': len(items),</span>
+<span class="line-add">+         'total': total,</span>
+<span class="line-add">+         'page': max(1, page)</span>
+<span class="line-add">+     }</span>
+<span class="line-context"></span>
+<span class="line-context">def format_currency(val: float) -> str:</span>
+<span class="line-context">    return f"${val:,.2f}"</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Technical Node Database mapping directly to Architect's Architecture
+  const NODE_SPECS = {
+    intake: {
+      title: "1. INTAKE_SPEC (Request Ingestion)",
+      role: "Parses user prompt, establishes run budget, detects if tests are requested (wants_tests), and mounts initial state into Engine context.",
+      inputs: "User Request String, Command-Line Flags (/review, /fix, /secure), Project Root Path.",
+      outputs: "Engine.context['goal'], Engine.budget {calls, tokens, seconds}, trace session record.",
+      code: "arch_core.py::Engine.run(goal, params)\nChecks .arch/STOP file, initializes BestState ratchet."
+    },
+    fts5: {
+      title: "2. REPO_INDEX.FTS5 (Hybrid Retrieval)",
+      role: "SQLite FTS5 + TF-IDF Reciprocal Rank Fusion (.arch/index.db). Ranks relevant code snippets, definitions, and verified lessons without loading whole files into context.",
+      inputs: "Goal query, project AST symbols, memory notes from hub_data/memory/.",
+      outputs: "rank_files: top-5 relevant source paths and function signatures shown to the model.",
+      code: "arch_index.py::rank_files(query)\nFused reciprocal rank: R = 1/(60 + rank_fts) + 1/(60 + rank_tfidf)."
+    },
+    interface: {
+      title: "3. PLAN_INTERFACE (Interface-First Contract)",
+      role: "Extracts every public function name, class signature, and argument list before logic is written. Prevents small models from dropping public contracts during sprints.",
+      inputs: "FTS5 signatures, user requirements, project public modules.",
+      outputs: "PLAN.interface contract lines locked at the top of every sprint prompt.",
+      code: "arch_flows.py::interface_lines()\nRequest contract first; planner names added only if request does not fix them."
+    },
+    router: {
+      title: "4. ROUTER_TIER (Ollama Fast Tier)",
+      role: "Small, fast model (1.7B–4B) on resident Ollama or llama-server. Classifies the request and selects the optimal flow (build, bugfix, feature, harden, ship).",
+      inputs: "Intake goal string, keyword weights, project language detection.",
+      outputs: "Selected flow YAML (flows/*.yaml) and role sampling parameters.",
+      code: "arch_roles.py::TIER_OF['router'] -> Ollama /api/chat with temp 0.0."
+    },
+    worker: {
+      title: "5. LLAMA-SERVER.CPP (Resident Worker GPU)",
+      role: "Resident llama-server running on RTX GPU (36/36 layers offloaded). Generates code completions with exact prefix-cache reuse (cache_n > 0).",
+      inputs: "Prefix-stable prompt (few_shot in user message, instructions first), role_ctx context window.",
+      outputs: "Surgical DEF blocks (DEF: path.py::name) and raw tokens at ~116 tok/s.",
+      code: "arch_server.py::plan() -> starts llama-server with --cache-type-k q8_0 --cache-type-v q8_0."
+    },
+    replace_def: {
+      title: "6. DEF:REPLACE_DEF (AST Surgical Block)",
+      role: "Replaces exactly one function or method AST definition in the target file, preserving all other functions, imports, and comments 100% intact.",
+      inputs: "Target module path, function name, new replacement body from worker.",
+      outputs: "Updated file with zero lost definitions and unchanged file formatting.",
+      code: "arch_core.py::replace_def(path, name, body)\nAST NodeTransformer replaces target node, refuses if file fails ast.parse()."
+    },
+    wire_contract: {
+      title: "7. WIRE_CONTRACT (Code-Side Auto-Wiring)",
+      role: "Code fixes the wiring, model writes logic. Automatically creates missing __init__.py exports, adds argument-free main(), and verifies importability.",
+      inputs: "Target definitions, package directories, CLI entrypoints.",
+      outputs: "Unambiguous package wiring applied before judges run.",
+      code: "arch_flows.py::wire_contract(e, sprints)\nTraced as 'assist' and skipped as fine-tuning training sample."
+    },
+    eval_fakecode: {
+      title: "8. EVAL_FAKECODE (AST Zero-Stub Gate)",
+      role: "AST scanner that guarantees zero fake code. Refuses any reply containing pass in non-abstract methods, TODO, NotImplementedError, or empty bodies.",
+      inputs: "Engine.changed files list.",
+      outputs: "Gate answer: True (0 stubs), False (gate fails), or None (not_sure).",
+      code: "arch_fakecode.py::scan(root)\nAST NodeVisitor inspects every FunctionDef. Gate is absolute."
+    },
+    pytest: {
+      title: "9. PYTEST_RUNNER (Sandboxed Test Runner)",
+      role: "Executes actual project test suite in isolated process. In bugfix flow, existing tests are read-only; new tests reproduce bug before fix is tested.",
+      inputs: "Test command, changed files, timeout budget.",
+      outputs: "Tests run, passed, failed, duration, stdout traceback digest.",
+      code: "arch_tools.py::run_tests() / arch_checks.py\nHarness enforces timeout and captures exact failure line."
+    },
+    best_state: {
+      title: "10. BEST_STATE (Ratchet Mechanism)",
+      role: "Tracks the highest-scoring try. Any subsequent try that breaks syntax, drops existing passes, or introduces new failures is rolled back automatically.",
+      inputs: "Current try test results, syntax parse check, definition retention count.",
+      outputs: "Reverts file tree to best state if try makes project worse.",
+      code: "arch_flows.py::BestState.consider(e, result)\nKeeps best try; ties go to newest; never turns fail into pass."
+    },
+    verdict: {
+      title: "11. VERDICT_RECEIPT (Ship & Ledger Audit)",
+      role: "Generates self-contained, scriptless HTML run receipt (.arch/runs/), records run economics to ledger.jsonl, and logs verified tokens to FinOps.",
+      inputs: "Full run trace, tool calls, gate outputs, swap counts, token usage.",
+      outputs: "HTML receipt, ledger entry for few-shot learning, FinOps savings update.",
+      code: "arch_receipt.py::render() & arch_ledger.py::append()\nFew-shot from your own successes."
+    }
+  };
+
+  // State Bus Channel Payload Samples
+  const CHANNEL_PAYLOADS = {
+    "00": {
+      title: "CHANNEL 00 // PROMPT_PREFIX PAYLOAD",
+      json: `{\n  "prefix_hash": "a4f89d31c0e",\n  "stable_instructions": "You are Architect Worker. Reply strictly in surgical DEF blocks.",\n  "project_context": {\n    "root": "c:/Users/alexi/Downloads/architect_v12",\n    "files": ["report.py", "test_report.py", "cli.py"]\n  },\n  "kv_cache_state": {\n    "cached_tokens": 2191,\n    "total_prefix_tokens": 2192,\n    "hit_rate": 0.9995\n  }\n}`
+    },
+    "04": {
+      title: "CHANNEL 04 // REPO_TREE_AST PAYLOAD",
+      json: `{\n  "symbols": [\n    {"name": "build_summary", "type": "function", "module": "salesreport/report.py", "args": ["items", "page"]},\n    {"name": "format_currency", "type": "function", "module": "salesreport/report.py", "args": ["val"]},\n    {"name": "SalesCLI", "type": "class", "module": "salesreport/cli.py", "methods": ["run", "export"]}\n  ],\n  "import_graph": {\n    "cli.py": ["report.py"],\n    "test_report.py": ["report.py"]\n  }\n}`
+    },
+    "08": {
+      title: "CHANNEL 08 // INTERFACE_CONTRACT PAYLOAD",
+      json: `{\n  "interface_locked": true,\n  "signatures": [\n    "def build_summary(items: list[dict], page: int = 1) -> dict",\n    "def format_currency(val: float) -> str",\n    "def run_cli(args: list[str]) -> int"\n  ],\n  "enforce_names": true,\n  "auto_wire_allowed": true\n}`
+    },
+    "12": {
+      title: "CHANNEL 12 // ACTIVE_SPRINT PAYLOAD",
+      json: `{\n  "sprint_id": "sprint_01",\n  "target_file": "salesreport/report.py",\n  "file_owner": "worker_agent_01",\n  "merge_small_plans": true,\n  "budget": {"calls": 4, "tokens": 8192, "timeout_s": 240}\n}`
+    },
+    "16": {
+      title: "CHANNEL 16 // DIFF_BUFFER PAYLOAD",
+      json: `{\n  "mode": "replace_def",\n  "target": "salesreport/report.py::build_summary",\n  "lines_added": 7,\n  "lines_removed": 4,\n  "outer_ast_intact": true,\n  "syntax_valid": true\n}`
+    },
+    "20": {
+      title: "CHANNEL 20 // GATE_VERDICTS PAYLOAD",
+      json: `{\n  "gates": {\n    "arch_fakecode": {"verdict": true, "stubs_found": 0, "pass_in_non_abstract": false},\n    "wire_contract": {"verdict": true, "missing_exports_fixed": ["__init__.py"]},\n    "syntax_check": {"verdict": true, "ast_parse_ok": true}\n  },\n  "final_gate_pass": true\n}`
+    },
+    "24": {
+      title: "CHANNEL 24 // TEST_TELEMETRY PAYLOAD",
+      json: `{\n  "runner": "pytest",\n  "passed": 14,\n  "failed": 0,\n  "errors": 0,\n  "duration_s": 0.04,\n  "regressions": 0,\n  "worse_than_best": false\n}`
+    },
+    "28": {
+      title: "CHANNEL 28 // SWAP_LEDGER PAYLOAD",
+      json: `{\n  "active_tier": "worker",\n  "model": "qwen2.5-coder-14b",\n  "gpu_layers": "36/36",\n  "swaps_this_run": 0,\n  "swap_latency_s": 0.0,\n  "local_spend_usd": 0.00,\n  "cloud_equivalent_usd": 0.255\n}`
+    }
+  };
+
+  // Tab Switcher Controller
+  const tabs = document.querySelectorAll('.nav-tab');
+  const panes = document.querySelectorAll('.tab-pane');
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      panes.forEach(p => p.classList.remove('active'));
+
+      tab.classList.add('active');
+      const targetId = tab.getAttribute('data-tab');
+      const targetPane = document.getElementById(targetId);
+      if (targetPane) targetPane.classList.add('active');
+
+      if (targetId === 'tab-graph') {
+        setTimeout(drawWires, 50);
+      }
+    });
+  });
+
+  // State Bus Spine Click -> Jump to Matrix Tab
+  document.getElementById('graph-bus-spine').addEventListener('click', () => {
+    document.querySelector('[data-tab="tab-statebus"]').click();
+  });
+
+  // State Bus Channel Selection
+  const channelCards = document.querySelectorAll('.channel-card');
+  channelCards.forEach(card => {
+    card.addEventListener('click', () => {
+      channelCards.forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      const ch = card.getAttribute('data-channel');
+      const payload = CHANNEL_PAYLOADS[ch];
+      if (payload) {
+        document.getElementById('payload-title').textContent = payload.title;
+        document.getElementById('payload-code').textContent = payload.json;
+      }
+    });
+  });
+
+  // Wire Route Connections for Graph
+  const svg = document.getElementById('wires-layer');
+  let isSimulating = true;
+  let frameCount = 856;
+
+  const routes = [
+    { from: 'node-intake', to: 'node-fts5', color: '#00ff9d', speed: 2.2 },
+    { from: 'node-fts5', to: 'node-interface', color: '#00ff9d', speed: 2.0 },
+    { from: 'node-interface', to: 'node-router', color: '#00e5ff', speed: 2.5 },
+    { from: 'node-router', to: 'node-worker', color: '#b537f2', speed: 2.8 },
+    { from: 'node-worker', to: 'node-replace-def', color: '#ff9100', speed: 2.4 },
+    { from: 'node-replace-def', to: 'node-wire-contract', color: '#00e5ff', speed: 2.1 },
+    { from: 'node-wire-contract', to: 'node-eval-fakecode', color: '#00ff9d', speed: 2.6 },
+    { from: 'node-eval-fakecode', to: 'node-pytest', color: '#00e5ff', speed: 2.3 },
+    { from: 'node-pytest', to: 'node-best-state', color: '#ff9100', speed: 2.0 },
+    { from: 'node-best-state', to: 'node-verdict', color: '#00ff9d', speed: 2.9 }
+  ];
+
+  function drawWires() {
+    svg.innerHTML = '';
+    const vp = document.getElementById('viewport').getBoundingClientRect();
+
+    routes.forEach((r, idx) => {
+      const elFrom = document.getElementById(r.from);
+      const elTo = document.getElementById(r.to);
+      if (!elFrom || !elTo) return;
+
+      const fRect = elFrom.getBoundingClientRect();
+      const tRect = elTo.getBoundingClientRect();
+
+      const startX = fRect.right - vp.left;
+      const startY = fRect.top + fRect.height / 2 - vp.top;
+      const endX = tRect.left - vp.left;
+      const endY = tRect.top + tRect.height / 2 - vp.top;
+
+      const dx = Math.abs(endX - startX) * 0.55;
+      const pathD = `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX} ${endY}`;
+
+      const glow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      glow.setAttribute('d', pathD);
+      glow.setAttribute('stroke', r.color);
+      glow.setAttribute('stroke-width', '3');
+      glow.setAttribute('stroke-opacity', '0.22');
+      glow.setAttribute('fill', 'none');
+      svg.appendChild(glow);
+
+      const core = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      core.setAttribute('d', pathD);
+      core.setAttribute('stroke', r.color);
+      core.setAttribute('stroke-width', '1.2');
+      core.setAttribute('stroke-opacity', '0.75');
+      core.setAttribute('fill', 'none');
+      svg.appendChild(core);
+
+      const pulse = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      pulse.setAttribute('r', '3');
+      pulse.setAttribute('fill', '#ffffff');
+      pulse.setAttribute('filter', 'drop-shadow(0 0 6px ' + r.color + ')');
+
+      const anim = document.createElementNS('http://www.w3.org/2000/svg', 'animateMotion');
+      anim.setAttribute('dur', (3.5 / r.speed) + 's');
+      anim.setAttribute('repeatCount', 'indefinite');
+      anim.setAttribute('path', pathD);
+      pulse.appendChild(anim);
+
+      svg.appendChild(pulse);
+    });
+  }
+
+  window.addEventListener('resize', drawWires);
+  setTimeout(drawWires, 50);
+
+  // Inspector Drawer Controller
+  const drawer = document.getElementById('inspector-drawer');
+  document.querySelectorAll('.hud-node').forEach(node => {
+    node.addEventListener('click', () => {
+      const key = node.getAttribute('data-node-key');
+      const spec = NODE_SPECS[key];
+      if (!spec) return;
+
+      document.getElementById('drawer-node-title').textContent = spec.title;
+      document.getElementById('drawer-node-role').textContent = spec.role;
+      document.getElementById('drawer-node-inputs').textContent = spec.inputs;
+      document.getElementById('drawer-node-outputs').textContent = spec.outputs;
+      document.getElementById('drawer-node-code').textContent = spec.code;
+      drawer.classList.add('open');
+    });
+  });
+
+  document.getElementById('drawer-close-btn').addEventListener('click', () => {
+    drawer.classList.remove('open');
+  });
+
+  // Ticker simulation
+  setInterval(() => {
+    if (!isSimulating) return;
+    frameCount++;
+    // Subtle worker bar fluctuations
+    const fills = document.querySelectorAll('.worker-fill');
+    fills.forEach(f => {
+      if (Math.random() > 0.7) {
+        const pct = Math.floor(25 + Math.random() * 55);
+        f.style.width = pct + '%';
+        const stat = f.parentElement.nextElementSibling;
+        if (stat) stat.textContent = pct + '% run';
+      }
+    });
+  }, 120);
+
+  // ---- Live wiring to the Architect hub (2026-11-07) ------------------------------------------------------------------------
+  // The hub's stream (/api/arch/events/stream) sends one FEED per message: {events:[record, ...], epoch, running, title}. Every record
+  // is a real trace line the Engine wrote (type step / call / check / tool / verdict / escalation / token / todo / log). translate()
+  // turns one record into the {node, tag, msg, status} shape this page draws, by what the record says, never by guessing a timeline.
+  const NODE_FOR_GATE = [[/fake|stub/i, 'eval_fakecode'], [/interface|contract|wire|__init__|__main__/i, 'wire_contract'],
+                         [/syntax|compile|parse|def |merge/i, 'replace_def'], [/test|pytest|unittest|smoke/i, 'pytest'],
+                         [/best|kept|worse|rollback|ratchet/i, 'best_state'], [/plan|interface_lines/i, 'interface']];
+  function nodeForGate(g) { for (const [re, n] of NODE_FOR_GATE) if (re.test(g || '')) return n; return 'pytest'; }
+  function nodeForStep(s) {
+    s = String(s || '');
+    if (/route|intake|start/i.test(s)) return 'router';
+    if (/plan|interface|spec/i.test(s)) return 'interface';
+    if (/verify|check|test/i.test(s)) return 'pytest';
+    if (/wire|contract/i.test(s)) return 'wire_contract';
+    if (/search|index|fts|context|explore|look/i.test(s)) return 'fts5';
+    return 'worker';
+  }
+  function short(x, n) { x = String(x == null ? '' : x); return x.length > n ? x.slice(0, n - 1) + '\u2026' : x; }
+  function translate(r) {
+    if (!r || typeof r !== 'object') return null;
+    const t = r.type;
+    if (t === 'step') return { node: nodeForStep(r.step), tag: 'code', msg: `step ${short(r.step, 40)} ${r.status || (r.ok === false ? 'failed' : r.ok === true ? 'ok' : '')}` };
+    if (t === 'call') return { node: /router/i.test(r.role || '') ? 'router' : 'worker', tag: 'llm',
+                               msg: `${r.role || 'model'} \u2192 ${short(r.model, 34)}${r.tok_s ? ` ${Math.round(r.tok_s)} tok/s` : ''}${r.cached ? ' (cache hit)' : ''}${r.gen_tokens ? ` ${r.gen_tokens} tok` : ''}` };
+    if (t === 'check') return { node: nodeForGate(r.gate), tag: 'gate', status: r.ok === false ? 'hold' : (r.ok === null ? 'unsure' : 'ok'),
+                                msg: `${short(r.gate, 40)}: ${r.ok === true ? 'PASS' : r.ok === false ? 'FAIL' : 'could not run'}${r.text ? ' \u2014 ' + short(r.text, 90) : ''}` };
+    if (t === 'tool') return { node: /apply|edit|write/i.test(r.tool || '') ? 'replace_def' : 'fts5', tag: 'code', msg: `tool ${r.tool}${r.ok === false ? ' refused' : ''} ${short(JSON.stringify(r.args || r.arg || ''), 60)}` };
+    if (t === 'verdict') return { node: 'verdict', tag: 'gate', status: r.verdict === 'pass' ? 'ok' : 'hold', msg: `VERDICT ${String(r.verdict || '').toUpperCase()}${r.why ? ' \u2014 ' + short(r.why, 100) : ''}` };
+    if (t === 'escalation') return { node: 'worker', tag: 'llm', status: 'hold', msg: `escalation: ${short(r.why || r.to || JSON.stringify(r), 100)}` };
+    if (t === 'todo') return { node: 'interface', tag: 'code', msg: `plan: ${(r.items || []).length} items` };
+    if (t === 'token') return null;                                             // streamed text is noise here; the hub's console shows it
+    if (t === 'log' || t === 'say') return { tag: 'code', msg: short(r.text || r.msg || JSON.stringify(r), 120) };
+    return null;
+  }
+  let liveSource = null, liveOn = false, lastEpoch = null;
+  function setLive(on) {
+    liveOn = on; isSimulating = !on;
+    const b = document.getElementById('btn-go-live'); if (b) { b.classList.toggle('on', on); b.textContent = on ? '\u25CF LIVE (on)' : '\u25CF LIVE'; }
+    const tb = document.getElementById('btn-toggle-sim'); if (tb) tb.textContent = isSimulating ? 'PAUSE SIM' : 'RESUME SIM';
+  }
+  function resetBoard(title) {
+    document.querySelectorAll('.hud-node').forEach(n => n.classList.remove('active-step'));
+    const banner = document.getElementById('gate-banner'); if (banner) banner.style.display = 'none';
+    if (title) window.ArchitectHUD.feedEvent({ tag: 'code', msg: `\u2500\u2500 ${title} \u2500\u2500` });
+  }
+  async function pollLiveStrip() {
+    const el = document.getElementById('hud-live-strip'); if (!el) return;
+    try {
+      const g = await (await fetch('/api/arch/gpu', { cache: 'no-store' })).json();
+      const w = (g.tiers || []).find(t => t.tier === 'worker') || {};
+      const full = w.full_gpu === true;
+      el.classList.toggle('warn', !full && w.up);
+      el.innerHTML = w.up
+        ? `worker <b>${full ? 'all layers on the card' : 'split card/RAM'}</b> \u00B7 VRAM <b>${g.vram_used_gb ?? '?'}/${g.vram_gb ?? '?'} GB</b> \u00B7 GPU <b>${g.gpu_pct ?? 0}%</b>${g.gpu_temp_c ? ` \u00B7 ${g.gpu_temp_c}\u00B0C` : ''}`
+        : `worker <b>down</b> \u00B7 VRAM ${g.vram_used_gb ?? '?'}/${g.vram_gb ?? '?'} GB`;
+    } catch (e) { el.textContent = ''; }
+  }
+  async function replayLastRun() {
+    try {
+      const root = new URLSearchParams(location.search).get('root') || '';   // the project open in the hub, passed in the page address
+      const runs = await (await fetch('/api/arch/runs' + (root ? '?root=' + encodeURIComponent(root) : ''))).json();
+      const list = Array.isArray(runs) ? runs : (runs.runs || []);
+      const newest = list[0]; if (!newest) { window.ArchitectHUD.feedEvent({ tag: 'gate', msg: root ? 'no finished run in this project yet' : 'open a project in the hub first (Runs), then replay' }); return; }
+      const name = newest.name || newest.id || newest.run || newest;
+      const tr = await (await fetch('/api/arch/trace?run=' + encodeURIComponent(name) + (root ? '&root=' + encodeURIComponent(root) : ''))).json();
+      const calls = tr.calls || [];
+      setLive(false); resetBoard(`replay ${name}`);
+      document.querySelector('[data-tab="tab-graph"]').click();
+      let i = 0;
+      const tick = setInterval(() => {
+        if (i >= calls.length) { clearInterval(tick); window.ArchitectHUD.feedEvent({ node: 'verdict', tag: 'gate', msg: `replay done: ${calls.length} calls` }); return; }
+        const c = calls[i++];
+        window.ArchitectHUD.feedEvent(translate(Object.assign({ type: 'call' }, c)) || { tag: 'llm', msg: short(JSON.stringify(c), 120) });
+      }, 220);
+    } catch (e) { window.ArchitectHUD.feedEvent({ tag: 'gate', status: 'hold', msg: 'replay failed: ' + e }); }
+  }
+
+  // Turnkey Integration API Object (Exposed for Live Architect SSE Event Hookup)
+  window.ArchitectHUD = {
+    connectLive: function(sseUrl = '/api/arch/events/stream') {
+      if (liveSource) { try { liveSource.close(); } catch (e) {} }
+      const es = liveSource = new EventSource(sseUrl);
+      setLive(true);
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const feed = Array.isArray(data.events) ? data : { events: [data] };
+          if (feed.epoch != null && feed.epoch !== lastEpoch) { lastEpoch = feed.epoch; resetBoard(feed.title ? `run: ${feed.title}` : 'new run'); }
+          for (const rec of feed.events) { const ev = translate(rec); if (ev) this.feedEvent(ev); }
+        } catch (err) {}
+      };
+      es.onerror = () => {
+        console.warn('ArchitectHUD: SSE disconnected, will retry...');
+      };
+    },
+    translate: translate,                              // one trace record -> {node, tag, msg, status}; testable from the hub check
+    disconnect: function() { if (liveSource) { try { liveSource.close(); } catch (e) {} liveSource = null; } setLive(false); },
+
+    feedEvent: function(evt) {
+      const container = document.getElementById('log-container');
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      const tagClass = evt.tag || (evt.status === 'hold' ? 'gate' : 'code');
+      line.innerHTML = `<span class="log-tag ${tagClass}">${evt.tag || 'event'}</span><span class="log-msg">${evt.msg || JSON.stringify(evt)}</span>`;
+      container.prepend(line);
+      if (container.children.length > 30) container.lastElementChild.remove();
+
+      if (evt.node) {
+        document.querySelectorAll('.hud-node').forEach(n => n.classList.remove('active-step'));
+        const target = document.querySelector(`[data-node-key="${evt.node}"]`);
+        if (target) target.classList.add('active-step');
+      }
+
+      if (evt.status === 'hold') {
+        const banner = document.getElementById('gate-banner');
+        banner.style.display = 'flex';
+        document.getElementById('gate-banner-msg').textContent = evt.msg || 'Gate hold triggered';
+      }
+    }
+  };
+
+  // Interactive Simulation Controls for Testing Standalone
+  const simSequence = ['intake', 'fts5', 'interface', 'router', 'worker', 'replace_def', 'wire_contract', 'eval_fakecode', 'pytest', 'best_state', 'verdict'];
+
+  document.getElementById('btn-run-sim').addEventListener('click', () => {
+    // Switch to graph tab if not on it
+    document.querySelector('[data-tab="tab-graph"]').click();
+    let i = 0;
+    const interval = setInterval(() => {
+      if (i >= simSequence.length) {
+        clearInterval(interval);
+        return;
+      }
+      const k = simSequence[i];
+      window.ArchitectHUD.feedEvent({
+        node: k,
+        tag: k === 'eval_fakecode' || k === 'best_state' ? 'gate' : (k === 'worker' ? 'llm' : 'code'),
+        msg: `Step [${i+1}/${simSequence.length}] executed: ${k} [OK]`
+      });
+      i++;
+    }, 450);
+  });
+
+  document.getElementById('btn-sim-stub').addEventListener('click', () => {
+    document.querySelector('[data-tab="tab-graph"]').click();
+    window.ArchitectHUD.feedEvent({
+      node: 'eval_fakecode',
+      tag: 'gate',
+      status: 'hold',
+      msg: 'STUB DETECTED in report.py::run (bare pass) -> GATE HOLD 0.71'
+    });
+    document.getElementById('val-stub-count').textContent = '1 STUB';
+    document.getElementById('val-stub-count').style.color = 'var(--red-neon)';
+    document.getElementById('bar-fakecode').style.width = '100%';
+  });
+
+  document.getElementById('btn-sim-ratchet').addEventListener('click', () => {
+    document.querySelector('[data-tab="tab-graph"]').click();
+    window.ArchitectHUD.feedEvent({
+      node: 'best_state',
+      tag: 'gate',
+      msg: 'Try #2 broke 2 tests -> Auto-rollback to try #1 via BestState ratchet [PASS]'
+    });
+    document.getElementById('val-stub-count').textContent = '0 stubs';
+    document.getElementById('val-stub-count').style.color = '#fff';
+    document.getElementById('bar-fakecode').style.width = '0%';
+  });
+
+  document.getElementById('btn-go-live').addEventListener('click', () => { liveOn ? window.ArchitectHUD.disconnect() : window.ArchitectHUD.connectLive(); });
+  document.getElementById('btn-replay').addEventListener('click', replayLastRun);
+  const servedByHub = location.protocol.startsWith('http') && location.pathname.startsWith('/hud');
+  if (servedByHub) {                                   // inside Architect: real data from the first second, the simulation only on request
+    pollLiveStrip(); setInterval(pollLiveStrip, 5000);
+    if (new URLSearchParams(location.search).get('live') !== '0') window.ArchitectHUD.connectLive();
+  }
+
+  document.getElementById('btn-toggle-sim').addEventListener('click', function() {
+    isSimulating = !isSimulating;
+    this.textContent = isSimulating ? 'PAUSE SIM' : 'RESUME SIM';
+    this.style.color = isSimulating ? 'var(--cyan-neon)' : 'var(--orange-neon)';
+  });
+</script>
+</body>
+</html>
