@@ -321,6 +321,7 @@ def run():
             fl = df.DataFlow({"id": "explore", "title": "t", "steps": [{"id": "look", "kind": "tool_loop", "role": role, "prompt": "explore",
                                                                         "tools": tools, "allow_writes": allow_writes, "max_steps": 4, "store_text": "answer"}],
                               "verdict": {"pass_if": "look.ok"}})
+            open(os.path.join(eng.run_dir, "trace.jsonl"), "w").close()     # two engines made in the same second share a run folder: start from an empty trace
             fl.run(eng, {})
             return [json.loads(x) for x in open(os.path.join(eng.run_dir, "trace.jsonl"), encoding="utf-8") if '"tool"' in x], seen_schemas
         tt, sch = _loop_with("architect", ["ls", "apply"], [{"tool": "apply", "args": {"blocks": "FILE: x.py"}}, {"final": "ok"}])

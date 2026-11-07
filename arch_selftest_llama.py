@@ -240,9 +240,27 @@ def run():
             a = next(p for p in pl_["processes"] if p["tier"] == "worker")["args"]
             return int(a[a.index("-c") + 1]), (int(a[a.index("--parallel") + 1]) if "--parallel" in a else None), a
         one = c_and_np(S.plan(cfg, hw6, caps_=par_caps))
-        two = c_and_np(S.plan(core.deep_merge(cfg, {"server": {"parallel": 2}}), hw6, caps_=par_caps))
+        two = c_and_np(S.plan(core.deep_merge(cfg, {"server": {"parallel": 2, "placement": "manual"}}), hw6, caps_=par_caps))   # manual: the arithmetic test wants exactly 2
         check("plan(): the slot count is always said (a build left to choose opens 4 slots that share one window), and each slot gets "
               "the whole window (-c is the total)", one[1] == 1 and two[1] == 2 and two[0] == 2 * one[0], (one[:2], two[:2]))
+        # placement auto (2026-11-07): Parallel is a ceiling; never trade a layer for a slot
+        _arch = {"layers": 36, "kv_heads": 8, "head_dim": 128, "heads": 32}
+        _sz = int(4.68 * S.GB)
+        _s6, _n6 = S.slots_fit(2, _sz, _arch, {"vram_gb": 6.0, "ram_gb": 32}, 8192, "q8_0", 0.3, "auto")
+        _s12, _ = S.slots_fit(2, _sz, _arch, {"vram_gb": 12.0, "ram_gb": 32}, 8192, "q8_0", 0.3, "auto")
+        _sm, _nm = S.slots_fit(2, _sz, _arch, {"vram_gb": 6.0, "ram_gb": 32}, 8192, "q8_0", 0.3, "manual")
+        check("placement auto: 2 slots that would push layers off a 6 GB card become 1 slot with a plain-words note; on 12 GB both slots "
+              "stay; manual keeps the setting", _s6 == 1 and "layers in RAM" in _n6 and "Parallel is 2" in _n6 and _s12 == 2 and _sm == 2 and _nm == "", (_s6, _s12, _sm, _n6[:80]))
+        big = c_and_np(S.plan(core.deep_merge(cfg, {"server": {"parallel": 2}}), dict(hw6, vram_gb=24.0), caps_=par_caps))
+        check("plan(): with room for both, auto placement launches the 2 slots the setting allows", big[1] == 2, big[:2])
+        _st0 = S.load_state()
+        S.save_state({"processes": {"worker": {"pid": 0, "port": 1, "parallel": 1, "args": ["x", "--parallel", "1"]}}})
+        _ls = S.launched_slots(cfg)
+        S.save_state({"processes": {"worker": {"pid": 0, "port": 1, "args": ["x", "--parallel", "3"]}}})
+        _ls3 = S.launched_slots(cfg)
+        S.save_state(_st0)
+        check("launched_slots(): crews and Best-of-N read the slot count the worker was really started with (record, else its arguments); "
+              "none recorded -> None", _ls == 1 and _ls3 == 3 and S.launched_slots({"server": {}}) in (None, 1), (_ls, _ls3))
 
         # ---- the machine audit (2026-11-03): threads, prompt cache, RAM budget, Ollama
         import arch_hw

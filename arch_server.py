@@ -390,6 +390,46 @@ def resolve_model(spec, cfg=None):
 FAST_MIN_CTX = 6144        # below this a sprint prompt (measured ~7k tokens of an 8192 window) would be cut too hard: keep the split instead
 
 
+def slots_fit(cap, size_bytes, arch, hw, ctx, kv, desk, placement="auto"):
+    """How many conversations the worker should hold at once: the LARGEST count up to `cap` (Settings > Server > Parallel) at which
+    every layer and every slot's whole window still fit on the graphics card. Never trade a layer for a slot: measured here on a
+    6 GB card (2026-11-07), 2 slots pushed 3 of 36 layers into RAM and one reply fell from 35 to 24 tok/s, and even two replies at once
+    totalled less (31) than one slot alone. With placement "manual" the cap is used as given. -> (slots, note or "")."""
+    cap = max(1, int(cap or 1))
+    if placement == "manual" or cap == 1:
+        return cap, ""
+    fits = {}
+    for s in range(cap, 0, -1):
+        ngl, est, full = _ngl(size_bytes, arch, hw, ctx, kv, slots=s, desktop_gb=desk)
+        fits[s] = (ngl, est, full)
+        if full:
+            if s == cap:
+                return cap, ""
+            n_cap, e_cap, _ = fits[cap]
+            layers = int(arch.get("layers") or 0)
+            return s, (f"worker: Parallel is {cap}, but {cap} conversations at once would keep {max(0, layers - n_cap)} of {layers} layers in RAM "
+                       f"(about {e_cap} GB on the card and the rest from memory, several times slower per reply). {s} conversation"
+                       f"{'s' if s > 1 else ''} at a time keep{'s' if s == 1 else ''} every layer on the card (about {fits[s][1]} GB), so the "
+                       f"planner uses {s}: extra requests wait their turn instead of slowing every reply. Settings > Server > Placement = manual keeps {cap}.")
+    return 1, ""
+
+
+def launched_slots(cfg=None, tier="worker"):
+    """The slot count the running llama-server for `tier` was started with (what its graphics memory was planned for), or None when
+    no such server is recorded. Crews and Best-of-N size their concurrency from this, never from the raw setting."""
+    try:
+        rec = (load_state().get("processes") or {}).get(tier) or {}
+        if rec.get("parallel"):
+            return max(1, int(rec["parallel"]))
+        a = rec.get("args") or []
+        for i, x in enumerate(a):
+            if x in ("--parallel", "-np") and i + 1 < len(a):
+                return max(1, int(a[i + 1]))
+        return None
+    except Exception:
+        return None
+
+
 def _fast_fit(rm, arch, hw, ctx, kv, slots, desk, cur, did):
     """The fast lane's window: the configured one when the whole worker already fits on the card with it, else the largest multiple of
     1024 tokens (not below FAST_MIN_CTX) at which every layer and the whole key/value cache fit. -> (ctx, ngl, est_gb, full)."""
@@ -547,7 +587,11 @@ def plan(cfg=None, hw=None, caps_=None):
         ctx = int(srv.get("ctx") or (tiers.get(tier) or {}).get("ctx") or ov_ctx or prof.get("ctx") or (cfg.get("limits") or {}).get("num_ctx") or 8192)
         ngl_pref = (tiers.get(tier) or {}).get("ngl")
         kv_t = kv                                                                  # this tier's cache type (heavy may differ: server.kv_heavy)
-        slots = max(1, int(srv.get("parallel") or 1)) if tier == "worker" else 1      # decided BEFORE the fit math: every slot pays for the window again
+        slots = 1
+        if tier == "worker":                                                           # decided BEFORE the fit math: every slot pays for the window again
+            slots, s_note = slots_fit(srv.get("parallel") or 1, rm["size"], arch, hw, ctx, kv, desk, str(srv.get("placement", "auto") or "auto"))
+            if s_note:
+                notes.append(s_note)
         split, ram_part, beside, moe = None, 0.0, None, None
         if tier == "router" and (tiers.get(tier) or {}).get("cpu", prof.get("router_cpu", True)):
             ngl, est, full = 0, 0.0, False
@@ -751,7 +795,7 @@ def plan(cfg=None, hw=None, caps_=None):
         for extra in (tiers.get(tier) or {}).get("extra_args") or []:
             args.append(str(extra))
         procs.append({"tier": tier, "name": rm["name"], "gguf": rm["gguf"], "size_gb": round(rm["size"] / GB, 2), "port": port0 + i, "ctx": ctx, "ngl": ngl, "kv": kv_t,
-                      "draft": d_used, "args": args, "why": why, "resident": tier != "heavy" or bool(beside), "arch": arch, "est_gpu_gb": est, "full_gpu": full,
+                      "draft": d_used, "args": args, "why": why, "resident": tier != "heavy" or bool(beside), "arch": arch, "est_gpu_gb": est, "full_gpu": full, "parallel": par,
                       "moe_cpu_layers": split[0] if split else 0, "ram_gb": round(ram_part, 2)})
         if fast and tier == "worker":
             # Only keys the fast lane adds: with it off the plan stays exactly what it was (arch_selftest_fastlane compares them).
@@ -1047,7 +1091,7 @@ def _start_procs(cfg, want, st, say, wait):
             say(f"[server] {p['tier']}: could not start llama-server ({e})")
             continue
         say(f"[server] {p['tier']}: starting {p['name']} on port {p['port']}; {p['why']}")
-        rec = {k: p[k] for k in ("tier", "name", "gguf", "port", "ctx", "ngl", "kv", "draft", "args", "size_gb", "resident")}
+        rec = {k: p.get(k) for k in ("tier", "name", "gguf", "port", "ctx", "ngl", "kv", "draft", "args", "size_gb", "resident", "parallel")}
         rec.update(pid=proc.pid, image=_img(proc), started=time.time(), url=url, log=log_path, restarts=cur.get("restarts", 0))
         if p.get("priority") or p.get("affinity"):
             rec.update(priority=p.get("priority"), affinity=p.get("affinity"))

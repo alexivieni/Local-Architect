@@ -911,6 +911,12 @@ class Crew:
         self.overrides = {str(k): dict(v or {}) for k, v in ((overrides or {}).get("agents") or {}).items()}
         srv = self.cfg.get("server") or {}
         slots = slots or (overrides or {}).get("slots")
+        if not slots:
+            try:                                   # the slots the running worker really has (what its graphics memory was planned for), not the raw setting
+                import arch_server
+                slots = arch_server.launched_slots(self.cfg)
+            except Exception:
+                slots = None
         self.slots = max(1, int(slots or srv.get("parallel") or 1))
         self.phase_times = []
         self.loop_counts = {}
