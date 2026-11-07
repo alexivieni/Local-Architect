@@ -85,9 +85,18 @@ def main():
             r["status"] = mark
             print(f"  {mark:7} {r['suite']:38} {r['secs']:6.1f}s  {r['summary']}", flush=True)
             res.append(r)
+            gone = [k for k, p_ in _mine.items() if _had[k] and not os.path.exists(p_)]
+            if gone:                                     # stop at once, not at the end: whatever is running must not go on "cleaning"
+                print(f"\nSTOP: your {' and '.join(gone)} disappeared while {r['suite']} ran ({', '.join(_mine[k] for k in gone)}). "
+                      "No suite may touch them. Ending the run here.", flush=True)
+                ex.shutdown(wait=False, cancel_futures=True)
+                break
     bad = [r for r in res if r["status"] in ("FAIL", "TIMEOUT")]
-    os.makedirs(os.path.join(APP, "hub_data", "ci"), exist_ok=True)
-    out = os.path.join(APP, "hub_data", "ci", time.strftime("%Y%m%d_%H%M%S") + ".json")
+    # The report goes where this run's data lives: under ARCHITECT_DATA_DIR when the caller set one (an isolated test home), else
+    # the real data folder. Writing into <repo>/hub_data regardless is what made a testing tool "clean up" the person's data (2026-11-07).
+    ci_dir = os.path.join(os.environ.get("ARCHITECT_DATA_DIR") or os.path.join(APP, "hub_data"), "ci")
+    os.makedirs(ci_dir, exist_ok=True)
+    out = os.path.join(ci_dir, time.strftime("%Y%m%d_%H%M%S") + ".json")
     json.dump(res, open(out, "w", encoding="utf-8"), indent=1)
     print(f"\n{len(res) - len(bad)}/{len(res)} suites green" + (f"; failing: {', '.join(r['suite'] for r in bad)}" if bad else "") + f"  ({out})")
     for r in bad:
