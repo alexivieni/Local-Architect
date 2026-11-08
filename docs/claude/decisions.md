@@ -62,5 +62,20 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
 - Windows passes "ignore Ctrl+C" to children. `arch_server._spawn` clears it only around a server's start (`_CtrlCForChild`,
   read back from the process's own ConsoleFlags) so the server's clean exit works and this process keeps ignoring Ctrl+C as before:
   clearing it for good let a Ctrl+C meant for another suite's stand-in end the graceful suite.
-- `arch_claudecode.write_meta` uses `core._replace` (patient with a reader holding the file) and reports a failed write: a dropped
-  first write had lost a local agent's fleet tag under load. `doctor` says which Python runs the tests.
+- `arch_claudecode.write_meta` uses `core._replace` (patient with a reader holding the file) and reports a failed write instead of
+  dropping it (proven by a check that fails on the old code). `doctor` says which Python runs the tests. (The localagent failure
+  blamed on this here was in fact the fleet race fixed in Phase 2.)
+
+## Tech-debt Phase 2 (2026-11-08)
+- `arch_browser` drives the Edge or Chrome already on the machine, headless on 127.0.0.1, over the DevTools protocol with a stdlib
+  WebSocket (nothing to install). `arch_selftest_uismoke` clicks through Home with a scripted model: Do it, "Working on it", "It
+  worked", Recent runs, Undo, no page error. With the old Home code it fails 3 of 9; with no browser it is NOT_SURE, never a pass.
+- Do-nothing broad handlers (`except Exception: pass`) can only go down: `tools/swallow_audit.py` (AST), baseline
+  `data/swallow_baseline.json`, ratchet `arch_selftest_swallow`. A comment with "intentional" exempts one. The engine, the servers
+  and the hub have none left; they report to `_tel_swallow` (rate-limited). 110 remain in 57 other files, to fix as they are touched.
+- Engine extensions: `arch_core.add_extension(obj)`; the engine calls `extra_system`, `context`, `decide`, `check_path`,
+  `check_files` (each None = not mine). `localintel_arch` is now one (`EXT`, `install`/`uninstall`) and replaces nothing; its
+  behaviour is pinned by `arch_selftest_localintel` (written and passed BEFORE the change, passed unchanged after).
+- The fleet race behind arch_selftest_localagent's occasional failure: a local agent's run log says "done" before its thread
+  records the result, the watcher took the log's word, finished early and wrote back an agent list without the agent's checks.
+  `arch_fleet._settle` takes a local agent's status only from its thread; the watcher settles under the lock (`testing`).

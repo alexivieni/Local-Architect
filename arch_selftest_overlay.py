@@ -66,10 +66,11 @@ def run():
         cfg = core.load_config(root)
         cfg["localintel"] = {"enabled": True}
         core.Engine(root, "build", "g", cfg=cfg, persist=False, say=lambda m: None)
-        check("with localintel.enabled the Engine installs it, once",
-              li._INSTALLED and core.Engine.call is li.li_call and core.Engine._decide is li.li_decide)
-        core.Engine.call, core.Engine.context, core.Engine._decide, core.safe_path = orig        # undo for the rest of this process
-        li._INSTALLED = False
+        check("with localintel.enabled the Engine installs it, once, as an extension (no engine function replaced)",
+              li._INSTALLED and core.EXTENSIONS.count(li.EXT) == 1
+              and (core.Engine.call, core.Engine.context, core.Engine._decide, core.safe_path) == orig)
+        li.uninstall()                                                                          # off again for the rest of this process
+        check("uninstall takes it out again", not li._INSTALLED and li.EXT not in core.EXTENSIONS)
         fl.FLOWS.pop("checkup", None)
 
         msgs = [{"role": "system", "content": "you are a careful engineer"},

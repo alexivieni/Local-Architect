@@ -911,8 +911,8 @@ def _recorded_image(pid):
         for rec in (load_state().get("processes") or {}).values():
             if rec.get("pid") == pid:
                 return str(rec.get("image") or "").lower()
-    except Exception:
-        pass
+    except Exception as _swx:
+        _swallow("server.recorded_image", _swx)
     return ""
 
 

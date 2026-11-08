@@ -20,7 +20,7 @@ model on the default path (Claude is an optional tier behind `arch_cloud.allowed
 9. **Test with `py -3.12`** (on this laptop `py -3` is 3.15 without pytest; `architect.py doctor` says which Python runs the tests).
 
 Before handing off: `py -3.12 tools/ci_parallel.py` (a suite that fails only under load is rerun alone and listed apart),
-`py -3.12 architect.py flows --validate`, `py -3.12 tools/doc_counts.py`, `py -3.12 arch_lessons.py`, then `self-verify --write`.
+`py -3.12 architect.py flows --validate`, `py -3.12 tools/doc_counts.py`, `py -3.12 tools/swallow_audit.py` (no new `except Exception: pass`), `py -3.12 arch_lessons.py`, then `self-verify --write`.
 
 ## How to run
 ```bash
@@ -56,7 +56,7 @@ python architect_hub.py              # the hub (or START_HUB.bat)
 | `docs/claude/rules.md` | Three outcomes; Gates are the product; A role you assign wins over a tier; One settings file; Settings safety; The self-tests own their data folder; Cross-Platform Compliance (anti-stub, guarded hub slices) |
 | `docs/claude/small-models.md` | What makes a small model finish a build: DEF blocks, interface first, BestState, prompt fitting, wire_contract, escalation, heavy jobs, ensure(wanted), MoE split, drafts, speculative decoding, role resolution, machine audit, Make room, GPU dropout, launcher, crash recorder, Docker/WSL, cleanup, ollama_gpu, caches, triage |
 | `docs/claude/claude-tools.md` | Rules learned building the Claude tools (never in self-tests, full window, agents own files, never training data); Transfer pack |
-| `docs/claude/decisions.md` | Architecture review 2026-11-07 (arch_proc, one writer per tier, rollback snapshots, three outcomes reach the run, hub epochs); Your versions (custom layer); End-to-end check 2026-11-08; v12 Breakthroughs; Tech-debt Phase 1 (doc counts, CI LOAD reruns, Ctrl+C for servers, patient meta writes) |
+| `docs/claude/decisions.md` | Architecture review 2026-11-07 (arch_proc, one writer per tier, rollback snapshots, three outcomes reach the run, hub epochs); Your versions (custom layer); End-to-end check 2026-11-08; v12 Breakthroughs; Tech-debt Phase 1 (doc counts, CI LOAD reruns, Ctrl+C for servers, patient meta writes); Phase 2 (browser smoke, swallow ratchet, engine extensions) |
 
 A comment in the code that cites "CLAUDE.md, <section>" means the section of that name in the page above.
 

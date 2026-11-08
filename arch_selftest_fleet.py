@@ -190,6 +190,15 @@ def run():
         cc.write_meta(gone, status="running", pid=-1, started=time.time())
         check("a run left 'running' by another (dead) process counts as lost", fl._view(gone)["status"] == "lost")
 
+        # ---- a local agent's run log says "done" a moment before its thread records the result: the log must not end it early
+        early = cc._new_run_id()
+        cc.write_meta(early, status="done", pid=os.getpid(), started=time.time(), ended=time.time(), turns=4, cost=0.0)
+        rec = fl._settle({"name": "fixer", "kind": "local_agent", "run": early, "status": "running", "checks": None})
+        check("a local agent stays 'running' until its own thread reports, whatever its run log says (else its checks were lost)",
+              rec["status"] == "running" and rec.get("turns") == 4, rec)
+        done = fl._settle({"name": "fixer", "kind": "local_agent", "run": early, "status": "done", "checks": {"ok": True}})
+        check("once its thread reported, the record is kept as written (checks included)", done["status"] == "done" and done["checks"] == {"ok": True}, done)
+
         lf = fl.list_fleets()
         check("list_fleets lists both, newest first", [f["id"] for f in lf[:2]] == [fid2, fid] and lf[1]["total_cost"] == 1.0, lf)
         check("status refuses a path-like fleet id and reports an unknown one",

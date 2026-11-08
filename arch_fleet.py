@@ -616,8 +616,16 @@ def hybrid_plan(goal, parts, plan_budget_usd=1.0, review_budget_usd=1.0, review=
 
 
 def _settle(agent):
-    if agent.get("kind") == "local_agent" and agent.get("status") in FINISHED:
-        return agent                                             # its own thread wrote the last word (the run log says the same)
+    if agent.get("kind") == "local_agent":
+        # its own thread writes the last word (status, checks, refused). The run log says "done" a moment BEFORE that thread records
+        # its result here, so taking the status from the log let the watcher finish early and write back a copy without the agent's
+        # checks (arch_selftest_localagent failed now and then, 2026-11-08). The log only feeds what is shown while it runs.
+        if agent.get("status") not in FINISHED:
+            v = _view(agent.get("run"))
+            if v:
+                agent.update({k: v[k] for k in ("cost", "turns")})
+                agent["last_event"] = v["last_event"]
+        return agent
     v = _view(agent.get("run"))
     if v:
         agent.update({k: v[k] for k in ("status", "cost", "turns", "error")})
@@ -640,8 +648,11 @@ def _watch(fid, runner, poll, test_timeout, max_wait_s):
             time.sleep(poll)
 
         def testing(s):
-            s["agents"], s["phase"] = agents, "testing"
+            # settled against the state as it is NOW (under the lock), never the copy read before the wait ended: an agent's thread may
+            # have written its result in between, and writing the old copy back erased it
+            s["agents"], s["phase"] = [_settle(dict(a)) for a in s.get("agents") or []], "testing"
         st = _update(fid, testing)
+        agents = st["agents"]
         root = st["root"]
         ran_any = any(a.get("run") or a.get("started") for a in agents)
         results = []

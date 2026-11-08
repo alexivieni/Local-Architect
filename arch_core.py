@@ -265,6 +265,14 @@ def stream_chat(model, messages, options=None, think=None, keep_alive=None, time
 # Safe files
 # ----------------------------------------------------------------------------------------------
 def safe_path(root, rel, cfg):
+    """-> absolute path inside root, or raises ValueError with a plain-language reason (an extension may refuse more: check_path)."""
+    full = _base_safe_path(root, rel, cfg)
+    for h in ext_hooks("check_path"):
+        h(root, full, cfg)
+    return full
+
+
+def _base_safe_path(root, rel, cfg):
     """-> absolute path inside root, or raises ValueError with a plain-language reason."""
     rel = (rel or "").strip().strip("`'\"").replace("\\", "/")
     if not rel or rel.startswith("/") or re.match(r"^[A-Za-z]:", rel) or "\0" in rel:
@@ -367,6 +375,33 @@ def _tel_mirror(rec, run_id):
         arch_telemetry.emit(kind, run=run_id, **r)
     except Exception as _swx:
         _tel_swallow("core._tel_mirror", _swx)
+
+
+# ---- extensions: optional layers the engine CALLS at fixed points, instead of layers that replace engine functions ----------
+# An extension is any object with some of these methods; each returns None for "not mine" (then the plain harness runs):
+#   extra_system(engine, role, user, extra_system) -> str     text added to a role's system prompt (always returns the text)
+#   context(engine, query, budget, always, base)   -> str     the project context; `base(query, budget, always)` is the plain one
+#   decide(engine, rel)                           -> "yes" | "no" | "quit"   whether to write a file (review mode)
+#   check_path(root, full, cfg)                   -> None     raise ValueError to refuse a path the model asked to write
+#   check_files(root, files, cfg, run_dir, base)  -> list     the code checks; `base(root, files, cfg, run_dir)` is the plain set
+# localintel_arch is one (opt-in). Before 2026-11-08 it swapped Engine.call/context/_decide, safe_path and check_files for the
+# whole process, and every later change to those functions had to know about it.
+EXTENSIONS = []
+
+
+def add_extension(ext):
+    if ext not in EXTENSIONS:
+        EXTENSIONS.append(ext)
+
+
+def remove_extension(ext):
+    if ext in EXTENSIONS:
+        EXTENSIONS.remove(ext)
+
+
+def ext_hooks(name):
+    """The bound `name` methods of the extensions that have one, in the order they were added."""
+    return [h for h in (getattr(x, name, None) for x in list(EXTENSIONS)) if callable(h)]
 
 
 def _tel_swallow(where, ex):
@@ -1684,6 +1719,8 @@ class Engine:
         """One model call as a role. Safe to call from several threads at once: counters, budgets and the trace are updated one at a time,
         while the wait for the model itself is shared -- which is the only part worth running side by side."""
         with self._lock:
+            for h in ext_hooks("extra_system"):
+                extra_system = h(self, role, user, extra_system)
             return self._call(role, user, extra_system, json_out, think, temperature, num_predict, label, schema)
 
     def _call(self, role, user, extra_system="", json_out=False, think=None, temperature=None, num_predict=None, label=None, schema=None):
@@ -1971,8 +2008,8 @@ class Engine:
                 self.down_hosts.add(cur["name"])
                 try:
                     arch_hosts.mark_down(cur["name"], cur["host"])
-                except Exception:
-                    pass
+                except Exception as _swx:
+                    _tel_swallow("core.chat", _swx)
                 self.say(f"[!] {cur['name']} is not reachable; the {role} role continues on {local} on this computer for the rest of this run")
                 self.report(f"- Host `{cur['name']}` was unreachable: `{role}` ran on `{local}` here instead of `{cur['model']}` there.")
                 cur.update(model=local, host=None)
@@ -2816,6 +2853,14 @@ class Engine:
         return p
 
     def _decide(self, rel):
+        """Write this file? -> "yes" | "no" | "quit" (an extension may ask a person even in review auto)."""
+        for h in ext_hooks("decide"):
+            r = h(self, rel)
+            if r is not None:
+                return r
+        return self._base_decide(rel)
+
+    def _base_decide(self, rel):
         if self.review == "dry":
             return "no"
         if self.review == "auto" or self.n_apply_all:
@@ -2855,6 +2900,14 @@ class Engine:
         return self._retriever
 
     def context(self, query, budget=None, always=()):
+        """Project context (an extension may supply its own, built on the plain one)."""
+        for h in ext_hooks("context"):
+            r = h(self, query, budget, always, self._base_context)
+            if r is not None:
+                return r
+        return self._base_context(query, budget, always)
+
+    def _base_context(self, query, budget=None, always=()):
         """Project context: handoff + spec if present, then the most relevant files in full, the rest outlined."""
         budget = budget or self.effective_context_chars()
         files = list_files(self.root, self.cfg)

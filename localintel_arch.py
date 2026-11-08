@@ -4,7 +4,7 @@ The Architect (arch_*.py, architect.py) is a generic harness. This module makes 
 editing any harness file except one tagged import block at the end of arch_flows.py (apply_localintel_layer.py
 adds or removes it, so a newer harness drops in cleanly).
 
-Nothing is patched at import. The layer is an explicit opt-in: setting localintel.enabled = true (or ARCH_LOCALINTEL=1) makes
+Nothing in the harness is patched, ever: the layer is an engine extension (arch_core.add_extension; the engine calls its hooks). It is an explicit opt-in: setting localintel.enabled = true (or ARCH_LOCALINTEL=1) makes
 the Engine call install() when it is built. Without it this module is inert (its CLI below still works).
 
 Everything here switches on only for a project that IS LocalIntel (run.py + localintel/areas.py + localintel/
@@ -720,77 +720,67 @@ def check_sweep(root, files, cfg, run_dir):
     return [R("every page loads without errors", ok, "; ".join(problems[:4]))]
 
 
-_orig_check_files = ck.check_files
-
-
-def li_check_files(root, files, cfg, run_dir=None):
-    if not is_li(root):
-        return _orig_check_files(root, files, cfg, run_dir)
-    lim = int(li_opts(cfg)["big_bytes"])
-    generic, extra = [], []
-    for f in files:
-        full = os.path.join(root, f)
-        big_html = f.lower().endswith((".html", ".htm")) and os.path.isfile(full) and os.path.getsize(full) > lim
-        if not big_html:
-            generic.append(f)
-        else:
-            extra += check_big_html(root, f, run_dir)
-    out = _orig_check_files(root, generic, cfg, run_dir) + extra
-    for f in files:
-        if os.path.isfile(os.path.join(root, f)):
-            out += check_no_stubs(root, f, run_dir) + check_gates(root, f, run_dir) + check_js(root, f, run_dir)
-    out += check_sweep(root, files, cfg, run_dir)
-    out += check_persona(root, files, run_dir)
-    return out
-
-
 # ---------------------------------------------------------------------------------------------------------
-# engine hooks
+# the layer as an engine extension (arch_core.EXTENSIONS): the engine calls these at fixed points; each answers None ("not mine")
+# for a project that is not LocalIntel, and the plain harness runs. Nothing in the harness is replaced.
 # ---------------------------------------------------------------------------------------------------------
-_orig_call = core.Engine.call
-_orig_context = core.Engine.context
-_orig_decide = core.Engine._decide
-_orig_safe_path = core.safe_path
-
-
-def li_call(self, role, user, extra_system="", *a, **k):
-    if is_li(self.root):
-        extra_system = (extra_system or "") + rules_text(self.root, self.cfg)
+class LocalIntelExtension:
+    def extra_system(self, e, role, user, extra_system):
+        if not is_li(e.root):
+            return extra_system
+        extra_system = (extra_system or "") + rules_text(e.root, e.cfg)
         if role == "generator_ui" or (role in ("generator", "planner", "architect") and _UI_WORDS.search(user[:3000])):
             extra_system += "\n\n" + UI_ANATOMY
         pr = current_persona()
         if pr:
             extra_system += persona_text(pr)
-    return _orig_call(self, role, user, extra_system, *a, **k)
+        return extra_system
+
+    def context(self, e, query, budget, always, base):
+        if not is_li(e.root):
+            return None
+        budget = budget or e.cfg["limits"]["context_chars"]
+        big = big_files(e.root, e.cfg)
+        bigset = set(big)
+        focus = [a for a in always if a in bigset]
+        pr = current_persona()
+        sl = slices(e.root, big, query + " " + " ".join(focus) + (" " + pr["words"] if pr else ""), min(int(li_opts(e.cfg)["slice_chars"]), int(budget * 0.45)))
+        return base(query, max(2500, budget - len(sl)), [a for a in always if a not in bigset]) + ("\n\n" + sl if sl else "")
+
+    def decide(self, e, rel):
+        if is_li(e.root) and e.review != "dry" and rel in confirm_files(e.cfg):
+            a = (e.ask(f"  GOVERNANCE FILE {rel} holds approval-gate or safety-test logic, so it always needs your yes.  Apply {rel}?  [y]es  [n]o  [q]uit run > ") or "").strip().lower()
+            return "quit" if a in ("q", "quit") else ("yes" if a in ("y", "yes") else "no")
+        return None
+
+    def check_path(self, root, full, cfg):
+        if is_li(root):
+            r = os.path.relpath(full, os.path.abspath(root)).replace(os.sep, "/")
+            if r in protected_files(cfg):
+                raise ValueError(f"'{r}': this file guards the app's safety rules and is not edited by the Architect")
+
+    def check_files(self, root, files, cfg, run_dir, base):
+        if not is_li(root):
+            return None
+        lim = int(li_opts(cfg)["big_bytes"])
+        generic, extra = [], []
+        for f in files:
+            full = os.path.join(root, f)
+            big_html = f.lower().endswith((".html", ".htm")) and os.path.isfile(full) and os.path.getsize(full) > lim
+            if not big_html:
+                generic.append(f)
+            else:
+                extra += check_big_html(root, f, run_dir)
+        out = base(root, generic, cfg, run_dir) + extra
+        for f in files:
+            if os.path.isfile(os.path.join(root, f)):
+                out += check_no_stubs(root, f, run_dir) + check_gates(root, f, run_dir) + check_js(root, f, run_dir)
+        out += check_sweep(root, files, cfg, run_dir)
+        out += check_persona(root, files, run_dir)
+        return out
 
 
-def li_context(self, query, budget=None, always=()):
-    if not is_li(self.root):
-        return _orig_context(self, query, budget, always)
-    budget = budget or self.cfg["limits"]["context_chars"]
-    big = big_files(self.root, self.cfg)
-    bigset = set(big)
-    focus = [a for a in always if a in bigset]
-    pr = current_persona()
-    sl = slices(self.root, big, query + " " + " ".join(focus) + (" " + pr["words"] if pr else ""), min(int(li_opts(self.cfg)["slice_chars"]), int(budget * 0.45)))
-    base = _orig_context(self, query, max(2500, budget - len(sl)), [a for a in always if a not in bigset])
-    return base + ("\n\n" + sl if sl else "")
-
-
-def li_decide(self, rel):
-    if is_li(self.root) and self.review != "dry" and rel in confirm_files(self.cfg):
-        a = (self.ask(f"  GOVERNANCE FILE {rel} holds approval-gate or safety-test logic, so it always needs your yes.  Apply {rel}?  [y]es  [n]o  [q]uit run > ") or "").strip().lower()
-        return "quit" if a in ("q", "quit") else ("yes" if a in ("y", "yes") else "no")
-    return _orig_decide(self, rel)
-
-
-def li_safe_path(root, rel, cfg):
-    full = _orig_safe_path(root, rel, cfg)
-    if is_li(root):
-        r = os.path.relpath(full, os.path.abspath(root)).replace(os.sep, "/")
-        if r in protected_files(cfg):
-            raise ValueError(f"'{r}': this file guards the app's safety rules and is not edited by the Architect")
-    return full
+EXT = LocalIntelExtension()
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -969,21 +959,27 @@ _INSTALLED = False
 
 
 def install():
+    """Register the layer with the engine (arch_core.add_extension). Replaces nothing; uninstall() takes it out again."""
     global _INSTALLED
     if _INSTALLED:
         return
     _INSTALLED = True
-    ck.check_files = li_check_files
-    core.Engine.call = li_call
-    core.Engine.context = li_context
-    core.Engine._decide = li_decide
-    core.safe_path = li_safe_path
+    core.add_extension(EXT)
     # the harness's own selftest asserts its exact flow list (15), so the extra flow is not added while it runs
     # (the env var carries that to the hub the selftest starts as a child process)
     if sys.argv[1:2] == ["selftest"]:
         os.environ["LOCALINTEL_ARCH_SELFTEST"] = "1"
     if not os.environ.get("LOCALINTEL_ARCH_SELFTEST"):
         fl.FLOWS["checkup"] = CheckupFlow()
+
+
+def uninstall():
+    """Take the layer out of the engine again (tests; a hub that switched it off)."""
+    global _INSTALLED
+    core.remove_extension(EXT)
+    if isinstance(fl.FLOWS.get("checkup"), CheckupFlow):
+        fl.FLOWS.pop("checkup", None)
+    _INSTALLED = False
 
 
 def opted_in(cfg=None):

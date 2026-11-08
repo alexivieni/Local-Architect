@@ -698,8 +698,8 @@ def tune_info():
                 pp = arch_passport.load(o.get("name", "")) if isinstance(o, dict) else None
                 if isinstance(pp, dict):
                     o["passport"] = {k: pp.get(k) for k in ("identity", "family_line", "explain") if pp.get(k) is not None}
-        except Exception:
-            pass
+        except Exception as _swx:
+            core._tel_swallow("hub.tune_info", _swx)
     except mh.OllamaError as e:
         own, cat, opt = [], {"as_of": None, "machine": {}, "suggestions": [], "error": e.msg}, None
     fit, index = None, None
@@ -1229,8 +1229,8 @@ def fleet_check(b):
                 left = arch_agentlib.leftovers(" ".join([str(a.get("brief") or a.get("goal") or "")] + [str(f) for f in a.get("files") or []]))
                 if left:
                     problems.append(f"{a.get('name') or 'an agent'}: fill in {', '.join(left)} first (left from the template)")
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.fleet_check", _swx)
     total = 0.0
     for a in plan:
         try:
@@ -1549,8 +1549,8 @@ def map_sources(root=None):
     try:
         r = safe_root(root or HERE)
         out["runs"] = [{"id": x["name"], "label": (x.get("goal") or x["name"])[:80], "flow": x.get("flow")} for x in run_listing(r)]
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.map_sources", _swx)
     fls, _ = _guarded(lambda: _mod("arch_fleet").list_fleets(30))
     out["fleets"] = [{"id": f["id"], "label": f"{f['id']} · {f.get('agents')} agents · {f.get('phase')}"} for f in fls or []]
     try:
@@ -1574,8 +1574,8 @@ def logbook_info(q=None):
     text = ""
     try:
         text = _read_text(lb.playbooks_path(), 60000) or ""
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.logbook_info", _swx)
     return _plain({"available": True, "stats": st or {}, "error": err, "playbooks": text})
 
 
@@ -1614,8 +1614,8 @@ def library_fill(b):
     try:
         import arch_fleet
         tests = [c for c in p.get("tests") or [] if arch_fleet.command_problem(c) is None]
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.library_fill", _swx)
     return _plain({"ok": True, "row": {"name": p["name"].replace("_", "-"), "kind": "claude", "brief": p["brief"], "files": ", ".join(p["files"]),
                                        "budget": p["budget_usd"], "mode": p["mode"]}, "tests": tests})
 
@@ -1664,8 +1664,8 @@ def monitor_info():
     tl = []
     try:
         tl = _timeline_tail(os.path.join(ov.overseer().out, "timeline.jsonl"))
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.monitor_info", _swx)
     return _plain({"available": True, "error": err, "agents": agents, "totals": s.get("totals") or {}, "conflicts": s.get("conflicts") or [],
                    "overlaps": s.get("overlaps") or [], "stalls": (s.get("stalls") or [])[:20], "top_tools": s.get("top_tools") or [],
                    "timeline": tl, "lessons": les or [], "lessons_error": lerr, "t": time.time()})
@@ -1872,8 +1872,8 @@ def _workflow_path(name):
         found = sq._find_named(name, "workflows")
         if found:
             return found
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.workflow_path", _swx)
     d = getattr(sq, "WORKFLOWS_DIR", os.path.join(HERE, "workflows"))
     for ext in (".yaml", ".md"):             # workflows may live as .yaml or .md
         if os.path.isfile(os.path.join(d, name + ext)):
@@ -2242,8 +2242,8 @@ def _prerun_bytes(root, d, rel):
                 if p.returncode == 0:
                     return p.stdout, "checkpoint", ""
                 return b"", "new", ""                     # the parent has no such file: this run made it
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.prerun_bytes", _swx)
     return None, "none", ("There is no copy of this file from before the run (no backup in the run folder and no checkpoint of the first try), "
                           "so the file cannot be rebuilt from parts. Accept or Undo the whole run instead.")
 
@@ -2395,8 +2395,8 @@ def bgjobs_view():
             if j.running():
                 jobs.append({"id": "hub", "kind": "hub", "title": j.title or "Job", "state": "running", "secs": round(now - (j.started or now)),
                              "tail": _tail_lines(j.buf), "can_stop": True, "stop_word": "Stop"})
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.bgjobs_view", _swx)
     try:
         import arch_supervisor as sv
         for q in sv.listing(states=["running", "pending"], limit=40):
@@ -2413,8 +2413,8 @@ def bgjobs_view():
             jobs.append({"id": f"q{q['id']}", "kind": "queue", "title": str(q.get("goal") or "")[:100], "state": "running" if running else "waiting",
                          "secs": secs, "flow": q.get("flow") or "", "tail": tail, "can_stop": True,
                          "stop_word": "Stop after this step" if running else "Cancel"})
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.bgjobs_view", _swx)
     return {"jobs": jobs, "t": now}
 
 
@@ -2658,14 +2658,14 @@ def session_view(root, run):
         with mh.JOB.lock:
             if mh.JOB.running():
                 jobs.append({"title": mh.JOB.title, "secs": round(time.time() - (mh.JOB.started or time.time()))})
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.session_view", _swx)
     try:
         import arch_supervisor as sv
         for j in sv.listing(states=["running"], limit=10):
             jobs.append({"title": "Queue: " + str(j.get("goal"))[:60], "secs": round(time.time() - float(j.get("started") or time.time()))})
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.session_view", _swx)
     out["jobs"] = jobs
     return out
 
@@ -2723,8 +2723,8 @@ def _plugin_commands(folder):
                     rec = arch_commands.parse(f.read(), os.path.join(d, fn), "plugin")
                 if rec:
                     out.append({"name": rec["name"], "description": rec["description"], "args_hint": rec["args_hint"], "needs_args": rec["needs_args"]})
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.plugin_commands", _swx)
     return out[:50]
 
 
@@ -3005,8 +3005,8 @@ def ui_registry():
 
 try:
     ui_registry()
-except Exception:
-    pass
+except Exception as _swx:
+    core._tel_swallow("hub.module", _swx)
 
 
 def dataset_lesson_counts(out_dir=None):
@@ -3144,8 +3144,8 @@ def overnight_view():
             r = min(rows, key=lambda x: x["C"])
             fastest = {"model": r.get("model"), "flow": r.get("flow"), "tasks": r.get("tasks"), "secs_per_task": round(r.get("t") or 0, 1),
                        "secs_per_pass": round(r["C"], 1), "pass_rate": round(100.0 * (r.get("p") or 0), 1)}
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.overnight_view", _swx)
     per = {k: v for k, v in ds["counts"].items() if k != "(none)"}
     ran = bool(night or ds["total"] or latest)
     return {"ran": ran, "night": night, "samples": {"total": ds["total"], "by_lesson": per, "untagged": ds["counts"].get("(none)", 0)},
@@ -3416,15 +3416,15 @@ class AHandler(mh.Handler):
                             return False
                     names += [r.get("id") or "claude" for r in (_cc.list_runs(limit=30) or [])
                               if r.get("status") == "running" and _alive(r.get("pid"))]
-                except Exception:
-                    pass
+                except Exception as _swx:
+                    core._tel_swallow("hub.do_GET", _swx)
                 try:
                     import arch_overseer as _ov
                     s = _ov.summary()
                     names += [a.get("name") or "agent" for a in (s.get("agents") or [])
                               if (a.get("live") or a.get("status") == "running") and float(a.get("quiet_s") or 0) < 600]
-                except Exception:
-                    pass
+                except Exception as _swx:
+                    core._tel_swallow("hub.do_GET", _swx)
                 c = AHandler._live_cache = (now, sorted(set(map(str, names)))[:20])
             return self._send(200, {"running": len(c[1]), "names": c[1]})
         if u.path == "/fonts/inter.woff2":              # the bundled interface font (Inter, SIL OFL 1.1: static/fonts/LICENSE-Inter.txt)
@@ -4337,8 +4337,8 @@ class AHandler(mh.Handler):
                 import arch_usage
                 if "--root" in argv:
                     arch_usage.remember_root(argv[argv.index("--root") + 1])
-            except Exception:
-                pass
+            except Exception as _swx:
+                core._tel_swallow("hub.route", _swx)
             return {"ok": True}
         if path == "/api/arch/serve":
             root = safe_root(b.get("root") or HERE, create_ok=True)
@@ -4525,15 +4525,15 @@ def main(argv=None):
         try:                                               # Settings > Server > Free memory when idle (0 = keep models loaded)
             import arch_server as _asv
             _asv.start_idle_sweeper(core.load_config, say=print)
-        except Exception:
-            pass   # a freeze then leaves evidence
+        except Exception as _swx:
+            core._tel_swallow("hub.main", _swx)   # a freeze then leaves evidence
     start_crew_scheduler()
     start_notify_watch()
     try:                                                   # closing the hub closes what the app started (behavior.close_on_exit)
         import arch_cleanup
         arch_cleanup.install_exit_hook(core.load_config, say=print)
-    except Exception:
-        pass
+    except Exception as _swx:
+        core._tel_swallow("hub.main", _swx)
     return mh.serve(a.port, not a.no_browser)
 
 
@@ -4572,8 +4572,8 @@ def start_notify_watch(poll=3.0):
                             arch_notify.notify("Architect: " + (title or "job")[:60] + " finished",
                                                "it ended normally" if code == 0 else f"it ended with exit code {code}")
                     seen = ended
-            except Exception:
-                pass
+            except Exception as _swx:
+                core._tel_swallow("hub.loop", _swx)
     threading.Thread(target=loop, daemon=True, name="notify-watch").start()
 
 

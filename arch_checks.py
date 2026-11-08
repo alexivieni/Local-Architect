@@ -493,6 +493,15 @@ def _migration_groups(root, files):
 
 
 def check_files(root, files, cfg, run_dir=None):
+    """Run every check that applies to these files. Returns a flat list (an extension may add its own: arch_core.ext_hooks)."""
+    for h in arch_core.ext_hooks("check_files"):
+        r = h(root, files, cfg, run_dir, _base_check_files)
+        if r is not None:
+            return r
+    return _base_check_files(root, files, cfg, run_dir)
+
+
+def _base_check_files(root, files, cfg, run_dir=None):
     """Run every check that applies to these files. Returns a flat list."""
     out = []
     use_pw = cfg["behavior"].get("playwright", "auto") != "off"
