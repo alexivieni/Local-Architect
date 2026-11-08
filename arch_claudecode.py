@@ -234,12 +234,16 @@ def write_meta(rid, **fields):
             meta = _read_meta(path)
             meta.update(fields)
             meta["id"] = rid
+            data = json.dumps(meta, indent=1, ensure_ascii=False, default=str).encode("utf-8")
             tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(meta, f, indent=1, ensure_ascii=False, default=str)
-            os.replace(tmp, path)
+            with open(tmp, "wb") as f:
+                f.write(data)
+            # patient with Windows: a reader (antivirus, the hub) holding the file made os.replace fail now and then, the update was
+            # dropped, and a run lost its fleet tag (arch_selftest_localagent failed under load, 2026-11-08)
+            core._replace(tmp, path, data)
         return meta
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError) as ex:
+        core._tel_swallow("claudecode.write_meta", ex)
         return {}
 
 

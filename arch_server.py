@@ -970,6 +970,60 @@ def _pid_on_port(port):
     return None
 
 
+_CTRL_C_LOCK = threading.Lock()
+
+
+def _ignores_ctrl_c():
+    """True/False: does THIS process ignore Ctrl+C (the inheritable flag SetConsoleCtrlHandler(NULL, TRUE) sets)? None when it cannot
+    be read. Windows keeps it in bit 0 of RTL_USER_PROCESS_PARAMETERS.ConsoleFlags; reading our own memory, never another process's."""
+    try:
+        import ctypes
+
+        class _PBI(ctypes.Structure):
+            _fields_ = [("r1", ctypes.c_void_p), ("peb", ctypes.c_void_p), ("r2", ctypes.c_void_p * 2), ("pid", ctypes.c_void_p),
+                        ("r3", ctypes.c_void_p)]
+        pbi = _PBI()
+        if ctypes.windll.ntdll.NtQueryInformationProcess(ctypes.c_void_p(-1), 0, ctypes.byref(pbi), ctypes.sizeof(pbi), None) != 0:
+            return None
+        wide = ctypes.sizeof(ctypes.c_void_p) == 8
+        params = ctypes.c_void_p.from_address(pbi.peb + (0x20 if wide else 0x10)).value
+        return bool(ctypes.c_ulong.from_address(params + (0x18 if wide else 0x14)).value & 1)
+    except Exception as _swx:
+        _swallow("server.ignores_ctrl_c", _swx)
+        return None
+
+
+class _CtrlCForChild:
+    """Around the start of a server only: Windows passes "ignore Ctrl+C" from a process to every child it starts (some launchers and
+    terminals set it), and a llama-server that inherits it never sees the Ctrl+C `_ask_exit` sends, so stop() always fell back to the
+    hard kill and the server never saved --lookup-cache-dynamic (measured 2026-11-08: the graceful suite's stand-in was "forced" every
+    time). The flag is cleared for the start and put back right after, so THIS process keeps ignoring Ctrl+C exactly as before: clearing
+    it for good made a suite running beside another one die of a Ctrl+C meant for someone else. When the flag cannot be read nothing is
+    changed (the old behaviour)."""
+
+    def __enter__(self):
+        _CTRL_C_LOCK.acquire()
+        self.restore = False
+        try:
+            if _ignores_ctrl_c():
+                import ctypes
+                self.restore = bool(ctypes.windll.kernel32.SetConsoleCtrlHandler(None, False))
+        except Exception as _swx:
+            _swallow("server.ctrl_c_for_child", _swx)
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            if self.restore:
+                import ctypes
+                ctypes.windll.kernel32.SetConsoleCtrlHandler(None, True)
+        except Exception as _swx:
+            _swallow("server.ctrl_c_for_child", _swx)
+        finally:
+            _CTRL_C_LOCK.release()
+        return False
+
+
 def _spawn(p, log_path):
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     log = open(log_path, "ab")
@@ -977,9 +1031,11 @@ def _spawn(p, log_path):
     cf, mask = launch_opts(p)
     if sys.platform.startswith("win"):
         kw["creationflags"] = cf                           # CREATE_NO_WINDOW, plus ABOVE_NORMAL_PRIORITY_CLASS in the fast lane
+        with _CtrlCForChild():                             # else the server inherits "ignore Ctrl+C" and never exits cleanly
+            proc = subprocess.Popen(p["args"], **kw)
     else:
         kw["start_new_session"] = True                     # its own session: Ctrl+C or closing the terminal does not stop a resident tier
-    proc = subprocess.Popen(p["args"], **kw)
+        proc = subprocess.Popen(p["args"], **kw)
     if mask:
         _pin(proc, mask)                                   # fast lane: the performance cores only
     return proc

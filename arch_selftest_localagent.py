@@ -299,7 +299,29 @@ def run():
         meta = cc.load_run(ag.get("run")) if ag.get("run") else {}
         check("a real local agent runs inside the fleet: done, its run log tagged with the fleet id, the fix on disk",
               ag.get("status") == "done" and meta.get("tag") == fid2 and meta.get("by_claude") is False
-              and "return a + b" in read("app.py") and (ag.get("checks") or {}).get("ok") is True, (ag, meta.get("tag")))
+              and "return a + b" in read("app.py") and (ag.get("checks") or {}).get("ok") is True,
+              {"status": ag.get("status"), "tag": meta.get("tag"), "fleet": fid2, "by_claude": meta.get("by_claude"),
+               "fix_on_disk": "return a + b" in read("app.py"), "checks": ag.get("checks")})
+
+        # Windows: a reader holding the meta file makes os.replace fail for a moment; the update must still land, not vanish
+        real_replace, flaky = os.replace, {"n": 0}
+
+        def busy_once(src, dst):
+            if dst.endswith(".meta.json") and flaky["n"] == 0:
+                flaky["n"] += 1
+                raise PermissionError(13, "Access is denied", dst)
+            return real_replace(src, dst)
+        rid = "la_busy_meta"
+        cc.write_meta(rid, tag="first")
+        os.replace = busy_once
+        try:
+            m = cc.write_meta(rid, status="done")
+        finally:
+            os.replace = real_replace
+        back = cc.load_run(rid)
+        check("a meta update survives a moment when Windows refuses the replace (the run keeps its tag and gets its status)",
+              flaky["n"] == 1 and m.get("status") == "done" and back.get("tag") == "first" and back.get("status") == "done",
+              (flaky, m, {k: back.get(k) for k in ("tag", "status")}))
     finally:
         srv.shutdown()
         core.set_home(old_home)

@@ -118,6 +118,15 @@ def run():
             fm = F._flagmap(w["args"])
             check("plan: the worker's args include --lookup-cache-dynamic <data>/server/lookup/worker.bin",
                   fm.get("--lookup-cache-dynamic") == os.path.join(S.server_dir(), "lookup", "worker.bin"), fm.get("--lookup-cache-dynamic"))
+            import inspect
+            check("_spawn clears the inherited 'ignore Ctrl+C' only around a server's start on Windows (else stop() always force-kills)",
+                  "with _CtrlCForChild():" in inspect.getsource(S._spawn))
+            if sys.platform.startswith("win") and S._ignores_ctrl_c() is not None:
+                before = S._ignores_ctrl_c()
+                with S._CtrlCForChild():
+                    inside = S._ignores_ctrl_c()
+                check("this process ignores Ctrl+C after a server start exactly as it did before (a Ctrl+C meant for another process must not end it)",
+                      S._ignores_ctrl_c() == before and inside is False, (before, inside, S._ignores_ctrl_c()))
         finally:
             F._unpatch(S, real)
     finally:

@@ -1,10 +1,14 @@
 """Run every self-test suite in parallel, each in its own throwaway data folder, and print one table.
 
-    py -3.12 tools/ci_parallel.py [--jobs 6] [--only a,b] [--timeout 900]
+    py -3.12 tools/ci_parallel.py [--jobs 6] [--only a,b] [--timeout 900] [--no-rerun]
 
 Each suite gets a fresh ARCHITECT_DATA_DIR and ARCHITECT_HOME (so no suite can touch the person's real settings or data),
 ARCHITECT_NO_CACHE=1 and below-normal priority. A suite passes when it exits 0. The summary line of each suite is shown.
 Exit code 1 when any suite fails or times out. Writes hub_data/ci/<stamp>.json.
+
+A suite that fails or times out in the parallel run is run once more ON ITS OWN. If it passes alone it is marked LOAD (it fails only
+when the machine is busy): listed apart, not counted as a failure, so red always means a real failure. A suite that fails alone too
+stays FAIL. NOT_SURE suites (checks that could not run here, e.g. a missing optional package) are listed apart with their reason.
 """
 import concurrent.futures as cf
 import glob
@@ -95,7 +99,17 @@ def main():
                       "No suite may touch them. Ending the run here.", flush=True)
                 ex.shutdown(wait=False, cancel_futures=True)
                 break
+    if "--no-rerun" not in sys.argv:
+        for r in [r for r in res if r["status"] in ("FAIL", "TIMEOUT")]:
+            print(f"  rerun   {r['suite']} on its own ...", flush=True)
+            r2 = run(r["suite"], SLOW.get(r["suite"], timeout))
+            r["alone"] = {k: r2[k] for k in ("rc", "secs", "summary", "fails")}
+            if r2["rc"] == 0:
+                r["status"] = "LOAD"
+            print(f"  {r['status']:7} {r['suite']:38} {r2['secs']:6.1f}s  alone: {r2['summary']}", flush=True)
     bad = [r for r in res if r["status"] in ("FAIL", "TIMEOUT")]
+    load = [r for r in res if r["status"] == "LOAD"]
+    unsure = [r for r in res if r["status"] == "NOT_SURE"]
     # The report goes where this run's data lives: under ARCHITECT_DATA_DIR when the caller set one (an isolated test home), else
     # the real data folder. Writing into <repo>/hub_data regardless is what made a testing tool "clean up" the person's data (2026-11-07).
     ci_dir = os.path.join(os.environ.get("ARCHITECT_DATA_DIR") or os.path.join(APP, "hub_data"), "ci")
@@ -105,6 +119,10 @@ def main():
     print(f"\n{len(res) - len(bad)}/{len(res)} suites green" + (f"; failing: {', '.join(r['suite'] for r in bad)}" if bad else "") + f"  ({out})")
     for r in bad:
         print(f"\n--- {r['suite']}: {r['summary']}\n" + "\n".join("    " + f for f in r["fails"]))
+    if load:
+        print("failed only under load (passed when run alone): " + ", ".join(r["suite"] for r in load))
+    if unsure:
+        print("not sure (some checks could not run here): " + "; ".join(f"{r['suite']} ({r['summary']})" for r in unsure))
     lost = [k for k, p in _mine.items() if _had[k] and not os.path.exists(p)]
     if lost:
         print(f"\nWARNING: your {' and '.join(lost)} disappeared during this run ({', '.join(_mine[k] for k in lost)}). "

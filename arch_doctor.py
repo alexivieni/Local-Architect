@@ -42,6 +42,28 @@ def check_python():
     return _ok(f"Python >= {MIN_PYTHON[0]}.{MIN_PYTHON[1]}", ok, f"running {v.major}.{v.minor}.{v.micro}")
 
 
+def check_test_python():
+    """Which Python runs the tests. On Windows `py -3` picks the NEWEST Python, which may have no pytest (seen here: 3.15 without it,
+    3.12 with it); the launcher already switches (start.python_for_tests), but a suite run by hand with `py -3` just did less."""
+    import contextlib
+    import io
+    try:
+        import start
+        with contextlib.redirect_stdout(io.StringIO()):
+            exe = start.python_for_tests()
+    except Exception as ex:
+        return _ok("Python for tests", False, f"could not tell: {ex}", advisory=True)
+    v = sys.version_info
+    here = os.path.normcase(os.path.abspath(exe)) == os.path.normcase(os.path.abspath(sys.executable))
+    if here and importlib.util.find_spec("pytest"):
+        return _ok("Python for tests", True, f"this Python ({v.major}.{v.minor}) has pytest and runs the tests", advisory=True)
+    if not here:
+        return _ok("Python for tests", False, f"this Python ({v.major}.{v.minor}) has no pytest; the tests run with {exe} "
+                   f"(the launcher picks it). Run suites by hand with that one, e.g. py -3.12 arch_selftest_x.py", advisory=True)
+    return _ok("Python for tests", False, "no installed Python has pytest: checks that run tests will do less "
+               "(python -m pip install pytest, with your yes)", advisory=True)
+
+
 def check_module(mod, advisory=True):
     present = importlib.util.find_spec(mod) is not None
     hint = "" if present else f"pip install {mod}" + (" --break-system-packages" if sys.prefix == sys.base_prefix else "")
@@ -196,6 +218,7 @@ def run(root=None, hub_port=8766):
     checks = [
         check_python(),
         check_module("pytest"),
+        check_test_python(),
         check_ollama(cfg.get("ollama_host")),
         check_disk(root),
         check_write(root, root),
