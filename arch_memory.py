@@ -26,7 +26,9 @@ MAX_LINES = 400
 MAX_LEN = 300
 PRUNE_AFTER = 5
 TOP_LINES = 12
-SECRET_RX = re.compile(r"(?i)\b(api[_-]?key|secret|password|passwd|token|private[_-]?key)\b\s*[:=]\s*\S{8,}")
+SECRET_RX = re.compile(r"(?i)\b(api[_-]?key|secret|password|passwd|token|private[_-]?key)\b\s*[:=]\s*\S{8,}"
+                       r"|sk-[A-Za-z0-9_\-]{8,}|ghp_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|xox[abp]-[A-Za-z0-9\-]{8,}|AKIA[0-9A-Z]{12,}"
+                       r"|(?i:bearer)\s+[A-Za-z0-9._\-]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----")   # bare tokens too, not only key=value
 _LINE = re.compile(r"^- \[(?P<date>[\d-]+)(?: (?P<run>[\w.:-]+))?\] (?P<text>.*?)(?: \(used (?P<used>\d+), confirmed (?P<conf>\d+)\))?$")
 
 

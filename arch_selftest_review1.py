@@ -185,7 +185,7 @@ def run():
         check("the self-improve counter reads every summary format the suites print", got == samples, {k: v for k, v in got.items() if v != samples[k]})
         check("a failing summary counts nothing", si.count_passed("3 of 9 FOO CHECKS FAILED") == 0)
         arch = open(os.path.join(HERE, "architect.py"), encoding="utf-8").read()
-        check("the finops and review1 suites run in `selftest --suite full`", '"replay", "finops", "review1")' in arch)
+        check("the finops and review1 suites run in `selftest --suite full`", '"finops", "review1"' in arch)
     finally:
         for p in procs:
             try:

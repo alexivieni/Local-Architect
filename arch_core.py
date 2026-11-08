@@ -1349,6 +1349,10 @@ class Engine:
         self.persist_runs = persist
         self.down_hosts = set()        # machines found unreachable this run (their roles run locally for the rest of it)
         self.down_roles = set()        # the roles whose machine died this run: they stay on THIS computer, whatever the route says now
+        self.tier_pins = set()         # roles pinned by a YAML step's `tier:` (a default, not an escalation): their machine route still holds
+        _own = os.environ.get("ARCHITECT_OWNS") or ""
+        if _own and not getattr(self, "owns", None):
+            self.owns = tuple(x for x in _own.split("|") if x.strip())     # a fleet agent: writes only to the files it was given
         self.gpu_seen = set()          # (model, window) pairs already checked for GPU spill this run
         self.reuse = {"calls": 0, "tokens": 0, "cached": 0}   # calls served from a cached prefill, the tokens that saved (estimate; see call()), and whole replies reused (arch_cache)
         self._lock = threading.RLock()  # several candidates can be generated at once (best-of-N on a server with parallel slots); the
@@ -1821,10 +1825,14 @@ class Engine:
         # A hit costs no tokens and no seconds, so it is left out of the speed statistics and the spend meter -- but it still counts
         # against max_calls, because a run making sixty free calls is still a runaway run.
         ck, ck_model = "", model          # ck_model: the key is this model's. A reply that ends up coming from a fallback model is NOT stored under it.
+        # which machine answers is part of the key: a LAN machine's copy of a tag can be another quant than this computer's, so its reply
+        # must never replay as if this computer's model wrote it (and the other way round). Only stored when that machine really answered.
+        ck_host = "" if (self._escalated(role) or role in self.down_roles) else str((self.cfg.get("role_hosts") or {}).get(role) or "")
         try:
             import arch_cache
             if not arch_cache.why_not(self.cfg, options):
-                ck = arch_cache.key(model, msgs, dict(options, think=bool(th)), schema=fmt, fingerprint=self._model_fp(model))
+                _fp = self._model_fp(model)
+                ck = arch_cache.key(model, msgs, dict(options, think=bool(th)), schema=fmt, fingerprint=(f"{_fp}@{ck_host}" if ck_host else _fp))
                 hit = arch_cache.get(ck, self.cfg)
                 if hit:
                     self.calls += 1
@@ -1863,7 +1871,7 @@ class Engine:
         import arch_hosts
         # NOT down=self.down_hosts here: a machine that died mid-run leaves its role on THIS computer for the rest of the run (said once);
         # passing `down` would send the role to the next machine instead. mark_down() below still steers other callers away from it.
-        rt0 = None if (self.pins.get(role) or role in self.down_roles) else arch_hosts.route_of(self.cfg, role)
+        rt0 = None if (self._escalated(role) or role in self.down_roles) else arch_hosts.route_of(self.cfg, role)
         if not (rt0 and rt0[0] not in self.down_hosts):          # only a model on THIS machine shares its graphics card
             if not str(model).startswith("claude:"):              # a cloud call uses no graphics memory here
                 self._bring_back(model)
@@ -1876,7 +1884,7 @@ class Engine:
         t0 = time.time()
 
         import arch_hosts
-        rt = None if (self.pins.get(role) or role in self.down_roles) else arch_hosts.route_of(self.cfg, role)   # an escalated role runs on a local model, not on its machine
+        rt = None if (self._escalated(role) or role in self.down_roles) else arch_hosts.route_of(self.cfg, role)   # an escalated role runs on a local model, not on its machine
         cur = {"model": model, "host": rt[1] if rt and rt[0] not in self.down_hosts else None, "name": rt[0] if rt else None}
 
         def skey():                                    # speeds are remembered per machine: a model is not equally fast everywhere
@@ -1933,11 +1941,11 @@ class Engine:
                     return stream_chat(cur["model"], msgs, options, th, self._ka(), timeouts(), fmt, host=None, on_token=tok)
                 if not cur["host"]:
                     raise
-                local = self.cfg.get("default_model") or next(iter(self.installed()), None)
+                self.down_roles.add(role)              # first: _model_for then answers for THIS computer
+                local = self._local_fallback(role)
                 if not local:
                     raise
                 self.down_hosts.add(cur["name"])
-                self.down_roles.add(role)
                 try:
                     arch_hosts.mark_down(cur["name"], cur["host"])
                 except Exception:
@@ -1955,12 +1963,14 @@ class Engine:
         self._inflight[model] += 1
         _h_url = cur.get("host")
         if _h_url:
-            arch_hosts._IN_FLIGHT[_h_url] = arch_hosts._IN_FLIGHT.get(_h_url, 0) + 1
+            with arch_hosts._FL_LOCK:
+                arch_hosts._IN_FLIGHT[_h_url] = arch_hosts._IN_FLIGHT.get(_h_url, 0) + 1
         try:
             r = self._unlocked(chat)
         finally:
             if _h_url:
-                arch_hosts._IN_FLIGHT[_h_url] = max(0, arch_hosts._IN_FLIGHT.get(_h_url, 1) - 1)
+                with arch_hosts._FL_LOCK:
+                    arch_hosts._IN_FLIGHT[_h_url] = max(0, arch_hosts._IN_FLIGHT.get(_h_url, 1) - 1)
             self._inflight[model] -= 1
         model = cur["model"]
         ov = arch_tune.overflow(r["prompt_tokens"], options["num_ctx"], options["num_predict"])
@@ -1973,6 +1983,8 @@ class Engine:
                 options["num_ctx"] = bigger
                 if self.calls >= lim["max_calls"]:
                     raise BudgetExceeded(f"stopped after {self.calls} model calls (Settings > Limits > max calls)")
+                self._check_budgets(model)          # a second request: the step/flow budgets and the STOP file apply to it too
+                ck = ""                             # its reply came from a bigger window than the key says: never stored under it
                 self.calls += 1
                 r = self._unlocked(chat)
                 model = cur["model"]
@@ -2041,7 +2053,8 @@ class Engine:
         if _rb_key and rec.get("transport") != "claude":
             try:
                 import arch_replybudget as _rb
-                _rb.record(_rb_key, r.get("gen_tokens"), r.get("done_reason") == "length")
+                if model == ck_model and r.get("done_reason") in ("stop", "length"):   # this model's own reply, finished or cut at the cap
+                    _rb.record(_rb_key, r.get("gen_tokens"), r.get("done_reason") == "length")
             except Exception as _swx:
                 _tel_swallow("core.chat", _swx)
         self._provenance(model, host=cur["name"] if cur["host"] else None)   # the model that actually answered (a fallback can differ)
@@ -2049,7 +2062,7 @@ class Engine:
         # limit depends on a server window (llama-server's -c) that is not part of the key, so it is never replayed
         # only a reply the server says it FINISHED ("stop"): a stream that died mid-reply (server restart, tier stepped aside) ends with
         # done_reason None, and caching that would replay a truncated answer for 30 days
-        if ck and model == ck_model and r.get("done_reason") == "stop":
+        if ck and model == ck_model and r.get("done_reason") == "stop" and bool(cur.get("host")) == bool(ck_host):
             try:
                 import arch_cache
                 arch_cache.put(ck, model, text, tokens_in=int(r["prompt_tokens"] or 0), tokens_out=int(r["gen_tokens"] or 0),
@@ -2599,9 +2612,44 @@ class Engine:
         return r, j
 
     # --- file changes
+    def _escalated(self, role):
+        """A role pinned to a bigger model (escalation) runs locally; one pinned by a step's ordinary `tier:` keeps its machine route.
+        Both used to share `pins`, so every YAML step silently switched the LAN machines off."""
+        return bool(self.pins.get(role)) and role not in self.tier_pins
+
+    def _local_fallback(self, role):
+        """The model a role uses on THIS computer when its machine stops answering: its own (assignment, then tier), then the default,
+        then the first installed chat model. Not 'the first installed tag', which could be an embedding model or a 14B."""
+        try:
+            m = self._model_for(role)
+            if m:
+                return m
+        except Exception as _swx:
+            _tel_swallow("core.local_fallback", _swx)
+        if self.cfg.get("default_model"):
+            return self.cfg["default_model"]
+        import arch_index
+        return next((m for m in self.installed() if not arch_index.EMBED_RX.search(m)), None)
+
+    def _owned(self, rel):
+        """True when this engine may write `rel`: always, unless it was given an owned-file list (a fleet or crew agent)."""
+        owns = getattr(self, "owns", None)
+        if not owns:
+            return True
+        import arch_fleet
+        key = arch_fleet._clean_path(rel)[1]
+        mine = [arch_fleet._clean_path(o)[1] for o in owns]
+        return bool(key) and any(k and (key == k or key.startswith(k + "/")) for k in mine)
+
     def apply(self, reply_text, label=""):
         """Parse a reply, show diffs, ask (review mode), write. -> list of result dicts."""
         blocks = parse_blocks(reply_text)
+        _theirs = sorted({str(b.get("path") or b.get("rel") or "") for b in (blocks or [])} - {""})
+        _bad = [x for x in _theirs if not self._owned(x)]
+        if _bad:
+            self.say("[-] refused: not owned by this agent: " + ", ".join(_bad))
+            self.last_apply_noop, self.last_apply_errors = False, [f"{x}: not owned by this agent" for x in _bad]
+            return [{"status": "error", "rel": x, "msg": "not owned by this agent (it owns: " + ", ".join(self.owns) + ")"} for x in _bad]
         lim = self.cfg["limits"]["max_files_per_step"]
         results = []
         self.last_apply_noop = False
@@ -2727,6 +2775,14 @@ class Engine:
 
     def put_file(self, rel, text, label="", quiet=False):
         """Write a whole (document) file through the same safety + review path as model edits.
+        An engine with an owned-file list refuses anything else (returns False)."""
+        if not self._owned(rel):
+            self.say(f"[-] refused: {rel} is not owned by this agent")
+            return False
+        return self._put_file(rel, text, label, quiet)
+
+    def _put_file(self, rel, text, label="", quiet=False):
+        """put_file without the ownership check (see put_file).
         quiet=True: no diff and no per-file question (the caller already got approval for the whole set)."""
         p = prepare_block(self.root, self.cfg, {"kind": "file", "path": rel, "code": text.rstrip("\n") + "\n"})
         if p["status"] == "ok":

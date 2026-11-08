@@ -30,6 +30,7 @@ HEALTH_TTL = 60.0            # seconds a health answer is trusted inside this pr
 TINY_PROMPT = "Reply with the single word: ready"
 _LIVE = {}                   # (name, url) -> last health answer in this process
 _IN_FLIGHT = {}              # url -> active concurrent requests
+_FL_LOCK = __import__("threading").Lock()   # best-of-N and crews change _IN_FLIGHT from several threads
 _LLAMA_HOSTS = set()         # urls detected as llama-server (/v1/models)
 
 

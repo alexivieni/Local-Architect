@@ -49,6 +49,10 @@ def run():
         check("two claims never take the same task", j1 and j2 and j1["id"] != j2["id"], (j1, j2))
         check("a claimed task is marked running and its attempt is counted", sv.get(j1["id"])["state"] == "running" and j1["attempts"] == 1)
         check("with nothing pending, a claim returns nothing", sv.claim() is None)
+        check("a task whose supervisor is alive is never taken back, even with an old heartbeat", sv.recover(stale_after=0) == 0, sv.counts())
+        import subprocess as _sp, sqlite3 as _sq
+        dead = _sp.Popen([sys.executable, "-c", "pass"]); dead.wait()          # a real pid that has ended: the supervisor that was killed
+        _c = _sq.connect(sv.db_path()); _c.execute("update jobs set owner_pid=?, owner_start=null where state='running'", (dead.pid,)); _c.commit(); _c.close()
         n = sv.recover()
         check("a task left running by a supervisor that was killed goes back on the queue", n == 2 and sv.counts()["pending"] == 2, sv.counts())
         sv.clear(("pending",))

@@ -171,6 +171,10 @@ def known_roots():
 def owner_of(fname, roots):
     """-> (kind, why, root): kind is 'orphan', 'owned' or 'unknown'. Unknown is never treated as an orphan."""
     stem = fname[:-4] if fname.endswith(".bin") else fname
+    _fp = re.match(r"^(.*)-[0-9a-f]{8}$", stem)            # slot_io appends "-<model fingerprint>" so a slot never restores into another model
+    if _fp:
+        stem = _fp.group(1)
+        fname = stem + ".bin"
     for pre in THROWAWAY_PREFIXES:
         if stem.startswith(pre):
             return "orphan", f"from a thrown-away {pre.rstrip('_')} folder; no run can restore it", None

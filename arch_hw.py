@@ -43,8 +43,12 @@ def _nvidia(run):
 
 def _win_gpu(run):
     """Windows WMI fallback for discrete AMD Radeon / Intel Arc GPUs when nvidia-smi and rocm-smi are not present."""
-    rc, out = run(["powershell", "-NoProfile", "-Command",
-                   "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress"])
+    # AdapterRAM is a 32-bit number (at most 4 GB); the driver's qwMemorySize in the display class key is the real 64-bit size
+    ps = ("$q=@{}; Get-ChildItem 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}' -ErrorAction SilentlyContinue | "
+          "ForEach-Object { $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue; "
+          "if ($p.DriverDesc -and $p.'HardwareInformation.qwMemorySize') { $q[[string]$p.DriverDesc] = [uint64]$p.'HardwareInformation.qwMemorySize' } }; "
+          "Get-CimInstance Win32_VideoController | ForEach-Object { [pscustomobject]@{Name=$_.Name; AdapterRAM=$_.AdapterRAM; MemorySize=$q[[string]$_.Name]} } | ConvertTo-Json -Compress")
+    rc, out = run(["powershell", "-NoProfile", "-Command", ps])
     if rc != 0 or not out.strip():
         return None
     import json
@@ -56,7 +60,7 @@ def _win_gpu(run):
     gpus = []
     for d in items:
         name = str(d.get("Name") or "").strip()
-        ram_b = int(d.get("AdapterRAM") or 0)
+        ram_b = max(int(d.get("MemorySize") or 0), int(d.get("AdapterRAM") or 0))
         if ram_b < 2 * GB or re.search(r"microsoft basic|parsec|virtual|remote|uhd graphics|iris", name, re.I):
             continue
         v = round(ram_b / GB, 2)

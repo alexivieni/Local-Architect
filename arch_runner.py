@@ -106,30 +106,15 @@ def is_running(pid):
     try:
         os.kill(pid, 0)                     # POSIX: signal 0 only checks
         return True
-    except OSError:
+    except (OSError, AttributeError):
         return False
 
 
 def _win_alive(pid):
     """Windows liveness WITHOUT os.kill: on Windows `os.kill(pid, 0)` is TerminateProcess, so the old check killed the project it was
-    asking about (hub exit, `cleanup`, every stop()). OpenProcess + GetExitCodeProcess == STILL_ACTIVE touches nothing."""
-    try:
-        import ctypes
-        k32 = ctypes.windll.kernel32
-        h = k32.OpenProcess(0x1000 | 0x100000, False, int(pid))      # PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
-        if not h:
-            return False
-        try:
-            code = ctypes.c_ulong()
-            if not k32.GetExitCodeProcess(h, ctypes.byref(code)):
-                return True                                             # cannot read: a live process is the safer answer
-            return code.value == 259                                    # STILL_ACTIVE
-        finally:
-            k32.CloseHandle(h)
-    except Exception:
-        return False
-    except AttributeError:
-        return False
+    asking about (hub exit, `cleanup`, every stop()). arch_proc.alive reads the exit code and touches nothing; unknown counts as alive."""
+    import arch_proc
+    return arch_proc.alive(pid) is not False
 
 
 def start(root, cmd=None, port=None, extra_env=None, timeout_oneshot=600, network=None):

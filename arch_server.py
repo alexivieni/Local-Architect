@@ -390,6 +390,16 @@ def resolve_model(spec, cfg=None):
 FAST_MIN_CTX = 6144        # below this a sprint prompt (measured ~7k tokens of an 8192 window) would be cut too hard: keep the split instead
 
 
+def ollama_keep(cfg, serving, loaded):
+    """Which models Ollama keeps on the card when the servers start: ONE rule for plan() (what memory will be free) and start() (what
+    it unloads). Before, plan() counted every loaded Ollama model as freed while start() kept the person's role models, so the worker
+    was launched with every layer into memory that was still taken."""
+    serving, loaded = set(serving or ()), set(loaded or ())
+    if (cfg.get("behavior") or {}).get("exclusive_gpu", "auto") == "off":
+        return loaded - serving                    # "leave them": only Ollama's copy of what llama-server now serves goes
+    return ({m for m in (cfg.get("roles") or {}).values() if m} | {m for m in (cfg.get("tiers") or {}).values() if m}) - serving
+
+
 def slots_fit(cap, size_bytes, arch, hw, ctx, kv, desk, placement="auto"):
     """How many conversations the worker should hold at once: the LARGEST count up to `cap` (Settings > Server > Parallel) at which
     every layer and every slot's whole window still fit on the graphics card. Never trade a layer for a slot: measured here on a
@@ -538,6 +548,12 @@ def plan(cfg=None, hw=None, caps_=None):
     flags = set(cp.get("flags") or [])
     port0 = int(srv.get("port") or 8081)
     kv = srv.get("kv") or prof.get("kv") or "q8_0"
+    kv_ok = bool(srv.get("flash_attn", True) and ("--flash-attn" in flags or "-fa" in flags)
+                 and "--cache-type-k" in flags and "--cache-type-v" in flags)
+    if kv != "f16" and not kv_ok and flags:
+        notes.append(f"the conversation memory is planned as f16, not {kv}: " + ("Flash attention is off in Settings" if not srv.get("flash_attn", True)
+                     else "this llama-server build does not offer the cache-type flags") + ", and without them the server keeps the larger f16 cache.")
+        kv = "f16"
     tiers = dict((prof.get("tiers") or {}))
     for t, m in (cfg.get("tiers") or {}).items():
         if m:
@@ -556,7 +572,9 @@ def plan(cfg=None, hw=None, caps_=None):
         if not os.environ.get("ARCHITECT_SELFTEST"):
             try:
                 import arch_ollama
-                ol_vram = sum((m.get("size_vram") or 0) for m in (arch_ollama.status(timeout=1).get("loaded") or [])) / GB
+                loaded_now = arch_ollama.status(timeout=1).get("loaded") or []
+                keep = ollama_keep(cfg, {m for m in (cfg.get("tiers") or {}).values() if m}, {m.get("name") for m in loaded_now if m.get("name")})
+                ol_vram = sum((m.get("size_vram") or 0) for m in loaded_now if m.get("name") not in keep) / GB   # only what start() will free
             except Exception:
                 ol_vram = 0.0
         desk = min(max(vt - float(vf) - ol_vram, 0.15), vt)
@@ -642,6 +660,8 @@ def plan(cfg=None, hw=None, caps_=None):
             elif can_beside:
                 kh = srv.get("kv_heavy", "auto") or "auto"
                 kv_b = "q4_0" if kh == "auto" else (kv if kh == "inherit" else kh)     # beside the worker the MoE's cache is the one to squeeze
+                if not kv_ok and flags:
+                    kv_b = "f16"                                                         # no flags: the server cannot squeeze it
                 b = _moe_split(rm["size"], arch, dict(hw, vram_gb=vt - float(wp["est_gpu_gb"] or 0)), ctx, kv_b, desktop_gb=desk)
                 if b and b[2] + resident_ram <= ram_gb - RAM_RESERVE_GB:
                     beside = split = b
@@ -881,7 +901,9 @@ def _is_llama(pid):
         mine = os.path.basename(resolve_binary() or "").lower()
     except Exception:
         mine = ""
-    return "llama" in img or (bool(mine) and (img == mine or img.rsplit(".", 1)[0] == mine.rsplit(".", 1)[0]))
+    if bool(mine) and (img == mine or img.rsplit(".", 1)[0] == mine.rsplit(".", 1)[0]):
+        return True
+    return img.rsplit(".", 1)[0] == "llama-server"          # exactly a llama-server, never anything that merely contains "llama" (ollama.exe)
 
 
 def _recorded_image(pid):
@@ -901,6 +923,11 @@ def _alive(pid, owner=False, image=None):
     restart. owner=True = any process (the pid of a run that holds a record)."""
     if not pid:
         return False
+    if owner:                                         # any process: no image to compare, so no tasklist (5-20 s on a busy machine)
+        import arch_proc
+        a = arch_proc.alive(pid)
+        if a is not None:
+            return a
     try:
         if sys.platform.startswith("win"):
             r = None
@@ -974,7 +1001,7 @@ def wait_health(url, seconds=180, say=None, proc=None):
 def start(cfg=None, hw=None, tiers=None, say=print, wait=True, watch=True, heavy=False, project=None):
     """Start the resident tiers (router, worker; heavy only when asked). -> state dict. Idempotent: a healthy process is left alone."""
     cfg = cfg or core.load_config()
-    pl = plan(cfg, hw)
+    pl = plan(cfg, hw)                 # first look (mode, which tiers); planned again under the lock below before anything launches
     st = load_state()
     st.setdefault("processes", {})
     if pl["mode"] != "llama":
@@ -985,6 +1012,8 @@ def start(cfg=None, hw=None, tiers=None, say=print, wait=True, watch=True, heavy
         return st
     want = [p for p in pl["processes"] if (p["resident"] or heavy) and (not tiers or p["tier"] in tiers)]
     with _starting(say):
+        pl = plan(cfg, hw)             # again, now that it is our turn: another starter may have changed what the card holds
+        want = [p for p in pl["processes"] if (p["resident"] or heavy) and (not tiers or p["tier"] in tiers)]
         st = load_state()
         if pl.get("desk_measured"):
             st["desk_gb"] = pl["desk_gb"]                                  # as it is now: another process may have started these while we waited
@@ -1058,10 +1087,7 @@ def _start_procs(cfg, want, st, say, wait):
             import arch_ollama
             serving = {p["name"] for p in want}
             loaded = {m["name"] for m in (arch_ollama.status(timeout=2).get("loaded") or []) if m.get("name")}
-            if (cfg.get("behavior") or {}).get("exclusive_gpu", "auto") == "off":
-                keep = loaded - serving                    # "leave them": only Ollama's copy of what llama-server now serves goes
-            else:
-                keep = ({m for m in (cfg.get("roles") or {}).values() if m} | {m for m in (cfg.get("tiers") or {}).values() if m}) - serving
+            keep = ollama_keep(cfg, serving, loaded)
             if loaded - keep:
                 arch_ollama.free_gpu(keep, say=say)
         except Exception as _swx:
@@ -1096,7 +1122,7 @@ def _start_procs(cfg, want, st, say, wait):
         if p.get("priority") or p.get("affinity"):
             rec.update(priority=p.get("priority"), affinity=p.get("affinity"))
         st["processes"][p["tier"]] = rec
-        save_state(st)
+        _save_tier(p["tier"], rec)
         _tel("server.start", rec, reason="start")
         if wait:
             ok = wait_health(url, seconds=240, proc=proc)
@@ -1106,9 +1132,13 @@ def _start_procs(cfg, want, st, say, wait):
                 _kill(proc.pid)
                 time.sleep(3.0)
                 off = _log_size(log_path)
+                old_pid = rec["pid"]
                 proc = _spawn(p, log_path)
                 rec.update(pid=proc.pid, image=_img(proc), started=time.time())
-                save_state(st)
+                if not _save_tier(p["tier"], rec, only_pid=old_pid):
+                    _kill(proc.pid)                     # stopped while it was starting: stay stopped
+                    say(f"[server] {p['tier']}: was stopped while it started; not starting it again")
+                    continue
                 ok = wait_health(url, seconds=240, proc=proc)
                 if ok and _gpu_lost(log_path, off):
                     rec["on_cpu"] = True
@@ -1122,7 +1152,24 @@ def _start_procs(cfg, want, st, say, wait):
                 _tel("server.crash", rec, reason="exited while loading" if exited else "no /health in time")
             say(f"[server] {p['tier']}: " + ("ready" if ok else ("stopped while loading" if exited else "did not answer /health in time")
                                               + "; see " + log_path))
-            save_state(st)
+            _save_tier(p["tier"], rec, only_pid=rec["pid"])
+
+
+def _save_tier(tier, rec, only_pid=None):
+    """Write ONE tier's record into the state file as it is NOW (read, change that key, write). `_start_procs` used to save the whole
+    dict it read before a 240 s health wait, which brought back records another process had removed meanwhile (a stopped heavy came
+    back and the watchdog restarted it). only_pid: an update to a record is written only while the file still holds that same pid,
+    so a tier stopped during its own start stays stopped."""
+    st = load_state()
+    procs = st.setdefault("processes", {})
+    if only_pid is not None and (procs.get(tier) or {}).get("pid") != only_pid:
+        return False
+    if rec is None:
+        procs.pop(tier, None)
+    else:
+        procs[tier] = rec
+    save_state(st)
+    return True
 
 
 def _placement(rec):
@@ -1398,7 +1445,10 @@ def step_aside(tiers, model, names, owner=None, run=None, say=print):
     st = load_state()
     aside = st.setdefault("aside", {})
     for t in tiers:
-        aside[t] = {"for": model, "owner": owner or os.getpid(), "run": run or "", "names": list((names or {}).get(t) or []), "t": time.time()}
+        import arch_proc
+        o = owner or os.getpid()
+        aside[t] = {"for": model, "owner": o, "owner_start": arch_proc.start_time(o), "run": run or "",
+                    "names": list((names or {}).get(t) or []), "t": time.time()}
     save_state(st)
     for t in tiers:
         _tel("server.aside", (st.get("processes") or {}).get(t) or {"tier": t}, reason=f"room for {model}", for_model=model, aside_run=run or "")
@@ -1406,7 +1456,16 @@ def step_aside(tiers, model, names, owner=None, run=None, say=print):
 
 
 def _orphaned(a):
-    return not (a.get("owner") and _alive(a["owner"], owner=True))
+    """Has the run that stepped this tier aside ended? Its pid must still be alive AND be the same process (creation time): after a
+    Stop-button kill Windows hands the pid to something else, and the aside used to be kept forever."""
+    if not a.get("owner"):
+        return True
+    import arch_proc
+    if "owner_start" in a:
+        s = arch_proc.same(a["owner"], a.get("owner_start"))
+        if s is not None:
+            return not s
+    return not _alive(a["owner"], owner=True)
 
 
 def come_back(cfg, say=print, owner=None, run=None, wait_s=15.0):
@@ -1471,7 +1530,8 @@ def ensure(cfg, say=print, wanted=None, watch=False, project=None):
         def names(p):
             return {p["tier"], "tier:" + p["tier"], p.get("name"), p.get("gguf"), os.path.basename(p.get("gguf") or ""),
                     ((pl.get("tiers") or {}).get(p["tier"]) or {}).get("model")} - {None, ""}
-        need = [p["tier"] for p in pl["processes"] if p["resident"] and p["tier"] not in up
+        held = {t for t, a in (load_state().get("aside") or {}).items() if not _orphaned(a)}   # another live run gave the card to a bigger model
+        need = [p["tier"] for p in pl["processes"] if p["resident"] and p["tier"] not in up and p["tier"] not in held
                 and (wanted is None or names(p) & set(wanted))]
         if need:
             return start(cfg, tiers=need, say=say, project=project)
@@ -1755,7 +1815,14 @@ def idle_sweep(cfg, now=None, say=lambda m: None, http=None):
     try:                                                     # Ollama's own loaded models (e.g. an escalation to the heavy model)
         host = "http://127.0.0.1:11434"
         ps = _json.loads((_rq.urlopen(host + "/api/ps", timeout=2).read() if http is None else http(host + "/api/ps")) or b"{}")
+        try:
+            import arch_cleanup
+            ours = arch_cleanup._our_models(cfg)
+        except Exception:
+            ours = None
         for m in ps.get("models") or []:
+            if ours is not None and m.get("name") not in ours:
+                continue                      # loaded by another program (Open WebUI, a script): not ours to unload
             key = "ollama:" + str(m.get("name"))
             if key not in _IDLE["seen"]:
                 _IDLE["seen"][key] = now

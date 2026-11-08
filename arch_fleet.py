@@ -557,7 +557,8 @@ def _agent_thread(fid, name, root, tests, starter, local_runner, poll, max_turns
                        refused=res.get("refused") or [], ended=time.time())
             return
         goal = str(me["brief"]).rstrip() + extra + local_footer(me)
-        env = dict(os.environ, ARCHITECT_FLEET=fid, ARCHITECT_FLEET_AGENT=f"{fid}:{name}")
+        env = dict(os.environ, ARCHITECT_FLEET=fid, ARCHITECT_FLEET_AGENT=f"{fid}:{name}",
+                   ARCHITECT_OWNS="|".join(_clean_path(f)[0] for f in me["files"]))      # the child's Engine refuses every other file
         r = local_runner(local_argv(me, root, goal), root, local_timeout, env) or {}
         rc, out = r.get("rc"), str(r.get("output") or "")
         if rc == 0:

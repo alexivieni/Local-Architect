@@ -366,11 +366,14 @@ class DataFlow:
         if m and e.pins.get(role) != m:
             prev = e.pins.get(role)
             e.pins[role] = m
+            if tier != "heavy":
+                getattr(e, "tier_pins", set()).add(role)        # a default, not an escalation: the role's LAN machine still serves it
             return ("set", prev)
         return None
 
     def _unpin(self, e, role, token):
         if token:
+            getattr(e, "tier_pins", set()).discard(role)
             if token[1]:
                 e.pins[role] = token[1]
             else:

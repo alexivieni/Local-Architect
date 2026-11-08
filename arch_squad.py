@@ -143,6 +143,15 @@ SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".venv"}
 FP_MAX_FILES = 3000
 
 
+def _tools_sig():
+    """The tool descriptions and effort levels a crew agent is given are part of what it answers; they live in code, so their text is hashed."""
+    try:
+        import arch_tools
+        return hashlib.sha256((arch_tools.describe(None) + repr(sorted(EFFORTS.items()))).encode("utf-8", "replace")).hexdigest()[:16]
+    except Exception:
+        return ""
+
+
 def files_fingerprint(root, owns=None, exclude=None):
     """sha256 over file contents: the owned files/folders, or (owns None) the project's files outside dot-folders (optionally
     skipping `exclude`). A missing file counts as missing (so creating it changes the fingerprint)."""
@@ -173,7 +182,12 @@ def files_fingerprint(root, owns=None, exclude=None):
                       if not f.endswith((".pyc", ".log")) and not _excluded(os.path.join(dp, f))]
             if len(paths) > FP_MAX_FILES:
                 break
-    for p in paths[:FP_MAX_FILES]:
+    if len(paths) > FP_MAX_FILES:
+        # too many files to hash every time: say "cannot tell", never a fingerprint of the first 3000 (a change in a later file was invisible,
+        # so a step replayed against a changed project). A unique value means no cache hit and no replay, exactly as with no cache.
+        import uuid
+        return "over-cap:" + uuid.uuid4().hex
+    for p in paths:
         rel = os.path.relpath(p, root).replace("\\", "/")
         try:
             st = os.stat(p)
@@ -322,6 +336,26 @@ def _tele(kind, **fields):
         arch_telemetry.emit(kind, **fields)
     except Exception:
         pass
+
+
+def _code_allowed(d, root=None):
+    """A `code:` agent runs a program: one from a plugin needs that plugin trusted (arch_plugins.agent_allowed). Shipped and project
+    agents are unchanged. Before this the trust rule was written down in arch_plugins but nothing here asked it."""
+    src = os.path.normcase(os.path.abspath(str(d.get("_source") or ""))) if d.get("_source") else ""
+    plug = d.get("plugin")
+    if not plug and src:
+        for name, fold in _plugin_dirs("agent"):
+            f = os.path.normcase(os.path.abspath(fold))
+            if src == f or src.startswith(f + os.sep):
+                plug = name
+                break
+    if not plug:
+        return True
+    try:
+        import arch_plugins
+        return bool(arch_plugins.agent_allowed(d, plug, root))
+    except Exception:
+        return False
 
 
 def _plugin_dirs(kind):
@@ -1032,6 +1066,11 @@ class Crew:
             rec.update(verdict="refused", why="overrides break the definition: " + "; ".join(oprobs))
             self._finish(rec)
             return None
+        if d.get("code") and not _code_allowed(d, self.root):
+            rec.update(model="code", verdict="failed", result=None,
+                       why="this agent runs a program and comes from a plugin that is not trusted (architect.py plugins trust <name>)")
+            self._finish(rec)
+            return None
         if d.get("code"):
             rec["model"] = "code"
             self._event({"type": "started", "agentId": aid, "label": label, "phase": ph, "agent": d["name"], "parent": parent,
@@ -1087,7 +1126,8 @@ class Crew:
             _rt = arch_hosts.route_of(self.cfg, d["role"]) if not self.engine_factory else None
             if _rt and _rt[0]:
                 with self._lock:
-                    _sem = self._host_sems.setdefault(_rt[0], threading.Semaphore(1))
+                    _mp = ((self.cfg.get("hosts_parallel") or {}).get(_rt[0]) or (self.cfg.get("mesh") or {}).get("max_parallel") or 2)
+                    _sem = self._host_sems.setdefault(_rt[0], threading.Semaphore(max(1, int(_mp))))
         except Exception:
             _sem = self._sem
         try:
@@ -1161,7 +1201,13 @@ class Crew:
         agent depends on: its owned files, else the project's files. A writer never hashes its files into the key: it replays only
         when its owned files are already in the state it left them (post_hash)."""
         system, body = self._brief(d, task, owns, context, vars_)
-        parts = {"def": _plain(d), "system": system, "body": body, "model": self._model_id(d), "label": label}
+        b = self.cfg.get("behavior") or {}
+        mid = self._model_id(d)
+        parts = {"def": _plain(d), "system": system, "body": body, "model": mid, "label": label,
+                 # settings that change the reply and are not in the brief: thinking, sampling, the model's own overrides, the window
+                 "settings": {"thinking": b.get("thinking"), "sampling": b.get("sampling"), "num_ctx": (self.cfg.get("limits") or {}).get("num_ctx"),
+                              "override": (self.cfg.get("model_overrides") or {}).get(mid.split("|")[-1])},
+                 "tools": _tools_sig()}
         if files:                                      # the cross-run key never crosses projects
             parts["root"] = os.path.normcase(os.path.abspath(self.root))
             if not (d["writes"] and owns):

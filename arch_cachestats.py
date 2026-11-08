@@ -54,8 +54,8 @@ def reply_layer(data):
         tot = dict(c.execute("select k, v from totals").fetchall())
         out["hits"], out["misses"] = int(tot.get("hits", 0)), int(tot.get("misses", 0))
         out["entries"] = c.execute("select count(*) from responses").fetchone()[0]
-        row = c.execute("select coalesce(sum(hits*(tokens_in+tokens_out)),0), coalesce(sum(hits*secs),0) from responses").fetchone()
-        out["saved_tokens"], out["saved_secs"] = int(row[0]), round(float(row[1]), 1)
+        # the running totals (what arch_cache.stats() and the CLI report), not a sum over surviving rows: a trimmed row's savings were real
+        out["saved_tokens"], out["saved_secs"] = int(float(tot.get("tokens_saved", 0) or 0)), round(float(tot.get("secs_saved", 0) or 0), 1)
         c.close()
     except (sqlite3.Error, ValueError):
         pass

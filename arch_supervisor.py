@@ -116,12 +116,13 @@ def _open():
             c.commit()
         except sqlite3.OperationalError:
             pass                                                                       # another process added it first
-    if "heartbeat" not in cols:
-        try:
-            c.execute("alter table jobs add column heartbeat real")
-            c.commit()
-        except sqlite3.OperationalError:
-            pass
+    for col, typ in (("heartbeat", "real"), ("owner_pid", "integer"), ("owner_start", "real")):
+        if col not in cols:
+            try:
+                c.execute(f"alter table jobs add column {col} {typ}")
+                c.commit()
+            except sqlite3.OperationalError:
+                pass
     return c
 
 
@@ -228,7 +229,10 @@ def claim(needs=None):
         if not r:
             c.execute("commit")
             return None
-        c.execute("update jobs set state='running', attempts=attempts+1, started=? where id=?", (time.time(), r["id"]))
+        import arch_proc
+        me = arch_proc.identity(os.getpid())
+        c.execute("update jobs set state='running', attempts=attempts+1, started=?, heartbeat=?, owner_pid=?, owner_start=? where id=?",
+                  (time.time(), time.time(), me["pid"], me["start"], r["id"]))
         c.execute("commit")
         d = _row(r)
         d["attempts"] += 1
@@ -239,8 +243,12 @@ def claim(needs=None):
 
 
 def beat(job_id):
-    """Record a liveness heartbeat on a running task so another supervisor's recover() leaves it alone."""
-    c = _open()
+    """Record a liveness heartbeat on a running task so another supervisor's recover() leaves it alone. Never raises: a locked queue
+    (another supervisor claiming, the hub reading) skips one beat instead of ending the heartbeat thread."""
+    try:
+        c = _open()
+    except sqlite3.Error:
+        return False
     try:
         c.execute("update jobs set heartbeat=? where id=? and state='running'", (time.time(), int(job_id)))
         c.commit()
@@ -254,10 +262,20 @@ def recover(stale_after=15.0):
     """Tasks left 'running' by a supervisor that was killed (no heartbeat within `stale_after` seconds) go back to pending. -> how many."""
     c = _open()
     try:
+        import arch_proc
         cutoff = time.time() - float(stale_after or 0)
-        n = c.execute("update jobs set state='pending', heartbeat=null, note='recovered after the supervisor stopped mid-task' || "
-                      "case when instr(note, 'POSTMORTEM: ') > 0 then char(10) || substr(note, instr(note, 'POSTMORTEM: ')) else '' end "
-                      "where state='running' and (heartbeat is null or heartbeat < ?)", (cutoff,)).rowcount
+        rows = c.execute("select id, owner_pid, owner_start, heartbeat from jobs where state='running'").fetchall()
+        n = 0
+        for r in rows:
+            if r["owner_pid"]:
+                if arch_proc.same(r["owner_pid"], r["owner_start"]) is not False:
+                    continue                 # its supervisor is alive (only slow, or its beat was locked out): never take a live task
+            elif r["heartbeat"] is not None and r["heartbeat"] >= cutoff:
+                continue                     # an older row with no owner recorded: the heartbeat rule as before
+            n += c.execute("update jobs set state='pending', heartbeat=null, owner_pid=null, owner_start=null, "
+                           "note='recovered after the supervisor stopped mid-task' || "
+                           "case when instr(note, 'POSTMORTEM: ') > 0 then char(10) || substr(note, instr(note, 'POSTMORTEM: ')) else '' end "
+                           "where id=? and state='running'", (r["id"],)).rowcount
         c.commit()
         return n
     finally:
@@ -319,9 +337,7 @@ def next_flow(origin, tried, current=None):
     not chain through each alternative's own alternatives, because that drifts away from what was asked: bugfix -> hunt -> review ends
     at a flow that only writes a report, and a person who asked for a fix gets a document instead.
     """
-    order = list(ALTERNATES.get(origin or "", []))
-    if current and current != origin:
-        order += [x for x in ALTERNATES.get(current, []) if x[0] not in [o[0] for o in order]]
+    order = list(ALTERNATES.get(origin or "", []))       # the origin's list only: `current` no longer adds its own alternatives
     if not order:
         order = list(DEFAULT_FALLBACK)
     for alt, why in order:
@@ -413,7 +429,10 @@ def run_one(say=print, runner=None, cfg=None, needs=None, lane=False):
 
     def _hb_loop():
         while not hb_stop.wait(2.0):
-            beat(job["id"])
+            try:
+                beat(job["id"])
+            except Exception:
+                continue                     # a missed beat is fine; a dead heartbeat thread lets recover() steal a live task
 
     hb_th = threading.Thread(target=_hb_loop, name=f"sv-hb-{job['id']}", daemon=True)
     hb_th.start()
@@ -424,15 +443,16 @@ def run_one(say=print, runner=None, cfg=None, needs=None, lane=False):
                 res = (runner or _subprocess_runner)(job, say)
         else:
             res = (runner or _subprocess_runner)(job, say)
-    except Exception as ex:                                   # one broken task must never stop the queue
+    except (Exception, SystemExit) as ex:                     # one broken task must never stop the queue (SystemExit: the heavy-job lock gave up waiting)
         res = {"verdict": "fail", "why": f"{type(ex).__name__}: {ex}"[:300], "run_id": "", "flow": job.get("flow") or "", "code": -1}
     finally:
         hb_stop.set()
     secs = round(time.time() - t0, 1)
-    _spend(secs)
     v = res.get("verdict") or "fail"
     _em = _re.match(r"\[env x(\d+)\] ", job.get("note") or "")
     _env_n = int(_em.group(1)) if _em else 0
+    if not (v != "pass" and environmental(res.get("why", "")) and _env_n < 3):
+        _spend(secs)                     # a task that never really started (the machine was not ready) costs nothing of the daily budget
     # The same "machine problem" three times in a row is no longer taken on faith: the words may come from the project being worked
     # on (a test that prints "connection refused"), and an endless pause at the head of the queue blocks every other task.
     if v != "pass" and environmental(res.get("why", "")) and _env_n < 3:

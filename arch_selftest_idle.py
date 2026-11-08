@@ -29,7 +29,7 @@ def run():
                 return json.dumps({"models": [{"name": "moe:iq3", "size": 13.7e9}]}).encode()
             return busy.get(url, False)
         s._IDLE["seen"].clear()
-        cfg = {"server": {"idle_free_min": 1}}
+        cfg = {"server": {"idle_free_min": 1}, "tiers": {"heavy": "moe:iq3"}}      # the heavy tier Ollama loaded for an escalation: ours to unload
         a = s.idle_sweep(cfg, now=1000, http=http)
         b = s.idle_sweep(cfg, now=1030, http=http)
         c = s.idle_sweep(cfg, now=1070, http=http)
