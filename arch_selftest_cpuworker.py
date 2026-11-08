@@ -27,6 +27,12 @@ def _req(base, method, path, body=None, token=TOKEN, raw=None):
             return e.code, json.loads(e.read().decode())
         except ValueError:
             return e.code, {}
+    except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError) as e:
+        return "closed", {"error": str(e)}          # the server refused and closed while we were still sending (an oversized body)
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+            return "closed", {"error": str(e.reason)}
+        raise
 
 
 def run():
@@ -79,7 +85,7 @@ def run():
             s, b = _req(base, "POST", "/arch/cpu", body)
             check(f"refused: {name}", s == 400 and b.get("ok") is False)
         s, b = _req(base, "POST", "/arch/cpu", raw=b"{" + b" " * (W.MAX_BODY + 10))
-        check("oversized body -> 413", s == 413)
+        check("oversized body -> 413 (or the connection closed before the client finished sending it)", s in (413, "closed"))
         s, b = _req(base, "POST", "/arch/cpu", raw=b"not json")
         check("bad JSON -> 400", s == 400)
         s, b = _req(base, "POST", "/nope", {})

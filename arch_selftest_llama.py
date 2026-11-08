@@ -91,7 +91,7 @@ def run():
     import arch_server as S
     import arch_transport as T
     home = tempfile.mkdtemp(prefix="archllama_")
-    old_home, old_env = core.HOME, {k: os.environ.get(k) for k in ("OLLAMA_HOST", "ARCHITECT_DATA_DIR")}
+    old_home, old_env = core.HOME, {k: os.environ.get(k) for k in ("OLLAMA_HOST", "ARCHITECT_DATA_DIR", "ARCHITECT_CLOUD_TEST", "ARCHITECT_SELFTEST")}
     core.set_home(home)
     os.environ["ARCHITECT_DATA_DIR"] = os.path.join(home, "data")
     srv = ThreadingHTTPServer(("127.0.0.1", 0), FakeLlama)

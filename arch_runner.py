@@ -101,10 +101,32 @@ def _free_port_from(start_port, tries=50):
 def is_running(pid):
     if not pid:
         return False
+    if os.name == "nt":
+        return _win_alive(pid)
     try:
-        os.kill(pid, 0 if os.name != "nt" else signal.SIGTERM if False else 0)
+        os.kill(pid, 0)                     # POSIX: signal 0 only checks
         return True
     except OSError:
+        return False
+
+
+def _win_alive(pid):
+    """Windows liveness WITHOUT os.kill: on Windows `os.kill(pid, 0)` is TerminateProcess, so the old check killed the project it was
+    asking about (hub exit, `cleanup`, every stop()). OpenProcess + GetExitCodeProcess == STILL_ACTIVE touches nothing."""
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000 | 0x100000, False, int(pid))      # PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
+        if not h:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not k32.GetExitCodeProcess(h, ctypes.byref(code)):
+                return True                                             # cannot read: a live process is the safer answer
+            return code.value == 259                                    # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(h)
+    except Exception:
         return False
     except AttributeError:
         return False
@@ -191,9 +213,10 @@ def _win_orphans(pid):
     if os.name != "nt" or not pid:
         return []
     try:
+        kw = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)} if os.name == "nt" else {}
         out = subprocess.run(["powershell", "-NoProfile", "-Command",
                               f"(Get-CimInstance Win32_Process -Filter 'ParentProcessId={int(pid)}').ProcessId"],
-                             capture_output=True, text=True, timeout=15).stdout
+                             capture_output=True, text=True, timeout=15, **kw).stdout
         return [int(x) for x in out.split() if x.strip().isdigit()]
     except Exception:
         return []
@@ -205,7 +228,7 @@ def stop(root):
     if not pid or not is_running(pid):
         if pid:
             for kid in _win_orphans(pid):                     # the wrapper is gone but what it started may not be
-                subprocess.run(["taskkill", "/PID", str(kid), "/T", "/F"], capture_output=True, timeout=10)
+                subprocess.run(["taskkill", "/PID", str(kid), "/T", "/F"], capture_output=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if os.name == "nt" else 0)
             st["pid"] = None
             _save(root, st)
         return {"ok": False, "error": "not running"}
@@ -216,9 +239,9 @@ def stop(root):
                 kids = _win_orphans(todo.pop())
                 tree += kids
                 todo += kids
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=10)
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if os.name == "nt" else 0)
             for kid in tree:
-                subprocess.run(["taskkill", "/PID", str(kid), "/T", "/F"], capture_output=True, timeout=10)
+                subprocess.run(["taskkill", "/PID", str(kid), "/T", "/F"], capture_output=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
         else:
             # signal the WHOLE process group start() created (see start_new_session there), not just pid --
             # with shell=True, pid is the shell wrapper; killing only it can leave the real server process

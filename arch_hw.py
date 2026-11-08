@@ -19,7 +19,8 @@ GB = 1024 ** 3
 
 def _run(cmd, timeout=8):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        kw = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)} if os.name == "nt" else {}
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **kw)
         return r.returncode, r.stdout
     except (OSError, subprocess.SubprocessError):
         return 1, ""

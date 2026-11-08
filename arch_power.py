@@ -16,7 +16,8 @@ _BAT_CACHE = {}
 
 def _run(cmd, timeout=6):
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        kw = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)} if os.name == "nt" else {}
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **kw)
         return p.returncode, p.stdout
     except (OSError, subprocess.SubprocessError):
         return 1, ""

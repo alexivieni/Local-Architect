@@ -4,7 +4,7 @@ check could NOT run (no test runner, a crashing scanner), which the interpreter 
 
     GATES[name](e, ctx, step, changed) -> result
 
-`ctx` is the flow's working dict (goal, params, every step's output under its id, ctx["scan"] for before/after scanner counts);
+`ctx` is the flow's working dict (goal, params, every step's output under its id, ctx["scan_rec"] for before/after scanner counts (its own key: a step named `scan` must not hide it));
 `changed` is the list of files the step just applied (empty for pure code steps). Scan gates come in pairs: `<kind>_scan` records the
 findings before a fix step, `<kind>_fewer` re-runs the same scanner and passes only when fewer findings remain and the checks pass.
 """
@@ -208,18 +208,18 @@ def _scan_gate(kind):
             finds = _scan(kind, e, ctx, files)
         except Exception as ex:
             return R(None, f"the {kind} scanner could not run: {type(ex).__name__}: {ex}")
-        ctx.setdefault("scan", {})[kind] = {"files": files, "before": finds, "after": finds}
+        ctx.setdefault("scan_rec", {})[kind] = {"files": files, "before": finds, "after": finds}
         ctx["scope"] = sorted({x.get("file") for x in finds if x.get("file")}) or files
         ctx["findings_text"] = "\n".join(_fmt(kind, x) for x in finds[:25])
         if kind == "fake":
             import arch_flows_fake as ff
-            ctx["scan"][kind]["tests_before"] = ff.real_tests(e.root, files)
+            ctx["scan_rec"][kind]["tests_before"] = ff.real_tests(e.root, files)
         e.say(f"[scan] {len(finds)} {kind} finding(s) in {len(files)} file(s)")
         e.report(f"- Scanned ({kind}): {len(files)} file(s); findings: {len(finds)}", *[("  " + _fmt(kind, x)) for x in finds[:12]], "")
         return R(True, "", {"findings": len(finds), "files": len(files)}, ctx["findings_text"])
 
     def fewer(e, ctx, step, changed):
-        rec = (ctx.get("scan") or {}).get(kind)
+        rec = (ctx.get("scan_rec") or {}).get(kind)
         if not rec:
             return R(None, f"no {kind} scan was recorded before this step")
         v = _flows().verify(e, changed or [], run_tests=step.get("run_tests", True)) if changed else {"ok": False, "text": "nothing was applied", "passed": 0, "total": 0}
@@ -250,7 +250,7 @@ def g_ci_check(e, ctx, step, changed):
     import arch_ci as ci
     out = ci.check_all(e.root)
     blocking = [f for f in out["findings"] if f["gate"]]
-    ctx.setdefault("scan", {})["ci"] = {"before": blocking, "after": blocking, "pipelines": out["pipelines"]}
+    ctx.setdefault("scan_rec", {})["ci"] = {"before": blocking, "after": blocking, "pipelines": out["pipelines"]}
     ctx["scope"] = sorted({f["file"] for f in out["findings"]} | set(out["pipelines"]))
     ctx["findings_text"] = "\n".join(f"- {f['file']}:{f['line']} [{f['severity']}] {f['rule']}: {f['msg']}" for f in out["findings"][:25])
     e.report(f"- Pipelines: {', '.join(out['pipelines']) or 'none'}; blocking findings: {len(blocking)}", "")
@@ -263,7 +263,7 @@ def g_ci_no_blocking(e, ctx, step, changed):
     v = _flows().verify(e, changed or [], run_tests=False) if changed else {"ok": False, "text": "nothing was applied"}
     out = ci.check_all(e.root)
     blocking = [f for f in out["findings"] if f["gate"]]
-    (ctx.setdefault("scan", {}).setdefault("ci", {}))["after"] = blocking
+    (ctx.setdefault("scan_rec", {}).setdefault("ci", {}))["after"] = blocking
     ok = v["ok"] and not blocking
     return R(ok, "" if ok else (v["text"] or "blocking findings remain:\n" + "\n".join(f"- {f['file']}: {f['rule']}: {f['msg']}" for f in blocking[:8])), {"blocking": len(blocking)})
 

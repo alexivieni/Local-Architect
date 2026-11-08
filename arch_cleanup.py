@@ -81,7 +81,7 @@ def _is_ollama_pid(pid):
     """True when that pid runs an ollama program, False when it runs something else, None when it cannot be told."""
     try:
         if os.name == "nt":
-            out = subprocess.run(["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=10).stdout
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)).stdout
         else:
             out = open(f"/proc/{int(pid)}/comm").read()
     except Exception:
@@ -110,7 +110,7 @@ def _our_llama_pids():
     ps = ("Get-CimInstance Win32_Process -Filter \"Name = 'llama-server.exe'\" | "
           "ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)|$($_.CommandLine)\" }")
     try:
-        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=30).stdout
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)).stdout
     except Exception:
         return []
     mine = os.path.normcase(os.path.join(HERE, "bin"))

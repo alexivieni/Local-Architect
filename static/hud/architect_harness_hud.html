@@ -1608,10 +1608,10 @@ best_state.ratchet(tests_passed=14, regressions=0)
     if (t === 'step') return { node: nodeForStep(r.step), tag: 'code', msg: `step ${short(r.step, 40)} ${r.status || (r.ok === false ? 'failed' : r.ok === true ? 'ok' : '')}` };
     if (t === 'call') return { node: /router/i.test(r.role || '') ? 'router' : 'worker', tag: 'llm',
                                msg: `${r.role || 'model'} \u2192 ${short(r.model, 34)}${r.tok_s ? ` ${Math.round(r.tok_s)} tok/s` : ''}${r.cached ? ' (cache hit)' : ''}${r.gen_tokens ? ` ${r.gen_tokens} tok` : ''}` };
-    if (t === 'check') return { node: nodeForGate(r.gate), tag: 'gate', status: r.ok === false ? 'hold' : (r.ok === null ? 'unsure' : 'ok'),
+    if (t === 'check') return { node: nodeForGate(r.gate), tag: 'gate', status: r.ok === false ? 'hold' : (r.ok == null ? 'unsure' : 'ok'),
                                 msg: `${short(r.gate, 40)}: ${r.ok === true ? 'PASS' : r.ok === false ? 'FAIL' : 'could not run'}${r.text ? ' \u2014 ' + short(r.text, 90) : ''}` };
     if (t === 'tool') return { node: /apply|edit|write/i.test(r.tool || '') ? 'replace_def' : 'fts5', tag: 'code', msg: `tool ${r.tool}${r.ok === false ? ' refused' : ''} ${short(JSON.stringify(r.args || r.arg || ''), 60)}` };
-    if (t === 'verdict') return { node: 'verdict', tag: 'gate', status: r.verdict === 'pass' ? 'ok' : 'hold', msg: `VERDICT ${String(r.verdict || '').toUpperCase()}${r.why ? ' \u2014 ' + short(r.why, 100) : ''}` };
+    if (t === 'verdict') return { node: 'verdict', tag: 'gate', status: r.verdict === 'pass' ? 'ok' : ((r.verdict === 'fail' || r.verdict === 'stopped') ? 'hold' : 'unsure'), msg: `VERDICT ${String(r.verdict || '').toUpperCase()}${r.why ? ' \u2014 ' + short(r.why, 100) : ''}` };
     if (t === 'escalation') return { node: 'worker', tag: 'llm', status: 'hold', msg: `escalation: ${short(r.why || r.to || JSON.stringify(r), 100)}` };
     if (t === 'todo') return { node: 'interface', tag: 'code', msg: `plan: ${(r.items || []).length} items` };
     if (t === 'token') return null;                                             // streamed text is noise here; the hub's console shows it
@@ -1636,9 +1636,10 @@ best_state.ratchet(tests_passed=14, regressions=0)
       const w = (g.tiers || []).find(t => t.tier === 'worker') || {};
       const full = w.full_gpu === true;
       el.classList.toggle('warn', !full && w.up);
+      const num = v => (typeof v === 'number' && isFinite(v)) ? v : '?';      // only numbers reach the markup below
       el.innerHTML = w.up
-        ? `worker <b>${full ? 'all layers on the card' : 'split card/RAM'}</b> \u00B7 VRAM <b>${g.vram_used_gb ?? '?'}/${g.vram_gb ?? '?'} GB</b> \u00B7 GPU <b>${g.gpu_pct ?? 0}%</b>${g.gpu_temp_c ? ` \u00B7 ${g.gpu_temp_c}\u00B0C` : ''}`
-        : `worker <b>down</b> \u00B7 VRAM ${g.vram_used_gb ?? '?'}/${g.vram_gb ?? '?'} GB`;
+        ? `worker <b>${full ? 'all layers on the card' : 'split card/RAM'}</b> · VRAM <b>${num(g.vram_used_gb)}/${num(g.vram_gb)} GB</b> · GPU <b>${num(g.gpu_pct ?? 0)}%</b>${typeof g.gpu_temp_c === 'number' ? ` · ${num(g.gpu_temp_c)}°C` : ''}`
+        : `worker <b>down</b> · VRAM ${num(g.vram_used_gb)}/${num(g.vram_gb)} GB`;
     } catch (e) { el.textContent = ''; }
   }
   async function replayLastRun() {
@@ -1687,7 +1688,10 @@ best_state.ratchet(tests_passed=14, regressions=0)
       const line = document.createElement('div');
       line.className = 'log-line';
       const tagClass = evt.tag || (evt.status === 'hold' ? 'gate' : 'code');
-      line.innerHTML = `<span class="log-tag ${tagClass}">${evt.tag || 'event'}</span><span class="log-msg">${evt.msg || JSON.stringify(evt)}</span>`;
+      // text from the run (check output, tool arguments, model names) is DATA: built with textContent, never innerHTML
+      const tagEl = document.createElement('span'); tagEl.className = 'log-tag ' + String(tagClass).replace(/[^a-z0-9_-]/gi, ''); tagEl.textContent = evt.tag || 'event';
+      const msgEl = document.createElement('span'); msgEl.className = 'log-msg'; msgEl.textContent = evt.msg || JSON.stringify(evt);
+      line.replaceChildren(tagEl, msgEl);
       container.prepend(line);
       if (container.children.length > 30) container.lastElementChild.remove();
 

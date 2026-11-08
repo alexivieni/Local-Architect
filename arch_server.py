@@ -894,7 +894,7 @@ def _recorded_image(pid):
     return ""
 
 
-def _alive(pid, owner=False):
+def _alive(pid, owner=False, image=None):
     """Is `pid` a live process? For a server record (owner=False) on Windows it must also still BE the executable we launched under that pid: a pid saved in
     server.json survives a reboot, Windows recycles pids, and `_kill` would otherwise take down whatever now holds that number
     (and its whole tree). A tasklist that is merely slow counts as alive: a duplicate server on the same port is worse than a late
@@ -917,7 +917,7 @@ def _alive(pid, owner=False):
                 return False
             if owner:
                 return True
-            want = _recorded_image(pid)               # what we launched under this pid; none recorded (older record) = trust the pid
+            want = (image or "").lower() if image is not None else _recorded_image(pid)   # what we launched under this pid; none recorded (older record) = trust the pid
             return (not want) or line.split()[0].lower() == want
         os.kill(pid, 0)
         return True
@@ -1210,6 +1210,9 @@ def _graceful(pid, grace=GRACE_S):
 def stop(tiers=None, say=print, reason="stop"):
     st = load_state()
     gone = {t: rec for t, rec in (st.get("processes") or {}).items() if not tiers or t in tiers}
+    # decided BEFORE the records leave the state file: _alive() compares the live image with the one recorded for that pid, and once
+    # the record is gone any process holding a recycled pid (a reboot, a crash) would have counted as ours and been killed with its tree
+    alive = {t: bool(rec.get("pid")) and _alive(rec["pid"]) for t, rec in gone.items()}
     for t in gone:
         st["processes"].pop(t, None)
     if not tiers:
@@ -1219,7 +1222,7 @@ def stop(tiers=None, say=print, reason="stop"):
     save_state(st)                  # first: a watchdog reading the state between the kill and the save would start the tier again
     for t, rec in gone.items():
         _tel("server.stop", rec, reason=reason)
-        if rec.get("pid") and _alive(rec["pid"]):
+        if alive.get(t):
             how = _graceful(rec["pid"])
             say(f"[server] {t}: stopped (pid {rec['pid']}" + (", cleanly" if how == "clean" else ", forced") + ")")
         orphan = _pid_on_port(rec.get("port") or 0) if rec.get("port") else None

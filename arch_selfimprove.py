@@ -145,7 +145,7 @@ def _selftest(root, suite, timeout):
         except subprocess.TimeoutExpired:
             return False, 0, f"self-test timed out after {timeout}s"
         out = r.stdout + r.stderr
-        passed = sum(int(m) for m in re.findall(r"ALL (\d+) [A-Z/ -]*PASSED", out))
+        passed = count_passed(out)
         failed = len(re.findall(r"^\s*FAIL\b", out, re.M))
         # A suite that could not run an environment-dependent check (timing, ports) exits non-zero but reports
         # "0 ... FAILED, k COULD NOT RUN": nothing failed, so it is a usable baseline. Any real FAIL still blocks.
@@ -605,15 +605,36 @@ def _restricted_env(tmp):
     return env
 
 
+_SUMMARY_RX = (re.compile(r"ALL (\d+) [A-Z0-9/_ +-]*PASSED"),           # "ALL 61 ENGINE CHECKS PASSED", "ALL 9 A11Y ... PASSED", "ALL 12 HARNESS2 PASSED"
+               re.compile(r"^\s*(\d+)/\1 passed", re.M),                   # "17/17 passed"
+               re.compile(r"^(?:[\w+ -]+: )?(\d+) passed, 0 failed", re.M),  # "61 passed, 0 failed", "contracts+recipes: 325 passed, 0 failed"
+               re.compile(r"^OK: (\d+) check", re.M),                       # "OK: 44 checks"
+               re.compile(r"^(?:\w+): PASSED \((\d+)", re.M))               # "CPUWORKER: PASSED (12 checks)"
+
+
+def count_passed(out):
+    """How many checks a suite's output says passed. Every summary format the suites use counts (the old single regex missed 28 suites
+    with digits or underscores in their name or another wording, so a candidate could delete ~335 checks unseen)."""
+    n = 0
+    for rx in _SUMMARY_RX:
+        for m in rx.findall(out):
+            n += int(m if isinstance(m, str) else m[0])
+    return n
+
+
 def run_suite(root, name, timeout=900):
     """One selftest module inside `root`, network-restricted, throwaway home. -> (status, tail)."""
     tmp = tempfile.mkdtemp(prefix="arch_sigate_")
     code = ("import sys; sys.path.insert(0, '.'); import importlib; m = importlib.import_module(%r)\n"
             "f = getattr(m, 'run', None) or getattr(m, 'main')\nr = f()\n"
-            "sys.exit(0 if (r is True or r is None or (type(r) is int and r == 0)) else 1)\n") % name
+            "sys.exit(0 if (r is True or (type(r) is int and r == 0)) else (3 if r is None else 1))\n") % name
     try:
         r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=timeout, env=_restricted_env(tmp))
         tail = (r.stdout + r.stderr)[-1200:]
+        if r.returncode == 3:
+            return CNR, "the suite's run() returned None (did not say whether it passed)\n" + tail
+        if r.returncode == 0 and not any(rx.search(r.stdout + r.stderr) for rx in _SUMMARY_RX) and "passed" not in (r.stdout + r.stderr).lower():
+            return CNR, "the suite ended without a summary line (could not tell what ran)\n" + tail
         return (PASS if r.returncode == 0 else FAIL), tail
     except subprocess.TimeoutExpired:
         return CNR, f"{name} timed out after {timeout}s"

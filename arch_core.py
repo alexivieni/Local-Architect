@@ -18,7 +18,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 
 ASKS_RX = re.compile(r"\?\s*$|\b(would you like|do you want me|shall i|should i proceed|please confirm|let me know (?:if|whether|how))\b", re.I)
 
@@ -1011,7 +1011,7 @@ def kill_tree(pid):
     """Stop a process AND everything it started. Killing only the direct child leaves a server a test started still running."""
     try:
         if os.name == "nt":
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=30)
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
         else:
             os.killpg(os.getpgid(pid), 9)
     except Exception as _swx:
@@ -1032,7 +1032,7 @@ def run_bounded(argv, cwd, timeout, env=None):
     import arch_sandbox
     mem = int(_SANDBOX.get("mem_mb") or 0)
     with _tf.TemporaryFile() as out:
-        kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+        kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)} if os.name == "nt" else {"start_new_session": True}
         pre = arch_sandbox.posix_preexec(mem)
         if pre:
             kw["preexec_fn"] = pre
@@ -1308,10 +1308,23 @@ class Engine:
         self.review = review or self.cfg["behavior"]["review_mode"]
         self.ask = ask or self._ask
         self.say = say or (lambda m: print(m, flush=True))
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.run_id = f"{stamp}_{flow}"
+        now = datetime.now()
+        self.run_id = f"{now.strftime('%Y%m%d_%H%M%S')}_{flow}"
         if persist:
-            self.run_dir = os.path.join(self.root, ".arch", "runs", self.run_id)
+            # each run gets its OWN folder, claimed atomically: two engines started in the same second used to share one, so the second
+            # run's trace held the first run's calls (and its receipt, undo and verdict mixed both). A taken name moves to the next free
+            # second, which keeps the YYYYMMDD_HHMMSS_flow shape every reader of run ids expects.
+            runs = os.path.join(self.root, ".arch", "runs")
+            os.makedirs(runs, exist_ok=True)
+            for i in range(120):
+                rid = f"{(now + timedelta(seconds=i)).strftime('%Y%m%d_%H%M%S')}_{flow}"
+                try:
+                    os.makedirs(os.path.join(runs, rid))
+                    self.run_id = rid
+                    break
+                except FileExistsError:
+                    continue
+            self.run_dir = os.path.join(runs, self.run_id)
             os.makedirs(self.run_dir, exist_ok=True)
         else:                                   # a throwaway engine (routing, previews): leave nothing in the project
             import tempfile
@@ -1435,7 +1448,7 @@ class Engine:
         help are dropped). Memory grows from evidence."""
         try:
             import arch_memory
-            if getattr(self, "memory_used", None):
+            if getattr(self, "memory_used", None) and ok is not None:      # a not_sure run is neither a confirmation nor a strike
                 if ok:
                     arch_memory.confirm(self.root, ("lessons.md", "gotchas.md"), set(self.memory_used), say=self.say,
                                         prune_after=(self.cfg.get("memory") or {}).get("prune_after"))
@@ -1452,7 +1465,7 @@ class Engine:
         try:                                                     # a remembered reply records what it led to, so a later hit says so up front
             import arch_cache
             for k in set((getattr(self, "cache_keys", None) or {}).values()):
-                arch_cache.attach_verdict(k, "pass" if ok else "fail")
+                arch_cache.attach_verdict(k, "not_sure" if ok is None else ("pass" if ok else "fail"))
         except Exception as _swx:
             _tel_swallow("core.confirm_memory", _swx)
 
@@ -1471,7 +1484,7 @@ class Engine:
         except Exception as _swx:
             _tel_swallow("core._slot_early_save", _swx)
 
-    def finish(self, ok, error=None):
+    def finish(self, ok, error=None, unsure=False):
         self._bring_back()
         self._release_ollama()
         if self.calls and keeps_prompt_memory(self.root):      # never for a throwaway folder (eval, temp, live test): nothing reopens it
@@ -1483,7 +1496,7 @@ class Engine:
                 pass                     # a tier that stepped aside for a bigger model is back before the run is called done
         if self.calls and self.state_path:
             self.report("", *self.swaps.lines(self.calls, self.reuse, time.time() - self.state["started"]))
-        self.confirm_memory(bool(ok))
+        self.confirm_memory(None if unsure else bool(ok))     # None: the gates could not run, so neither lessons nor replies learn from it
         self.state["status"] = "done" if ok else ("stopped" if error else "incomplete")
         if error:
             self.state["error"] = str(error)[:300]
@@ -2688,6 +2701,7 @@ class Engine:
             self._backup(p)
             write_text(p["full"], p["new"], p["crlf"])
             self.changed_files.append(p["rel"])
+            self._tools_changed([p["rel"]])
             if getattr(self, "_retriever", None) is not None:
                 self._retriever.touch()                        # the index re-embeds only the chunks this edit changed, before the next prompt
             p["status"] = "applied"
@@ -2701,6 +2715,15 @@ class Engine:
                 except Exception as ex:
                     _tel_swallow("Engine._commit.diff", ex)
         return p
+
+    def _tools_changed(self, rels=None):
+        """A write made by the engine (apply, put_file, a revert) drops the tool loop's cached ls/grep/search answers; before this only a
+        write made THROUGH a tool did, so after a generate step the model's `ls` still showed the tree from before it."""
+        try:
+            import arch_tools
+            arch_tools.invalidate(self, rels)
+        except Exception as _swx:
+            _tel_swallow("core.tools_changed", _swx)
 
     def put_file(self, rel, text, label="", quiet=False):
         """Write a whole (document) file through the same safety + review path as model edits.

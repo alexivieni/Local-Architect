@@ -248,7 +248,7 @@ def _pair(kind, files_fn, scan_fn, need_tests=True):
             finds = scan_fn(e, files, ctx)
         except Exception as ex:
             return R(None, f"the {kind} check could not run: {type(ex).__name__}: {ex}")
-        ctx.setdefault("scan", {})[kind] = {"files": files, "before": finds, "after": finds}
+        ctx.setdefault("scan_rec", {})[kind] = {"files": files, "before": finds, "after": finds}
         ctx["scope"] = sorted({x["file"] for x in finds}) or files
         ctx["findings_text"] = "\n".join(_fmt(x) for x in finds[:30]) or "(nothing found)"
         e.say(f"[scan] {len(finds)} {kind} finding(s) in {len(files)} file(s)")
@@ -256,7 +256,7 @@ def _pair(kind, files_fn, scan_fn, need_tests=True):
         return R(True, "", {"findings": len(finds), "files": len(files)}, ctx["findings_text"])
 
     def fewer(e, ctx, step, changed):
-        rec = (ctx.get("scan") or {}).get(kind)
+        rec = (ctx.get("scan_rec") or {}).get(kind)
         if not rec:
             return R(None, f"no {kind} check was recorded before this step")
         if not changed:

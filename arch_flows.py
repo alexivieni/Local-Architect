@@ -1608,6 +1608,10 @@ class BestState:
                     core._READ_CACHE.pop(os.path.abspath(p), None)
             except OSError:
                 pass
+        try:
+            self.e._tools_changed(None)        # a revert changes files no tool wrote: every cached tree answer is stale
+        except Exception:
+            pass
         if getattr(self.e, "_retriever", None) is not None:
             self.e._retriever.touch()
         self.e.say(f"[undo] that try was worse than the kept version ({why}); its changes were undone")
@@ -2455,8 +2459,8 @@ def run_flow(e, flow_id, params=None):
     for it in e.state.get("todo") or []:
         if it.get("status") in ("pending", "doing"):
             it["status"] = "done" if out.get("ok") else "failed"
-    e.finish(out.get("ok"), out.get("error"))
     verdict = "not_sure" if out.get("unsure") else ("pass" if out.get("ok") else "fail")
+    e.finish(out.get("ok"), out.get("error"), unsure=bool(out.get("unsure")))     # the run's verdict, not a bool: not_sure is recorded as such
     try:                                                  # the run's own conclusion, as a record: the live view shows it without parsing prose
         e._trace(dict({"recipe": rid} if rid else {}, type="verdict", t=time.time(), flow=flow_id, verdict=verdict,
                   why=str(out.get("error") or out.get("why") or "")[:400], meter=dict(e.meter),

@@ -60,7 +60,8 @@ KINDS = {"direct", "plan_execute_verify", "cascade", "best_of_n", "tool_loop", "
 RESERVED = {"scope", "facts", "hints", "findings", "findings_text", "repro_path", "repro_failure", "confirmed", "confirmed_text", "survivors", "evidence", "bench",
             "baseline", "best", "bench_detail", "bench_target", "plans", "plans_text", "scans_before", "sql_files", "metrics_before", "metrics_after", "pt_scope",
             "refused", "hosts", "attack_paths", "template", "template_files", "domains", "domain_files", "spec", "files", "problems_by_file", "mutation_before",
-            "mutation_after", "test_target", "gaps_target", "existing_tests", "tool_calls", "tools", "goal", "params", "cfg", "steps", "budget", "env", "item", "reply", "handoff"}
+            "mutation_after", "test_target", "gaps_target", "existing_tests", "tool_calls", "tools", "goal", "params", "cfg", "steps", "budget", "env", "item", "reply", "handoff",
+            "scan_rec", "static", "pinned", "tests_before", "kept", "rejected", "is_default_scope", "template_run"}
 STEP_KINDS = {"code", "generate", "ask_json", "judge", "doc", "sample_n", "cascade", "chunked", "foreach", "tool_loop", "report", "handoff", "sub_flow"}
 
 
@@ -1046,9 +1047,9 @@ class DataFlow:
             except ValueError as ex:
                 passed, unsure = False, True
                 stop_reason = f"bad verdict expression: {ex}"
-            verdict = "not_sure" if (unsure and not passed) else ("pass" if passed else "fail")
-            if passed and unsure:
-                verdict = "pass"
+            # three outcomes, never two: a step whose gate could not run (or a true not_sure_if) makes the run not_sure even when
+            # pass_if holds -- a pass with unverifiable evidence is not a pass (this used to be overridden to "pass")
+            verdict = "not_sure" if unsure else ("pass" if passed else "fail")
         e._trace({"type": "verdict", "t": time.time(), "flow": self.id, "verdict": verdict, "why": stop_reason or "", "meter": dict(e.meter)})
         e.say(f"\n[verdict] {verdict}" + (f": {stop_reason}" if stop_reason else ""))
         e.report("", f"- Verdict: **{verdict}**" + (f" ({stop_reason})" if stop_reason else ""))
