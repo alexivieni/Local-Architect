@@ -67,7 +67,7 @@ def version_view():
 
 
 mh.CONFIG_ROUTES.update({"/api/arch/hosts", "/api/arch/assign", "/api/arch/model_override", "/api/arch/settings", "/api/arch/preset",
-                         "/api/arch/apply_recommended", "/api/config"})
+                         "/api/arch/apply_recommended", "/api/config", "/api/arch/custom", "/api/arch/squad/agent", "/api/arch/launch_profile"})
 
 
 def restart_command(argv=None, port=None):
@@ -1718,6 +1718,132 @@ def _optional(modname, fn):
     return (f, None) if callable(f) else (None, f"{modname}.{fn}() is not available yet")
 
 
+# ---- Your versions (arch_custom): edit, check, save, try, go back -- agents, crew workflows, flows, prompts, launch profiles ----
+
+def custom_get(q):
+    """GET /api/arch/custom?kind=&name=[&version=] -> the item as the run sees it, its built-in text, its versions; with version= the
+    text of that version."""
+    import arch_custom
+    kind, name = (q.get("kind") or [""])[0], (q.get("name") or [""])[0]
+    vid = (q.get("version") or [""])[0]
+    if vid:
+        return {"kind": kind, "name": name, "version": vid, "text": arch_custom.version_text(kind, arch_custom.clean_name(kind, name), vid)}
+    out = arch_custom.read(kind, name)
+    if kind == "flows" and out["source"] != "new":
+        try:
+            import arch_dataflow
+            d = arch_dataflow.flow_detail(out["name"])
+            out["prompts"] = sorted({s.get("prompt_name") for s in d.get("steps") or [] if s.get("prompt_name")})
+        except Exception:
+            out["prompts"] = []
+    return out
+
+
+def custom_post(b):
+    """POST /api/arch/custom {action: check|save|restore|reset, kind, name, text?, version?, note?}."""
+    import arch_custom
+    act, kind, name = str(b.get("action") or ""), str(b.get("kind") or ""), str(b.get("name") or "")
+    if act == "check":
+        probs = arch_custom.check(kind, name, b.get("text") or "")
+        return {"ok": not probs, "problems": probs}
+    if act == "save":
+        return arch_custom.save(kind, name, b.get("text") or "", note=str(b.get("note") or "saved in the hub"))
+    if act == "restore":
+        return arch_custom.restore(kind, name, b.get("version"))
+    if act == "reset":
+        return arch_custom.reset(kind, name)
+    raise ValueError("action is one of: check, save, restore, reset")
+
+
+def launch_profile_get(q):
+    import arch_custom
+    root = safe_root((q.get("root") or [HERE])[0])
+    out = arch_custom.launch_read(root)
+    try:
+        import arch_runner
+        out["default_cmd"] = arch_runner.default_cmd(root)
+    except Exception:
+        out["default_cmd"] = None
+    return out
+
+
+def launch_profile_post(b):
+    """POST /api/arch/launch_profile {root, action: save|restore, profile?, version?} -> {ok, problems, version}."""
+    import arch_custom
+    root = safe_root(b.get("root") or HERE)
+    if b.get("action") == "restore":
+        return arch_custom.launch_restore(root, b.get("version"))
+    p = b.get("profile") or {}
+    env = p.get("env")
+    if isinstance(env, str):                              # NAME=value lines from the page
+        pairs = {}
+        for ln in env.splitlines():
+            if ln.strip() and not ln.strip().startswith("#"):
+                if "=" not in ln:
+                    return {"ok": False, "problems": [f"'{ln.strip()[:40]}' is not NAME=value"]}
+                k, v = ln.split("=", 1)
+                pairs[k.strip()] = v.strip()
+        p = dict(p, env=pairs)
+    return arch_custom.launch_save(root, p, note=str(b.get("note") or "saved in the hub"))
+
+
+_FLOW_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
+
+
+def iterate_get(q):
+    """GET /api/arch/iterate?flow= -> what this flow's own runs show and the changes they suggest (nothing is changed)."""
+    flow = (q.get("flow") or [""])[0]
+    if not _FLOW_ID_RE.match(flow):
+        raise ValueError("pick a workflow")
+    import arch_iterate
+    p = arch_iterate.propose(flow)
+    d = p.get("diagnosis") or {}
+    return {"flow": flow, "summary": d.get("summary") or "", "runs": d.get("runs"), "candidates": p.get("candidates") or [],
+            "refused": [{"id": r.get("id"), "change": r.get("change"), "problems": (r.get("problems") or [])[:3]} for r in p.get("refused") or []]}
+
+
+def iterate_post(b):
+    """POST /api/arch/iterate {flow, action: trial|adopt|undo, candidate?, trial?, fake?}. A trial runs the flow's eval tasks for the
+    current file and the candidate (a hub job: watch it on Console); adopt only after a trial with no regression; undo puts back."""
+    import arch_iterate
+    act, flow = str(b.get("action") or ""), str(b.get("flow") or "")
+    if act == "trial":
+        if not _FLOW_ID_RE.match(flow) or not _NAME_RE.match(str(b.get("candidate") or "")):
+            raise ValueError("pick a workflow and a suggested change")
+        argv = ["arch_iterate.py", "trial", flow, str(b["candidate"])] + (["--fake"] if b.get("fake") else [])
+        mh.JOB.start(f"Try a change to {flow}" + (" (fake models)" if b.get("fake") else ""), argv)
+        return {"ok": True, "started": True}
+    if act == "adopt":
+        if not _NAME_RE.match(str(b.get("trial") or "")):
+            raise ValueError("that is not a trial id")
+        return arch_iterate.adopt(str(b["trial"]), say=lambda *a: None)
+    if act == "undo":
+        if not _FLOW_ID_RE.match(flow):
+            raise ValueError("pick a workflow")
+        return arch_iterate.undo_adopt(flow, say=lambda *a: None)
+    raise ValueError("action is one of: trial, adopt, undo")
+
+
+def iterate_trials(q):
+    """GET /api/arch/iterate/trials?flow= -> the trials of this flow, newest first, with their verdicts."""
+    flow = (q.get("flow") or [""])[0]
+    if not _FLOW_ID_RE.match(flow):
+        raise ValueError("pick a workflow")
+    import arch_iterate
+    d = os.path.join(arch_iterate.iterate_dir(), "trials")
+    out = []
+    for fn in sorted(os.listdir(d), reverse=True) if os.path.isdir(d) else []:
+        if fn.endswith(".json") and (fn.startswith(flow + "_v")):
+            try:
+                with open(os.path.join(d, fn), encoding="utf-8") as f:
+                    r = json.load(f)
+                out.append({"trial_id": r.get("trial_id"), "verdict": r.get("verdict"), "why": r.get("why"), "ts": r.get("ts"),
+                            "change": (r.get("candidate") or {}).get("change"), "n": r.get("n")})
+            except (OSError, ValueError):
+                pass
+    return {"flow": flow, "trials": out[:20]}
+
+
 def squad_agents():
     """GET /api/arch/squad/agents -> {available, agents:[{name, description, model, role, effort, tools, budget, output, context}]}."""
     f, why = _optional("arch_squad", "list_agents")
@@ -1726,7 +1852,7 @@ def squad_agents():
     rows, err = _guarded(f)
     if err:
         return {"available": False, "why": err, "agents": []}
-    keep = ("name", "description", "model", "role", "effort", "tools", "budget", "output", "context")
+    keep = ("name", "description", "model", "role", "effort", "tools", "budget", "output", "context", "system", "task", "writes", "max_steps", "scope")
     items = rows.items() if isinstance(rows, dict) else ((None, r) for r in (rows or []))   # arch_squad returns {name: def}
     out = []
     for key, r in items:
@@ -1742,6 +1868,12 @@ def squad_agents():
 
 def _workflow_path(name):
     import arch_squad as sq
+    try:                                         # your version first (arch_custom), then the shipped file, then the project's
+        found = sq._find_named(name, "workflows")
+        if found:
+            return found
+    except Exception:
+        pass
     d = getattr(sq, "WORKFLOWS_DIR", os.path.join(HERE, "workflows"))
     for ext in (".yaml", ".md"):             # workflows may live as .yaml or .md
         if os.path.isfile(os.path.join(d, name + ext)):
@@ -1780,11 +1912,25 @@ def squad_save_agent(b):
     spec = b.get("spec")
     if not isinstance(spec, dict):
         raise ValueError("spec must be an object of agent fields.")
-    f, why = _optional("arch_squad", "save_agent")
-    if not f:
-        raise ValueError(why)
-    res = f(name, spec)                     # ValueError (invalid spec) reaches the page as a 400 with its message
-    return {"ok": True, "name": name, "result": res if isinstance(res, (dict, list, str, int, float, bool)) or res is None else str(res)}
+    import arch_squad
+    import arch_custom
+    try:
+        cur = arch_squad.load_agent(name)          # the agent as it is now: fields the form does not show (its instructions) are kept
+        base = {k: v for k, v in cur.items() if not str(k).startswith("_") and k not in ("fields", "problems", "scope", "plugin")}
+    except Exception:                              # a new agent: the defaults a shipped agent has, all editable afterwards
+        base = {"name": name, "model": "worker", "effort": "medium", "tools": ["ls", "grep", "read", "outline", "view"],
+                "task": "Goal: {goal}\nWhat the other agents found:\n{prev}\n{task}\n"}
+    d = dict(base, **{k: v for k, v in spec.items() if v is not None})
+    d["name"] = name
+    probs = arch_squad.validate(arch_squad._norm(dict(d)))
+    if probs:
+        raise ValueError("; ".join(str(p) for p in probs))
+    # saved as YOUR version (<data>/custom/agents/<name>.md): it wins over the shipped file. Before, the hub wrote agents/<name>.yaml
+    # into the install and the shipped <name>.md was still the one read, so an edit never took effect.
+    res = arch_custom.save("agents", name, arch_squad.dump_md(arch_squad._norm(d)), note=str(b.get("note") or "edited in Crew builder"))
+    if not res["ok"]:
+        raise ValueError("; ".join(res["problems"]))
+    return {"ok": True, "name": name, "version": res.get("version"), "path": res.get("path")}
 
 
 def squad_run(b):
@@ -3684,6 +3830,13 @@ class AHandler(mh.Handler):
             kinds = [k for k in one("kinds").split(",") if re.match(r"^[a-z0-9_.]{1,40}$", k)] or None
             run_id = one("run") if _NAME_RE.match(one("run")) else None
             return self._send(200, telemetry_events(since, run_id, kinds))
+        if u.path in ("/api/arch/custom", "/api/arch/launch_profile", "/api/arch/iterate", "/api/arch/iterate/trials"):
+            try:
+                fn = {"/api/arch/custom": custom_get, "/api/arch/launch_profile": launch_profile_get,
+                      "/api/arch/iterate": iterate_get, "/api/arch/iterate/trials": iterate_trials}[u.path]
+                return self._send(200, fn(parse_qs(u.query)))
+            except ValueError as ex:
+                return self._send(400, {"error": str(ex)})
         if u.path in ("/api/arch/squad/agents", "/api/arch/squad/workflows", "/api/arch/select/why"):
             if not self._host_ok():
                 return self._send(403, {"error": "bad host"})
@@ -4324,6 +4477,12 @@ class AHandler(mh.Handler):
             return library_fill(b)
         if path == "/api/arch/squad/agent":
             return squad_save_agent(b)
+        if path == "/api/arch/custom":
+            return custom_post(b)
+        if path == "/api/arch/launch_profile":
+            return launch_profile_post(b)
+        if path == "/api/arch/iterate":
+            return iterate_post(b)
         if path == "/api/arch/squad/run":
             return squad_run(b)
         if path == "/api/arch/squad/resume":

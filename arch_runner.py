@@ -50,9 +50,23 @@ def _save(root, state):
     open(_state_path(root), "w", encoding="utf-8").write(json.dumps(state, indent=2))
 
 
+def launch_profile(root):
+    """The project's saved launch profile {cmd, port, env, network} (arch_custom.launch_save), {} when there is none."""
+    try:
+        with open(os.path.join(root, ".arch", "launch.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def default_cmd(root):
     """The project's own run command: from .arch/handoff.json (written by the 'new'/build flows). None if
-    the project has never been built by the Architect and no command was passed explicitly."""
+    the project has never been built by the Architect and no command was passed explicitly. A launch profile you saved
+    (.arch/launch.json, Start my project > Save) wins over the one a flow wrote."""
+    prof = launch_profile(root)
+    if prof.get("cmd"):
+        return prof["cmd"]
     h = os.path.join(root, ".arch", "handoff.json")
     if os.path.isfile(h):
         try:
@@ -126,6 +140,11 @@ def start(root, cmd=None, port=None, extra_env=None, timeout_oneshot=600, networ
     run_tests/run_cmd -- not a separate, unreviewed set of rules for "the thing that happens to be a server".
     Pass network="open" only when you explicitly want this one run unrestricted (e.g. it legitimately calls
     an external API); the default follows the project's own setting, offline unless you changed it."""
+    prof = launch_profile(root)                      # your saved port, environment and network apply unless this call says otherwise
+    if not cmd or cmd == prof.get("cmd"):
+        port = port or prof.get("port") or None
+        extra_env = dict(prof.get("env") or {}, **(extra_env or {}))
+        network = network or prof.get("network") or None
     cmd = cmd or default_cmd(root)
     if not cmd:
         return {"ok": False, "error": "no run command for this project: pass one explicitly, or build it with the 'new' flow (which records one in .arch/handoff.json), or register it in portfolio.json with a test_command/run"}

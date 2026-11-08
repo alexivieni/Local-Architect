@@ -317,6 +317,19 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
 - Tests: a suite started on its own gets a throwaway home (`arch_core._standalone_selftest_home`); the network guard lives in
   `<data dir>/_guard`; `arch_selfimprove.count_passed` reads every summary format (a suite's summary must carry its check count).
 
+## Your versions: agents, crew workflows, flows, prompts, launch profiles are editable (arch_custom, 2026-11-07)
+- The shipped `agents/`, `workflows/`, `flows/`, `prompts/` are the BUILT-IN versions and are never written from the hub. A person's
+  change is saved in `<data dir>/custom/<kind>/` and wins everywhere a name is looked up (`arch_squad._find_named`/`load_agent`/
+  `list_agents`/`list_workflows`, `arch_dataflow.flow_file`/`prompt_path`/`load_all`). Every save is checked by the validator the
+  run uses, kept as a version (last 50, `.history/`), restorable; `reset` removes the person's file (versions stay).
+- A flow with a custom YAML or custom prompt runs from its YAML whatever `flows.engine` says (`register` keeps the Python class in
+  `_PYTHON` and puts it back on reset). `arch_iterate.adopt`/`trial` write into the custom layer, never the installed `flows/`.
+- Hub: `/api/arch/custom` (GET read/version, POST check|save|restore|reset), `/api/arch/launch_profile`, `/api/arch/iterate`
+  (+`/trials`); UI `cuEdit()` (one editor for every kind), `editAgent` with instructions and task, New agent/workflow, flow detail
+  "Edit this workflow" / "Edit these instructions" / "Improve from its runs" (`itPanel`), Start my project "How it starts".
+- Per project: `.arch/launch.json` (cmd, port, env, network) with `.arch/launch_history/`; `arch_runner.default_cmd`/`start` use it.
+- Suite: `arch_selftest_custom` (also proves no shipped file is written); hub check covers the HTTP side.
+
 ## Cross-Platform Compliance: Antigravity <-> Claude Code Anti-Stub & Non-Destruction Protocol
 When switching between **Google Antigravity**, **Claude Code**, and **Local-Architect**, every agent MUST obey these non-negotiable rules so no platform ever corrupts or stubs out work created on another:
 1. **Zero Stubs / Zero Placeholders (`arch_fakecode.py` Gate):** Never replace working functions, classes, or UI sections with `pass`, `...`, `TODO`, `FIXME`, `NotImplementedError`, hardcoded dummy returns, or `// rest of code here`. `python architect.py fakecode` and `arch_fakecode.scan()` must report **0 gate-level findings**.

@@ -1647,6 +1647,17 @@ details.adv>summary{min-height:44px;display:flex;align-items:center}.adv-body{di
 .rv-hunk pre{margin:6px 0 0;overflow:auto;max-height:320px}
 #usageChip{max-width:30ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (max-width:768px){.hk-row{flex-direction:column}#usageChip{display:none}}
+/* ===== Your versions editor (cuEdit): text, Check / Save / Try, versions, reset ===== */
+.xdlg.cu-dlg{max-width:min(980px,calc(100vw - 32px))}
+.cu-text{width:100%;box-sizing:border-box;min-height:18rem;resize:vertical;font-size:var(--t-sm,.8125rem);line-height:1.5;
+  background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:.75rem;tab-size:2}
+.cu-text:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.cu-status{min-height:1.4em;margin:.4rem 0}.cu-status.good{color:var(--good)}.cu-status.warn{color:var(--warn)}
+.cu-vlist{list-style:none;margin:.5rem 0 0;padding:0;display:flex;flex-direction:column;gap:.35rem}
+.cu-vlist li{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;padding:.4rem .5rem;border:1px solid var(--line);border-radius:10px}
+.cu-vdetails{margin-top:.6rem}.it-box h3{margin:.9rem 0 .3rem}
+.cb-card textarea.mono,.xdlg textarea.mono{width:100%;box-sizing:border-box}
+@media (max-width:768px){.cu-text{min-height:12rem}}
 </style>
 </head>
 <body><a class="skip-link" href="#view">Skip to the main content</a>
@@ -2111,13 +2122,139 @@ function modal(title,...body){
 function confirmBox(title,text,okLabel){return new Promise(res=>{let ok=false;
   const d=modal(title,h("p",null,text),h("div",{class:"row"},h("button",{class:"btn p",type:"button",onclick:()=>{ok=true;d.close();}},okLabel||"Confirm"),h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Cancel")));
   d.addEventListener("close",()=>res(ok));});}
+/* ===== Your versions: one editor for agents, crew workflows, flows and their instructions (arch_custom). Edit, Check, Save, Try,
+   go back to any earlier version, or reset to the built-in one. The shipped files are never written; what you save is what runs. ===== */
+const CU_WORD={agents:"agent",workflows:"crew workflow",flows:"workflow",prompts:"instructions"};
+const CU_SRC={custom:["good","Your version"],"built-in":["info","Built-in"],new:["warn","New"]};
+function cuChip(src){const [cls,word]=CU_SRC[src]||["info",src||"?"];return h("span",{class:"chip "+cls},word);}
+function cuWhen(t){try{return new Date(t*1000).toLocaleString();}catch(_){return "";}}
+async function cuEdit(kind,name,opts){
+  opts=opts||{};
+  let r;try{r=await api("/api/arch/custom?kind="+encodeURIComponent(kind)+"&name="+encodeURIComponent(name));}catch(e){toast.err(e.message);return;}
+  if(r.source==="new"&&opts.starter)r.text=opts.starter;
+  const word=CU_WORD[kind]||kind, tid="cuText"+Math.random().toString(36).slice(2,8), sid=tid+"s";
+  const ta=h("textarea",{id:tid,class:"cu-text mono",spellcheck:"false",rows:22,"aria-describedby":sid,
+    "aria-label":"Text of the "+word+" "+r.name},r.text||"");
+  const status=h("p",{id:sid,class:"small cu-status",role:"status","aria-live":"polite"},
+    r.source==="custom"?"This is your version; the built-in one is unchanged.":r.source==="built-in"?"Built-in. Saving makes it your version; the original stays and can come back.":"New: nothing is saved yet.");
+  const chipBox=h("span",null,cuChip(r.source));
+  const vbox=h("div",{class:"cu-versions"});
+  let dirty=false; ta.addEventListener("input",()=>{dirty=true;});
+  const say=(msg,cls)=>{status.textContent=msg;status.className="small cu-status "+(cls||"");};
+  const check=async()=>{try{const c=await api("/api/arch/custom",{action:"check",kind,name:r.name,text:ta.value});
+      say(c.ok?"Checked: it can be saved.":"Not valid yet: "+c.problems.join("; "),c.ok?"good":"warn");return c.ok;}catch(e){say(e.message,"warn");return false;}};
+  const save=async()=>{try{const s=await api("/api/arch/custom",{action:"save",kind,name:r.name,text:ta.value,note:"edited in the hub"});
+      if(!s.ok){say("Not saved: "+s.problems.join("; "),"warn");ta.focus();return false;}
+      dirty=false;r.source="custom";chipBox.replaceChildren(cuChip("custom"));resetBtn.hidden=!r.builtin;
+      say(s.unchanged?"No change to save.":"Saved as your version. The next run uses it"+(kind==="flows"||kind==="prompts"?" (this workflow now runs from its YAML).":"."),"good");
+      drawVersions();if(opts.onSaved)opts.onSaved(s);return true;}catch(e){say("Not saved: "+e.message,"warn");return false;}};
+  const reset=async()=>{if(!await confirmBox("Back to the built-in "+word+"?","Your version is set aside (it stays in Versions, so you can bring it back).","Use the built-in one"))return;
+    try{await api("/api/arch/custom",{action:"reset",kind,name:r.name});const b=await api("/api/arch/custom?kind="+encodeURIComponent(kind)+"&name="+encodeURIComponent(r.name));
+      ta.value=b.text||"";dirty=false;r.source=b.source;chipBox.replaceChildren(cuChip(b.source));resetBtn.hidden=true;say("Back to the built-in one.","good");drawVersions();if(opts.onSaved)opts.onSaved({});}
+    catch(e){say(e.message,"warn");}};
+  async function drawVersions(){
+    let vs=[];try{vs=(await api("/api/arch/custom?kind="+encodeURIComponent(kind)+"&name="+encodeURIComponent(r.name))).versions||[];}catch(_){}
+    vbox.replaceChildren(vs.length?h("ul",{class:"cu-vlist"},...vs.map((v,i)=>h("li",null,
+      h("span",{class:"grow"},h("b",null,cuWhen(v.t)),h("span",{class:"mute small"}," · "+(v.note||"saved")+(i===0?" · newest":""))),
+      h("button",{class:"btn sm",type:"button","aria-label":"Show the version of "+cuWhen(v.t),onclick:async()=>{try{const t=await api("/api/arch/custom?kind="+encodeURIComponent(kind)+"&name="+encodeURIComponent(r.name)+"&version="+v.id);showText("Version of "+cuWhen(v.t),t.text);}catch(e){toast.err(e.message);}}},"Show"),
+      h("button",{class:"btn sm",type:"button","aria-label":"Restore the version of "+cuWhen(v.t),onclick:async()=>{if(dirty&&!await confirmBox("Restore this version?","Your unsaved edits in the box are replaced.","Restore"))return;
+        try{const s=await api("/api/arch/custom",{action:"restore",kind,name:r.name,version:v.id});if(!s.ok){say("Not restored: "+s.problems.join("; "),"warn");return;}
+          const b=await api("/api/arch/custom?kind="+encodeURIComponent(kind)+"&name="+encodeURIComponent(r.name));ta.value=b.text;dirty=false;r.source="custom";chipBox.replaceChildren(cuChip("custom"));resetBtn.hidden=!r.builtin;
+          say("Restored. It is the newest version now; nothing was lost.","good");drawVersions();if(opts.onSaved)opts.onSaved(s);}catch(e){say(e.message,"warn");}}},"Restore")))):
+      h("p",{class:"mute small"},"No versions yet: every save is kept here (the last 50)."));
+  }
+  const resetBtn=h("button",{class:"btn",type:"button",hidden:!(r.source==="custom"&&r.builtin),onclick:reset},"Reset to built-in");
+  ta.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){e.preventDefault();save();}});
+  const d=modal((r.source==="new"?"New ":"Edit ")+word+": "+r.name,
+    h("div",{class:"row"},chipBox,h("span",{class:"grow small mute"},"Ctrl+S saves. Checked by the same rules a run uses; nothing invalid is saved.")),
+    h("label",{class:"f",for:tid},"Text"),ta,status,
+    h("div",{class:"row"},h("button",{class:"btn",type:"button",onclick:check},"Check"),h("button",{class:"btn p",type:"button",onclick:save},"Save"),
+      opts.onTry?h("button",{class:"btn",type:"button",onclick:async()=>{if(dirty&&!await save())return;d.close();opts.onTry(r.name);}},"Save and try it"):null,
+      resetBtn,h("span",{class:"grow"}),h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Close")),
+    h("details",{class:"cu-vdetails"},h("summary",null,"Versions (go back to any earlier one)"),vbox));
+  d.classList.add("cu-dlg");
+  d.addEventListener("cancel",e=>{if(dirty&&!window.confirm("Close without saving your edits?"))e.preventDefault();});
+  drawVersions();ta.focus();
+  return d;
+}
+const CU_WF_STARTER="name: My crew workflow\ndescription: What this crew does, in one line\nphases:\n  - title: Look\n    agent: explainer\n  - title: Change\n    agent: coder\n";
+async function cuNew(kind,ask,starter,onSaved){
+  const inp=h("input",{type:"text",id:"cuNewName",autocomplete:"off","aria-describedby":"cuNewHelp"});
+  const help=h("p",{id:"cuNewHelp",class:"small mute"},kind==="agents"?"Lower-case letters, digits, - or _ (for example: my-reviewer).":"Letters, digits, - _ or . (for example: my_review).");
+  const err=h("p",{class:"small st-errline",role:"alert"});
+  const d=modal(ask,h("label",{class:"f",for:"cuNewName"},"Name",inp),help,err,
+    h("div",{class:"row"},h("button",{class:"btn p",type:"button",onclick:go_},"Next"),h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Cancel")));
+  inp.addEventListener("keydown",e=>{if(e.key==="Enter")go_();});inp.focus();
+  async function go_(){const n=inp.value.trim();if(!n){err.textContent="Type a name.";inp.focus();return;}
+    try{const r=await api("/api/arch/custom?kind="+encodeURIComponent(kind)+"&name="+encodeURIComponent(n));
+      if(r.source!=="new"){err.textContent="'"+n+"' already exists: pick another name, or edit that one.";inp.focus();return;}}catch(e){err.textContent=e.message;inp.focus();return;}
+    d.close();cuEdit(kind,n,{starter:typeof starter==="function"?starter(n):starter,onSaved});}
+}
+/* ---- Improve a workflow from its own runs (arch_iterate): what went wrong, the changes that numbers suggest, a measured trial, adopt ---- */
+async function itPanel(flow){
+  const box=h("div",{class:"it-box","aria-live":"polite"},h("p",{class:"mute small"},"Reading this workflow's runs…"));
+  const d=modal("Improve "+flow+" from its own runs",h("p",{class:"sub"},"Nothing changes until a trial on its test tasks shows no regression, and you press Adopt. Adopted changes become your version (reset any time)."),box);
+  try{
+    const [p,t]=await Promise.all([api("/api/arch/iterate?flow="+encodeURIComponent(flow)),api("/api/arch/iterate/trials?flow="+encodeURIComponent(flow))]);
+    const cands=p.candidates||[], trials=t.trials||[];
+    box.replaceChildren(...[
+      h("h3",null,"What the runs show"),h("pre",{class:"term",style:"height:auto;max-height:30vh"},p.summary||"No runs of this workflow yet."),
+      h("h3",null,"Suggested changes"),
+      cands.length?h("ul",{class:"cu-vlist"},...cands.map(c=>h("li",null,h("span",{class:"grow"},h("b",null,c.change),h("span",{class:"mute small",style:"display:block"},"because: "+(c.evidence||""))),
+        h("button",{class:"btn sm",type:"button",onclick:()=>itTrial(flow,c.id,true,d)},"Try (fake models)"),
+        h("button",{class:"btn sm p",type:"button",onclick:()=>itTrial(flow,c.id,false,d)},"Try on my models")))):
+        h("p",{class:"mute small"},"No change suggested: the evidence does not point at one yet (it needs a few runs of this workflow)."),
+      (p.refused||[]).length?h("details",null,h("summary",null,"Ideas that did not pass the checks ("+p.refused.length+")"),h("ul",null,...p.refused.map(r=>h("li",{class:"small"},r.change+": "+r.problems.join("; "))))):null,
+      h("h3",null,"Trials"),
+      trials.length?h("ul",{class:"cu-vlist"},...trials.map(x=>h("li",null,h("span",{class:"grow"},h("b",null,x.trial_id)," ",h("span",{class:"chip "+(x.verdict==="better"||x.verdict==="no_regression"?"good":x.verdict==="worse"?"bad":"warn")},x.verdict||"?"),
+          h("span",{class:"mute small",style:"display:block"},(x.change||"")+(x.why?" — "+x.why:""))),
+        (x.verdict==="better"||x.verdict==="no_regression")?h("button",{class:"btn sm p",type:"button",onclick:async()=>{
+          if(!await confirmBox("Adopt "+x.trial_id+"?","It becomes your version of "+flow+" (the built-in file stays; reset any time).","Adopt"))return;
+          try{const a=await api("/api/arch/iterate",{action:"adopt",trial:x.trial_id});if(a.ok){toast("Adopted: "+flow+" now runs your improved version");d.close();}else toast.err(a.why||"not adopted");}catch(e){toast.err(e.message);}}},"Adopt"):null))):
+        h("p",{class:"mute small"},"No trials yet."),
+      h("div",{class:"row"},h("button",{class:"btn",type:"button",onclick:async()=>{if(!await confirmBox("Undo the last adopted change to "+flow+"?","The version before it comes back.","Undo"))return;
+        try{const u=await api("/api/arch/iterate",{action:"undo",flow});u.ok?toast("Undone"):toast.err(u.why||"nothing to undo");}catch(e){toast.err(e.message);}}},"Undo last adopt"),h("span",{class:"grow"}),
+        h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Close"))].filter(Boolean));
+  }catch(e){box.replaceChildren(h("p",{class:"note warn"},e.message));}
+}
+async function itTrial(flow,cand,fake,d){
+  try{await api("/api/arch/iterate",{action:"trial",flow,candidate:cand,fake});d.close();toast("Trial started: watch it here; come back to Adopt when it ends");go("console");}catch(e){toast.err(e.message);}
+}
+/* ---- Start my project: the saved launch profile (command, port, environment, network), with versions ---- */
+function lnProfileCard(){
+  const box=h("div",{id:"lnProfile"},h("p",{class:"mute small"},"Reading the launch profile…"));
+  setTimeout(()=>lnProfileDraw(box),0);
+  return h("section",{class:"card"},h("h2",null,"How it starts"),h("p",{class:"sub"},"Saved with the project (.arch/launch.json). Start uses it; every save is kept, so you can go back."),box);
+}
+async function lnProfileDraw(box){
+  let r;try{r=await api("/api/arch/launch_profile?root="+encodeURIComponent(run.root||""));}catch(e){box.replaceChildren(h("p",{class:"note warn"},e.message));return;}
+  const p=r.profile||{};
+  const f=(id,lbl,el,help)=>h("label",{class:"f",for:id},lbl,el,help?h("span",{class:"small mute"},help):null);
+  const cmd=h("input",{type:"text",id:"lnpCmd",class:"mono",value:p.cmd||r.default_cmd||"",placeholder:"python app.py   or   npm start"});
+  const port=h("input",{type:"number",id:"lnpPort",min:1,max:65535,value:p.port==null?"":String(p.port),placeholder:"from the command"});
+  const env=h("textarea",{id:"lnpEnv",class:"mono",rows:4,placeholder:"NAME=value, one per line"},Object.entries(p.env||{}).map(([k,v])=>k+"="+v).join("\n"));
+  const net=h("select",{id:"lnpNet"},...[["","The project's setting"],["offline","Offline: no network"],["practice","Practice: local addresses only"],["open","Open: any network"]].map(([v,l])=>h("option",{value:v,selected:(p.network||"")===v},l)));
+  const st=h("p",{class:"small",role:"status","aria-live":"polite"});
+  const save=async()=>{st.textContent="";try{const s=await api("/api/arch/launch_profile",{root:run.root||undefined,profile:{cmd:cmd.value,port:port.value,env:env.value,network:net.value}});
+      if(!s.ok){st.className="small warn";st.textContent="Not saved: "+s.problems.join("; ");return;}st.className="small good";st.textContent="Saved. Start uses it from now on.";
+      const lc=$("#lnCmd");if(lc)lc.value=cmd.value;lnProfileDraw(box);}catch(e){st.className="small warn";st.textContent=e.message;}};
+  const vs=r.versions||[];
+  box.replaceChildren(...[h("div",{class:"fgrid"},f("lnpCmd","Run command",cmd),f("lnpPort","Port",port,"blank = the command's own, or the next free one"),
+      f("lnpEnv","Environment",env,"NAME=value lines; # starts a comment"),f("lnpNet","Network while it runs",net)),
+    h("div",{class:"row"},h("button",{class:"btn p",type:"button",onclick:save},"Save how it starts")),st,
+    vs.length?h("details",null,h("summary",null,"Earlier versions ("+vs.length+")"),h("ul",{class:"cu-vlist"},...vs.map(v=>h("li",null,h("span",{class:"grow mono small"},v.replace(/^(\d{4})(\d\d)(\d\d)_(\d\d)(\d\d)(\d\d).*/,"$1-$2-$3 $4:$5:$6")),
+      h("button",{class:"btn sm",type:"button","aria-label":"Restore the launch profile of "+v,onclick:async()=>{try{const s=await api("/api/arch/launch_profile",{root:run.root||undefined,action:"restore",version:v});
+        if(s.ok){toast("Restored");lnProfileDraw(box);}else toast.err(s.problems.join("; "));}catch(e){toast.err(e.message);}}},"Restore"))))):null].filter(Boolean));
+}
 const fmtList=v=>Array.isArray(v)?v.join(", "):v==null?"–":typeof v==="object"?Object.entries(v).map(([k,x])=>k+" "+x).join(", "):String(v);
 const CB={agents:null,workflows:null};
 function crewBuilderPage(){
   const ag=h("div",{id:"cbAgents",class:"qgrid"},h("p",{class:"mute small"},"Reading the agents…"));
   const wf=h("div",{id:"cbWorkflows"},h("p",{class:"mute small"},"Reading the workflows…"));
   setTimeout(loadCrewBuilder,0);
-  return [h("section",{class:"card"},h("h2",null,"Agents"),h("p",{class:"sub"},"Each agent's model, effort, tools and budget. Edit one to change its definition file."),ag),
+  return [h("section",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow",style:"margin:0"},"Agents"),
+      h("button",{class:"btn sm p",type:"button",onclick:()=>editAgent({name:"",budget:{},context:{}},true)},"New agent")),
+      h("p",{class:"sub"},"Each agent's instructions, model, effort, tools and budget. Your changes are saved as your version (the built-in one stays, and comes back with Reset); every save is kept."),ag),
           h("section",{class:"card"},h("h2",null,"Workflows"),h("p",{class:"sub"},"Pick one, give a goal, run it."),learnMore("Pick one, say the goal and which files it may change, then run it. It streams like any run and shows on Orchestration afterwards."),wf)];
 }
 async function loadCrewBuilder(){
@@ -2128,13 +2265,16 @@ async function loadCrewBuilder(){
   ag.innerHTML="";
   if(!A.available)ag.append(NA(A.why));else if(!CB.agents.length)ag.append(h("p",{class:"mute"},"No agents defined yet."));
   else for(const a of CB.agents){const b=a.budget||{};
-    ag.append(h("div",{class:"qcard cb-card"},h("div",{class:"row"},avatar(a.name,"agent"),h("b",null,a.name)),h("span",{class:"small mute"},a.description||""),
+    ag.append(h("div",{class:"qcard cb-card"},h("div",{class:"row"},avatar(a.name,"agent"),h("b",{class:"grow"},a.name),a.scope==="custom"?cuChip("custom"):null),h("span",{class:"small mute"},a.description||""),
       h("span",{class:"small"},"Model: ",h("b",null,a.model||"–")," · effort ",h("b",null,a.effort||"–")),
       h("span",{class:"small mute"},"Tools: "+fmtList(a.tools)),
       h("span",{class:"small mute"},"Budget: "+(b.calls??"–")+" calls, "+(b.tokens??"–")+" tokens, "+(b.seconds??"–")+" s"),
-      h("button",{class:"btn sm",type:"button",onclick:()=>editAgent(a)},"Edit")));}
+      h("div",{class:"row"},h("button",{class:"btn sm",type:"button","aria-label":"Edit "+a.name,onclick:()=>editAgent(a)},"Edit"),
+        h("button",{class:"btn sm",type:"button","aria-label":"Edit "+a.name+" as text, with versions",onclick:()=>cuEdit("agents",a.name,{onSaved:loadCrewBuilder})},"Text & versions"))));}
   wf.innerHTML="";
   if(!W.available){wf.append(NA(W.why));return;}
+  wf.append(h("div",{class:"row"},h("span",{class:"grow small mute"},"Edit one to change its phases and agents; it is saved as your version."),
+    h("button",{class:"btn sm p",type:"button",onclick:()=>cuNew("workflows","New crew workflow",n=>CU_WF_STARTER.replace("My crew workflow",n),loadCrewBuilder)},"New workflow")));
   if(!CB.workflows.length){wf.append(h("p",{class:"mute"},"No workflows yet."));return;}
   /* phase kinds from arch_squad: agent, parallel, loop (until/max), panel (several judge one thing), code (a check, no model) */
   const KIND={agent:["agent","one agent"],parallel:["flow","side by side"],loop:["cost","repeats"],panel:["model","panel"],code:["template","code check"]};
@@ -2145,9 +2285,11 @@ async function loadCrewBuilder(){
     wf.append(h("div",{class:"feedrow wfrow"},chainThumb(w.phases,bad?"cost":"flow"),h("span",{class:"grow"},h("b",null,w.title||w.name),h("span",{class:"small mute"}," "+(w.description||"")),
       (w.phases||[]).length?h("span",{class:"wfphases"},...w.phases.map((p,i)=>[i?h("span",{class:"mute","aria-hidden":"true"}," → "):null,phase(p)])):null,
       bad?h("span",{class:"note warn",style:"display:block"},"Not runnable: "+w.problems.join("; ")):null),
+    w.source==="custom"?cuChip("custom"):null,
+    h("button",{class:"btn sm",type:"button","aria-label":"Edit "+(w.title||w.name),onclick:()=>cuEdit("workflows",w.name,{onSaved:loadCrewBuilder,onTry:()=>{const x=(CB.workflows||[]).find(y=>y.name===w.name)||w;runPanel(x);}})},"Edit"),
     h("button",{class:"btn sm",type:"button",disabled:!!bad,onclick:()=>runPanel(w)},"Run…")));}
 }
-function editAgent(a){
+function editAgent(a,isNew){
   const b=a.budget||{},c=a.context||{};
   const fld=(lbl,el)=>h("label",{class:"f"},lbl,el);
   const inp=(v,t)=>h("input",{type:t||"text",value:v==null?"":String(v)});
@@ -2155,20 +2297,28 @@ function editAgent(a){
   const F={description:inp(a.description),model:h("select",null,...tiers.concat(tiers.includes(a.model)||!a.model?[]:[a.model]).map(m=>h("option",{value:m,selected:m===a.model},m))),
     role:inp(a.role),effort:h("select",null,...["low","medium","high"].map(m=>h("option",{value:m,selected:m===(a.effort||"medium")},m))),
     tools:inp(fmtList(a.tools||[])),calls:inp(b.calls,"number"),tokens:inp(b.tokens,"number"),seconds:inp(b.seconds,"number"),
-    policy:h("select",null,...["fresh","inherit"].map(m=>h("option",{value:m,selected:m===(c.policy||"fresh")},m))),max_chars:inp(c.max_chars,"number")};
+    policy:h("select",null,...["fresh","inherit"].map(m=>h("option",{value:m,selected:m===(c.policy||"fresh")},m))),max_chars:inp(c.max_chars,"number"),
+    name:inp(a.name),system:h("textarea",{rows:8,class:"mono",spellcheck:"false"},a.system||""),task:h("textarea",{rows:4,class:"mono",spellcheck:"false"},a.task||"")};
   const err=h("p",{class:"small st-errline",role:"alert"});
   const num=el=>el.value===""?undefined:Number(el.value);
   let d;
   const save=async()=>{err.textContent="";
+    const name=isNew?F.name.value.trim():a.name;
+    if(!name){err.textContent="Give the new agent a name.";F.name.focus();return;}
     const spec={description:F.description.value,model:F.model.value,role:F.role.value||undefined,effort:F.effort.value,
       tools:F.tools.value.split(",").map(s=>s.trim()).filter(Boolean),budget:{calls:num(F.calls),tokens:num(F.tokens),seconds:num(F.seconds)},
-      context:{policy:F.policy.value,max_chars:num(F.max_chars)}};
+      context:{policy:F.policy.value,max_chars:num(F.max_chars)},system:F.system.value};
+    if(F.task.value.trim())spec.task=F.task.value;
     if(a.output)spec.output=a.output;
-    try{await api("/api/arch/squad/agent",{name:a.name,spec});toast("Saved "+a.name);d.close();loadCrewBuilder();}catch(e){err.textContent="Not saved: "+e.message;}};
-  d=modal("Edit agent: "+a.name,h("div",{class:"fgrid"},fld("Description",F.description),fld("Model tier",F.model),fld("Role",F.role),fld("Effort",F.effort),
+    try{await api("/api/arch/squad/agent",{name,spec});toast("Saved "+name+" as your version");d.close();loadCrewBuilder();}catch(e){err.textContent="Not saved: "+e.message;}};
+  d=modal(isNew?"New agent":"Edit agent: "+a.name,h("div",{class:"fgrid"},isNew?fld("Name (lower-case letters, digits, - or _)",F.name):null,fld("Description",F.description),fld("Model tier",F.model),fld("Role",F.role),fld("Effort",F.effort),
       fld("Tools (comma separated)",F.tools),fld("Budget: calls",F.calls),fld("Budget: tokens",F.tokens),fld("Budget: seconds",F.seconds),
-      fld("Context policy",F.policy),fld("Context: max characters",F.max_chars)),err,
-    h("div",{class:"row"},h("button",{class:"btn p",type:"button",onclick:save},"Save"),h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Cancel")));
+      fld("Context policy",F.policy),fld("Context: max characters",F.max_chars)),
+    h("label",{class:"f"},"Instructions (what this agent is and how it works)",F.system),
+    h("label",{class:"f"},"Task line (what it is given each time; {goal}, {prev}, {task}, {focus} are filled in)",F.task),err,
+    h("div",{class:"row"},h("button",{class:"btn p",type:"button",onclick:save},"Save"),h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Cancel"),h("span",{class:"grow"}),
+      isNew?null:h("button",{class:"btn sm",type:"button",onclick:()=>{d.close();cuEdit("agents",a.name,{onSaved:loadCrewBuilder});}},"Text & versions")));
+  (isNew?F.name:F.description).focus();
 }
 function runPanel(w){
   const goal=h("textarea",{rows:3,"aria-label":"Goal",placeholder:"What should the crew do?"});
@@ -4629,7 +4779,7 @@ let launchTimer=null;
 const NET_LABEL={offline:"offline — loopback only",practice:"practice — loopback + your allowlist",open:"open — your machine's normal network access"};
 function launchPage(){
   const root=h("input",{type:"text",id:"lnRoot",class:"grow",placeholder:"Folder of a project the Architect built, e.g. C:\\code\\myapp",value:run.root,oninput:e=>{run.root=e.target.value;store.set("root",run.root);built.launch=0;render();}});
-  return [
+  return [lnProfileCard(),
     h("div",{class:"card"},h("h2",null,"Launch"),
       h("p",{class:"sub"},"Starts your project like you would yourself."),learnMore("Starts the project's own run command as a real process on your machine — a real PID, a real port, a real HTTP check. Nothing here is simulated, and nothing here restricts outbound network access unless you set it to in Settings."),
       h("div",{class:"row"},h("label",{class:"f grow"},"Project folder",root),
@@ -6765,7 +6915,8 @@ async function showFlowDetail(id){
       Object.keys(s.params||{}).length?h("dt",null,"Parameters"):null,Object.keys(s.params||{}).length?h("dd",null,kv(s.params)):null,
       Object.keys(s.apply||{}).length?h("dt",null,"Where it may write"):null,Object.keys(s.apply||{}).length?h("dd",null,kv(s.apply)):null,
       s.on_fail?h("dt",null,"If it fails"):null,s.on_fail?h("dd",null,s.on_fail==="continue"?"the workflow goes on":s.on_fail==="stop"?"the workflow stops":s.on_fail):null),
-    s.prompt_text?h("details",{class:"fi-prompt"},h("summary",null,"The instructions the model gets ("+s.prompt_name+")"),h("pre",null,s.prompt_text)):null));
+    s.prompt_text?h("details",{class:"fi-prompt"},h("summary",null,"The instructions the model gets ("+s.prompt_name+")"),h("pre",null,s.prompt_text),
+      h("button",{class:"btn sm",type:"button",onclick:()=>cuEdit("prompts",(s.prompt_name.includes("/")?s.prompt_name:d.id+"/"+s.prompt_name).replace(/\.md$/,""),{onSaved:()=>{close();showFlowDetail(d.id);}})},"Edit these instructions")):null));
   const ov=h("div",{class:"fi-overlay",role:"dialog","aria-modal":"true","aria-labelledby":"fiTitle",onclick:e=>{if(e.target===ov)close();}},
     h("div",{class:"fi-panel"},
       h("div",{class:"row"},h("h2",{id:"fiTitle",class:"grow",style:"margin:0"},"What's inside: "+(d.title||d.id)),h("button",{class:"btn",type:"button",onclick:close,"aria-label":"Close"},"Close")),
@@ -6777,7 +6928,9 @@ async function showFlowDetail(id){
         h("div",null,h("span",{class:"lbl"},"Produces"),h("b",null,(d.produces||[]).join(", ")||"changes to your project"))),
       Object.keys(d.inputs||{}).length?h("p",{class:"small"},h("b",null,"Inputs: "),kv(d.inputs)):null,
       ...steps,
-      h("p",{class:"small mute"},"Source: "+d.file+". Customize below, or open it in Blueprints to add and reorder steps."),
+      h("div",{class:"row"},d.customized?cuChip("custom"):cuChip("built-in"),h("span",{class:"grow small mute"},"Source: "+d.file),
+        h("button",{class:"btn sm p",type:"button",onclick:()=>cuEdit("flows",d.id,{onSaved:()=>{close();showFlowDetail(d.id);},onTry:()=>{close();run.flow=d.id;built={};go("run");}})},"Edit this workflow"),
+        h("button",{class:"btn sm",type:"button",onclick:()=>itPanel(d.id)},"Improve from its runs")),
       fiCustomize(d),
       h("div",{class:"row"},h("span",{class:"grow"}),h("button",{class:"btn p",type:"button",onclick:()=>{close();setMode&&store.get("uiMode")==="simple"&&setMode("advanced");go("blueprints");setTimeout(()=>bpLoad(d.id),300);}},"Open in Blueprints"))));
   document.body.append(ov); document.addEventListener("keydown",esc); ov.querySelector("button").focus();

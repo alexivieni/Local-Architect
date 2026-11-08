@@ -267,9 +267,31 @@ def validate(doc):
     return probs
 
 
+def _custom(kind):
+    try:
+        import arch_custom
+        return arch_custom.custom_dir(kind)
+    except Exception:
+        return None
+
+
 def prompt_path(flow_id, name):
+    """The instructions file a step reads: the person's own version (arch_custom, <data>/custom/prompts/) when there is one, else the
+    shipped one."""
     name = name if name.endswith(".md") else name + ".md"
-    return os.path.join(PROMPTS_DIR, flow_id or "", name) if "/" not in name else os.path.join(PROMPTS_DIR, name)
+    rel = os.path.join(flow_id or "", name) if "/" not in name else name
+    c = _custom("prompts")
+    if c and os.path.isfile(os.path.join(c, rel)):
+        return os.path.join(c, rel)
+    return os.path.join(PROMPTS_DIR, rel)
+
+
+def flow_file(flow_id):
+    """flows/<id>.yaml, or the person's own version of it (arch_custom) when they saved one: that one wins."""
+    c = _custom("flows")
+    if c and os.path.isfile(os.path.join(c, f"{flow_id}.yaml")):
+        return os.path.join(c, f"{flow_id}.yaml")
+    return os.path.join(FLOWS_DIR, f"{flow_id}.yaml")
 
 
 def _scaled(budget, cfg):
@@ -309,7 +331,10 @@ def load_prompt(flow_id, name, e=None):
 def load_all(say=None):
     """Every flows/*.yaml -> {id: DataFlow}; a file that does not validate is reported and skipped, never half-registered."""
     out = {}
-    for p in sorted(glob.glob(os.path.join(FLOWS_DIR, "*.yaml"))):
+    c = _custom("flows")
+    mine = {os.path.basename(p): p for p in glob.glob(os.path.join(c, "*.yaml"))} if c and os.path.isdir(c) else {}
+    shipped = {os.path.basename(p): p for p in glob.glob(os.path.join(FLOWS_DIR, "*.yaml"))}
+    for p in [mine.get(n) or shipped[n] for n in sorted(set(shipped) | set(mine))]:   # yours wins over the shipped file of the same name
         try:
             doc = load_yaml_file(p)
         except Exception as ex:
@@ -1148,7 +1173,7 @@ def flow_map(flow_id, cfg=None):
     "steps": [...]} or {"error"}."""
     import arch_core as core
     import arch_roles
-    path = os.path.join(FLOWS_DIR, f"{flow_id}.yaml")
+    path = flow_file(flow_id)
     if not os.path.isfile(path):
         return {"error": f"no flow named {flow_id}"}
     doc = load_yaml_file(path)
@@ -1183,11 +1208,33 @@ def register(flows_dict, mode, say=None):
     if mode == "off":
         return []
     done = []
+    try:
+        import arch_custom
+        mine = arch_custom.customized_flow_ids()
+    except Exception:
+        mine = set()
     for fid, fl in load_all(say).items():
-        if mode == "data" or fid not in flows_dict:
+        fl.customized = fid in mine
+        cur = flows_dict.get(fid)
+        if cur is not None and not isinstance(cur, DataFlow):
+            _PYTHON.setdefault(fid, cur)                # the Python class, kept so "reset to built-in" can put it back
+        if fl.customized:
+            # a flow you changed (its YAML or one of its prompts) runs from that YAML whatever the engine setting: otherwise the
+            # Python class of the same id would run and your change would do nothing
             flows_dict[fid] = fl
             done.append(fid)
+        elif mode == "data" or fid not in flows_dict:
+            flows_dict[fid] = fl
+            done.append(fid)
+        elif isinstance(cur, DataFlow) and fid in _PYTHON:
+            flows_dict[fid] = _PYTHON[fid]              # no longer changed by you, and this engine setting runs the Python class
+        elif isinstance(cur, DataFlow):
+            flows_dict[fid] = fl                        # a YAML-only flow: the fresh file
+            done.append(fid)
     return done
+
+
+_PYTHON = {}
 
 
 # ---- "What's inside": everything a workflow and each step consists of, for the hub's inspector -------------------------------
@@ -1204,7 +1251,7 @@ KIND_PLAIN = {"generate": "A model writes or changes code.", "code": "Code runs 
 def flow_detail(flow_id):
     """-> {id, title, blurb, kind, produces, inputs, budget, context, overrides, roles, tiers, steps:[{id, title, kind, kind_plain,
     tier, role, prompt_name, prompt_text, check, check_plain, when, retries, budget, context, apply, params, on_fail}]}"""
-    path = os.path.join(FLOWS_DIR, f"{flow_id}.yaml")
+    path = flow_file(flow_id)
     if not re.fullmatch(r"[a-z][a-z0-9_]{1,40}", flow_id or "") or not os.path.isfile(path):
         return {"error": f"no workflow called {flow_id!r}"}
     doc = load_yaml_file(path)
@@ -1251,4 +1298,11 @@ def flow_detail(flow_id):
             "produces": doc.get("produces") or [], "inputs": doc.get("inputs") or {}, "budget": doc.get("budget") or {},
             "context": doc.get("context") or {}, "overrides": doc.get("overrides") or {}, "verdict": doc.get("verdict") or {},
             "roles": sorted(roles | set(doc.get("uses_roles") or [])), "tiers": sorted(tiers), "steps": steps,
-            "file": os.path.relpath(path, HERE)}
+            "file": _shown_path(path), "customized": not os.path.normcase(os.path.abspath(path)).startswith(os.path.normcase(os.path.abspath(FLOWS_DIR)))}
+
+
+def _shown_path(path):
+    try:
+        return os.path.relpath(path, HERE)
+    except ValueError:                                   # the data folder on another drive
+        return path

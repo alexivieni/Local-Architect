@@ -445,6 +445,21 @@ def run():
         check("the Harness HUD is served at /hud, wires itself to the hub's event stream and has a page in the Help group",
               "ArchitectHUD" in _hud and "/api/arch/events/stream" in _hud and "translate(" in _hud
               and any(p.get("id") == "hud" for p in call("/api/arch/ui/registry").get("pages", [])), len(_hud))
+        # ---- your versions (arch_custom) over HTTP: read, refuse without the token, refuse a bad name, save, list, reset
+        _cu = call("/api/arch/custom?kind=agents&name=explainer")
+        check("an agent can be read for editing, marked built-in, with its versions", _cu.get("source") == "built-in" and "name: explainer" in (_cu.get("text") or ""), _cu)
+        check("saving your version needs the hub token", call("/api/arch/custom", {"action": "save", "kind": "agents", "name": "explainer", "text": "x"}, token=False).get("HTTP") == 403)
+        check("a name that would leave its folder is refused", call("/api/arch/custom?kind=prompts&name=../../x").get("HTTP") == 400
+              and call("/api/arch/custom", {"action": "save", "kind": "flows", "name": "../x", "text": "id: x"}).get("HTTP") == 400)
+        _sv = call("/api/arch/custom", {"action": "save", "kind": "agents", "name": "explainer", "text": (_cu.get("text") or "").replace("effort: low", "effort: high")})
+        _ag = {a["name"]: a for a in call("/api/arch/squad/agents").get("agents", [])}
+        check("a saved agent is the one the crew list shows, as your version", _sv.get("ok") and _ag.get("explainer", {}).get("effort") == "high"
+              and _ag["explainer"].get("scope") == "custom", (_sv, _ag.get("explainer", {}).get("effort")))
+        check("reset to built-in brings the shipped agent back", call("/api/arch/custom", {"action": "reset", "kind": "agents", "name": "explainer"}).get("ok")
+              and {a["name"]: a for a in call("/api/arch/squad/agents").get("agents", [])}["explainer"].get("effort") == "low")
+        check("the page has the editors: agent instructions, text and versions, crew workflow edit, flow edit, step instructions, improve, launch profile",
+              all(x in html for x in ("function cuEdit(", "Instructions (what this agent is and how it works)", '"Text & versions"', '"Edit this workflow"',
+                                       '"Edit these instructions"', "function itPanel(", "function lnProfileCard(", '"New agent"', '"New workflow"')))
         import arch_core as _core0
         import model_hub as _mh0
         _iso = tempfile.mkdtemp()                       # these two saves write a config: never the person's real one

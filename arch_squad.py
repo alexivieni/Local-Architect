@@ -374,6 +374,16 @@ def _plugin_dirs(kind):
     return [(n, d) for n, d in out if os.path.isdir(d)]
 
 
+def _custom_dir(kind):
+    """The person's own versions (arch_custom: <data dir>/custom/agents|workflows). They win over the shipped files of the same name."""
+    try:
+        import arch_custom
+        d = arch_custom.custom_dir(kind)
+        return d if os.path.isdir(d) else None
+    except Exception:
+        return None
+
+
 def _project_dir(kind, root=None):
     d = os.path.join(os.path.abspath(root or os.getcwd()), ".arch", kind)
     return d if os.path.isdir(d) else None
@@ -396,7 +406,7 @@ def _find_named(name, kind, ext=".yaml", root=None):
                     if os.path.isfile(os.path.join(d, fn)):
                         return os.path.join(d, fn)
         return None
-    for d in [shipped, _project_dir(kind, root)] + [d for _, d in _plugin_dirs(kind[:-1])]:
+    for d in [_custom_dir(kind), shipped, _project_dir(kind, root)] + [d for _, d in _plugin_dirs(kind[:-1])]:
         for fn in names(name):
             if d and os.path.isfile(os.path.join(d, fn)):
                 return os.path.join(d, fn)
@@ -638,6 +648,9 @@ def load_agent(name_or_path, folder=None):
         d, src = _plain(name_or_path), name_or_path.get("_source") or "(inline)"
     else:
         src = str(name_or_path)
+        mine = _custom_dir("agents") if not folder and not os.path.isfile(src) else None
+        if mine and any(os.path.isfile(os.path.join(mine, src + x)) for x in (".md", ".yaml")):
+            folder = mine                                 # the person's own version of this agent wins over the shipped file
         if not os.path.isfile(src):
             base = os.path.join(folder or AGENTS_DIR, src)
             src = next((base + x for x in (".md", ".yaml") if os.path.isfile(base + x)), base + ".md")
@@ -664,7 +677,7 @@ def list_agents(folder=None, root=None):
     clash."""
     out = {}
     sources = [(folder, "folder", None)] if folder else \
-        [(AGENTS_DIR, "shipped", None), (_project_dir("agents", root), "project", None)] + \
+        [(_custom_dir("agents"), "custom", None), (AGENTS_DIR, "shipped", None), (_project_dir("agents", root), "project", None)] + \
         [(d, "plugin", n) for n, d in _plugin_dirs("agent")]
     for fold, scope, plug in sources:
         files = sorted(os.listdir(fold)) if fold and os.path.isdir(fold) else []
@@ -2106,13 +2119,16 @@ def list_workflows(folder=None):
     """-> {name: {name, title, description, path, phases: [{title, kind, agents, when?, ...}], problems?}} for workflows/*.yaml."""
     import arch_ci
     out = {}
-    folders = [(folder, None)] if folder else [(WORKFLOWS_DIR, None), (_project_dir("workflows"), "project")] + \
+    folders = [(folder, None)] if folder else [(_custom_dir("workflows"), "custom"), (WORKFLOWS_DIR, None), (_project_dir("workflows"), "project")] + \
         [(d, n) for n, d in _plugin_dirs("workflow")]
+    mine = set()
     for fn, path, plug in [(fn, os.path.join(fo, fn), pl) for fo, pl in folders if fo and os.path.isdir(fo)
                            for fn in sorted(os.listdir(fo))]:
-        if not fn.endswith(".yaml") or (plug == "project" and fn[:-5] in out):
+        if not fn.endswith(".yaml") or (plug == "project" and fn[:-5] in out) or (plug is None and fn[:-5] in mine):
             continue
-        if plug and plug != "project":
+        if plug == "custom":
+            mine.add(fn[:-5])
+        if plug and plug not in ("project", "custom"):
             if fn[:-5] in out:
                 fn = f"{plug}:{fn}"
         try:
@@ -2122,7 +2138,9 @@ def list_workflows(folder=None):
             out[fn[:-5]] = {"name": fn[:-5], "path": path, "problems": [str(e)], "phases": []}
             continue
         row = {"name": fn[:-5], "title": w.get("name"), "description": w.get("description", ""), "path": path,
-               "phases": [_phase_summary(ph) for ph in w.get("phases") or [] if isinstance(ph, dict) and _phase_kind(ph)]}
+               "phases": [_phase_summary(ph) for ph in w.get("phases") or [] if isinstance(ph, dict) and _phase_kind(ph)],
+               "source": "custom" if plug == "custom" else ("project" if plug == "project" else ("plugin" if plug else "built-in")),
+               "builtin": os.path.isfile(os.path.join(WORKFLOWS_DIR, fn.split(":")[-1]))}
         probs = validate_workflow(w)
         if probs:
             row["problems"] = probs

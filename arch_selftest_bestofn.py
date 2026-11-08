@@ -113,8 +113,10 @@ def _checks(check, home):
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     os.environ["OLLAMA_HOST"] = f"127.0.0.1:{srv.server_address[1]}"
-    os.makedirs(os.path.join(df.PROMPTS_DIR, "_selftest_bon"), exist_ok=True)
-    with open(os.path.join(df.PROMPTS_DIR, "_selftest_bon", "bon.md"), "w", encoding="utf-8") as f:
+    import arch_custom                       # the test prompt goes to this run's own data folder (your-version layer), never the install
+    bon_dir = os.path.join(arch_custom.custom_dir("prompts"), "_selftest_bon")
+    os.makedirs(bon_dir, exist_ok=True)
+    with open(os.path.join(bon_dir, "bon.md"), "w", encoding="utf-8") as f:
         f.write("Make add(a, b) return the sum. Reply with a FILE: block for calc.py.\n")
 
     def project():
@@ -289,7 +291,7 @@ def _checks(check, home):
               and [c["label"] for c in calls(e)] == ["write-cand1", "write-cand2", "write-cand3", "write-cand4"], [c["label"] for c in calls(e)])
     finally:
         srv.shutdown()
-        shutil.rmtree(os.path.join(df.PROMPTS_DIR, "_selftest_bon"), ignore_errors=True)
+        shutil.rmtree(bon_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

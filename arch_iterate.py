@@ -471,7 +471,11 @@ def explain(diag):
 
 # ------------------------------------------------------------------------------------------------------ propose
 def flow_path(flow_id, flows_dir=None):
-    return os.path.join(flows_dir or arch_dataflow.FLOWS_DIR, f"{flow_id}.yaml")
+    """The flow file a run uses now: in `flows_dir` when given (tests), else the person's own version when there is one, else the
+    shipped file (arch_dataflow.flow_file)."""
+    if flows_dir:
+        return os.path.join(flows_dir, f"{flow_id}.yaml")
+    return arch_dataflow.flow_file(flow_id)
 
 
 def load_flow(flow_id, flows_dir=None):
@@ -882,7 +886,12 @@ def trial(flow_id, candidate, quick=True, fake=False, runner=None, tasks=None, f
     cand_tasks = copy.deepcopy(tasks)
     for t in cand_tasks:
         t["flow"] = trial_id
-    path = flow_path(trial_id, flows_dir)
+    if flows_dir:
+        path = flow_path(trial_id, flows_dir)
+    else:                                                # the trial copy goes with your versions, never into the installed flows/
+        import arch_custom
+        path = arch_custom.custom_path("flows", trial_id)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
     rec = {"flow": flow_id, "trial_id": trial_id, "ts": time.time(), "candidate": {k: candidate.get(k) for k in ("id", "kind", "step", "change", "evidence", "diff")},
            "doc": doc, "base_sha": base_sha, "quick": bool(quick), "fake": bool(fake), "n": len(tasks), "path": path}
     if not tasks:
@@ -976,14 +985,24 @@ def adopt(trial_rec, flows_dir=None, say=print):
     os.makedirs(bdir, exist_ok=True)
     backup = os.path.join(bdir, f"{flow_id}.{time.strftime('%Y%m%d_%H%M%S')}.{int(time.time() * 1000) % 1000:03d}.yaml")
     _write_atomic(backup, old)
-    _write_atomic(path, to_yaml(rec["doc"]))
-    try:
-        back = arch_dataflow.validate(arch_dataflow.load_yaml_file(path))
-    except Exception as ex:
-        back = [str(ex)]
-    if back:
-        _write_atomic(path, old)
-        return {"ok": False, "flow": flow_id, "why": "the written file did not validate, the old one is back: " + "; ".join(back)}
+    if not flows_dir:
+        # the installed flows/ stay as shipped: the adopted file becomes YOUR version (arch_custom), validated, kept as a version,
+        # resettable, and it runs from its YAML whatever the engine setting
+        import arch_custom
+        sv = arch_custom.save("flows", flow_id, to_yaml(rec["doc"]),
+                              note=f"adopted trial {rec.get('trial_id')}: {((rec.get('candidate') or {}).get('change') or '')[:120]}")
+        if not sv["ok"]:
+            return {"ok": False, "flow": flow_id, "why": "the candidate was not saved: " + "; ".join(sv["problems"])}
+        path = sv["path"]
+    else:
+        _write_atomic(path, to_yaml(rec["doc"]))
+        try:
+            back = arch_dataflow.validate(arch_dataflow.load_yaml_file(path))
+        except Exception as ex:
+            back = [str(ex)]
+        if back:
+            _write_atomic(path, old)
+            return {"ok": False, "flow": flow_id, "why": "the written file did not validate, the old one is back: " + "; ".join(back)}
     try:
         with open(os.path.join(iterate_dir(), "adopted.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": time.time(), "flow": flow_id, "trial_id": rec.get("trial_id"), "backup": backup,
@@ -1001,7 +1020,7 @@ def _engine_note(flow_id):
         import arch_flows
         mode = ((arch_core.load_config().get("flows") or {}).get("engine") or "legacy")
         fl = arch_flows.FLOWS.get(flow_id)
-        if mode != "data" and fl is not None and not getattr(fl, "data", False):
+        if mode != "data" and fl is not None and not getattr(fl, "data", False) and not getattr(fl, "customized", False):
             return (f"Settings > Flows > engine is '{mode}': {flow_id} still runs from its Python class; the YAML change is used with engine = data.")
     except Exception:
         pass
@@ -1020,7 +1039,16 @@ def undo_adopt(flow_id, flows_dir=None, say=print):
     if cur is not None:
         _write_atomic(files[-1][:-5] + ".replaced.undone.yaml", cur)
     old = _read(files[-1])
-    _write_atomic(path, old)
+    if not flows_dir:
+        import arch_custom
+        bp = arch_custom.builtin_path("flows", flow_id)
+        if bp and _read(bp) == old:
+            arch_custom.reset("flows", flow_id)                # it was the shipped file: back to it (your versions stay)
+        else:
+            arch_custom.save("flows", flow_id, old, note="undo of an adopted change")
+        path = flow_path(flow_id, flows_dir)
+    else:
+        _write_atomic(path, old)
     os.replace(files[-1], files[-1][:-5] + ".undone.yaml")
     say(f"[iterate] flows/{flow_id}.yaml is back to {os.path.basename(files[-1])}")
     return {"ok": True, "flow": flow_id, "path": path, "restored": files[-1]}

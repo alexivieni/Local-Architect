@@ -135,12 +135,14 @@ def run():
         recent = os.path.join(tmp, "recent_proj")
         practice = os.path.join(data, "practice", "textkit")
         evalroot = os.path.join(data, "evals", "runs", "train")
+        # the install folder is a root too, and it may hold real runs of today: count what this test adds, not an absolute number
+        before = arch_usage.usage("day", fresh=True)["runs"]
         for b, rid in ((recent, "r1"), (practice, "p1"), (evalroot, "e1")):
             os.makedirs(b, exist_ok=True)
             mkroot_run(b, rid, "pass")
         base = arch_usage.usage("day", fresh=True)["runs"]
-        check("usage: the practice and eval run folders are read with no roots given", base == 2, base)
-        check("usage: a remembered folder is added", arch_usage.remember_root(recent) and arch_usage.usage("day", fresh=True)["runs"] == 3)
+        check("usage: the practice and eval run folders are read with no roots given", base - before == 2, (before, base))
+        check("usage: a remembered folder is added", arch_usage.remember_root(recent) and arch_usage.usage("day", fresh=True)["runs"] - before == 3)
         check("usage: the page's own recent list can be passed in", recent in arch_usage.known_roots([recent, os.path.join(tmp, "nope")])
               and os.path.join(tmp, "nope") not in arch_usage.known_roots([os.path.join(tmp, "nope")]))
         check("usage: explicit roots still read only those", arch_usage.usage("day", roots=[recent], fresh=True)["runs"] == 1)
