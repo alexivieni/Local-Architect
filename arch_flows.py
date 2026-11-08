@@ -2466,7 +2466,8 @@ def run_flow(e, flow_id, params=None):
     broker_advice(e, flow_id)
     if not (e.state.get("todo")) and getattr(flow, "steps", None):
         try:                                              # Python flows have no per-step hook: the list is set now and closed at the end
-            e.todo_set([{"id": f"s{i}", "title": str(t)} for i, t in enumerate(flow.steps, 1)])
+            e.todo_set([{"id": (t.get("id") if isinstance(t, dict) else None) or f"s{i}",
+                        "title": (t.get("title") if isinstance(t, dict) else None) or str(t)} for i, t in enumerate(flow.steps, 1)])
         except Exception as _swx:
             _swallow("flows.run_flow", _swx)
     try:

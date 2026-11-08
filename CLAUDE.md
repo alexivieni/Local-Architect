@@ -337,3 +337,10 @@ When switching between **Google Antigravity**, **Claude Code**, and **Local-Arch
 3. **Strict Config & Data Isolation:** Never read-modify-write the workspace's `architect_config.json`, `hub_data/`, `.arch/`, `bin/`, `portfolio.json`, or `.env` during tests or verification. Always set throwaway `ARCHITECT_HOME` and `ARCHITECT_DATA_DIR` in temp directories, and delete `architect/hub_data` if `tools/ci_parallel.py` writes a CI summary file there.
 4. **Verify Lessons & Suites Before Handing Off:** Every architectural rule in `data/lessons.json` is verified by `py -3.12 arch_lessons.py` (`0 problems`) and mirrored in `docs/PRINCIPLES.md`. Run `arch_lessons.py`, `arch_selftest_finops.py`, `arch_selftest_hubui.py`, `arch_selftest_hubcalm.py`, `arch_selftest_a11y.py`, and `arch_hub_check.py` before concluding any cross-platform session.
 
+## End-to-end check (2026-11-08, real models on this laptop)
+One bug-fix task was run four ways: the CLI, the hub's Home "Do it" (twice), and once with a customized prompt (your version of
+`prompts/bugfix/review.md`, which switches the flow to its YAML). All four routed to `bugfix`, wrote the fix, passed 3/3 tests and
+ended `pass`; Undo from Home restored the file and removed the generated test. Fixed on the way: Home never pulled the run's events
+(`homeEvents`: "Working on it" stayed empty unless the Console was open); legacy flows sent the step dict's repr as the plan title;
+a pure text YAML step (`report_text: true`) now puts its advice in the report like the legacy reviewer did; `arch_hub_check` compared
+the STOP file against its own environment, which `_standalone_selftest_home` changes after the hub child was spawned (use the child's env).

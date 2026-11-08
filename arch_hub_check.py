@@ -67,6 +67,8 @@ def run():
               and 'onclick:usePractice},icon("sprout"),"Use the practice project"' in html)
         check("Console panel and strip read the same EV.running (no 'Nothing running' while the strip says running)",
               "!EV.steps.length&&!EV.now&&!EV.verdict&&EV.running" in html and "EV.running!==pollConsole._run" in html)
+        check("Home pulls the run's events itself (a run started with Do it fills 'Working on it' without opening the Console)",
+              "async function homeEvents()" in html and 'homeEvents().then(simpleDraw,simpleDraw)' in html and 'toast("Started");homeEvents._idle=false;simpleDraw();' in html)
         check("first-visit tour: 3 stops, Skip sticks in memory and in store, no async path re-opens it, no empty grey box",
               'FV_STEPS=["This computer","Practice task","Result"]' in html and "FV.closed=true;fvSave({status:\"skipped\"})" in html
               and "if(FV.closed||s2.status!==\"open\"" in html and "Checking this computer" in html)
@@ -300,7 +302,8 @@ def run():
         check("GET /api/arch/datanight gives the running state and the plain defaults (end time 07:00, curriculum on)",
               dv.get("state", {}).get("running") is False and dv.get("defaults", {}).get("until") == "07:00" and dv["defaults"].get("curriculum") is True, dv)
         stp = call("/api/arch/datanight/stop", {})
-        stop_file = os.path.join(os.environ.get("ARCHITECT_DATA_DIR") or os.path.join(hubdir, "hub_data"), "STOP")
+        # the HUB's data folder (its env was fixed at Popen); os.environ may have gained a throwaway dir since (arch_core import below)
+        stop_file = os.path.join(env.get("ARCHITECT_DATA_DIR") or os.path.join(hubdir, "hub_data"), "STOP")
         check("Stop safely writes the STOP file (and a call without the token is refused)",
               stp.get("ok") and os.path.exists(stop_file) and call("/api/arch/datanight/stop", {}, token=False).get("HTTP") in (401, 403))
         try:

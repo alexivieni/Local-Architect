@@ -74,6 +74,7 @@ steps:
     when: "(fix.ok or (council.ok and not council.skipped)) and cfg.behavior.evaluator != 'off'"
     context: {chars: 7000, always: ["ctx:scope"], max_always: 3}
     store_text: review_notes
+    report_text: true
     budget: {tokens: 20000, seconds: 300}
 
 verdict:

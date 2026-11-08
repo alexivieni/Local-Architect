@@ -2046,7 +2046,7 @@ async function simpleStart(){
   const g=(run.goal||"").trim(); if(!g){toast("Type what you want done");$("#spGoal")&&$("#spGoal").focus();return;}
   if(!run.root){goalError("Choose a project first");rootError("Choose the project folder first, or use the practice project.");return;}
   rootError("");goalError("");goLoading(true);
-  try{await api("/api/arch/run",{goal:g,flow:run.homeFlow||"auto",review:"auto",root:run.root});run.homeFlow="";rememberRoot(run.root);EV.verdict=null;run._kept=false;RUNBAR.goal=g;toast("Started");simpleDraw();}
+  try{await api("/api/arch/run",{goal:g,flow:run.homeFlow||"auto",review:"auto",root:run.root});run.homeFlow="";rememberRoot(run.root);EV.verdict=null;run._kept=false;RUNBAR.goal=g;toast("Started");homeEvents._idle=false;simpleDraw();}
   catch(e){goalError("Could not start: "+e.message+". Check the folder, then try again.");toast.err("Could not start: "+e.message);}
   finally{goLoading(false);}
 }
@@ -2110,7 +2110,11 @@ function runBar(){
 const ETA={line:"",t:0};
 async function pollEta(){ if(Date.now()-ETA.t<6000)return; ETA.t=Date.now();
   try{ const r=await api("/api/arch/eta"); const q=r.queue||{}; ETA.line=(r.job&&r.job.running&&r.job.line)||(q.left?q.line:"")||""; }catch(_){ ETA.line=""; } }
-setInterval(()=>{if(page==="overview")simpleDraw();if(typeof EV!=="undefined"&&EV.running)pollEta();else ETA.line="";runBar();if(typeof recipeReviewTick==="function")recipeReviewTick();},1500);
+/* Home shows the run it started: events are pulled here too (the Console has its own loop), else "Working on it" never fills */
+async function homeEvents(){ if(page!=="overview"||document.hidden||homeEvents._busy)return; homeEvents._busy=true;
+  try{ if(EV.running||RUNBAR.goal||!homeEvents._idle){ const f=await api("/api/arch/events?since="+EV.since+"&epoch="+EV.epoch); applyEvents(f); homeEvents._idle=!f.running; } }catch(_){}
+  finally{ homeEvents._busy=false; } }
+setInterval(()=>{if(page==="overview"){homeEvents().then(simpleDraw,simpleDraw);}if(typeof EV!=="undefined"&&EV.running)pollEta();else ETA.line="";runBar();if(typeof recipeReviewTick==="function")recipeReviewTick();},1500);
 
 /* ===== Crew builder (Agents place), By job (Models place) and the Home quick-launch options. Every call is defensive: when
    arch_squad / arch_select are not in this install yet the endpoint says {available:false, why} and the page says so. ===== */

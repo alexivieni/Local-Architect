@@ -11,7 +11,7 @@ A step:
     kind: code      gate: <arch_gates name>, plus any keys the gate reads; output -> ctx[id]
     kind: generate  role, tier, prompt: <file under prompts/<flow>/>, vars: {...}, context: {chars, always: [...], query: "..."},
                     apply: {deny: [...], expect_new_under: "tests/", none_ok: bool}, verify: {gate, run_tests}, loop: {max, coach, escalate: [heavy]},
-                    retries, rollback_on_fail, store_text: <ctx key>, strip_fence
+                    retries, rollback_on_fail, store_text: <ctx key>, strip_fence, report_text (a pure text step: its first lines go in the report)
     kind: ask_json  role, prompt, schema: <arch_schemas name>, store: <ctx key>
     kind: judge     what, criteria, evidence: {files: "<ctx key>", tests: bool}, requires: "<expr>"
     kind: doc       like generate, but the reply is DOC: blocks written as files; verify: {gate}
@@ -464,6 +464,8 @@ class DataFlow:
                 if apply_spec is None and "apply" not in step and not verify_spec:   # a pure text step (a review, a detection list)
                     e.mark(r["id"], True)
                     out["ok"] = True
+                    if step.get("report_text") and text:        # advice the person should see in the report (the legacy flows kept it)
+                        e.report(f"- {step.get('title') or step['id']} (advice only):", *["  " + ln for ln in text.splitlines()[:10] if ln.strip()])
                     break
                 no_apply = "apply" in step and not apply_spec                    # `apply: null`: the reply is not FILE blocks (a whole JSON file, say); the gate writes it
                 if no_apply:
