@@ -62,5 +62,5 @@ steps:
       Files touched: {files}
 
 verdict:
-  pass_if: "build.ok"
-  not_sure_if: "test.unsure or secure.unsure"
+  pass_if: "build.ok and test.ok and secure.ok and review.ok"
+  not_sure_if: "build.unsure or test.unsure or secure.unsure or review.unsure"

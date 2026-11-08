@@ -537,7 +537,9 @@ def verify(e, files, run_tests=True, targets=None):
     _join_checks()
     s = ck.summarize(results)
     _trace_checks(e, results, t_v)
-    return {"ok": s["ok"], "text": s["failures"], "results": results, "tests": tests, "passed": s["passed"], "total": s["total"]}
+    # tests_ran: a real test result exists. ok without it means "nothing else failed", which is not evidence that a fix works
+    return {"ok": s["ok"], "text": s["failures"], "results": results, "tests": tests, "passed": s["passed"], "total": s["total"],
+            "tests_ran": tests[0] in ("pass", "fail")}
 
 
 def _trace_checks(e, results, t0):
@@ -1247,6 +1249,7 @@ class DesignFlow(Flow):
         bundle_prompt = DESIGN_BUNDLE.format(domain_files="\n".join(DOMAIN_FILES[d] for d in doms if d in DOMAIN_FILES), spec=spec, context=ctx)
         r = e.call("architect", bundle_prompt, label="design")
         feedback, written, verdict = "", [], None
+        design_ok, design_unsure = False, False
         for rev in range(e.cfg["limits"]["max_revisions"] + 1):
             docs = parse_docs(r["text"])
             if not docs:
@@ -1273,7 +1276,9 @@ class DesignFlow(Flow):
                     e.report(f"  - judge: {judged['verdict']} (avg {judged['avg']})")
                     e.say(f"[judge] {judged['verdict']} avg={judged['avg']}")
                 ok = v["ok"] and (judged is None or judged["verdict"] in ("pass", "unknown"))
-                e.mark(r["id"], ok, v["text"] or "; ".join((judged or {}).get("issues", [])))
+                design_unsure = bool(v["ok"] and judged is not None and judged["verdict"] == "unknown")   # the judge's answer was unusable
+                design_ok = ok and not design_unsure
+                e.mark(r["id"], None if design_unsure else ok, v["text"] or "; ".join((judged or {}).get("issues", [])))
                 if ok:
                     break
                 feedback = (v["text"] + "\n" + "\n".join("- " + i for i in (judged or {}).get("issues", []))).strip()
@@ -1285,7 +1290,8 @@ class DesignFlow(Flow):
         write_handoff(e, goal=goal, domains=doms, flow="design", spec="docs/spec.md", artifacts=written,
                       decisions=[w for w in written if "/adr/" in w], next="build", design_verdict=(verdict or {}).get("verdict"))
         e.report("", f"- Wrote: {', '.join(['docs/spec.md'] + written)}")
-        return {"ok": True, "files": ["docs/spec.md"] + written}
+        # the files are written either way; the verdict says whether the checks (and a usable judge) passed them
+        return {"ok": design_ok, "unsure": design_unsure, "files": ["docs/spec.md"] + written}
 
 
 # ------------------------------------------------------------------------------------------ BUILD
@@ -1495,6 +1501,16 @@ def test_file_for(sprints):
     parts = [p for p in src.split("/") if p and p != "src"]
     stem = parts[0] if len(parts) > 1 else os.path.splitext(parts[-1] if parts else "app")[0]
     return f"tests/test_{re.sub(r'[^A-Za-z0-9_]', '_', stem) or 'app'}.py"
+
+
+PROTECTED_TEST_CONFIG = ("pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml")
+
+
+def protected_test_files(files):
+    """The files a bug fix may not touch: the existing tests, and the files that decide which tests run (a fix that switches a test
+    off is not a fix). A NEW root conftest.py is blocked too, since it could skip or rewrite every test."""
+    return [f for f in files if arch_fakecode.is_test_file(f) or "/__tests__/" in "/" + f or re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", f)
+            or os.path.basename(f) in PROTECTED_TEST_CONFIG] + ["conftest.py"]
 
 
 def _test_module(f):
@@ -2073,11 +2089,10 @@ class BugfixFlow(Flow):
                     repro_rel, failure = "", ""
         else:
             e.say("[i] pytest is not installed and no test command is set: skipping the reproduction test")
-        feedback, fixed = "", False
+        feedback, fixed, unproven = "", False, False
         # the existing tests, and the files that decide which tests run (a fix that switches a test off is not a fix); a NEW root
         # conftest.py is blocked too, since it could skip or rewrite every test
-        kept_tests = [f for f in files if arch_fakecode.is_test_file(f) or "/__tests__/" in "/" + f or re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", f)
-                      or os.path.basename(f) in ("pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml")] + ["conftest.py"]
+        kept_tests = protected_test_files(files)
         coach = arch_progress.Coach(e, "generator")
         best = BestState(e)
         k_bf = int(e.cfg["behavior"].get("stall_samples", 3) or 1)
@@ -2114,6 +2129,11 @@ class BugfixFlow(Flow):
                 continue
             v = verify(e, changed, run_tests=True)
             log_checks(e, f"fix try {attempt + 1}", v)
+            if v["ok"] and not v.get("tests_ran"):
+                # every other check passed but no test ran (no runner, or the runner found none): nothing shows the bug is gone
+                e.mark(r["id"], None, "no test ran, so this fix could not be checked")
+                fixed, unproven = True, True
+                break
             e.mark(r["id"], v["ok"], v["text"])
             if v["ok"]:
                 fixed = True
@@ -2131,6 +2151,9 @@ class BugfixFlow(Flow):
         if fixed and e.cfg["behavior"]["evaluator"] != "off":
             r = e.call("reviewer", "Review this bug fix for remaining risks (edge cases, regressions, other callers). Max 5 bullets, most severe first; say 'no concerns' if none.\n\nBUG: " + goal + "\n\nFILES CHANGED: " + ", ".join(e.changed_files) + "\n\n" + e.context(goal, 7000, always=e.changed_files[:3]), label="review")
             e.report("- Reviewer notes (advice only):", *["  " + ln for ln in r["text"].splitlines()[:10]])
+        if fixed and unproven:
+            e.report("", "- A change was made, but NO test ran, so whether the bug is fixed could not be checked (verdict: not sure)")
+            return {"ok": False, "unsure": True, "why": "no test ran", "files": e.changed_files}
         e.report("", f"- Bug {'fixed: repro and tests pass' if fixed else 'NOT fixed after the allowed attempts'}")
         return {"ok": fixed, "files": e.changed_files}
 
@@ -2282,7 +2305,7 @@ KEYWORDS = {
     "feature": r"\b(feature|end[- ]to[- ]end|full[- ]?stack|vertical slice|ui and api|screen and endpoint)\b",
     "test": r"\b(add|write|improve|more|increase|missing|better)\b[^.]{0,30}\btests?\b|\bcoverage\b|\bmutation\b|\bunit tests?\b|\btest suite\b|\bflaky\b",
     "optimize": r"\b(optimi[sz]e|optimi[sz]ation|faster|slow(?:er|ly)?|performance|speed ?up|latency|throughput|bottleneck|profil(?:e|ing)|n\+1|memory usage|too many queries)\b",
-    "hunt": r"\b(find bugs|hunt|bug hunt|audit|vulnerabilit\w*|look for bugs|what could break|edge cases?|sanity check|stress)\b",
+    "hunt": r"\b(find (?:\w+ ){0,2}bugs|hidden bugs|hunt|bug hunt|audit|vulnerabilit\w*|look for bugs|what could break|edge cases?|sanity check|stress)\b",
     "review": r"\b(code review|review (?:the|this|my)|critique|assess|health check)\b",
     "secure": r"\b(secur(?:e|ity)|harden(?:ing)?|cwe|owasp|secrets? scan|injection|xss|csrf|insecure)\b",
     "cicd": r"\b(ci/cd|cicd|ci pipeline|ci workflow|continuous (?:integration|delivery|deployment)|github actions?|gitlab[- ]ci|\.github/workflows|workflows?\.ya?ml|release (?:pipeline|automation|workflow)|deploy(?:ment)? pipeline|build pipeline|pipeline (?:fails?|failing|is red|broken)|ci\b)",

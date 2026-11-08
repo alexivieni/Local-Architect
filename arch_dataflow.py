@@ -61,7 +61,7 @@ RESERVED = {"scope", "facts", "hints", "findings", "findings_text", "repro_path"
             "baseline", "best", "bench_detail", "bench_target", "plans", "plans_text", "scans_before", "sql_files", "metrics_before", "metrics_after", "pt_scope",
             "refused", "hosts", "attack_paths", "template", "template_files", "domains", "domain_files", "spec", "files", "problems_by_file", "mutation_before",
             "mutation_after", "test_target", "gaps_target", "existing_tests", "tool_calls", "tools", "goal", "params", "cfg", "steps", "budget", "env", "item", "reply", "handoff",
-            "scan_rec", "static", "pinned", "tests_before", "kept", "rejected", "is_default_scope", "template_run"}
+            "scan_rec", "static", "pinned", "tests_before", "kept", "rejected", "is_default_scope", "template_run", "existing_files", "kept_tests"}
 STEP_KINDS = {"code", "generate", "ask_json", "judge", "doc", "sample_n", "cascade", "chunked", "foreach", "tool_loop", "report", "handoff", "sub_flow"}
 
 
@@ -455,10 +455,24 @@ class DataFlow:
                         return out
                     applied = [x["rel"] for x in res if x["status"] in ("applied", "identical")]
                     under = (apply_spec or {}).get("expect_new_under")
+                    outside = []
                     if under:
+                        outside = [x for x in res if x["status"] == "applied" and not x["rel"].startswith(under)]
+                        for x in outside:              # written where this step may not write: a new file goes again, an edit is reported
+                            if not x.get("existed", True):
+                                try:
+                                    os.remove(os.path.join(e.root, x["rel"]))
+                                except OSError:
+                                    pass
+                        if outside:
+                            e._tools_changed(None)
                         applied = [x for x in applied if x.startswith(under)]
                 if not applied and not no_apply:
-                    feedback = "FEEDBACK: none of your changes could be applied:\n" + "\n".join(f"- {x['rel']}: {x['msg']}" for x in res if x.get("msg")) + "\nResend using the exact FILE:/EDIT:/DEF: formats.\n\n"
+                    if outside:
+                        feedback = (f"FEEDBACK: this step writes only under {under}; these were removed: " + ", ".join(x["rel"] for x in outside)
+                                    + f". Put the new file under {under}.\n\n")
+                    else:
+                        feedback = "FEEDBACK: none of your changes could be applied:\n" + "\n".join(f"- {x['rel']}: {x['msg']}" for x in res if x.get("msg")) + "\nResend using the exact FILE:/EDIT:/DEF: formats.\n\n"
                     e.mark(r["id"], False, feedback)
                     if coach:
                         feedback = coach.after(feedback, r["text"], feedback, [])
@@ -474,6 +488,11 @@ class DataFlow:
                 self._log_gate(e, f"{step['id']} try {attempt + 1}", g)
                 e.mark(r["id"], g["ok"], g.get("text", ""))      # g["ok"] may be None ("could not run"), which must stay None, not become False
                 if g["ok"] is None:
+                    if cap is not None:                              # a change its own check could not judge is not kept by a rollback step
+                        import arch_flows_pro as pro
+                        pro.restore(e, cap)
+                        changed_all = [c for c in changed_all if c not in applied]
+                        out["changed"] = changed_all
                     out.update(ok=False, unsure=True, why=g.get("text"))
                     break
                 if g["ok"]:
@@ -614,6 +633,10 @@ class DataFlow:
                 judged = None
                 if g["ok"] and step.get("judge"):
                     judged = self._run_judge(e, ctx, dict(step["judge"], id=step["id"] + "-judge", evidence={"text": "SPEC:\n{spec}\n\n" + g.get("evidence", ""), "tests": False}), flow_id)
+                if g["ok"] is None:                                  # the check could not run: not_sure, never a strike against the reply
+                    e.mark(r["id"], None, g.get("text") or "")
+                    out.update(ok=False, unsure=True, why=g.get("text"))
+                    break
                 ok = bool(g["ok"]) and (judged is None or judged.get("ok") or judged.get("verdict") in ("skipped", "off"))
                 e.mark(r["id"], ok, g.get("text") or "; ".join((judged or {}).get("issues") or []))
                 if ok:
@@ -831,7 +854,8 @@ class DataFlow:
                     sub_ok = False
                     if sub.get("on_fail", "stop") != "continue":
                         break
-            done.append({"name": name, "ok": sub_ok, "changed": sorted({c for o in sub_out.values() for c in (o.get("changed") or [])})})
+            done.append({"name": name, "ok": sub_ok, "unsure": any(isinstance(o, dict) and o.get("unsure") for o in sub_out.values()),
+                         "changed": sorted({c for o in sub_out.values() for c in (o.get("changed") or [])})})
             ok_all = ok_all and sub_ok
             e.checkpoint(**{step["id"] + "_done": [d["name"] for d in done if d["ok"]], "files": e.changed_files})
             e.report(f"- Result: {'passed its checks' if sub_ok else 'FAILED its checks'}", "")
@@ -840,7 +864,8 @@ class DataFlow:
                 break
         ctx["item"] = prev
         ctx[step["id"] + "_results"] = done
-        return {"ok": ok_all and bool(done), "items": done, "n": len(done), "passed": sum(1 for d in done if d["ok"])}
+        return {"ok": ok_all and bool(done), "unsure": any(d.get("unsure") for d in done), "items": done, "n": len(done),
+                "passed": sum(1 for d in done if d["ok"])}
 
     def _run_tool_loop(self, e, ctx, step, flow_id):
         """The model works by calling tools (look, search, read, run the tests, change files, remember) until it answers or runs out of
@@ -954,6 +979,11 @@ class DataFlow:
             pass
         res = params.get("resume") or {}
         done_before, outs_before = set(res.get("steps_done") or []), res.get("step_outputs") or {}
+        if done_before and res.get("tree_fp") and res["tree_fp"] != _tree_fp(e):
+            e.say("[resume] the project's files changed since the interrupted run, so its finished steps are run again")
+            done_before, outs_before = set(), {}
+        # a code step costs nothing and rebuilds what later steps read (the scan record, the scope, the protected files): never skipped
+        done_before -= {s_["id"] for s_ in doc["steps"] if s_.get("kind") == "code"}
         steps_done, step_outputs = [], {}
         try:
             step_ids = {s_["id"] for s_ in doc["steps"]}
@@ -1020,7 +1050,7 @@ class DataFlow:
                     steps_done.append(sid)
                     try:
                         step_outputs[sid] = json.loads(json.dumps(out, default=str))
-                        e.checkpoint(steps_done=list(steps_done), step_outputs=step_outputs)
+                        e.checkpoint(steps_done=list(steps_done), step_outputs=step_outputs, tree_fp=_tree_fp(e))
                     except (TypeError, ValueError):
                         pass
                 e._trace({"type": "step", "t": time.time(), "flow": self.id, "step": sid, "kind": step.get("kind", "generate"), "ok": out.get("ok"), "secs": round(time.time() - t0, 1),
@@ -1098,9 +1128,18 @@ class DataFlow:
             if fid not in arch_flows.FLOWS:
                 return {"ok": False, "why": f"no such flow {fid}"}
             out = arch_flows.FLOWS[fid].run(e, dict(step.get("params") or {}, **{kk: ctx.get(vv) for kk, vv in (step.get("params_from") or {}).items()})) or {}
-            return {"ok": bool(out.get("ok")), "sub": {kk: vv for kk, vv in out.items() if kk != "files"}, "changed": out.get("files") or []}
+            return {"ok": bool(out.get("ok")), "unsure": bool(out.get("unsure") or out.get("verdict") == "not_sure"),
+                    "sub": {kk: vv for kk, vv in out.items() if kk != "files"}, "changed": out.get("files") or []}
         raise ValueError(k)
 
+
+
+def _tree_fp(e):
+    try:
+        import arch_flows
+        return arch_flows._tree_hash(e)
+    except Exception:
+        return ""
 
 
 def flow_map(flow_id, cfg=None):

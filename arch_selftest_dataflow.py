@@ -145,16 +145,33 @@ def run():
         trace6 = []
         e6 = eng()
         e6._trace = lambda rec: trace6.append(rec)
-        f6 = df.DataFlow({"id": "t6", "title": "t", "steps": [{"id": "a", "kind": "code", "gate": "scope_files", "title": "Step A"},
+        f6 = df.DataFlow({"id": "t6", "title": "t", "steps": [{"id": "a", "kind": "report", "path": "docs/a.md", "template": "A", "title": "Step A"},
                                                              {"id": "b", "kind": "code", "gate": "scope_files", "title": "Step B"}],
                           "verdict": {"pass_if": "b.ok"}})
-        f6.run(e6, {"resume": {"from": "old", "steps_done": ["a"], "step_outputs": {"a": {"ok": True, "marker": 7}}}})
+        fp_now = df._tree_fp(e6)
+        f6.run(e6, {"resume": {"from": "old", "steps_done": ["a"], "step_outputs": {"a": {"ok": True, "marker": 7}}, "tree_fp": fp_now}})
         st6 = {r.get("step"): r for r in trace6 if r.get("type") == "step"}
         todo6 = {t["id"]: t["status"] for t in e6.state.get("todo") or []}
         check("resume: a step that passed before the interruption is not run again (its saved result is reused), the next step runs, "
               "and the live todo list shows both", st6.get("a", {}).get("status") == "resumed" and "kind" in st6.get("b", {})
               and todo6.get("a") == "done" and todo6.get("b") in ("done", "failed")
               and any(r.get("type") == "todo" for r in trace6), (st6, todo6))
+        trace6b = []
+        e6b = eng()
+        e6b._trace = lambda rec: trace6b.append(rec)
+        df.DataFlow({"id": "t6b", "title": "t", "steps": [{"id": "a", "kind": "code", "gate": "scope_files"}], "verdict": {"pass_if": "a.ok"}}).run(
+            e6b, {"resume": {"from": "old", "steps_done": ["a"], "step_outputs": {"a": {"ok": True}}, "tree_fp": df._tree_fp(e6b)}})
+        st6b = {r.get("step"): r for r in trace6b if r.get("type") == "step"}
+        check("resume: a code step runs again anyway (free, and it rebuilds what later steps read: the scan record, the scope, the protected files)",
+              st6b.get("a", {}).get("status") != "resumed" and "kind" in st6b.get("a", {}), st6b)
+        trace6c = []
+        e6c = eng()
+        e6c._trace = lambda rec: trace6c.append(rec)
+        df.DataFlow({"id": "t6c", "title": "t", "steps": [{"id": "a", "kind": "report", "path": "docs/a.md", "template": "A"}], "verdict": {"pass_if": "a.ok"}}).run(
+            e6c, {"resume": {"from": "old", "steps_done": ["a"], "step_outputs": {"a": {"ok": True}}, "tree_fp": "some-older-tree"}})
+        st6c = {r.get("step"): r for r in trace6c if r.get("type") == "step"}
+        check("resume: when the project's files changed since the interruption, the finished steps run again (never resumed into a stale tree)",
+              st6c.get("a", {}).get("status") != "resumed", st6c)
 
         # ---- plan override: the person skips a step / adds an item while the flow runs
         trace7 = []

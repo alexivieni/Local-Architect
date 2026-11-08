@@ -58,5 +58,5 @@ def resume_params(st):
         p["resume"] = {"from": st["run_id"], "plan": cp["plan"], "done": cp.get("sprints_done") or [], "files": cp.get("files") or [], "interface": cp.get("interface") or []}
     if cp.get("steps_done"):                  # a flow defined as data: the steps that already passed are not run (or paid for) again
         p.setdefault("resume", {"from": st["run_id"]})
-        p["resume"].update(steps_done=cp["steps_done"], step_outputs=cp.get("step_outputs") or {})
+        p["resume"].update(steps_done=cp["steps_done"], step_outputs=cp.get("step_outputs") or {}, tree_fp=cp.get("tree_fp") or "")
     return p

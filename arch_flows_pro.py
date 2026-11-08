@@ -26,27 +26,66 @@ from arch_core import LLMError
 
 
 # ------------------------------------------------------------------------------------------------ helpers
-def capture(e, limit=400):
-    """{rel: text} for every source file (cheap safety net so one failed attempt can be rolled back exactly)."""
-    out = {}
-    for f in core.list_files(e.root, e.cfg)[:limit]:
+class Snapshot(dict):
+    """{rel: bytes} plus `names` (EVERY file that existed) and `stats` (size, mtime of the files whose bytes were not kept)."""
+    names = frozenset()
+    stats = {}
+
+
+CAPTURE_BYTES = 64 * 1024 * 1024
+
+
+def capture(e, limit=None, max_bytes=CAPTURE_BYTES):
+    """A rollback point for one attempt. Every file NAME is recorded, and the bytes of every file up to `max_bytes` in all.
+    The old version kept the first 400 files and restore() deleted every file that was not among them: on a larger project one
+    rolled-back attempt (rollback_on_fail, best of N, optimize) deleted the rest of the project."""
+    out = Snapshot()
+    files = core.list_files(e.root, e.cfg)
+    out.names = frozenset(files)
+    out.stats = {}
+    used = 0
+    for i, f in enumerate(files):
+        p = os.path.join(e.root, f)
         try:
-            out[f] = open(os.path.join(e.root, f), "rb").read()
+            st = os.stat(p)
+            if (limit is not None and i >= limit) or used + st.st_size > max_bytes:
+                out.stats[f] = (st.st_size, st.st_mtime_ns)
+                continue
+            with open(p, "rb") as fh:
+                out[f] = fh.read()
+            used += len(out[f])
         except OSError:
             pass
     return out
 
 
 def restore(e, cap):
-    """Put every file back to the captured bytes and delete files that did not exist then. -> list of paths touched."""
+    """Put every file back to the captured bytes and delete only files that did NOT exist at capture time. -> list of paths touched.
+    A file whose bytes were not kept (over the memory budget) and that changed is reported, never guessed at."""
     touched = []
+    known = getattr(cap, "names", None) or frozenset(cap)
     for f in core.list_files(e.root, e.cfg):
-        if f not in cap:
+        if f not in known:
             try:
                 os.remove(os.path.join(e.root, f))
                 touched.append(f)
             except OSError:
                 pass
+    lost = []
+    for f, (size, mt) in (getattr(cap, "stats", None) or {}).items():
+        try:
+            st = os.stat(os.path.join(e.root, f))
+            if (st.st_size, st.st_mtime_ns) != (size, mt):
+                lost.append(f)
+        except OSError:
+            lost.append(f)
+    if lost:
+        e.say("[!] could not roll back " + ", ".join(lost[:5]) + (" and more" if len(lost) > 5 else "")
+              + ": the project was larger than the rollback memory, and these changed; the run's backup folder has their originals")
+    try:
+        e._tools_changed(None)
+    except Exception:
+        pass
     for f, data in cap.items():
         p = os.path.join(e.root, f)
         try:

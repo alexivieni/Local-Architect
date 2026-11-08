@@ -22,7 +22,7 @@ steps:
     when: "env.can_test"
     vars: {files: "{scope}"}
     context: {always: ["ctx:scope"], max_always: 3}
-    apply: {expect_new_under: "tests/"}
+    apply: {expect_new_under: "tests/characterization/"}
     verify: {gate: new_tests_pass}
     loop: {max: 3, coach: false}
     on_fail: continue
@@ -48,7 +48,7 @@ steps:
     vars: {files: "{scope}", before: "{before.text}"}
     context: {always: ["ctx:scope"], max_always: 3}
     apply: {deny: ["tests/characterization/"]}
-    verify: {gate: verify_files, run_tests: true}
+    verify: {gate: verify_files, run_tests: true, require_tests: true}
     loop: {max: 3, coach: true, escalate: [heavy]}
     on_fail: not_sure
     budget: {tokens: 110000, seconds: 1500}

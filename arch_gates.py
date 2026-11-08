@@ -50,7 +50,20 @@ def g_verify_files(e, ctx, step, changed):
     if not changed:
         return R(False, "nothing was applied")
     v = _flows().verify(e, changed, run_tests=step.get("run_tests", True))
+    if v["ok"] and step.get("require_tests") and not v.get("tests_ran"):
+        return R(None, "no test ran, so this change could not be checked (install pytest, or set a test command in Settings)",
+                 {"passed": v["passed"], "total": v["total"], "tests": v["tests"][0]})
     return R(v["ok"], v["text"], {"passed": v["passed"], "total": v["total"], "tests": v["tests"][0]}, (v["tests"][1] or "")[-1500:])
+
+
+@gate("protect_tests")
+def g_protect_tests(e, ctx, step, changed):
+    """Before a bug fix: write down every file that exists (a reproduction may only ADD files) and the files a fix may not touch
+    (existing tests, the test-runner settings, a root conftest.py). Mirrors the Python BugfixFlow."""
+    files = core.list_files(e.root, e.cfg)
+    ctx["existing_files"] = list(files)
+    ctx["kept_tests"] = _flows().protected_test_files(files)
+    return R(True, "", {"files": len(files), "protected": len(ctx["kept_tests"])})
 
 
 @gate("verify_nontest")
@@ -129,7 +142,12 @@ def g_e2e(e, ctx, step, changed):
     new = [x for x in (changed or []) if x.startswith("tests/")]
     if not new:
         return R(False, "no new test file was written")
+    import arch_flows_pro as pro
+    if not pro.can_test(e):
+        return R(None, "no test runner: install pytest or set a test command in Settings")
     st, log = core.run_tests(e.root, e.cfg)
+    if st == "none":
+        return R(None, "the runner found no tests in the new file; name it tests/test_<something>.py", {"tests": st})
     if st != "pass":
         for f in new:                                              # a red end-to-end test must not stay behind
             try:
@@ -145,7 +163,12 @@ def g_new_tests_pass(e, ctx, step, changed):
     new = [x for x in (changed or []) if x.startswith("tests/")]
     if not new:
         return R(False, "no test file was written")
+    import arch_flows_pro as pro
+    if not pro.can_test(e):
+        return R(None, "no test runner: install pytest or set a test command in Settings")
     st, log = core.run_tests(e.root, e.cfg)
+    if st == "none":                                               # a correct file the runner did not collect is not a failure: keep it
+        return R(None, "the runner found no tests in your file; name it tests/test_<something>.py", {"tests": st})
     if st != "pass":
         for f in new:
             try:
@@ -525,6 +548,8 @@ def g_characterization(e, ctx, step, changed):
     st, log = core.run_tests(e.root, e.cfg)
     if st == "fail":
         return R(False, "the tests fail on the unmodified code, so they do not describe current behaviour:\n" + log[-1200:])
+    if st != "pass":                                               # no test ran: there is no safety net, whatever else is true
+        return R(None, "no test ran on the unmodified code, so nothing pins its behaviour. Refusing to refactor without a safety net.", {"tests": st})
     ctx["pinned"] = True
     e.say("[+] current behaviour is pinned by passing tests")
     return R(True, "", {"tests": st})

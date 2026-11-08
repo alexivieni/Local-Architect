@@ -11,6 +11,11 @@ overrides:
   cpu8: {budget: {seconds: 3600, tokens: 90000}, skip: [review]}
   cpu16: {budget: {seconds: 3600}}
 steps:
+  - id: guard
+    kind: code
+    title: "Existing tests are read-only"
+    gate: protect_tests
+
   - id: locate
     kind: code
     title: "Locate (traceback + ranking)"
@@ -24,8 +29,9 @@ steps:
     prompt: repro
     when: "env.can_test and params.repro is None"
     context: {chars: 12000, query: "{goal}"}
-    apply: {expect_new_under: "tests/"}
+    apply: {expect_new_under: "tests/", deny_ctx: existing_files}
     verify: {gate: repro_fails_right_reason}
+    rollback_on_fail: true
     retries: 1
     on_fail: continue
     budget: {tokens: 30000, seconds: 420}
@@ -37,8 +43,8 @@ steps:
     tier: worker
     prompt: fix
     context: {always: ["ctx:scope"], max_always: 3, query: "{goal}"}
-    apply: {deny: ["{repro_path}"]}
-    verify: {gate: verify_files, run_tests: true}
+    apply: {deny: ["{repro_path}"], deny_ctx: kept_tests}
+    verify: {gate: verify_files, run_tests: true, require_tests: true}
     loop: {max: 3, coach: true, escalate: [heavy]}
     on_fail: not_sure
     budget: {tokens: 90000, seconds: 900}
