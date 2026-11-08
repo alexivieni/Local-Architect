@@ -31,8 +31,10 @@ the light `--info`).
 **Elevation**: `--shadow` (cards; none in dark), `--lift` (a clickable card under the pointer), `--pop` (menus, the slash
 list), `--modal` (dialogs, toasts), `--ring` (focus halo on inputs, derived from the accent), `--grad` (the nav marker).
 **Type**: `--font` (text: Segoe UI Variable Text and system fallbacks), `--font-head` (titles and big figures only),
-`--mono` (Cascadia). Scale: `--t-label` 11 (caps labels), `--t-xs` 12, `--t-sm` 12.5 (small), `--t-s` 13, `--t-ms` 13.5 (sub),
-`--t-m` 14, `--t-body` 15, `--t-l` 16, `--t-card` 17 (card title), `--t-xl` 20, `--t-2xl` 26 (page title).
+`--mono` (Cascadia). The scale is defined once, in rem, so it follows the browser's text size (it was px, written twice; same
+sizes at the default 16px): `--t-display` 2rem (page title), `--t-title` 1.375rem, `--t-head` 1.0625rem (card title), `--t-body` .90625rem,
+`--t-mono` .78125rem, `--t-caption` .75rem. The older names are aliases of those steps: `--t-label` / `--t-sm` / `--t-s` / `--t-ms` .8125rem,
+`--t-xs` .75rem, `--t-m` .90625rem, `--t-l` / `--t-card` 1.0625rem, `--t-xl` 1.375rem, `--t-2xl` 2rem.
 Weights: 400 body, 500 controls, 600 labels, 650 titles. Nothing ships from the web; every face is an OS font.
 **Spacing**: `--s1` 4, `--s2` 8, `--s3` 12, `--s4` 16, `--s5` 24, `--s6` 32.
 **Radius**: `--r` 12 (cards, panels), `--rs` 8 (controls, inner boxes, rows), `--r-xs` 6 (tags, code), `--r-pill`.

@@ -16,9 +16,9 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b|rgba?\(")
-# Literal colours still below the token line on 2026-11-04 (the blueprint sheet, a few shadows, overridden menu colours). The number
-# may only go down: a new colour is a new token. See docs/design_system.md, "Still to fold".
-COLOUR_CEILING = 88
+# Literal colours still below the token line (88 on 2026-11-04; 4 on 2026-11-08 after the dead and duplicated ones were removed or
+# pointed at their tokens). The number may only go down: a new colour is a new token. See docs/design_system.md, "Still to fold".
+COLOUR_CEILING = 4
 
 
 def _decls(block):
@@ -69,6 +69,16 @@ def run():
           not late_roots, late_roots[:5])
     n_col = len(COLOUR.findall(below))
     check(f"literal colours below the token line do not grow (now {n_col}, ceiling {COLOUR_CEILING})", n_col <= COLOUR_CEILING, n_col)
+    # ---- 2026-11-08 design-system Phase 1: what was fixed stays fixed
+    tdefs = re.findall(r"--(t-[a-z0-9]+)\s*:\s*([^;}]+)", css)
+    check("every type token is in rem (px ignored the browser's text size) and each is defined once",
+          tdefs and all(v.strip().endswith("rem") for _, v in tdefs) and len(tdefs) == len({k for k, _ in tdefs}),
+          [f"{k}:{v}" for k, v in tdefs if not v.strip().endswith("rem")][:5] or sorted({k for k, _ in tdefs if [x for x, _ in tdefs].count(k) > 1}))
+    kf = re.findall(r"@keyframes\s+([\w-]+)", html)
+    check("no animation name is defined twice (the last one silently wins for the whole page)", len(kf) == len(set(kf)),
+          sorted({k for k in kf if kf.count(k) > 1}))
+    check("no shadow is tinted with the page background (invisible in the light and paper themes)",
+          not re.search(r"box-shadow:[^;}]*color-mix\(in srgb,var\(--bg\)", below))
     ws = html[html.find("/* ===== 2026-11-04: the agents' workspace"):html.find("</style>")]
     check("from the workspace section to the end of the stylesheet there is no literal colour at all", ws and not COLOUR.findall(ws), COLOUR.findall(ws)[:5])
     defined = set(re.findall(r"--([a-z0-9-]+)\s*:", html))

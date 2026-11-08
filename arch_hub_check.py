@@ -68,7 +68,8 @@ def run():
         check("Console panel and strip read the same EV.running (no 'Nothing running' while the strip says running)",
               "!EV.steps.length&&!EV.now&&!EV.verdict&&EV.running" in html and "EV.running!==pollConsole._run" in html)
         check("Home pulls the run's events itself (a run started with Do it fills 'Working on it' without opening the Console)",
-              "async function homeEvents()" in html and 'homeEvents().then(simpleDraw,simpleDraw)' in html and 'toast("Started");homeEvents._idle=false;simpleDraw();' in html)
+              "async function homeEvents()" in html and 'homeEvents().then(simpleDraw,simpleDraw)' in html and 'toast("Started");homeEvents._idle=false;simpleDraw();' in html
+              and "RUNBAR.goal||!homeEvents._idle" not in html)   # a label nothing clears kept Home polling forever (2026-11-08)
         check("first-visit tour: 3 stops, Skip sticks in memory and in store, no async path re-opens it, no empty grey box",
               'FV_STEPS=["This computer","Practice task","Result"]' in html and "FV.closed=true;fvSave({status:\"skipped\"})" in html
               and "if(FV.closed||s2.status!==\"open\"" in html and "Checking this computer" in html)

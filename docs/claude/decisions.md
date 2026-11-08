@@ -90,3 +90,14 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   (the 'hub-test' preview in .claude/launch.json); empty route/reply layers explain themselves (reply: `arch_cache.why_not` with this
   install's temperature and seed). `Engine.finish` remembers a kept run's project unless it is throwaway (`keeps_prompt_memory`), so
   CLI, crew and queue runs count too. All in the backend: the page's guarded slice is untouched (it still says "next live eval").
+
+## Design system Phase 1 (2026-11-08; audit: 13 agents, findings verified, score 40/100)
+- Home polled run events every 1.5 s forever after a run: its condition used RUNBAR.goal, a label nothing clears. Now `EV.running||!homeEvents._idle`
+  (hub check + a browser check that counts event requests after a run). The test-results loop counts failures (refresh() returns true/false),
+  skips hidden tabs and redraws only on change (it forced a full redraw every 3 s for up to 4 hours).
+- Type tokens: one definition, in rem, in the light block (they were px, written twice). Cards and windows use --shadow/--modal (their
+  shadows were tinted with the page colour: invisible in light/paper). Inputs have aria-invalid, disabled and hover states. Animation
+  names are unique (pulseRing, shimmerSlide; duplicate viewIn/livePulse gone). The literal copy of the sub-tab pill block, the overridden
+  .tfilter rules, the dead .st-menu block and 9 overridden colour literals are gone; 7 rendering literals point at their tokens.
+- arch_selftest_design guards it: colour ceiling 88 -> 4, type tokens rem and defined once, no duplicate @keyframes, no --bg-tinted shadow.
+  Left for Phase 2: portrait SVG colours and the HUD #07090e (need a token decision), the protected Caches/Cost map slices (owner's yes).

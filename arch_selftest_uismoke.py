@@ -44,7 +44,8 @@ def run():
 
     planned = ["the hub opens in a real browser with no page error", "Home takes a typed folder and goal", "Do it starts the run",
                "Home shows 'Working on it' while it runs", "Home shows the verdict 'It worked'", "the fix is on disk and the tests pass",
-               "the run is listed in Recent runs", "Undo restores the file and removes the generated test", "no uncaught page error"]
+               "the run is listed in Recent runs", "Undo restores the file and removes the generated test",
+               "Home stops polling once the run is over", "no uncaught page error"]
     if not arch_browser.find_browser():
         for p in planned:
             print(f"  NOT RUN  {p} (no Edge or Chrome installed here)")
@@ -138,6 +139,10 @@ def run():
                               and not os.path.exists(os.path.join(proj, "tests", "test_repro_bug.py")))
                     time.sleep(0.2)
         check("Undo restores the file and removes the generated test", undone, os.listdir(os.path.join(proj, "tests")))
+        b.eval("performance.setResourceTimingBufferSize(10000);performance.clearResourceTimings()")
+        time.sleep(6)
+        polls = b.eval("performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/arch/events')).length")
+        check("once the run is over, Home stops asking for run events (it polled every 1.5 s forever before)", polls == 0, f"{polls} requests in 6 s")
         b.eval("1")                                        # collect any late page error
         check("no uncaught page error", not b.exceptions, b.exceptions)
     except Exception as ex:
