@@ -1,6 +1,6 @@
 # ADR-001: Architecture review of Architect v12 — findings and the proposed order of work
 
-**Status:** Proposed (nothing below has been changed; this is the proposal)
+**Status:** Accepted and implemented 2026-11-07 (waves 1-4: commits aa34fcd, e57540c, 0a6b9ed, ff5c62b; suites arch_selftest_review1..4, 130 checks)
 **Date:** 2026-11-07
 **Deciders:** the owner
 **Method:** six independent read-only reviewers (engine/caching, server/placement/hardware, hub/UI, flows/gates/data engine, orchestration/distribution, tests/CI), every HIGH finding re-verified by hand at the quoted line. Nothing was run that writes; no server was touched.
@@ -99,3 +99,26 @@ Rejected until 3, 4, 6 and the bugfix.yaml read-only-tests gap are closed; the f
 4. [ ] After Wave 3: flip `flows.engine` default and measure `eval --quick` against the legacy baseline before shipping.
 
 *Reviewer reports are in this session's transcript; every HIGH line number above was re-read in the file before it went in this document.*
+
+## Implementation record (2026-11-07)
+
+All 16 verified defects and the medium findings listed above were fixed in four waves, each ending with every suite run in parallel
+(`tools/ci_parallel.py`, 117 suites, about 4,900 checks), `self-verify --write` and a push. Found and fixed along the way:
+- `arch_flows_pro.capture/restore` deleted every project file past the first 400 on any rollback (best of N, rollback_on_fail,
+  optimize). Fixed in wave 3; this was the most destructive defect of the review.
+- Two engines started in the same second shared one run folder (the cause of the provenance suite's cache failure, also on the
+  committed tree). Each run now claims its own folder.
+- The route eval missed "find hidden bugs ... before we ship" (11/12 on the committed tree); 12/12 now.
+- Wave 1's own check counter missed two summary wordings and three suites printed no count; fixed in wave 4.
+
+Left as they are, on purpose (each is a structural change worth its own decision):
+- `selftest --suite full` still runs suites in one process; ci_parallel is the isolated path. The in-process leaks found were fixed.
+- hub_ui.html stays one file (a split into `static/js/*.js` without a build step is sketched in the hub review).
+- No shared lease primitive for supervisor / crew / fleet / heavy lock yet; their individual races were fixed.
+- Legacy flow classes are not yet thin wrappers over the YAML interpreter; parity gaps that changed verdicts were closed.
+
+Known flakes under parallel load (pass on rerun): pro's template run, localagent's fleet run, templates_catalog's generated
+auth_service tests, cpuworker's 404 check. Environment-only NOT_SURE: graceful (30 s wall clock), templates_catalog (2 checks).
+
+Not touched, for the owner to decide: the repo's `hub_data/ci/` (CI reports written there before today's fix) and
+`.arch_self/candidates/` (about 72 MB of old self-improve candidates).
