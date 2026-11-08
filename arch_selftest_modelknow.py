@@ -10,9 +10,10 @@ import arch_modelknow as k  # noqa: E402
 
 
 def run():
-    fails = []
+    fails, ran = [], []
 
     def check(name, ok, extra=""):
+        ran.append(name)
         print(("PASS " if ok else "FAIL ") + name + (f"  ({extra})" if extra else ""))
         if not ok:
             fails.append(name)
@@ -98,7 +99,7 @@ def run():
     print("\nInstalled models:")
     for name, fam, mods in rows:
         print(f"  {name:<48} {str(fam):<14} {', '.join(mods)}")
-    print(f"\n{'OK' if not fails else 'FAILED'}: {len(fails)} failure(s)")
+    print(f"\nMODELKNOW: PASSED ({len(ran)} checks)" if not fails else f"\nMODELKNOW: FAILED {len(fails)} of {len(ran)}: {fails}")
     return not fails
 
 

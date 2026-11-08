@@ -48,6 +48,8 @@ RESULTS_FILE = os.path.join(DATA_DIR, "results.json")
 CONFIG_FILE = os.path.join(HERE, "hub_config.json")
 if "arch_core" in sys.modules:                # inside the Architect there is ONE settings file -- the engine's. Writing to this module's
     CONFIG_FILE = sys.modules["arch_core"].CONFIG_FILE   # own default instead made `port --apply` and `promote-model` change a file nothing reads.
+    DATA_DIR = sys.modules["arch_core"].data_dir()       # and one data folder: imported late (after the last set_home), results.json
+    RESULTS_FILE = os.path.join(DATA_DIR, "results.json")   # used to land in the install's own hub_data, even under a test's data dir
 UI_FILE = os.path.join(HERE, "hub_ui.html")
 NOTES_FILE = os.path.join(HERE, "AGENT_NOTES.md")
 
@@ -612,12 +614,23 @@ def run_tests(model, cats, think_allowed=False, progress=None, probe=None, sampl
 # ---------------------------------------------------------------------------------------------
 # Config file (hub_config.json): validated lightly here; the agent validates again when it reads it
 # ---------------------------------------------------------------------------------------------
-def read_config():
+CONFIG_LOCK = threading.RLock()        # held across read -> change -> write by every route in CONFIG_ROUTES (two tabs, a bench)
+CONFIG_ROUTES = set()
+
+
+def read_config(strict=False):
+    """The settings as a dict ({} when there is no file). strict=True (every read that will be written back): a file that exists but
+    is not valid JSON raises ValueError instead of reading as {}, which the save would then have written over the person's settings."""
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             c = json.load(f)
             return c if isinstance(c, dict) else {}
-    except (OSError, ValueError):
+    except OSError:
+        return {}
+    except ValueError:
+        if strict:
+            raise ValueError(f"the settings file ({os.path.basename(CONFIG_FILE)}) is not valid JSON right now, so nothing was saved over it. "
+                             "Fix it in Settings > Everything as JSON, or restore the .bak copy next to it.")
         return {}
 
 
@@ -671,7 +684,9 @@ class Job:
     def __init__(self):
         self.proc, self.buf, self.title, self.started, self.ended, self.code = None, "", "", None, None, None
         self.lock = threading.Lock()
-        self.events, self.ev_dropped, self.epoch = [], 0, 0
+        # epochs start from the clock (milliseconds), so a number is never reused after the hub restarts: a watcher that kept an
+        # epoch (the HUD, the guided tour, the Console) used to take the first run of a new hub for "its" run
+        self.events, self.ev_dropped, self.epoch = [], 0, int(time.time() * 1000)
 
     def running(self):
         return self.proc is not None and self.proc.poll() is None
@@ -686,9 +701,12 @@ class Job:
             env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8", ARCHITECT_EVENTS="1")
             self.proc = subprocess.Popen([sys.executable, "-u", *argv], cwd=HERE, stdin=subprocess.PIPE,
                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
-            threading.Thread(target=self._pump, args=(self.proc,), daemon=True).start()
+            threading.Thread(target=self._pump, args=(self.proc, self.epoch), daemon=True).start()
 
-    def _pump(self, proc):
+    def _pump(self, proc, epoch=None):
+        """Copies one job's output into the buffer. Every write checks that this is still the CURRENT job: a finished job's last read
+        used to land in the next job's buffer (its verdict under the new run) and set the new job's exit code while it ran."""
+        mine = (lambda: self.proc is proc and (epoch is None or self.epoch == epoch))
         tail = ""
         while True:
             chunk = os.read(proc.stdout.fileno(), 4096)
@@ -697,6 +715,8 @@ class Job:
             tail += chunk.decode("utf-8", "replace")
             text, tail, evs = _split_events(tail)
             with self.lock:
+                if not mine():
+                    return
                 self.buf += text
                 if len(self.buf) > 400_000:
                     self.buf = "[... earlier output trimmed ...]\n" + self.buf[-300_000:]
@@ -707,6 +727,8 @@ class Job:
                     self.ev_dropped += cut
         proc.wait()
         with self.lock:
+            if not mine():
+                return
             if tail:
                 self.buf += tail                         # whatever was left was ordinary output, not a finished event
             self.code, self.ended = proc.returncode, time.time()
@@ -893,6 +915,7 @@ class Handler(BaseHTTPRequestHandler):
         return h in ("127.0.0.1", "localhost")
 
     def _send(self, code, body, ctype="application/json"):
+        self._responded = True
         data = body if isinstance(body, bytes) else (body if isinstance(body, str) else json.dumps(body)).encode("utf-8")
         gz = len(data) > 2048 and "gzip" in (self.headers.get("Accept-Encoding") or "")   # the 480 KB page goes over the wire as ~90 KB
         if gz:
@@ -954,7 +977,15 @@ class Handler(BaseHTTPRequestHandler):
             if n < 0 or n > 2_000_000:                  # a negative length would read until the peer hangs up
                 return self._send(413, {"error": "too large"})
             body = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
-            return self._send(200, self.route(self.path, body))
+            self._responded = False
+            if self.path.split("?", 1)[0] in CONFIG_ROUTES:
+                with CONFIG_LOCK:                      # one settings change at a time: no change is lost to a concurrent save
+                    out = self.route(self.path, body)
+            else:
+                out = self.route(self.path, body)
+            if self._responded:                        # the route wrote its own reply (`return self._send(...)`): never a second one
+                return None
+            return self._send(200, out)
         except (RuntimeError, ValueError, OllamaError) as e:
             return self._send(400, {"error": getattr(e, "msg", None) or str(e)})
         except Exception as e:

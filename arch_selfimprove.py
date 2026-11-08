@@ -606,7 +606,7 @@ def _restricted_env(tmp):
 
 
 _SUMMARY_RX = (re.compile(r"ALL (\d+) [A-Z0-9/_ +-]*PASSED"),           # "ALL 61 ENGINE CHECKS PASSED", "ALL 9 A11Y ... PASSED", "ALL 12 HARNESS2 PASSED"
-               re.compile(r"^\s*(\d+)/\1 passed", re.M),                   # "17/17 passed"
+               re.compile(r"(?<![\d/])(\d+)/\1 (?:checks )?passed"),          # "17/17 passed", "swap: 57/57 passed", "22/22 checks passed"
                re.compile(r"^(?:[\w+ -]+: )?(\d+) passed, 0 failed", re.M),  # "61 passed, 0 failed", "contracts+recipes: 325 passed, 0 failed"
                re.compile(r"^OK: (\d+) check", re.M),                       # "OK: 44 checks"
                re.compile(r"^(?:\w+): PASSED \((\d+)", re.M))               # "CPUWORKER: PASSED (12 checks)"

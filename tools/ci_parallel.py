@@ -64,6 +64,10 @@ def run(name, timeout):
     lines = [l.strip() for l in out.splitlines() if l.strip()]
     summ = next((l for l in reversed(lines) if re.search(r"PASSED|FAILED|passed|failed|CHECKS|OK:", l)), lines[-1] if lines else "")
     fails = [l for l in lines if l.startswith("FAIL")][:5]
+    if rc not in (0, None) and any(l.startswith("Traceback") for l in lines):
+        # the suite crashed: its last check line is not its summary, and the traceback is the one thing worth reading
+        summ = next((l for l in reversed(lines) if re.match(r"\w+(Error|Exception|Exit)", l)), "crashed: " + (lines[-1] if lines else ""))
+        fails = fails + ["    " + l for l in lines[-6:]]
     return {"suite": name, "rc": rc, "secs": round(time.time() - t, 1), "summary": summ[:140], "fails": fails}
 
 

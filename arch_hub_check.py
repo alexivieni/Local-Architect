@@ -486,8 +486,11 @@ def run():
         import architect_hub as _ah
         rc1_ = _ah.restart_command(["C:/x/architect_hub.py", "--port", "8000", "--no-browser", "--foo"], port=8123)
         rc2_ = _ah.restart_command(["architect.py", "start"], port=8123)
-        check("the restart command is the same command line (the hub's own port, no new tab)",
-              rc1_[1:] == ["C:/x/architect_hub.py", "--foo", "--port", "8123", "--no-browser"] and os.path.isabs(rc2_[1]) and os.path.basename(rc2_[1]) == "architect.py" and rc2_[2:] == ["start"], (rc1_, rc2_))   # a relative script becomes absolute: the helper runs from another folder
+        # started through `architect.py start` (START_HUB.bat), the restart is the hub itself: re-running `start` brought Ollama, the
+        # servers and a second browser tab back and could land on another port
+        check("the restart command relaunches the hub on its own port with no new tab, however it was started",
+              rc1_[1:] == ["C:/x/architect_hub.py", "--foo", "--port", "8123", "--no-browser"] and os.path.isabs(rc2_[1])
+              and os.path.basename(rc2_[1]) == "architect_hub.py" and rc2_[2:] == ["--port", "8123", "--no-browser"], (rc1_, rc2_))
         _t0_ = time.time() + 5
         os.utime(os.path.join(hubdir, "arch_usage.py"), (_t0_, _t0_))
         time.sleep(3.3)

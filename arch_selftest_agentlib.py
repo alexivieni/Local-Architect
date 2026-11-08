@@ -93,7 +93,7 @@ def run():
             body = src.split('COMMON = r"""', 1)[1].split('"""', 1)[0].strip()
             check("common is word for word the launcher's COMMON", body == common)
         else:
-            check("common is word for word the launcher's COMMON (launcher not on this machine: skipped)", True)
+            print("  NOT_SURE common is word for word the launcher's COMMON  -- could not run: the launcher is not on this machine")   # not a pass
         try:
             lib.to_fleet_plan(["common"])
             check("a footer is not an agent", False)

@@ -6011,7 +6011,7 @@ async function loadRuns(){
     box.append(h("table",null,h("tbody",null,...rs.map(r=>h("tr",null,h("td",{class:"mono small"},r.name),h("td",null,h("span",{class:"chip acc"},r.flow)),h("td",null,r.goal),h("td",{class:"n"},r.calls+" calls"),h("td",null,h("span",{class:"chip "+verd(r.verdict)[0]},verd(r.verdict)[1])),h("td",null,h("a",{class:"link",onclick:()=>showReport(r)},"report")," · ",h("a",{class:"link",title:"Every try of every step: cost, cache share, checks",onclick:()=>showTrace(r)},"timeline")))))));
   }catch(e){box.textContent=e.message;}
 }
-function showReport(r){const d=h("div",{class:"card modal"},h("div",{class:"row"},h("h2",{class:"grow"},r.name),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),h("pre",{class:"term",style:"height:auto;max-height:70vh"},r.report));document.body.append(d);}
+function showReport(r){const d=h("div",{class:"card modal",role:"dialog","aria-modal":"true","aria-label":"Run report: "+(r.name||"")},h("div",{class:"row"},h("h2",{class:"grow"},r.name),h("button",{class:"btn",onclick:()=>d.remove()},"Close")),h("pre",{class:"term",style:"height:auto;max-height:70vh"},r.report));document.body.append(d);const _c=d.querySelector("button");if(_c)_c.focus();}
 /* ---- the run timeline: every try of every step as a rung, with what it cost, how much came from cache and what the checks said ---- */
 const tlStep=l=>String(l||"").replace(/[-_]?(?:try|cand|sample)\d+$/,"")||"step";
 const tlTry=l=>{const m=String(l||"").match(/(?:try|cand|sample)(\d+)$/);return m?+m[1]:1;};

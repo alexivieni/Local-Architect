@@ -66,6 +66,10 @@ def version_view():
     return {"fingerprint_at_start": FP_START, "fingerprint_now": _FP_NOW[1], "stale": _FP_NOW[1] != FP_START}
 
 
+mh.CONFIG_ROUTES.update({"/api/arch/hosts", "/api/arch/assign", "/api/arch/model_override", "/api/arch/settings", "/api/arch/preset",
+                         "/api/arch/apply_recommended", "/api/config"})
+
+
 def restart_command(argv=None, port=None):
     """The command line that starts this hub again: the same interpreter and arguments; for architect_hub.py the port it really
     holds, and no browser tab (the open page reloads itself)."""
@@ -76,6 +80,10 @@ def restart_command(argv=None, port=None):
         _cand = os.path.abspath(argv[0])
         argv[0] = _cand if os.path.exists(_cand) else os.path.join(HERE, os.path.basename(argv[0]))
     cmd = [sys.executable] + argv
+    if os.path.basename(argv[0] if argv else "").lower() != "architect_hub.py":
+        # started another way (START_HUB.bat -> start.py -> `architect.py start`, which runs the hub in-process): restarting that
+        # command re-ran the whole start (Ollama, servers, a second browser tab) and could come back on another port
+        return [sys.executable, os.path.join(HERE, "architect_hub.py")] + (["--port", str(port)] if port else []) + ["--no-browser"]
     if os.path.basename(argv[0] if argv else "").lower() == "architect_hub.py":
         rest, skip = [], False
         for a in argv[1:]:
@@ -3147,7 +3155,7 @@ class AHandler(mh.Handler):
                 return self._send(403, {"error": "bad host"})
             q = parse_qs(u.query)
             run_name = (q.get("run") or [""])[0]
-            if not run_name or "/" in run_name or ".." in run_name:
+            if not run_name or not _RUN_RE.fullmatch(run_name):          # the same rule as every other run endpoint (no \\, no drive, no ..)
                 return self._send(400, {"error": "a valid run name is required"})
             try:
                 root = safe_root((q.get("root") or [HERE])[0])
@@ -3233,9 +3241,12 @@ class AHandler(mh.Handler):
             # a finished run in plain sentences (arch_why: built from the trace records, no model call)
             import arch_why
             q = parse_qs(u.query)
-            root = safe_root((q.get("root") or [HERE])[0])
+            try:
+                root = safe_root((q.get("root") or [HERE])[0])
+            except ValueError as ex:
+                return self._send(400, {"error": str(ex)})
             rid = (q.get("run") or [""])[0]
-            if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", rid or ""):
+            if not _RUN_RE.fullmatch(rid or ""):
                 last = core.latest_run(root)
                 rid = os.path.basename(last) if last else ""
             d = os.path.join(root, ".arch", "runs", rid) if rid else ""
@@ -3726,6 +3737,12 @@ class AHandler(mh.Handler):
             since = int((q.get("since") or ["0"])[0])
         except ValueError:
             since = 0
+        last = (self.headers.get("Last-Event-ID") or "").split(":")
+        if len(last) == 2 and last[0] == str(mh.JOB.epoch):              # the browser reconnected to the same run: carry on after what it has
+            try:
+                since = max(since, int(last[1]))
+            except ValueError:
+                pass
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -3745,7 +3762,7 @@ class AHandler(mh.Handler):
                     feed = mh.JOB.event_feed(0)
                 if feed["events"] or feed["next"] != since:
                     since = feed["next"]
-                    self.wfile.write(b"data: " + json.dumps(feed).encode("utf-8") + b"\n\n")
+                    self.wfile.write(f"id: {feed['epoch']}:{feed['next']}\n".encode("ascii") + b"data: " + json.dumps(feed).encode("utf-8") + b"\n\n")
                     quiet = 0
                 else:
                     quiet += 1
@@ -3806,7 +3823,7 @@ class AHandler(mh.Handler):
             return {"ok": True}
         if path == "/api/arch/hosts":
             import arch_hosts as H
-            cfg = mh.read_config()
+            cfg = mh.read_config(strict=True)
             if b.get("add"):
                 name, addr = str((b["add"] or {}).get("name") or ""), str((b["add"] or {}).get("address") or "")
                 if not re.match(r"^[A-Za-z0-9_.-]{1,32}$", name):
@@ -3992,7 +4009,7 @@ class AHandler(mh.Handler):
             mh.JOB.start("Roll back last self-improvement", ["architect.py", "self-rollback"])
             return {"ok": True}
         if path == "/api/arch/assign":
-            cfg = mh.read_config()
+            cfg = mh.read_config(strict=True)
             cfg.setdefault("roles", {})
             for r, m in (b.get("roles") or {}).items():
                 if r in roles.ROLES:
@@ -4002,7 +4019,7 @@ class AHandler(mh.Handler):
             mh.write_config(cfg)
             return {"ok": True}
         if path == "/api/arch/model_override":
-            cfg = mh.read_config()
+            cfg = mh.read_config(strict=True)
             cfg.setdefault("model_overrides", {})
             model, field, value = str(b.get("model") or "").strip(), str(b.get("field") or ""), b.get("value")
             if not model:
@@ -4027,7 +4044,7 @@ class AHandler(mh.Handler):
                         raise params.ValidationError(f"'{k}' is not a recognised setting")
             except params.ValidationError as e:
                 raise ValueError(str(e))
-            cfg = mh.read_config()
+            cfg = mh.read_config(strict=True)
             for path_, v in coerced.items():
                 d = cfg
                 parts = path_.split(".")
@@ -4046,16 +4063,13 @@ class AHandler(mh.Handler):
             mh.write_config(cfg)
             return {"ok": True, "config": core.deep_merge(core.DEFAULTS, cfg)}
         if path == "/api/arch/doctor_fix":
-            try:
-                root = safe_root(b.get("root") or HERE, create_ok=True)
-            except ValueError as e:
-                return self._send(400, {"error": str(e)})
+            root = safe_root(b.get("root") or HERE, create_ok=True)      # ValueError -> 400 from do_POST
             import arch_doctor as doctor
             try:
                 hub_port = self.server.server_address[1]
             except Exception:
                 hub_port = 8766
-            return self._send(200, doctor.fix(root, hub_port))
+            return doctor.fix(root, hub_port)          # do_POST sends it (returning _send's None used to add a second response)
         if path == "/api/arch/rpreset":
             return rpreset_change(b)
         if path == "/api/arch/preset":
@@ -4064,7 +4078,7 @@ class AHandler(mh.Handler):
                 coerced = params.apply_preset(name)
             except (KeyError, params.ValidationError) as e:
                 raise ValueError(str(e))
-            cfg = mh.read_config()
+            cfg = mh.read_config(strict=True)
             for path_, v in coerced.items():
                 d = cfg
                 parts = path_.split(".")
@@ -4091,7 +4105,7 @@ class AHandler(mh.Handler):
             return {"ok": True, "root": root, "goal": PRACTICE_GOAL, "epoch": mh.JOB.epoch}
         if path == "/api/arch/apply_recommended":
             ranked, plan = roles.recommend(mh.build_state().get("models", []))
-            cfg = mh.read_config()
+            cfg = mh.read_config(strict=True)
             cfg.setdefault("roles", {}).update(plan["assignment"])
             mh.write_config(cfg)
             return {"ok": True, "assignment": plan["assignment"]}

@@ -364,7 +364,7 @@ def run():
         fake.shutdown()
         core.set_home(_old_home)
         shutil.rmtree(tmp, ignore_errors=True)
-        shutil.rmtree(os.path.join(HERE, "._guard"), ignore_errors=True)
+        # the network guard lives under the data folder now and is rebuilt by every run: nothing to remove here
     print()
     if all(results):
         print(f"  ALL {len(results)} EXTENDED CHECKS PASSED")

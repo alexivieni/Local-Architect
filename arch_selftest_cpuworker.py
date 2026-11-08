@@ -38,9 +38,10 @@ def _req(base, method, path, body=None, token=TOKEN, raw=None):
 def run():
     import arch_cpuworker as W
     import arch_hosts as H
-    fails = []
+    fails, ran = [], []
 
     def check(name, ok):
+        ran.append(name)
         print(("ok   " if ok else "FAIL ") + name)
         if not ok:
             fails.append(name)
@@ -120,7 +121,7 @@ def run():
     finally:
         srv.shutdown()
         srv.server_close()
-    print("CPUWORKER: PASSED" if not fails else f"CPUWORKER: FAILED {len(fails)}: {fails}")
+    print(f"CPUWORKER: PASSED ({len(ran)} checks)" if not fails else f"CPUWORKER: FAILED {len(fails)} of {len(ran)}: {fails}")
     return not fails
 
 

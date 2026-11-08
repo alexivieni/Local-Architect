@@ -158,6 +158,7 @@ def run():
     # ---- flows against the fake model
     fake = ThreadingHTTPServer(("127.0.0.1", 0), Sec)
     threading.Thread(target=fake.serve_forever, daemon=True).start()
+    _oh = os.environ.get("OLLAMA_HOST")      # put back after: a later suite in the same process must not talk to a dead fake
     os.environ["OLLAMA_HOST"] = f"127.0.0.1:{fake.server_address[1]}"
 
     def eng(root, goal, flow, review="auto", **over):
@@ -621,6 +622,10 @@ def run():
         core._READ_CACHE.clear()
     finally:
         fake.shutdown()
+        if _oh is None:
+            os.environ.pop("OLLAMA_HOST", None)
+        else:
+            os.environ["OLLAMA_HOST"] = _oh
         shutil.rmtree(tmp, ignore_errors=True)
 
     print()

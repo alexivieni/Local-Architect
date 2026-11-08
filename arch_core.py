@@ -27,6 +27,23 @@ import arch_schemas
 import arch_tune
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _standalone_selftest_home():
+    """A self-test started on its own (`py -3.12 arch_selftest_x.py`) gets a throwaway home and data folder before anything below
+    reads them. The runners (`selftest`, tools/ci_parallel.py) already isolate every suite; 45 suites did not do it themselves, so
+    run alone they read (and some could write) the person's real architect_config.json and hub_data. Never under a runner: it
+    sets ARCHITECT_HOME first."""
+    main = os.path.basename(getattr(sys.modules.get("__main__"), "__file__", None) or (sys.argv[0] if sys.argv else "") or "")
+    if main.startswith(("arch_selftest", "arch_hub_check")) and not os.environ.get("ARCHITECT_HOME"):
+        import tempfile
+        t = tempfile.mkdtemp(prefix="arch_selftest_home_")
+        os.environ["ARCHITECT_HOME"] = t
+        os.environ.setdefault("ARCHITECT_DATA_DIR", os.path.join(t, "hub_data"))
+        os.environ.setdefault("ARCHITECT_SELFTEST", "1")
+
+
+_standalone_selftest_home()
 # HOME is where this install keeps ITS OWN data (global config, measured speeds, scoreboard results, tune profile,
 # self-improvement backups). It defaults to the install folder, so a standalone copy behaves exactly as before; a host
 # app that vendors the Architect sets ARCHITECT_HOME (or calls set_home) to keep that data in its own data folder.
@@ -977,10 +994,16 @@ def _atomic_copy(src, dst):
     _replace(tmp, dst, data)
 
 
+def guard_dir():
+    return os.path.join(data_dir(), "_guard")
+
+
 def guard_env(offline=True):
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     if offline and (_NET["mode"] != "open" or _NET["tools"] == "block") and os.path.isfile(os.path.join(HERE, "netguard.py")):
-        g = os.path.join(HERE, "._guard")
+        # under the data folder, not the app folder: suites running in parallel each have their own, so one suite's cleanup can no
+        # longer delete the guard while another suite's child is importing it (and nothing is written into the install itself)
+        g = guard_dir()
         os.makedirs(g, exist_ok=True)
         _atomic_copy(os.path.join(HERE, "netguard.py"), os.path.join(g, "netguard.py"))   # two runs share this folder: a half-written guard must never be importable
         _atomic_write(os.path.join(g, "sitecustomize.py"),

@@ -180,7 +180,8 @@ def run():
         import arch_selfimprove as si
         samples = {"ALL 61 ENGINE CHECKS PASSED": 61, "ALL 9 A11Y CHECKS PASSED": 9, "ALL 12 HARNESS2 CHECKS PASSED": 12,
                    "ALL 5 TEMPLATES_EXTRA CHECKS PASSED": 5, "  17/17 passed": 17, "61 passed, 0 failed": 61,
-                   "contracts+recipes: 325 passed, 0 failed": 325, "OK: 44 checks": 44, "CPUWORKER: PASSED (12 checks)": 12}
+                   "contracts+recipes: 325 passed, 0 failed": 325, "OK: 44 checks": 44, "CPUWORKER: PASSED (12 checks)": 12,
+                   "swap: 57/57 passed": 57, "22/22 checks passed": 22, "MODELKNOW: PASSED (40 checks)": 40}
         got = {k: si.count_passed(k) for k in samples}
         check("the self-improve counter reads every summary format the suites print", got == samples, {k: v for k, v in got.items() if v != samples[k]})
         check("a failing summary counts nothing", si.count_passed("3 of 9 FOO CHECKS FAILED") == 0)

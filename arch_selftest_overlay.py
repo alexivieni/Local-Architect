@@ -32,9 +32,10 @@ class FakeTok(BaseHTTPRequestHandler):
 
 
 def run():
-    fails = []
+    fails, ran = [], []
 
     def check(name, ok, extra=None):
+        ran.append(name)
         print(("ok   " if ok else "FAIL ") + name)
         if not ok:
             fails.append(name)
@@ -113,7 +114,7 @@ def run():
         if srv:
             srv.shutdown()
         shutil.rmtree(tmp, ignore_errors=True)
-    print("OVERLAY: PASSED" if not fails else f"OVERLAY: FAILED {len(fails)}: {fails}")
+    print(f"OVERLAY: PASSED ({len(ran)} checks)" if not fails else f"OVERLAY: FAILED {len(fails)} of {len(ran)}: {fails}")
     return not fails
 
 

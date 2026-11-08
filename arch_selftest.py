@@ -203,6 +203,7 @@ def run():
 
     fake = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
     threading.Thread(target=fake.serve_forever, daemon=True).start()
+    _oh = os.environ.get("OLLAMA_HOST")      # put back after: a later suite in the same process must not talk to a dead fake
     os.environ["OLLAMA_HOST"] = f"127.0.0.1:{fake.server_address[1]}"
     # The scripted model below answers the SAME prompt differently on successive calls (a flawed draft, then a good revision). A real
     # model at temperature 0 never does that, so the reply cache would correctly collapse the two and the script would fall out of step.
@@ -486,8 +487,12 @@ def run():
         core.set_net(core.load_config(tmp))  # restore defaults for anything that runs after this in the same process
     finally:
         fake.shutdown()
+        if _oh is None:
+            os.environ.pop("OLLAMA_HOST", None)
+        else:
+            os.environ["OLLAMA_HOST"] = _oh
         shutil.rmtree(tmp, ignore_errors=True)
-        shutil.rmtree(os.path.join(HERE, "._guard"), ignore_errors=True)
+        shutil.rmtree(core.guard_dir(), ignore_errors=True)
         if _nc is None:
             os.environ.pop("ARCHITECT_NO_CACHE", None)
         else:

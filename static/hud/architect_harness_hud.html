@@ -1590,7 +1590,10 @@ best_state.ratchet(tests_passed=14, regressions=0)
   // turns one record into the {node, tag, msg, status} shape this page draws, by what the record says, never by guessing a timeline.
   const NODE_FOR_GATE = [[/fake|stub/i, 'eval_fakecode'], [/interface|contract|wire|__init__|__main__/i, 'wire_contract'],
                          [/syntax|compile|parse|def |merge/i, 'replace_def'], [/test|pytest|unittest|smoke/i, 'pytest'],
-                         [/best|kept|worse|rollback|ratchet/i, 'best_state'], [/plan|interface_lines/i, 'interface']];
+                         [/best|kept|worse|rollback|ratchet/i, 'best_state'], [/plan|interface_lines/i, 'interface'],
+                         // the other code checks light the node closest to what they guard, not pytest
+                         [/shrink|lost/i, 'replace_def'], [/import|deps/i, 'wire_contract'],
+                         [/question|refus|scan|fewer|secret|sec_|config_/i, 'eval_fakecode']];
   function nodeForGate(g) { for (const [re, n] of NODE_FOR_GATE) if (re.test(g || '')) return n; return 'pytest'; }
   function nodeForStep(s) {
     s = String(s || '');
@@ -1677,6 +1680,7 @@ best_state.ratchet(tests_passed=14, regressions=0)
         } catch (err) {}
       };
       es.onerror = () => {
+        // the browser reconnects by itself and sends the last event id, so the hub carries on after what this page already shows
         console.warn('ArchitectHUD: SSE disconnected, will retry...');
       };
     },

@@ -1,6 +1,6 @@
 # Architect
 
-A local, offline agentic engineering team: 23 roles and 19 flows (18 ported to YAML plus `explore`, the tool loop), four model tiers on a resident local server (llama-server, Ollama as the fallback), run by the models on this machine. Python standard library only; no cloud
+A local, offline agentic engineering team: 46 roles and 29 flows (every one a YAML file under `flows/`, `explore` being the tool loop; counted 2026-11-07), four model tiers on a resident local server (llama-server, Ollama as the fallback), run by the models on this machine. Python standard library only; no cloud
 model, no OpenAI-style endpoint. Code decides what passes (tests, AST checks, the verifier, the fake-code gate); a model's verdict is re-validated in code.
 
 ## Layout (the real tree)
@@ -298,6 +298,24 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
 8. **Hybrid CPU P-Core Binding, Universal Windows GPU Detection & 30s Power Cache (`arch_hw.py`, `arch_power.py`, `arch_supervisor.py`):** `_win_gpu()` detects AMD Radeon and Intel Arc GPUs via `Win32_VideoController` when `nvidia-smi` is absent; `arch_power.on_battery()` caches battery checks for 30s (`_BAT_CACHE`) and skips PowerShell in selftests; `arch_supervisor.py` maintains a 2s daemon heartbeat thread (`recover(stale_after=15.0)`) so multi-supervisor runs never double-steal active jobs.
 9. **Queue-Aware Distributed LAN Mesh & Instant Local Failover (`arch_hosts.py`, `arch_transport.py`, `arch_core.py`, `arch_squad.py`):** `Crew._loop()` honors remote `role_hosts` with per-host semaphores (`max_parallel`, default 2); `rank_hosts()` load-balances by effective speed `tok_s / (1 + in_flight)`; `is_llama_host()` and `/v1/models` discovery allow remote `llama-server` nodes alongside remote Ollama nodes; `mark_down()` and `Engine._call` fail over seamlessly to local execution mid-run if a LAN host drops.
 10. **FinOps & Optimization Scorecard + Live Visual Frontend Demo (`arch_finops.py`, `architect_hub.py`, `hub_ui.html`):** `/api/arch/finops` and Hub **Models > Speed > FinOps & savings** calculate measured and projected team savings vs. Claude Opus 4.6, Claude Sonnet 4.6, GPT-4o, Claude Haiku 4.5, and $20/$200 cloud seats, display the 10-way optimization table, export an executive Markdown report, and provide `/api/arch/demo` (`launchVisualDemo()`) to build, pytest-verify, and launch a live visual web application for stakeholder calls in one click.
+
+## Architecture review 2026-11-07 (docs/ADR-001, suites arch_selftest_review1..4)
+- **Process identity is `arch_proc`** (pid + creation time). Never `os.kill(pid, 0)` on Windows: it is TerminateProcess. Every
+  "is it alive / is it still ours" question (servers, step-aside owners, supervisor task owners, the Launch runner) asks arch_proc.
+- **`server.json` has one writer per tier** (`arch_server._save_tier`); plan() and start() share `ollama_keep()`; plan() runs again
+  under the start lock; the KV cache is planned as f16 unless the cache-type flags and flash attention are really in the args.
+- **Rollback snapshots** (`arch_flows_pro.capture/restore`) record every file name and never delete a file they did not see.
+- **Three outcomes reach the run**: `finish(ok, error, unsure)`, `verify()["tests_ran"]`, `require_tests` on a step's verify, a
+  not_sure step makes the data-engine verdict not_sure even when pass_if holds, sub-flows and foreach carry it up.
+- Gates write their records under their own keys (`scan_rec`, `existing_files`, `kept_tests`, ...); RESERVED lists every one.
+- A YAML `tier:` pin is not an escalation (`Engine.tier_pins`): the role's LAN route still holds. The reply-cache key carries the
+  machine that answered. A fleet agent's Engine refuses files outside `ARCHITECT_OWNS`.
+- Hub: job epochs start from the clock (never reused after a restart), a finished job's pump never writes into the next job,
+  `CONFIG_ROUTES` hold `CONFIG_LOCK` and read strictly (an unreadable settings file is never saved over), a route that answered
+  itself never gets a second response, the event stream carries `id:` and honours `Last-Event-ID`, restart relaunches
+  architect_hub.py on its own port however the hub was started.
+- Tests: a suite started on its own gets a throwaway home (`arch_core._standalone_selftest_home`); the network guard lives in
+  `<data dir>/_guard`; `arch_selfimprove.count_passed` reads every summary format (a suite's summary must carry its check count).
 
 ## Cross-Platform Compliance: Antigravity <-> Claude Code Anti-Stub & Non-Destruction Protocol
 When switching between **Google Antigravity**, **Claude Code**, and **Local-Architect**, every agent MUST obey these non-negotiable rules so no platform ever corrupts or stubs out work created on another:
