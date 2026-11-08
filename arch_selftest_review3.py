@@ -169,6 +169,61 @@ def run():
               _re.search(arch_flows.KEYWORDS["hunt"], "find hidden bugs in the scheduler before we ship") is not None
               and arch_flows.PRIORITY.index("hunt") < arch_flows.PRIORITY.index("ship"))
         check("routing: an ordinary bug report is still a bug fix, not a hunt", not _re.search(arch_flows.KEYWORDS["hunt"], "the login form crashes on submit"))
+
+        # ---- a check that could not run (the optional browser check without playwright) is not a pass (2026-11-08)
+        import json
+        import arch_checks as ck
+        s = ck.summarize([ck.R("a.py parses", True), ck.cannot_run("browser smoke test", "playwright is not installed")])
+        check("summarize: a check that could not run is neither passed nor failed, and is listed as unsure",
+              s["ok"] is True and s["passed"] == 1 and s["total"] == 2 and s["failures"] == "" and s["unsure"] and "browser smoke test" in s["unsure"][0], s)
+        check("R() still makes a missing value a FAILURE (many checks pass None for 'not there'); only cannot_run() means could not run",
+              ck.R("x", None)["ok"] is False and ck.cannot_run("x", "why")["ok"] is None)
+        core.has_module = lambda m: False if m == "playwright" else had(m)
+        pw = ck.playwright_smoke(project("pw", {"index.html": "<!doctype html><title>t</title>"}), "index.html")
+        check("the browser check without playwright reports COULD NOT RUN, not passed", len(pw) == 1 and pw[0]["ok"] is None and "could not run" in pw[0]["detail"], pw)
+        web = project("web", {"index.html": "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'>"
+                                            "<title>t</title><style>:focus-visible{outline:2px solid #000}main{display:flex}"
+                                            "@media (max-width:600px){main{padding:0}}</style></head><body><main><h1>t</h1></main></body></html>\n"})
+        ew = engine(web, "build")
+        ew.cfg["behavior"]["playwright"] = "always"
+        v = arch_flows.verify(ew, ["index.html"], run_tests=False)
+        check("verify: nothing failed but the browser check could not run -> ok, with the check named under unsure",
+              v["ok"] is True and any("browser smoke test" in u for u in v.get("unsure") or []) and ew.unsure_checks, (v.get("ok"), v.get("unsure"), v["text"][:200]))
+        import arch_gates
+        g = arch_gates.GATES["verify_files"](ew, {}, {"run_tests": False}, ["index.html"])
+        check("the data engine's verify_files gate answers None (could not run) in the same case, so the YAML run ends not_sure too",
+              g["ok"] is None and "browser smoke test" in g["text"], g)
+        bdir = os.path.join(ew.run_dir, "backup")
+        os.makedirs(bdir, exist_ok=True)
+        with open(os.path.join(bdir, "index.html"), "w", encoding="utf-8") as f:
+            f.write("<p>old</p>\n")
+        kept = arch_flows._not_counting_old(ew, [ck.cannot_run("index.html: opens in a browser", "no browser")])
+        check("an old-findings filter never turns 'could not run' into a pass", kept[0]["ok"] is None, kept)
+
+        class _WebBuild:
+            id = "r3_web"
+            steps = []
+
+            def run(self, e, params):
+                return {"ok": arch_flows.verify(e, ["index.html"], run_tests=False)["ok"]}
+        arch_flows.FLOWS["r3_web"] = _WebBuild()
+        try:
+            ew2 = engine(web, "build")
+            ew2.cfg["behavior"]["playwright"] = "always"
+            arch_flows.run_flow(ew2, "r3_web", {})
+            recs = [json.loads(ln) for ln in open(os.path.join(ew2.run_dir, "trace.jsonl"), encoding="utf-8") if '"verdict"' in ln]
+            verdict = [r for r in recs if r.get("type") == "verdict"][-1]
+            check("a run that passed every check that RAN, with one that could not run, ends not_sure (and says which)",
+                  verdict["verdict"] == "not_sure" and "browser smoke test" in verdict.get("why", ""), verdict)
+            ew3 = engine(web, "build")
+            ew3.cfg["behavior"]["playwright"] = "off"
+            arch_flows.run_flow(ew3, "r3_web", {})
+            recs3 = [json.loads(ln) for ln in open(os.path.join(ew3.run_dir, "trace.jsonl"), encoding="utf-8") if '"verdict"' in ln]
+            check("with the browser check switched off (behavior.playwright = off) the same run passes",
+                  [r for r in recs3 if r.get("type") == "verdict"][-1]["verdict"] == "pass")
+        finally:
+            arch_flows.FLOWS.pop("r3_web", None)
+            core.has_module = had
     finally:
         core.has_module = had
         core.set_home(old_home)

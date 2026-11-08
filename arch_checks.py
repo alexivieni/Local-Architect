@@ -13,13 +13,24 @@ import arch_core
 
 
 def R(name, ok, detail=""):
+    """One check result that RAN: ok is made True or False (many checks pass a value that is None when the thing is missing,
+    which is a failure, not "could not run"). For a check that could not run use cannot_run()."""
     return {"name": name, "ok": bool(ok), "detail": detail}
 
 
+def cannot_run(name, why):
+    """A check that COULD NOT RUN (a tool missing, ...): ok None, neither a pass nor a failure; a run that relies on it ends not_sure."""
+    return {"name": name, "ok": None, "detail": why}
+
+
 def summarize(results):
-    bad = [r for r in results if not r["ok"]]
-    return {"ok": not bad, "passed": len(results) - len(bad), "total": len(results),
-            "failures": "\n".join(f"- {r['name']}" + (f": {r['detail']}" if r["detail"] else "") for r in bad)}
+    """-> ok (nothing FAILED), passed / total, the failures as text, and `unsure`: the checks that could not run. A check that could
+    not run is neither a pass nor a failure; the run that relies on it ends "not sure" (arch_flows.run_flow)."""
+    bad = [r for r in results if r["ok"] is False]
+    unsure = [r for r in results if r["ok"] is None]
+    return {"ok": not bad, "passed": len(results) - len(bad) - len(unsure), "total": len(results),
+            "failures": "\n".join(f"- {r['name']}" + (f": {r['detail']}" if r["detail"] else "") for r in bad),
+            "unsure": [str(r["name"]) + (f" ({r['detail']})" if r["detail"] else "") for r in unsure]}
 
 
 # ---------------------------------------------------------------------------------- python
@@ -444,7 +455,8 @@ def check_spec(text, name="spec.md"):
 def playwright_smoke(root, rel_html, run_dir=None, timeout=20000):
     """Open the page in headless Chromium: console errors, failed requests, horizontal overflow at phone width."""
     if not arch_core.has_module("playwright"):
-        return [R("browser smoke test", True, "skipped: playwright is not installed (optional)")]
+        # could not run: not a pass. With it counted as passed, every web build "passed" a browser check that never ran (2026-11-08).
+        return [cannot_run("browser smoke test", "could not run: playwright is not installed (pip install playwright, with your yes; or Settings > behavior.playwright = off to stop asking for it)")]
     from playwright.sync_api import sync_playwright
     url = "file://" + os.path.abspath(os.path.join(root, rel_html))
     errs, failed = [], []

@@ -354,12 +354,12 @@ def _not_counting_old(e, results):
     for r in results:
         name = r.get("name", "")
         rel = name.split(":", 1)[0] if ":" in name else ""
-        if r.get("ok") or not rel or not os.path.isfile(os.path.join(bdir, rel)):
+        if r.get("ok") is not False or not rel or not os.path.isfile(os.path.join(bdir, rel)):   # a pass, or COULD NOT RUN: as it is
             out.append(r)
             continue
         if rel not in base:
             try:
-                base[rel] = {x["name"] for x in ck.check_files(bdir, [rel], e.cfg) if not x.get("ok")}
+                base[rel] = {x["name"] for x in ck.check_files(bdir, [rel], e.cfg) if x.get("ok") is False}
             except Exception:
                 base[rel] = set()
         if name in base[rel]:
@@ -536,10 +536,11 @@ def verify(e, files, run_tests=True, targets=None):
         _swallow("flows._join_checks", _swx)
     _join_checks()
     s = ck.summarize(results)
+    e.unsure_checks = list(s["unsure"])                # the latest verify: a run that "passes" with one of these ends not_sure
     _trace_checks(e, results, t_v)
     # tests_ran: a real test result exists. ok without it means "nothing else failed", which is not evidence that a fix works
     return {"ok": s["ok"], "text": s["failures"], "results": results, "tests": tests, "passed": s["passed"], "total": s["total"],
-            "tests_ran": tests[0] in ("pass", "fail")}
+            "tests_ran": tests[0] in ("pass", "fail"), "unsure": s["unsure"]}
 
 
 def _trace_checks(e, results, t0):
@@ -2483,6 +2484,10 @@ def run_flow(e, flow_id, params=None):
     for it in e.state.get("todo") or []:
         if it.get("status") in ("pending", "doing"):
             it["status"] = "done" if out.get("ok") else "failed"
+    cnr = list(getattr(e, "unsure_checks", None) or []) if out.get("ok") and not out.get("unsure") else []
+    if cnr:                                               # it passed every check that RAN; one could not run, so it is not proven
+        out = dict(out, unsure=True, why=out.get("why") or ("could not run: " + "; ".join(cnr))[:400])
+        e.report("", "- Not sure: every check that ran passed, but these could not run: " + "; ".join(cnr))
     verdict = "not_sure" if out.get("unsure") else ("pass" if out.get("ok") else "fail")
     e.finish(out.get("ok"), out.get("error"), unsure=bool(out.get("unsure")))     # the run's verdict, not a bool: not_sure is recorded as such
     try:                                                  # the run's own conclusion, as a record: the live view shows it without parsing prose

@@ -79,3 +79,8 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
 - The fleet race behind arch_selftest_localagent's occasional failure: a local agent's run log says "done" before its thread
   records the result, the watcher took the log's word, finished early and wrote back an agent list without the agent's checks.
   `arch_fleet._settle` takes a local agent's status only from its thread; the watcher settles under the lock (`testing`).
+- A check that could not run is not a pass (decided by the person, 2026-11-08). `arch_checks.cannot_run(name, why)` gives
+  ok None; `R()` still makes a missing value a failure (many checks pass None for "not there"). `summarize` lists them as `unsure`,
+  `verify` returns them and keeps `e.unsure_checks`, `run_flow` turns a pass with any of them into not_sure (and says which), and
+  the `verify_files` gate answers None. First user: the optional browser check without playwright, which had counted as passed.
+  `behavior.playwright = off` stops asking for it. `eval --fake` stayed 101/101 (no eval task relies on it).

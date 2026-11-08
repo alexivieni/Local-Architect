@@ -53,6 +53,8 @@ def g_verify_files(e, ctx, step, changed):
     if v["ok"] and step.get("require_tests") and not v.get("tests_ran"):
         return R(None, "no test ran, so this change could not be checked (install pytest, or set a test command in Settings)",
                  {"passed": v["passed"], "total": v["total"], "tests": v["tests"][0]})
+    if v["ok"] and v.get("unsure"):                      # nothing failed, but a check could not run: not a pass
+        return R(None, "could not run: " + "; ".join(v["unsure"])[:600], {"passed": v["passed"], "total": v["total"], "tests": v["tests"][0]})
     return R(v["ok"], v["text"], {"passed": v["passed"], "total": v["total"], "tests": v["tests"][0]}, (v["tests"][1] or "")[-1500:])
 
 
