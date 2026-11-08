@@ -84,3 +84,9 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   `verify` returns them and keeps `e.unsure_checks`, `run_flow` turns a pass with any of them into not_sure (and says which), and
   the `verify_files` gate answers None. First user: the optional browser check without playwright, which had counted as passed.
   `behavior.playwright = off` stops asking for it. `eval --fake` stayed 101/101 (no eval task relies on it).
+- Caches page (2026-11-08): the KV prefix layer reads `arch_cachestats.trace_roots()` = the cost model's folders plus the projects
+  remembered by `arch_usage` (it read only portfolio + this folder + eval runs, so it said "no data" while runs had logged their reuse);
+  `cache_n` wins over the estimate; `ledger()` returns `data_dir` and leads with a red finding when the hub reads a temp data folder
+  (the 'hub-test' preview in .claude/launch.json); empty route/reply layers explain themselves (reply: `arch_cache.why_not` with this
+  install's temperature and seed). `Engine.finish` remembers a kept run's project unless it is throwaway (`keeps_prompt_memory`), so
+  CLI, crew and queue runs count too. All in the backend: the page's guarded slice is untouched (it still says "next live eval").

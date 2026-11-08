@@ -1563,6 +1563,12 @@ class Engine:
         if error:
             self.state["error"] = str(error)[:300]
         self._write_state()
+        if self.state_path and keeps_prompt_memory(self.root):   # remembered, so the Caches and usage pages read its runs: a run from the
+            try:                                              # CLI, a crew or the queue used to be invisible to them (only hub-started runs counted)
+                import arch_usage
+                arch_usage.remember_root(self.root)
+            except Exception as _swx:
+                _tel_swallow("core.finish.remember_root", _swx)
         if self.state_path:                                  # outcomes of this run's calls go to the per-model track record (arch_ledger.py)
             try:
                 import arch_ledger

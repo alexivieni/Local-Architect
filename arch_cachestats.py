@@ -96,14 +96,43 @@ def agent_steps_layer(data):
             "bytes": int(st.get("bytes") or 0), "hits": None, "misses": None, "why_not": st.get("why_not")}
 
 
+def trace_roots():
+    """Every folder whose .arch/runs this install can read: the cost model's (portfolio, this folder, kept eval runs) PLUS the project
+    folders the hub remembered (arch_usage.known_roots: the ones picked on Home). The cost model's list alone missed every project a
+    person actually works in, so the page said "no data" while each run had logged its reuse call by call (seen 2026-11-08)."""
+    out, seen = [], set()
+
+    def add(p):
+        try:
+            p = os.path.abspath(str(p))
+        except Exception:
+            return
+        if p not in seen and os.path.isdir(p):
+            seen.add(p)
+            out.append(p)
+    try:
+        import arch_costmodel
+        for r in arch_costmodel.default_roots():
+            add(r)
+    except Exception:
+        add(os.getcwd())
+    try:
+        import arch_usage
+        for r in arch_usage.known_roots():
+            add(r)
+    except Exception as _swx:
+        try:
+            import arch_core
+            arch_core._tel_swallow("cachestats.trace_roots", _swx)
+        except Exception:  # intentional: reporting must never break the page
+            pass
+    return out
+
+
 def prefix_layer(roots=None):
     """Exact prefix reuse from run traces: rho = cached prompt tokens / prompt tokens (Eq. 15), per model and per flow."""
     if roots is None:
-        try:
-            import arch_costmodel
-            roots = arch_costmodel.default_roots()
-        except Exception:
-            roots = [os.getcwd()]
+        roots = trace_roots()
     tot = {"calls": 0, "prompt": 0, "cached": 0, "exact": 0, "reply_hits": 0}
     by_model, by_flow = collections.defaultdict(lambda: [0, 0, 0]), collections.defaultdict(lambda: [0, 0, 0])
     runs = 0
@@ -124,7 +153,8 @@ def prefix_layer(roots=None):
                         tot["reply_hits"] += 1
                         continue
                     pt = int(c.get("prompt_tokens") or 0)
-                    ca = min(pt, int(c.get("prefix_reused_est") or 0))
+                    # llama-server's exact count when the call has one (cache_n), else the estimate (Ollama)
+                    ca = min(pt, int(c.get("cache_n") if c.get("cache_n") is not None else (c.get("prefix_reused_est") or 0)))
                     tot["calls"] += 1
                     tot["prompt"] += pt
                     tot["cached"] += ca
@@ -139,7 +169,8 @@ def prefix_layer(roots=None):
     def rows(d):
         return sorted(({"name": k, "calls": v[0], "rho": round(v[2] / v[1], 3) if v[1] else None} for k, v in d.items()),
                       key=lambda r: -r["calls"])
-    return {"id": "prefix", "name": "KV prefix (in memory)", "where": "llama-server, per call", "runs": runs, "calls": tot["calls"],
+    return {"id": "prefix", "name": "KV prefix (in memory)", "where": f"llama-server, per call: the run logs of {len(roots)} project folder(s)",
+            "roots": len(roots), "root_names": [os.path.basename(r) or r for r in roots][:8], "runs": runs, "calls": tot["calls"],
             "prompt_tokens": tot["prompt"], "cached_tokens": tot["cached"], "exact_share": round(tot["exact"] / tot["calls"], 3) if tot["calls"] else None,
             "rho": round(tot["cached"] / tot["prompt"], 3) if tot["prompt"] else None, "reply_hits_in_traces": tot["reply_hits"],
             "by_model": rows(by_model), "by_flow": rows(by_flow), "hits": None, "misses": None}
@@ -255,7 +286,55 @@ def ledger(roots=None, transcripts=True, transcript_dir=None, data=None):
         layers.insert(len(layers) - 1, steps)          # before Claude: it is a local layer
     for l in layers:
         l["state"] = _state(l)
-    return {"t": time.time(), "layers": layers, "findings": findings(layers)}
+    folder = data_folder(data)
+    fs = findings(layers)
+    if folder["warn"]:
+        fs.insert(0, {"severity": "high", "text": folder["warn"]})
+    return {"t": time.time(), "layers": layers, "findings": fs, "data_dir": folder}
+
+
+def data_folder(data=None):
+    """Which data folder this page reads, and a warning when it is not the person's usual one: a hub started with ARCHITECT_DATA_DIR
+    (the "hub-test" preview in .claude/launch.json points at a temp folder) shows that folder's caches, which looked like "nothing works"
+    (2026-11-08)."""
+    import tempfile
+    data = os.path.abspath(data or _data())
+    try:
+        import arch_core
+        usual = os.path.abspath(os.path.join(arch_core.HOME, "hub_data"))
+    except Exception:
+        usual = data
+    tmp = os.path.normcase(os.path.abspath(tempfile.gettempdir()))
+    in_temp = os.path.normcase(data).startswith(tmp + os.sep) or os.path.normcase(data) == tmp
+    warn = ""
+    if in_temp:
+        warn = (f"This hub reads a throwaway data folder ({data}), not your usual one ({usual}): it was started with ARCHITECT_DATA_DIR "
+                "pointing into the temp folder (the 'hub-test' preview does this). Everything below describes that folder. Start the hub "
+                "the usual way (START_HUB) to see your own caches.")
+    elif os.path.normcase(data) != os.path.normcase(usual):
+        warn = f"This hub reads the data folder {data} (set by ARCHITECT_DATA_DIR), not the install's own {usual}."
+    return {"path": data, "usual": usual, "temp": in_temp, "warn": warn}
+
+
+def _reply_why_empty():
+    """Why the local reply cache stays empty with THIS install's settings, in plain words (arch_cache.why_not), or ''."""
+    try:
+        import arch_cache
+        import arch_core
+        import arch_roles
+        cfg = arch_core.load_config()
+        opts = dict((arch_roles.ROLES.get("generator") or {}).get("sampling") or {})
+        seed = (cfg.get("behavior") or {}).get("seed")
+        if seed is not None:
+            opts["seed"] = seed
+        saved = os.environ.pop("ARCHITECT_NO_CACHE", None)       # the page asks about real runs, not about this process's test flags
+        try:
+            return arch_cache.why_not(cfg, opts)
+        finally:
+            if saved is not None:
+                os.environ["ARCHITECT_NO_CACHE"] = saved
+    except Exception:
+        return ""
 
 
 def findings(layers):
@@ -266,16 +345,23 @@ def findings(layers):
         out.append({"severity": sev, "text": text})
     r = L["route"]
     if not r["entries"]:
-        add("info", "Route cache is empty: it is off during benchmarks and self-tests on purpose, so it only fills from real runs "
-                    "and hub route previews. Nothing is wrong; it has simply not been used yet.")
+        add("info", "Route cache is empty: it keeps only decisions the router MODEL made. A request whose own words pick the workflow "
+                    "(\"fix ...\" is a bug fix) needs no model call and nothing to keep; it is also off in benchmarks and self-tests.")
     rp = L["reply"]
+    if not rp["entries"]:
+        why = _reply_why_empty()
+        if why:
+            add("info", "Local replies stay empty with your settings: " + why[len("not cached: "):] if why.startswith("not cached: ") else
+                "Local replies stay empty with your settings: " + why)
     if rp["entries"] and not rp["hits"]:
         add("medium", f"The local reply cache stored {rp['entries']} replies and reused none. It only answers an identical prompt at "
                       "temperature 0 or with a seed; retries change the prompt tail, so it mostly helps repeated runs.")
     p = L["prefix"]
     if not p["calls"]:
-        add("high", "No local prefix-reuse data yet: run traces from benchmarks were thrown away until 2026-11-05. The next live "
-                    "eval (kept traces) will fill this in; it is the cache that matters most locally (Eq. 15).")
+        names = ", ".join(p.get("root_names") or []) or "none"
+        add("medium", f"No traced local model calls in the {p.get('roots', 0)} project folder(s) this install knows ({names}). Every run "
+                      "logs its prompt reuse in <project>/.arch/runs; pick your project on Home and run a task, and this fills in. It is the "
+                      "cache that matters most locally.")
     elif p["rho"] is not None and p["rho"] < 0.5:
         add("medium", f"Local prefix reuse is {p['rho']:.0%} of prompt tokens. Retries should reuse most of the prompt; check that "
                       "the stable part comes first in the flows with the lowest reuse.")
