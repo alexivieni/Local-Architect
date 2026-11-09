@@ -35,7 +35,7 @@ list), `--modal` (dialogs, toasts), `--ring` (focus halo on inputs, derived from
 **Type**: `--font` (text: Segoe UI Variable Text and system fallbacks), `--font-head` (titles and big figures only),
 `--mono` (Cascadia). The scale is defined once, in rem, so it follows the browser's text size (it was px, written twice; same
 sizes at the default 16px). Fifteen steps, and every font size on the page is one of them (the 2026-11-08 sweep folded about 45
-literal values and nine alias names into them; the only literal left is the root size, and two inside the guarded Caches slice):
+literal values and nine alias names into them; the only literal left is the root size; the Caches and Cost map slices were folded in with the owner's yes, 2026-11-09):
 `--t-art` .46875rem (labels inside drawings), `--t-2xs` .6875rem, `--t-caption` .75rem, `--t-mono` .78125rem, `--t-sm` .8125rem,
 `--t-ui` .875rem (chips, tables, small buttons), `--t-body` .90625rem, `--t-lead` .9375rem, `--t-md` 1rem, `--t-head` 1.0625rem (card title),
 `--t-sub` 1.1875rem, `--t-title` 1.375rem, `--t-big` 1.625rem (big figures), `--t-hero` 1.75rem, `--t-display` 2rem (page title).
@@ -43,7 +43,7 @@ Weights: 400 body, 500 controls, 600 labels, 650 titles. Nothing ships from the 
 **Spacing**: `--s1` 4, `--s2` 8, `--s3` 12, `--s4` 16, `--s5` 24, `--s6` 32. Where a page only needs a gap it uses a spacing
 class, not an inline margin: `m0`, `mt-1`..`mt-5`, `mb-1`..`mb-5`, `my-1`..`my-5` (one step of the scale each; `mt-0`, `mb-0`),
 `ml-1`/`ml-2`/`mr-1`/`mr-2` (gaps between inline chips), `m-auto` (centring), and `.card.card-tight` (a one-line note card). Like
-the inline styles they replaced (177 of 203; 21 of the rest are in the guarded slices), they win over a component's own margin (`!important`); the test counts the
+the inline styles they replaced (199 of 203, the guarded slices included with the owner's yes; the 4 left are list indents and one-off padding), they win over a component's own margin (`!important`); the test counts the
 inline spacing that is left and the number may only go down.
 **Radius**: `--r` 14 (cards, panels), `--rs` 10 (controls, inner boxes, rows); defined once (the sheet said 12/8 and a later
 block silently set 14/10, which is what everyone saw, so 14/10 is kept), `--r-xs` 6 (tags, code), `--r-pill`.
@@ -101,5 +101,4 @@ the toast/modal/palette/slash/drawer shadows (use `--pop` / `--modal`), the old 
 and lane colours that later rules already override, and a few `var(--x,#fallback)` fallbacks. `.card`, `.thread`, `.msg`, `.nav`, `.btn` and the empty states are one rule each (2026-11-08: each merged at the
 position of its last layer, verified by a computed-style snapshot and a layout fingerprint of every page). Other selectors
 still appear in several rules, mostly on purpose (one rule sets the face of a list of titles, another their weight); fold a
-component's base look into one rule when touching its section. The Cost map's clickable rows sit in a
-guarded byte-slice and wait for the owner's yes before they get `clickRow`.
+component's base look into one rule when touching its section. Every clickable table row, the Cost map's included, uses `clickRow`.

@@ -25,13 +25,11 @@ def run():
     check("each Simple-mode step says its state in words, not only with a colour or symbol", 'h("span",{class:"sr-only"}," — "+label[st])' in ui and '"aria-hidden":"true"' in ui)
     check("icon-only and arrow buttons get spoken names after every render", "function a11yPass(" in ui and '"↑":"Move up","↓":"Move down"' in ui and "MutationObserver" in ui)
     check("clickable non-buttons become keyboard-reachable and answer Enter/Space", 'setAttribute("tabindex","0")' in ui and 'e.key==="Enter"||e.key===" "' in ui)
-    # a clickable table row is reached through clickRow() (Tab, Enter/Space, aria-current). The Cost map's row sits in a byte-slice
-    # that only its owner may change (CLAUDE.md, Cross-Platform Compliance), so it is counted apart and may not grow.
-    g0, g1 = ui.find("/* ===== Cost map (Models):"), ui.find("function benchPage(){")
-    outside = ui[:g0] + ui[g1:] if 0 < g0 < g1 else ui
-    raw_rows = re.findall(r'h\("tr",\{[^{}]*onclick', outside)
-    check("every clickable table row outside the guarded Cost map is reachable by keyboard (clickRow: Tab, Enter or Space)",
-          "function clickRow(fn,current)" in ui and 'h("tr",clickRow(' in ui and not raw_rows and len(re.findall(r'h\("tr",\{[^{}]*onclick', ui[g0:g1])) <= 1)
+    # a clickable table row is reached through clickRow() (Tab, Enter/Space, aria-current). The Cost map's row, inside its guarded
+    # slice, moved onto it with the owner's yes (2026-11-09), so the rule now holds for the whole page.
+    raw_rows = re.findall(r'h\("tr",\{[^{}]*onclick', ui)
+    check("every clickable table row on the page is reachable by keyboard (clickRow: Tab, Enter or Space), the Cost map's too",
+          "function clickRow(fn,current)" in ui and 'h("tr",clickRow(()=>{CM.flow=b.f;cmDraw();},CM.flow===b.f)' in ui and not raw_rows)
     # 2026-11-05 one-box Home (docs/telemetry/ui_rebuild_log.md 26): the old Simple page is Home ("overview"); old ids still land there.
     check("Home (the old Simple mode) is a real page with plain-language step names",
           '["overview","home","Start"' in ui and 'simple:"overview"' in ui and "const PLAIN_STEP=" in ui and "Writing the change" in ui)

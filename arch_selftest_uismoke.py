@@ -50,7 +50,7 @@ def run():
     planned = ["the hub opens in a real browser with no page error", "Home takes a typed folder and goal", "Do it starts the run",
                "Home shows 'Working on it' while it runs", "Home shows the verdict 'It worked'", "the run's events were pushed over one stream", "the page asks for the live half of /api/state", "an unchanged progress box is not rebuilt by the timer", "the fix is on disk and the tests pass",
                "the run is listed in Recent runs", "Undo restores the file and removes the generated test",
-               "Home stops polling once the run is over", "the one dialog: focus in, Esc and backdrop close", "the accessibility pass left nothing behind", "no uncaught page error"]
+               "Home stops polling once the run is over", "the one dialog: focus in, Esc and backdrop close", "a clickable row opens with Enter", "the accessibility pass left nothing behind", "no uncaught page error"]
     if not arch_browser.find_browser():
         for p in planned:
             print(f"  NOT RUN  {p} (no Edge or Chrome installed here)")
@@ -174,6 +174,14 @@ def run():
             b.cmd("Input.dispatchMouseEvent", {"type": kind, "x": 4, "y": 4, "button": "left", "clickCount": 1})
         backdrop = b.wait_for("!document.querySelector('dialog[open]')", 5)
         check("every window is one native dialog: focus goes in, Esc closes it, a backdrop click closes it", opened and closed and backdrop, (opened, closed, backdrop))
+        # clickRow (the Cost map's and Self-improve's clickable rows): Tab reaches the row, Enter does what a click does
+        b.eval("window.__rowHits=0;const t=document.createElement('table'),tb=document.createElement('tbody');"
+               "const r=h('tr',clickRow(()=>{window.__rowHits++;},false),h('td',null,'row'));tb.append(r);t.append(tb);t.id='rowProbe';document.body.append(t);r.focus()")
+        for kind in ("rawKeyDown", "keyUp"):
+            b.cmd("Input.dispatchKeyEvent", {"type": kind, "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13})
+        row_ok = b.eval("document.activeElement&&document.activeElement.tagName==='TR'&&document.activeElement.tabIndex===0&&window.__rowHits===1")
+        b.eval("document.getElementById('rowProbe').remove()")
+        check("a clickable table row takes focus and opens with Enter (clickRow, as on the Cost map)", row_ok)
         left = b.eval(A11Y_AUDIT) or []
         check("after the run, the scoped accessibility pass left nothing unnamed or unreachable on Home", not left, left[:5])
         b.eval("1")                                        # collect any late page error

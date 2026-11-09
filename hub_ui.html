@@ -5290,21 +5290,21 @@ function caSplit(cls,parts,label){
 }
 function caClaudeSide(key,s){
   const who=key==="app"?"The app's Claude runs":"Claude Code on this machine";
-  if(!s||!s.replies) return h("div",null,h("h3",{style:"margin:0 0 6px"},who),h("p",{class:"small mute"},"No replies with cache counts yet."));
+  if(!s||!s.replies) return h("div",null,h("h3",{class:"m0 mb-2"},who),h("p",{class:"small mute"},"No replies with cache counts yet."));
   const saved=key==="app"?`About ${caUsd(s.usd_saved_est)} USD saved at API prices (an estimate; paid about ${caUsd(s.usd_paid_est)} USD).`
     :`About ${caUsd(s.usd_saved_est)} USD saved at API prices (an estimate; Claude Code on a subscription is not billed per token).`;
   const g=s.gaps;
-  return h("div",null,h("h3",{style:"margin:0 0 6px"},who),
-    h("p",{style:"margin:0"},h("b",{class:"num"},caPct(s.read_share))," of input read from cache, over ",h("b",{class:"num"},caInt(s.replies))," replies."),
+  return h("div",null,h("h3",{class:"m0 mb-2"},who),
+    h("p",{class:"m0"},h("b",{class:"num"},caPct(s.read_share))," of input read from cache, over ",h("b",{class:"num"},caInt(s.replies))," replies."),
     ...caSplit("ca-input",[["read from cache",s.cache_read,"ca-read"],["written to cache",s.cache_write,"ca-write"],["not cached",s.uncached_input,"ca-unc"]],"Input tokens"),
-    h("p",{class:"small",style:"margin:8px 0 0"},saved),
-    h("h3",{style:"margin:14px 0 0;font-size:.95rem"},"Pauses between replies"),
+    h("p",{class:"small m0 mt-2"},saved),
+    h("h3",{style:"margin:14px 0 0;font-size:var(--t-lead)"},"Pauses between replies"),
     g?h("div",null,...caSplit("ca-gaps",[["within 5 min",g.within_5m,"ca-g1"],["5-60 min",g["5m_to_1h"],"ca-g2"],["over 1 h",g.over_1h,"ca-g3"]],"Pauses between replies"),
-      h("p",{class:"small mute",style:"margin:6px 0 0"},`Over ${caInt(g.n)} pauses. The 1-hour cache lifetime pays when the middle share (5-60 min) is large; here it is ${caPct(g["5m_to_1h"])}.`))
+      h("p",{class:"small mute m0 mt-2"},`Over ${caInt(g.n)} pauses. The 1-hour cache lifetime pays when the middle share (5-60 min) is large; here it is ${caPct(g["5m_to_1h"])}.`))
      :h("p",{class:"small mute"},"No timed pauses yet."));
 }
 function caTable(title,rows){
-  return h("div",null,h("h3",{style:"margin:10px 0 6px;font-size:.95rem"},title),
+  return h("div",null,h("h3",{style:"margin:10px 0 6px;font-size:var(--t-lead)"},title),
     rows.length?h("div",{style:"overflow-x:auto"},h("table",null,
       h("thead",null,h("tr",null,h("th",null,"Name"),h("th",{class:"n"},"Calls"),h("th",{class:"n"},"Read from cache"))),
       h("tbody",null,...rows.map(r=>h("tr",null,h("td",{class:"small"},cmName(r.name)),h("td",{class:"n"},caInt(r.calls)),h("td",{class:"n"},caPct(r.rho)))))))
@@ -5312,7 +5312,7 @@ function caTable(title,rows){
 }
 function caPrefix(p,fs){
   if(!p) return null;
-  const body=!p.calls?[h("p",{class:"small mute",style:"margin:0"},...caText(((fs.find(f=>/prefix-reuse data/i.test(f.text))||{}).text)||
+  const body=!p.calls?[h("p",{class:"small mute m0"},...caText(((fs.find(f=>/prefix-reuse data/i.test(f.text))||{}).text)||
       "No local prefix-reuse data yet: it fills in from the next live eval."))]
     :[h("div",{class:"btiles"},
         h("div",{class:"btile"},h("b",{class:"num"},caPct(p.rho)),h("span",{class:"mute small"},"of prompt tokens read from cache (rho)")),
@@ -5320,12 +5320,12 @@ function caPrefix(p,fs){
         h("div",{class:"btile"},h("b",{class:"num"},caBig(p.cached_tokens)),h("span",{class:"mute small"},"of "+caBig(p.prompt_tokens)+" prompt tokens reused")),
         h("div",{class:"btile"},h("b",{class:"num"},caPct(p.exact_share)),h("span",{class:"mute small"},"of calls with an exact count from the server"))),
       h("div",{class:"ca-two"},caTable("By workflow",p.by_flow||[]),caTable("By model",p.by_model||[]))];
-  return h("section",{class:"card"},h("h3",{style:"margin:0 0 4px"},"Local KV prefix"),
-    h("p",{class:"small mute",style:"margin:0 0 10px"},"How much of each local prompt the server did not have to read again (Eq. 15: rho = cached prompt tokens / prompt tokens)."),...body);
+  return h("section",{class:"card"},h("h3",{class:"m0 mb-1"},"Local KV prefix"),
+    h("p",{class:"small mute m0 mb-3"},"How much of each local prompt the server did not have to read again (Eq. 15: rho = cached prompt tokens / prompt tokens)."),...body);
 }
 function caDisk(L){
   const rows=[["slots","KV slots on disk"],["lookup","N-gram lookup"],["reply","Local reply database"],["cloud","Claude reply cache"]].filter(r=>L[r[0]]);
-  return h("section",{class:"card"},h("h3",{style:"margin:0 0 6px"},"Disk stores"),
+  return h("section",{class:"card"},h("h3",{class:"m0 mb-2"},"Disk stores"),
     h("div",{style:"overflow-x:auto"},h("table",null,
       h("thead",null,h("tr",null,...["Store","Files or entries","Size","Oldest","Newest","Orphans"].map((t,i)=>h("th",{class:i===1||i===2?"n":""},t)))),
       h("tbody",null,...rows.map(([id,name])=>{const l=L[id];return h("tr",null,
@@ -5333,12 +5333,12 @@ function caDisk(L){
         h("td",{class:"n"},caInt(l.entries||0)),h("td",{class:"n"},caBytes(l.bytes)),
         h("td",{class:"small"},when(l.oldest)),h("td",{class:"small"},when(l.newest)),
         h("td",null,id!=="slots"?"–":l.orphans?h("span",{class:"chip warn"},caInt(l.orphans)+" files, "+caBytes(l.orphan_bytes)):"none"));})))),
-    h("p",{class:"small mute",style:"margin:8px 0 0"},h("code",null,"python architect.py caches")," lists them; ",h("code",null,"--prune --yes")," removes them."));
+    h("p",{class:"small mute m0 mt-2"},h("code",null,"python architect.py caches")," lists them; ",h("code",null,"--prune --yes")," removes them."));
 }
 function cachesPage(){
   return [h("div",{class:"card"},
     h("div",{class:"row",style:"gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px"},
-      h("p",{class:"sub grow",style:"margin:0"},"Every cache one request meets, in order, and what each one saved. Information only: nothing here changes a setting or deletes a file."),
+      h("p",{class:"sub grow m0"},"Every cache one request meets, in order, and what each one saved. Information only: nothing here changes a setting or deletes a file."),
       h("button",{type:"button",id:"caRefresh",class:"btn sm","aria-label":"Read the caches again",onclick:()=>loadCaches(true)},"Refresh")),
     h("div",{id:"caOut",style:"display:flex;flex-direction:column;gap:14px"},h("p",{class:"sub"},"Reading the caches…")))];
 }
@@ -5362,10 +5362,10 @@ function caDraw(){
     h("span",null,h("span",{class:"chip good"},"working")," reused"),h("span",null,h("span",{class:"chip"},"unused")," empty or no data yet"),
     h("span",null,h("span",{class:"chip warn"},"warning")," stored but never reused, or orphans"),
     d.t?h("span",null,"read "+when(d.t)):null));
-  out.append(h("section",{class:"card"},h("h3",{style:"margin:0 0 8px"},"What stands out"),caFindings(fs)));
+  out.append(h("section",{class:"card"},h("h3",{class:"m0 mb-2"},"What stands out"),caFindings(fs)));
   const c=L.claude;
-  if(c) out.append(h("section",{class:"card"},h("h3",{style:"margin:0 0 4px"},"Claude prompt cache, both ends"),
-    h("p",{class:"small mute",style:"margin:0 0 10px"},"Tokens read from the cache cost a tenth of fresh input; writing one costs a quarter more. Dollar figures are estimates from the token counts."),
+  if(c) out.append(h("section",{class:"card"},h("h3",{class:"m0 mb-1"},"Claude prompt cache, both ends"),
+    h("p",{class:"small mute m0 mb-3"},"Tokens read from the cache cost a tenth of fresh input; writing one costs a quarter more. Dollar figures are estimates from the token counts."),
     h("div",{class:"ca-two"},caClaudeSide("app",(c.sources||{}).app),caClaudeSide("claude_code",(c.sources||{}).claude_code))));
   const pre=caPrefix(L.prefix,fs); if(pre) out.append(pre);
   out.append(caDisk(L));
@@ -5949,7 +5949,7 @@ function cmDraw(){
   chart.addEventListener("click",e=>{const g=e.target.closest&&e.target.closest(".cm-pt");if(g)pick(g.dataset.k);});
   chart.addEventListener("keydown",e=>{const g=e.target.closest&&e.target.closest(".cm-pt");if(g&&(e.key==="Enter"||e.key===" ")){e.preventDefault();pick(g.dataset.k);}});
   out.append(chart);
-  out.append(h("p",{class:"small",style:"margin:0"},h("b",null,"Lower right is better: "),"further right passes more often, lower is faster per task. ",
+  out.append(h("p",{class:"small m0"},h("b",null,"Lower right is better: "),"further right passes more often, lower is faster per task. ",
     "Every point on one dashed line costs the same per change that passes, so a fast model that often fails can cost more than a slow one that passes.",
     h("span",{class:"mute",title:"C = t / p: seconds per task divided by how often it passes (equation 16 of the technical report). Measured by your own live benchmark runs (architect.py eval); the scripted harness check is left out."}," ⓘ")));
   out.append(h("div",{class:"row small mute",style:"gap:16px;flex-wrap:wrap"},
@@ -5962,20 +5962,20 @@ function cmDraw(){
   if(sel){
     const hs=sel.history||[];
     out.append(h("div",{id:"cmDetail",class:"card"},
-      h("div",{class:"row",style:"gap:8px;flex-wrap:wrap;align-items:center"},h("h3",{class:"grow",style:"margin:0"},cmName(sel.model)+" on "+cmKind(sel.kind)),
+      h("div",{class:"row",style:"gap:8px;flex-wrap:wrap;align-items:center"},h("h3",{class:"grow m0"},cmName(sel.model)+" on "+cmKind(sel.kind)),
         sel.orthogonalized?h("span",{class:"chip info"},"orthogonalized"):null,
         h("button",{class:"btn sm",onclick:()=>{CM.sel=null;cmDraw();}},"Close")),
-      h("div",{class:"btiles",style:"margin-top:10px"},
+      h("div",{class:"btiles mt-3"},
         h("div",{class:"btile "+(sel.C==null?"bad":"")},h("b",{class:"num"},cmSecs(sel.C)),h("span",{class:"mute small"},"per change that passed")),
         h("div",{class:"btile"},h("b",{class:"num"},sel.passed+" of "+sel.tasks),h("span",{class:"mute small"},"tasks passed"+(sel.not_sure?", "+sel.not_sure+" not sure":""))),
         h("div",{class:"btile"},h("b",{class:"num"},fmt(sel.t,0)+" s"),h("span",{class:"mute small"},"per task, on average"))),
       Object.keys(sel.failures||{}).length?h("div",{class:"row small",style:"gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center"},
         h("span",{class:"mute"},"Why the failures failed:"),
         ...Object.entries(sel.failures).sort((x,y)=>y[1]-x[1]).map(([f,n])=>h("span",{class:"chip"+(f==="environment"?"":" warn"),title:CM_WHY[f]||f},f+" "+n))):null,
-      hs.length>1?h("div",null,h("h3",{style:"margin:12px 0 6px"},"Run by run"),h("div",{style:"overflow-x:auto"},h("table",null,
+      hs.length>1?h("div",null,h("h3",{class:"m0 mt-3 mb-2"},"Run by run"),h("div",{style:"overflow-x:auto"},h("table",null,
         h("thead",null,h("tr",null,...["Run","When","Passed","Seconds per task","Per accepted change"].map((t,i)=>h("th",{class:i>1?"n":""},t)))),
         h("tbody",null,...hs.map(q=>h("tr",null,h("td",null,q.label),h("td",null,when(q.ts)),h("td",{class:"n"},q.passed+" / "+q.tasks),h("td",{class:"n"},fmt(q.t,0)),h("td",{class:"n"},cmSecs(q.C)))))))):null,
-      h("h3",{style:"margin:12px 0 6px"},"The tasks behind this point"),
+      h("h3",{class:"m0 mt-3 mb-2"},"The tasks behind this point"),
       h("div",{style:"overflow-x:auto"},h("table",null,
         h("thead",null,h("tr",null,...["Task","Result","Seconds","Calls","Run","What the checks said"].map((t,i)=>h("th",{class:i===2||i===3?"n":""},t)))),
         h("tbody",null,...(sel.runs||[]).map(t=>h("tr",null,h("td",{class:"mono small"},t.id),
@@ -5985,18 +5985,18 @@ function cmDraw(){
   const byFlow={};
   for(const r of all) (byFlow[r.kind]=byFlow[r.kind]||[]).push(r);
   const best=Object.entries(byFlow).map(([f,rs])=>{const ok=rs.filter(r=>r.C!=null).sort((a,b)=>a.C-b.C);return {f,a:ok[0],b:ok[1],n:rs.length};}).sort((p,q)=>(p.a?p.a.C:1e9)-(q.a?q.a.C:1e9));
-  out.append(h("div",null,h("h3",{style:"margin:6px 0"},"Cheapest per kind of task"),
-    h("p",{class:"small mute",style:"margin:0 0 6px"},"Measured, not a recommendation to switch: a model you chose stays in charge until you change it."),
+  out.append(h("div",null,h("h3",{class:"m0 my-2"},"Cheapest per kind of task"),
+    h("p",{class:"small mute m0 mb-2"},"Measured, not a recommendation to switch: a model you chose stays in charge until you change it."),
     h("div",{style:"overflow-x:auto"},h("table",null,
       h("thead",null,h("tr",null,...["Kind of task","Cheapest","How sure","Per accepted change","Next best","Models measured"].map((t,i)=>h("th",{class:i===2||i===3||i===5?"n":""},t)))),
-      h("tbody",null,...best.map(b=>h("tr",{style:"cursor:pointer",onclick:()=>{CM.flow=b.f;cmDraw();}},h("td",null,cmKind(b.f)),
+      h("tbody",null,...best.map(b=>h("tr",clickRow(()=>{CM.flow=b.f;cmDraw();},CM.flow===b.f),h("td",null,cmKind(b.f)),
         h("td",null,b.a?cmName(b.a.model):h("span",{class:"chip bad"},"none passed yet")),
         h("td",{class:"n",title:"How often this model came out cheapest when its pass rate is redrawn from what was measured (2000 draws): a few tasks a point make 'cheapest' partly luck"},
           (()=>{const pc=((CM.data.p_cheapest||{})[b.f]||{})[b.a?b.a.model:""];return pc==null?"–":Math.round(pc*100)+"%";})()),
         h("td",{class:"n"},b.a?cmSecs(b.a.C):"–"),
         h("td",{class:"small"},b.b?cmName(b.b.model)+" · "+cmSecs(b.b.C):"–"),h("td",{class:"n"},String(b.n)))))))));
   const calls=CM.data.calls||[];
-  out.append(h("div",null,h("h3",{style:"margin:6px 0"},"Per model call"),calls.length?h("div",{style:"overflow-x:auto"},h("table",null,
+  out.append(h("div",null,h("h3",{class:"m0 my-2"},"Per model call"),calls.length?h("div",{style:"overflow-x:auto"},h("table",null,
       h("thead",null,h("tr",null,...["Role","Model","Calls","Cached prompt","Pass rate by try","Per accepted change","Feedback saves"].map((t,i)=>h("th",{class:i===2||i===3||i>4?"n":""},t)))),
       h("tbody",null,...calls.map(c=>h("tr",null,h("td",null,c.role),h("td",null,cmName(c.model)),h("td",{class:"n"},String(c.calls)),
         h("td",{class:"n"},c.rho==null?"–":Math.round(c.rho*100)+"%"),h("td",{class:"small"},(c.p_i||[]).map((p,i)=>"try "+(i+1)+": "+Math.round(p*100)+"%").join(" · ")),

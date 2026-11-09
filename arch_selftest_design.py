@@ -20,7 +20,7 @@ COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b|rgba?\(")
 # pointed at their tokens). The number may only go down: a new colour is a new token. See docs/design_system.md, "Still to fold".
 COLOUR_CEILING = 4
 # Inline styles that only set a margin or padding (203 on 2026-11-08 before the spacing classes; may only go down)
-SPACING_CEILING = 26   # 21 of them sit in the two guarded slices (owner's yes needed); 5 are list indents and one-off padding
+SPACING_CEILING = 4   # list indents and one-off padding; the guarded slices were converted with the owner's yes (2026-11-09)
 
 
 def _decls(block):
@@ -85,12 +85,9 @@ def run():
     check("every type token is in rem (px ignored the browser's text size) and each is defined once",
           tdefs and all(v.strip().endswith("rem") for _, v in tdefs) and len(tdefs) == len({k for k, _ in tdefs}),
           [f"{k}:{v}" for k, v in tdefs if not v.strip().endswith("rem")][:5] or sorted({k for k, _ in tdefs if [x for x, _ in tdefs].count(k) > 1}))
-    # 2026-11-08 Phase 3 type sweep: every font size outside the two guarded slices is a token (the root size defines rem itself)
-    g0 = sorted([(html.find("/* ===== Caches (Models):"), html.find("/* ---- Benchmarks:")), (html.find("/* ===== Cost map (Models):"), html.find("function benchPage(){"))])
+    # 2026-11-08 Phase 3 type sweep: every font size is a token (the root size defines rem itself). The two guarded slices were
+    # folded in with the owner's yes on 2026-11-09, so nothing is exempt any more.
     open_html = html
-    for a0, b0 in g0:
-        if 0 < a0 < b0:
-            open_html = open_html.replace(html[a0:b0], "")
     lit = [x for x in re.findall(r"[^{;\s]{0,12}\{?font-size:\s*[0-9.]+r?em", open_html) if not x.endswith("html{font-size:1rem")]
     lit += re.findall(r"font:\s*(?:[0-9]{3}\s+)?[0-9.]+r?em", open_html)
     check("every font size is a --t-* step (no literal rem/em sizes, ~280 before the sweep)", not lit, lit[:5])

@@ -140,3 +140,14 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   card border) now shows. A dead phone rule for `.card` padding went.
 - Guards: design suite (one dialog, every size a token, no alias, spacing ratchet 39), hub check (halves = whole, 304), hubperf
   (Ollama-down under 1 s), uismoke (stream not polled, live half only, dialog behaviour, a11y audit).
+
+## Inside the guarded slices, with the owner's yes (2026-11-09)
+- The owner approved one edit inside the Caches and Cost map byte-slices (CLAUDE.md, Cross-Platform Compliance). Done, and nothing
+  else in those slices moved: the Cost map's cheapest-per-kind row uses `clickRow` (Tab, Enter/Space, aria-current), the Caches
+  page's two .95rem sizes are `--t-lead`, and 22 spacing-only inline styles became spacing classes. Everything outside the slices
+  was checked byte-identical by the patch. The rule stands: the next edit inside them needs a new yes.
+- The design suite's type check no longer exempts the slices; the a11y suite requires `clickRow` for every clickable row on the
+  page; the spacing ratchet is 4. uismoke presses Enter on a `clickRow` row.
+- `arch_browser`: Edge on this laptop started handing off to a new browser process and exiting 0 (2026-11-09), so every browser
+  check failed to launch. `launch` now keeps waiting for the debugging port when the launcher exits 0, and `close` sends
+  `Browser.close` so a handed-off browser shuts down too (it was left running).

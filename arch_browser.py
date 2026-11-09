@@ -162,7 +162,10 @@ class Browser:
         port_file = os.path.join(profile, "DevToolsActivePort")
         t0 = time.time()
         port = None
-        while time.time() - t0 < timeout and proc.poll() is None:
+        # A launcher that exits with 0 may have handed off to the real browser process (Edge does on this laptop since 2026-11-09:
+        # msedge.exe starts the browser as a new process and returns at once), so keep waiting for the port; only a launcher that
+        # FAILED (non-zero exit) ends the wait early.
+        while time.time() - t0 < timeout and proc.poll() in (None, 0):
             try:
                 with open(port_file, encoding="utf-8") as f:
                     port = int(f.readline().strip())
@@ -267,6 +270,10 @@ class Browser:
 
     def close(self):
         try:
+            try:
+                self.cmd("Browser.close", timeout=5)   # the browser shuts itself down, even one a launcher handed off to (not our child)
+            except Exception:                          # intentional: a browser that already went away cannot be asked to close; the kill below still runs
+                pass
             self.ws.close()
         finally:
             self._kill(self.proc, self.job)
