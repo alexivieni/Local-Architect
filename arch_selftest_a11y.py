@@ -25,6 +25,13 @@ def run():
     check("each Simple-mode step says its state in words, not only with a colour or symbol", 'h("span",{class:"sr-only"}," — "+label[st])' in ui and '"aria-hidden":"true"' in ui)
     check("icon-only and arrow buttons get spoken names after every render", "function a11yPass(" in ui and '"↑":"Move up","↓":"Move down"' in ui and "MutationObserver" in ui)
     check("clickable non-buttons become keyboard-reachable and answer Enter/Space", 'setAttribute("tabindex","0")' in ui and 'e.key==="Enter"||e.key===" "' in ui)
+    # a clickable table row is reached through clickRow() (Tab, Enter/Space, aria-current). The Cost map's row sits in a byte-slice
+    # that only its owner may change (CLAUDE.md, Cross-Platform Compliance), so it is counted apart and may not grow.
+    g0, g1 = ui.find("/* ===== Cost map (Models):"), ui.find("function benchPage(){")
+    outside = ui[:g0] + ui[g1:] if 0 < g0 < g1 else ui
+    raw_rows = re.findall(r'h\("tr",\{[^{}]*onclick', outside)
+    check("every clickable table row outside the guarded Cost map is reachable by keyboard (clickRow: Tab, Enter or Space)",
+          "function clickRow(fn,current)" in ui and 'h("tr",clickRow(' in ui and not raw_rows and len(re.findall(r'h\("tr",\{[^{}]*onclick', ui[g0:g1])) <= 1)
     # 2026-11-05 one-box Home (docs/telemetry/ui_rebuild_log.md 26): the old Simple page is Home ("overview"); old ids still land there.
     check("Home (the old Simple mode) is a real page with plain-language step names",
           '["overview","home","Start"' in ui and 'simple:"overview"' in ui and "const PLAIN_STEP=" in ui and "Writing the change" in ui)
@@ -38,8 +45,10 @@ def run():
     # 2026-11-05 evening: the sleep-time path (data night, train the worker, morning card) must be clear, large and announced
     icon_only = re.findall(r'h\("button",\{[^{}]*class:"btn (?:p|pri)(?: [a-z-]+)*"[^{}]*\},icon\("[a-z-]+"\)\)', ui)
     check("no primary button is icon-only: every one carries a visible text label", not icon_only)
-    check("primary actions are at least 44 px tall, the data night buttons 48 px",
-          ".btn.p,.btn.danger.dn-big{min-height:44px}" in ui and ".dn-big{min-height:48px" in ui)
+    btn_block = ui[ui.find("/* ===== BUTTONS: the one block"):ui.find("/* ===== end of BUTTONS")]
+    check("primary actions are at least 44 px tall (a small one in a row of small buttons stays small), the data night buttons 48 px",
+          "min-height:44px" in btn_block.split(".btn.p,.btn.pri{", 1)[-1].split("}", 1)[0] and ".btn.danger.dn-big{min-height:44px}" in ui
+          and ".dn-big{min-height:48px" in ui)
     check("Start data night and Stop safely are real, labelled buttons; Stop safely shows only while it runs and focus moves to it on start",
           'id:"dnStart",type:"button"' in ui and 'id:"dnStop",type:"button",hidden:true' in ui and 'const s=$("#dnStop"); if(s)s.focus();' in ui and "Stopping after this task..." in ui)
     check("data night state changes are announced (started, stopping, finished) through live regions, not colour alone",

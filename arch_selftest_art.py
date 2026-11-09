@@ -93,8 +93,9 @@ def run():
         pp = re.search(rf":root\[data-theme=paper\]\[data-accent={a}\],:root\[data-accent={a}\] \.th-paper\{{([^}}]*)\}}", tokens)
         acc[a] = (_decls(md.group(1)) if md else None, _decls(pp.group(1)) if pp else None, pp.start() if pp else -1)
     sysdark_acc = tokens.find(":root:not([data-theme=light])[data-accent=moss]")
+    # an accent never moves a status colour (2026-11-08): --info stays the theme's own, so Paper's accents set --acc but not --info
     check("Midnight takes the dark accents, Paper has its own (and they come after the system-dark accents, so they win)",
-          all(m and p and "acc" in p and "info" in p and at > sysdark_acc > 0 for m, p, at in acc.values()))
+          all(m and p and "acc" in p and "info" not in p and "info" not in m and at > sysdark_acc > 0 for m, p, at in acc.values()))
 
     # ---- 2. contrast, every theme x every accent (WCAG AA 4.5:1 for text, 3:1 for the hue marks)
     def theme_tokens(base, over):

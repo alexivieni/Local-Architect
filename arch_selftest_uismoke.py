@@ -43,7 +43,7 @@ def run():
         print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   ({str(extra)[:400]})" if extra and not ok else ""))
 
     planned = ["the hub opens in a real browser with no page error", "Home takes a typed folder and goal", "Do it starts the run",
-               "Home shows 'Working on it' while it runs", "Home shows the verdict 'It worked'", "the fix is on disk and the tests pass",
+               "Home shows 'Working on it' while it runs", "Home shows the verdict 'It worked'", "an unchanged progress box is not rebuilt by the timer", "the fix is on disk and the tests pass",
                "the run is listed in Recent runs", "Undo restores the file and removes the generated test",
                "Home stops polling once the run is over", "no uncaught page error"]
     if not arch_browser.find_browser():
@@ -122,6 +122,10 @@ def run():
         box = b.eval("(()=>{const p=document.querySelector('#spProgress');return p?p.innerText:''})()") or ""
         check("Home shows 'Working on it' while it runs", seen_working, box[:200])
         check("Home shows the verdict 'It worked'", finished and "It worked" in box, box[:300])
+        b.eval("window.__spHead=document.querySelector('#spProgress .sp-h')")
+        time.sleep(3.5)                                   # two ticks of the 1.5 s Home timer
+        kept = b.eval("!!window.__spHead && document.querySelector('#spProgress .sp-h')===window.__spHead")
+        check("an unchanged progress box is not rebuilt by the timer (it re-read itself to screen readers every 1.5 s)", kept)
 
         fixed = "(page - 1) * size" in open(os.path.join(proj, "pager.py"), encoding="utf-8").read()
         tests = subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=proj, capture_output=True, text=True, timeout=120)

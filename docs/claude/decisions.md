@@ -101,3 +101,22 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   .tfilter rules, the dead .st-menu block and 9 overridden colour literals are gone; 7 rendering literals point at their tokens.
 - arch_selftest_design guards it: colour ceiling 88 -> 4, type tokens rem and defined once, no duplicate @keyframes, no --bg-tinted shadow.
   Left for Phase 2: portrait SVG colours and the HUD #07090e (need a token decision), the protected Caches/Cost map slices (owner's yes).
+
+## Design system Phase 2 (2026-11-08)
+- Buttons: ONE block (`BUTTONS: the one block`, calm layer) replaces 25 rules in six layers. Proven by a browser snapshot of every
+  button's computed style on every page (light/dark, 1280/390 px, plain and hovered): the only changes are the intended ones. Small
+  primaries are 30 px again (every `.btn.sm.p` was 44), `.pri` = `.p` (44 px, hover lift), `.btn.ghost` exists (used, never defined),
+  a pressed toggle keeps the row's height, a disabled primary no longer lifts on hover.
+- Accents never move a status colour: `--info` came out of all 12 accent rules (copper/moss info notes read as warning/success).
+- Theme parity: every theme sets its own `--lift` (Paper borrowed the light navy; the dark ones are flat like their `--shadow`).
+  Radius is defined once at the 14/10 everyone saw (the sheet said 12/8 and a later block overrode it).
+- One focus ring without `!important` (it overrode every component offset, so menu rows' inward ring was clipped). 51 px sizes hidden in
+  `font:` shorthands are rem (the font-size check could not see them; the hub check now does).
+- Home's progress box and the run bar redraw only on change: they rebuilt every 1.5 s, restarting the shimmer, dropping focus from
+  Keep/Undo, wiping "See the details" and re-reading the live region to screen readers (uismoke check, fails on the old page).
+- Empty states: one block for `.empty/.st-empty/.bp-empty/.idle`. Clickable table rows use `clickRow()` (Tab, Enter/Space). Portrait
+  drawings use `currentColor` + blueprint tokens; the HUD frame uses `--hud-bg`.
+- The hubcalm suite anchored its "calm layer" on the header comment, so every "in calm" check searched the whole sheet; fixed (two
+  checks then told the truth: the radius pair and the Claude token location).
+- Left: the Cost map's clickable row and anything else inside the two guarded slices (owner's yes); Phase 3 (one dialog, SSE, split
+  /api/state with an ETag, the a11y observer scope, spacing classes, the type sweep, merging the remaining layers).

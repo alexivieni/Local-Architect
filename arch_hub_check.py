@@ -222,6 +222,8 @@ def run():
               "Show advanced pages" in html and 'store.get("showAdvanced","0")' in html and 'e.key==="Tab"' in html and "openPalette.back" in html)
         check("no hard-coded px font sizes are left on the page (they are rem, so the browser's text size applies)",
               not re.search(r"font-size:\d+(\.\d+)?px", html), re.findall(r"font-size:\d+(?:\.\d+)?px", html)[:5])
+        px_short = re.findall(r"font:[^;}\"]*\d+(?:\.\d+)?px[^;}\"]*", html)
+        check("no px size hides inside a font: shorthand either (51 did; the font-size check could not see them)", not px_short, px_short[:5])
         pl = call("/api/arch/plugins")
         check("plugins answers available + a list, never a crash", isinstance(pl.get("available"), bool) and isinstance(pl.get("plugins"), list), pl)
         check("trusting a plugin without confirm, a bad name, and installing from a missing folder are refused",

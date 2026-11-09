@@ -58,12 +58,21 @@ def run():
     check("the dark theme is one set, written twice the same (system setting and explicit choice)", DM and DM == DA,
           sorted(set(DM.items()) ^ set(DA.items()))[:6])
     check("every dark token has a light counterpart", DM and set(DM) <= set(L), sorted(set(DM) - set(L)))
+    MID = _decls((re.search(r"\.th-midnight,:root\[data-theme=midnight\]\{(.*?)\}", tokens, re.S) or [None, ""])[1])
+    PAP = _decls((re.search(r"\.th-paper,:root\[data-theme=paper\]\{(.*?)\}", tokens, re.S) or [None, ""])[1])
+    check("Midnight and Paper each set every token the dark theme sets (none borrows a colour tuned for another page)",
+          DA and set(MID) == set(DA) and set(PAP) == set(DA), (sorted(set(DA) ^ set(MID)), sorted(set(DA) ^ set(PAP))))
+    check("every theme sets its own resting AND hover shadow (Paper's hover was the light theme's navy)",
+          all("shadow" in t and "lift" in t for t in (L, DM, DA, MID, PAP)) and "60,40,10" in PAP.get("lift", ""))
     acc = {a: [re.search(rf"{sel}\{{([^}}]*)\}}", tokens) for sel in (rf":root\[data-accent={a}\],:root\[data-accent={a}\] \.th-light",
                                                                        rf":root:not\(\[data-theme=light\]\)\[data-accent={a}\]",
                                                                        rf":root\[data-theme=dark\]\[data-accent={a}\],:root\[data-accent={a}\] \.th-dark")]
            for a in ("graphite", "copper", "moss")}
-    check("each accent has a light, a system-dark and a chosen-dark version, and the dark ones set --info too",
-          all(all(m and "--acc:" in m.group(1) for m in ms) and "--info:" in ms[1].group(1) and "--info:" in ms[2].group(1) for ms in acc.values()))
+    check("each accent has a light, a system-dark and a chosen-dark version",
+          all(all(m and "--acc:" in m.group(1) for m in ms) for ms in acc.values()))
+    acc_region = tokens[tokens.find("/* accents:"):tokens.find("/* derived:")]
+    check("an accent never moves a status colour (--info, --good, --warn, --bad stay the theme's own)",
+          acc_region and not re.search(r"--(?:info|good|warn|bad)(?:bg)?:", acc_region), re.findall(r"--(?:info|good|warn|bad)(?:bg)?:[^;]*", acc_region)[:4])
     late_roots = re.findall(r"(?<![\w-]):root(?:\[[^\]]*\])*\{", below)
     check("no token block hides further down the stylesheet (the old identity, polish, calm and flagship :root blocks are gone)",
           not late_roots, late_roots[:5])
@@ -79,6 +88,36 @@ def run():
           sorted({k for k in kf if kf.count(k) > 1}))
     check("no shadow is tinted with the page background (invisible in the light and paper themes)",
           not re.search(r"box-shadow:[^;}]*color-mix\(in srgb,var\(--bg\)", below))
+    # ---- 2026-11-08 design-system Phase 2: one definition per component
+    bstart, bend = css.find("/* ===== BUTTONS: the one block"), css.find("/* ===== end of BUTTONS")
+    bblock, outside = css[bstart:bend], (css[:bstart] + css[bend:]) if bstart > 0 else css
+    def nocomment(t):
+        return re.sub(r"/\*.*?\*/", "", t, flags=re.S)
+    groups = [[x.strip() for x in g.split(",")] for g in re.findall(r"(?:^|[}\n])\s*([^{}@]+)\{", nocomment(outside))]
+    base_btn = re.compile(r"^\.btn(?:\.(?:p|pri|sm|ghost|ghost-danger|danger|link))*(?::[a-z-]+(?:\([^)]*\))?)*$")
+    # a rule made ONLY of button selectors belongs in the block; a shared rule (control radius, touch sizes, forced colours) may name .btn
+    stray = [",".join(g) for g in groups if g and all(base_btn.match(x) for x in g)]
+    check("buttons have ONE block: no base, size, variant or state rule for .btn lives outside it (there were 25, in six layers)",
+          bstart > 0 and bend > bstart and not stray, stray[:6])
+    variants = ("p", "pri", "sm", "ghost", "ghost-danger", "danger", "link")
+    used = set(re.findall(r'class:"btn((?: [a-z-]+)+)"', html)) | set(re.findall(r"class:\"btn\"\+\([^)]*\" ([a-z-]+)\"", html))
+    used = {c for u in used for c in u.split()}
+    check("every button variant the page uses is defined in that block (.btn.ghost was used and never defined)",
+          all(re.search(r"\.btn\." + re.escape(v) + r"[{,:.\[]", bblock) for v in variants if v in used), [v for v in variants if v in used and not re.search(r"\.btn\." + re.escape(v) + r"[{,:.\[]", bblock)])
+    check("a small primary stays small (every .btn.sm.p was 44 px tall, out of line with the small buttons beside it)",
+          ".btn.p.sm,.btn.pri.sm{min-height:30px}" in bblock)
+    rings = re.findall(r"([^{}]*:focus-visible[^{}]*)\{([^}]*)\}", nocomment(css))
+    widths = [sel.strip()[-60:] for sel, body in rings if re.search(r"outline:\s*\d", body)]
+    check("one focus ring: only the global rule sets its width and colour, without !important (components change the offset only)",
+          widths == [":focus-visible"] and not any("!important" in body for _, body in rings), widths[:6])
+    estart, eend = css.find("/* ===== EMPTY STATES:"), css.find("/* ===== end of EMPTY STATES")
+    eblock, eout = css[estart:eend], (css[:estart] + css[eend:]) if estart > 0 else css
+    e_rules = re.findall(r"(?:^|[}\n])\s*((?:\.empty|\.st-empty|\.bp-empty|\.idle)(?:,(?:\.empty|\.st-empty|\.bp-empty|\.idle))*)\{([^}]*)\}", nocomment(eout))
+    e_stray = [sel for sel, body in e_rules if re.search(r"(?:padding|background|border|color|font-size)\s*:", body)]
+    check("empty states have ONE look: their box (padding, background, border, colour, size) is set only in the EMPTY STATES block",
+          estart > 0 and ".empty,.st-empty,.bp-empty,.idle{" in eblock and not e_stray, e_stray[:6])
+    check("the HUD frame and the role portraits draw with tokens (no colour literal left in the script either)",
+          "background:var(--hud-bg)" in html and "--hud-bg:#07090e" in tokens and 'stroke="#' not in html and 'fill="#eaf1ff"' not in html)
     ws = html[html.find("/* ===== 2026-11-04: the agents' workspace"):html.find("</style>")]
     check("from the workspace section to the end of the stylesheet there is no literal colour at all", ws and not COLOUR.findall(ws), COLOUR.findall(ws)[:5])
     defined = set(re.findall(r"--([a-z0-9-]+)\s*:", html))

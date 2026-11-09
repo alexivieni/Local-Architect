@@ -32,6 +32,10 @@ def contrast(a, b):
     return (la + 0.05) / (lb + 0.05)
 
 
+CR, LF = chr(13), chr(10)
+FOCUS_RING = LF + ":focus-visible{outline:3px solid var(--acc);outline-offset:2px}"   # the one global ring, no !important
+
+
 def _tok(block, name):
     m = re.findall(r"--" + re.escape(name) + r":(#[0-9a-fA-F]{3,6})\b", block)
     return m[-1] if m else None
@@ -72,12 +76,15 @@ def run():
 
     html = open(os.path.join(HERE, "hub_ui.html"), encoding="utf-8").read()
     css = html[html.index("<style>"):html.index("</style>")]
-    calm_at = css.find("CALM LAYER")
+    # the layer's own opening comment: the bare words "CALM LAYER" also appear in the header comment at the top of the stylesheet,
+    # and anchoring on that made every "in calm" check below search the whole stylesheet
+    calm_at = css.find("CALM LAYER (UX review")
     calm = css[calm_at:] if calm_at >= 0 else ""
     base = css[:css.index("@media (prefers-color-scheme:dark)")]
     dark = re.search(r":root\[data-theme=dark\]\{(.*?)\}", css, re.S).group(1)
-    calm_light = re.search(r":root\{(.*?)\}", calm, re.S).group(1) if calm else ""
-    calm_dark = (re.search(r":root\[data-theme=dark\]\{(.*?)\}", calm, re.S) or [None, ""])[1] if calm else ""
+    # the calm layer's colour tokens now live in the ONE token block at the top (light, then the explicit dark theme)
+    calm_light = re.search(r"\.th-light,:root\{color-scheme:light;(.*?)\}", css, re.S).group(1)
+    calm_dark = dark
 
     check("the calm layer exists and is the last word in the stylesheet", calm_at > 0 and css.rfind("@media (max-width:600px)") > calm_at)
 
@@ -86,7 +93,8 @@ def run():
           ".card::after,.thread::after,.doing::after,.tiercard::after{content:none}" in calm)
     check("dashed borders become solid (start buttons, thinking box, foreign card, 'more' tile, Blueprints canvas)",
           ".starts button,.starts button:hover,.ccthink,.bp-card.foreign,.crew .more{border-style:solid}" in calm and ".bp-canvas{border:1px solid var(--line)}" in calm)
-    check("one radius pair: cards use --r, controls and rows use --rs", "--r:12px;--rs:8px" in calm and ".btn,input,select,textarea" in calm and "{border-radius:var(--rs)}" in calm)
+    check("one radius pair, defined once: cards use --r, controls and rows use --rs",
+          "--r:14px;--rs:10px" in calm_light and len(re.findall(r"--rs?:\d", css)) == 2 and ".btn,input,select,textarea" in calm and "{border-radius:var(--rs)}" in calm)
     check(".pri is the same filled primary as .p (Send used to look secondary)", ".btn.p,.btn.pri{background:var(--acc);color:var(--on-acc)" in calm)
     check("plain cards no longer jump on hover; clickable ones still do", ".card:not([role=button]):hover{box-shadow:var(--shadow);border-color:var(--line);transform:none}" in calm)
 
@@ -111,7 +119,7 @@ def run():
     for name, fg, bg in pairs:
         ok = bool(fg and bg) and contrast(fg, bg) >= 4.5
         check(f"AA contrast, {name}", ok, f"{fg} on {bg} = {contrast(fg, bg):.2f}" if fg and bg else "token missing")
-    check("the Claude orange is a token, and the lanes/bars stop using stray colours", "--claude:#d97757" in calm and ".lane-b.heavy{background:var(--llm)}" in calm and ".crew-bar .bar>i{background:var(--claude)}" in calm)
+    check("the Claude orange is a token, and the lanes/bars stop using stray colours", "--claude:#d97757" in calm_light and ".lane-b.heavy{background:var(--llm)}" in calm and ".crew-bar .bar>i{background:var(--claude)}" in calm)
     check("figures use tabular numbers", "font-variant-numeric:tabular-nums" in calm and "td.n" in calm)
 
     # ---- New task page
@@ -144,7 +152,8 @@ def run():
     check("the shortcuts list names Ctrl+K, Esc, / and j/k", all(f'["{k}"' in html for k in ("Ctrl", "Esc", "/", "j")) and "const KEYS=[" in html)
     check("Esc closes a panel before it would ever stop a run",
           html.index("if(HELP_EL){e.preventDefault();closeHelp();return;}") < html.index("if(EV.running){e.preventDefault();"))
-    check("focus is always visible (no outline:none on :focus-visible)", ":focus-visible{outline:none" not in css and ":focus-visible{outline:2px solid var(--acc)" in calm)
+    check("focus is always visible (no outline:none on :focus-visible)", ":focus-visible{outline:none" not in css
+          and FOCUS_RING in css.replace(CR + LF, LF))
     check("the page-enter transition stands down under reduced motion", "@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;" in calm)  # the one global block covers #view and .card
 
     # ---- the script still parses
