@@ -890,6 +890,9 @@ li.empty{display:block;border:0;background:none;padding:var(--s3) var(--s2)}
 .mt-4{margin-top:var(--s4)!important}.mb-4{margin-bottom:var(--s4)!important}.my-4{margin-top:var(--s4)!important;margin-bottom:var(--s4)!important}
 .mt-5{margin-top:var(--s5)!important}.mb-5{margin-bottom:var(--s5)!important}.my-5{margin-top:var(--s5)!important;margin-bottom:var(--s5)!important}
 .mt-0{margin-top:0!important}.mb-0{margin-bottom:0!important}
+/* the small side gaps between inline chips and labels, centring, and the compact card used for one-line notes */
+.ml-1{margin-left:var(--s1)!important}.ml-2{margin-left:var(--s2)!important}.mr-1{margin-right:var(--s1)!important}.mr-2{margin-right:var(--s2)!important}
+.m-auto{margin:auto!important}.card.card-tight{padding:var(--s3) var(--s4)}
 
 /* New task: the request on the left, what happens on the right -- no dead half of the page */
 .runlay{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(340px,1fr);gap:var(--s4);align-items:start}
@@ -3053,7 +3056,7 @@ function renderThread(snap){
           h("li",{},h("button",{class:"btn",type:"button",onclick:()=>go("doctor")},icon("steth"),"1. Check this PC")),
           h("li",{},h("button",{class:"btn pri",type:"button",onclick:()=>go("tiers")},icon("chip"),"2. Pick a team")),
           h("li",{},h("button",{class:"btn",type:"button",onclick:()=>{const i=$("#cIn");if(i)i.focus();}},icon("spark"),"3. Give it a first task")))));
-    put(box,h("div",{class:"idle hero",style:"margin:auto"},blueprintArt(),
+    put(box,h("div",{class:"idle hero m-auto"},blueprintArt(),
       h("div",{class:"lead"},"What should the team do?"),
       h("div",{class:"why"},"Say it the way you would to a colleague. A small model on this machine picks the right flow, does the work, and code -- not a model -- decides whether it passed."),
       h("div",{class:"starts"},...STARTERS.map(([ic,t,why])=>h("button",{class:"btn",title:why,
@@ -3508,7 +3511,7 @@ async function loadTeam(){
       anyRec&&!same?h("button",{class:"btn pri",onclick:useRecommended},icon("check"),"Use the recommended team"):
         anyRec?h("span",{class:"chip good"},icon("check")," using the recommended team"):null)),
     h("div",{class:"tiergrid"},...["worker","router","heavy","draft"].map(t=>tierCard(t,d))),
-    ...(d.plan.notes||[]).map(n=>h("div",{class:"card",style:"padding:12px 16px"},h("p",{class:"small m0"},icon("question")," ",n))));
+    ...(d.plan.notes||[]).map(n=>h("div",{class:"card card-tight"},h("p",{class:"small m0"},icon("question")," ",n))));
 }
 function tierCard(t,d){
   const rec=(d.plan.tiers||{})[t]||{}, cur=d.current[t]||"", info=TIER_INFO[t];
@@ -4346,7 +4349,7 @@ async function loadTune(){
     (t.models||[]).length?h("div",{style:"overflow-x:auto"},h("table",null,h("thead",null,h("tr",null,...["Model","Kind","Family · best jobs","Size","Harness","Speed","Context","Your runs","Used for"].map((x,i)=>h("th",{class:i>=3&&i<=6&&i!==4?"n":""},x)))),
       h("tbody",null,...t.models.map(m=>h("tr",null,
         h("td",{class:"mono small"},m.name),
-        h("td",null,...(m.tags||[]).map(g=>h("span",{class:"chip "+(g==="MoE"?"info":g==="uncensored"?"warn":""),style:"margin-right:4px"},g))),
+        h("td",null,...(m.tags||[]).map(g=>h("span",{class:"chip mr-1 "+(g==="MoE"?"info":g==="uncensored"?"warn":"")},g))),
         (()=>{const pp=(m.passport&&typeof m.passport==="object")?m.passport:{},fl=pp.family_line||m.family_line||"",ex=pp.explain||m.explain||"";
           return h("td",{class:"small",title:ex||null},fl||"–",ex?learnMore(ex):null);})(),
         h("td",{class:"n"},m.size_gb!=null?fmt(m.size_gb)+" GB":"–"),
@@ -4493,7 +4496,7 @@ function start(){
       const parts=tplGallery(t0,pick), gal=parts.find(x=>x&&x.classList&&x.classList.contains("tgal"));
       if(gal&&!run._allTpl&&TPL_FILTER==="All"&&gal.children.length>6){
         const n=gal.children.length;[...gal.children].forEach((c,i)=>{if(i>=6&&c.getAttribute("aria-pressed")!=="true")c.style.display="none";});
-        parts.push(h("button",{class:"btn sm",style:"margin-top:10px",onclick:()=>{run._allTpl=true;render();}},"Show all "+n+" starting points"));
+        parts.push(h("button",{class:"btn sm mt-3",onclick:()=>{run._allTpl=true;render();}},"Show all "+n+" starting points"));
       }
       return parts;})()),
     tplDetail(chosen),
@@ -4690,7 +4693,7 @@ function modelCard(m){
         m.embed?null:h("div",{class:"row mt-3"},h("button",{class:"btn p",disabled:!rec.num_ctx,onclick:()=>{cfg.model_overrides=cfg.model_overrides||{};const o=cfg.model_overrides[m.name]||{};o.num_ctx=rec.num_ctx;if(k.sampling)o.sampling=k.sampling;cfg.model_overrides[m.name]=o;saveCfg("Saved settings for "+m.name);}},"Apply suggested settings"),h("span",{class:"small mute"},"context size and sampling"))),
       h("div",null,h("h3",{class:"mt-0"},"Measured here"),
         scores.length?h("table",null,...scores.map(([c,v])=>h("tr",null,h("td",null,catName(c)),h("td",{style:"width:42%"},h("div",{class:"bar"},h("i",{style:`width:${v.score}%`}))),h("td",{class:"n"},fmt(v.score,0))))):h("p",{class:"mute small"},"No tests yet. Run them on the Scoreboard."),
-        h("h3",null,k.family),h("ul",{style:"list-style:none;padding:0;margin:0"},...k.notes.map(([src,txt])=>h("li",{style:"margin:6px 0;font-size:var(--t-sm)"},h("span",{class:"chip "+(src==="vendor"?"good":"warn"),style:"margin-right:6px",title:src==="vendor"?"stated by the model's publisher":"reasoned from the architecture, not verified"},src),txt))),
+        h("h3",null,k.family),h("ul",{style:"list-style:none;padding:0;margin:0"},...k.notes.map(([src,txt])=>h("li",{style:"margin:6px 0;font-size:var(--t-sm)"},h("span",{class:"chip mr-2 "+(src==="vendor"?"good":"warn"),title:src==="vendor"?"stated by the model's publisher":"reasoned from the architecture, not verified"},src),txt))),
         k.sampling?h("div",{class:"small mute"},"Suggested sampling ",h("code",null,JSON.stringify(k.sampling))):null,
         probe?h("div",{class:"row mt-2"},...[["plain","responds"],["think_off","think off"],["think_on","think on"],["think_level","think level"],["system_prompt","system prompt"],["json_format","JSON mode"],["tools","tool calls"]].filter(([x])=>probe[x]).map(([x,l])=>h("span",{class:"chip "+(probe[x].ok?"good":"bad"),title:probe[x].error||""},(probe[x].ok?"✓ ":"✗ ")+l))):null,
         m.embed?null:h("div",{class:"row mt-3"},h("button",{class:"btn",onclick:async()=>{toast("Probing "+m.name+" …",8000);try{await api("/api/probe",{model:m.name});toast("Probe done");refresh(true);}catch(e){toast.err(e.message,6000);}}},probe?"Re-probe":"Probe what it supports")))),
@@ -4724,7 +4727,7 @@ function roleCard(r){
     h("div",{class:"mute",style:"font-size:var(--t-sm)"},r.blurb),
     h("div",{class:"need"},...Object.entries(r.needs).sort((a,b)=>b[1]-a[1]).map(([c,w])=>h("span",{class:"chip",title:"weight in this role's score"},catName(c)+" "+Math.round(100*w/total)+"%"))),
     h("label",{class:"f"},"Assigned model",h("select",{onchange:e=>assign(r.id,e.target.value)},opt)),
-    h("div",null,...(r.recs.length?r.recs.slice(0,3).map((x,i)=>h("div",{class:"rec"+(i===0?" top":""),style:"margin-bottom:6px"},
+    h("div",null,...(r.recs.length?r.recs.slice(0,3).map((x,i)=>h("div",{class:"rec mb-2"+(i===0?" top":"")},
         h("div",null,h("span",{class:"mono"},x.model),x.notes&&x.notes.length?h("div",{class:"small mute"},x.notes.join(", ")):null,Object.keys(x.cats).length?h("div",{class:"small mute"},Object.entries(x.cats).map(([c,v])=>catName(c)+" "+v).join(" · ")):null),
         h("div",{style:"text-align:right"},cell(x.score),h("div",null,basisChip(x.basis))),
         h("button",{class:"btn sm",disabled:x.model===r.assigned||x.score<=0,onclick:()=>assign(r.id,x.model)},x.model===r.assigned?"in use":"Use"))):[h("div",{class:"mute small"},"No usable models installed.")])),
@@ -5065,7 +5068,7 @@ function orDraw(){
     h("div",{class:"small"},Object.entries(tr.counts||{}).map(([k,v])=>k+": "+v).join(" · ")||"no samples yet"),
     h("div",{class:"small mute"},Object.entries(tr.excluded).filter(([,v])=>v).map(([k,v])=>k+": "+v).join(" · "))));
   const g=d.glossary||{}; if(Object.keys(g).length) out.append(h("div",{class:"card"},h("h3",{class:"m0 mb-2"},"Words on this page"),
-    ...Object.entries(g).map(([k,v])=>h("div",{class:"small",style:"margin:3px 0"},h("b",null,k+": "),v))));
+    ...Object.entries(g).map(([k,v])=>h("div",{class:"small m0 my-1"},h("b",null,k+": "),v))));
 }
 /* ---------- Health (audit 21): one page, one Run checkup button, results grouped: next steps first, then this PC's checks ---------- */
 function healthPage(){
@@ -5117,7 +5120,7 @@ function plDraw(){
         (p.command_info||[]).length?h("ul",{class:"pl-cmds",style:"list-style:none;margin:6px 0 0;padding:0"},...p.command_info.map(c=>h("li",{class:"pl-cmd small"},
           h("span",{class:"pdot",style:"background:var(--c-"+plHue(p.name)+")","aria-hidden":"true"}),h("code",{},"/"+c.name),
           h("span",{class:"mute"}," "+(c.description||"")),c.args_hint?h("span",{class:"mute"}," · "+c.args_hint):null,
-          p.enabled?null:h("span",{class:"chip",style:"margin-left:6px"},"after you enable it")))):null,
+          p.enabled?null:h("span",{class:"chip ml-2"},"after you enable it")))):null,
         (p.problems||[]).length?h("ul",{class:"note bad"},...p.problems.map(x=>h("li",null,x))):null),
       h("div",{class:"row",style:"gap:6px;flex-wrap:wrap"},
         h("button",{class:"btn sm",type:"button",onclick:()=>act(p.enabled?"disable":"enable",p.name)},p.enabled?"Disable":"Enable"),
@@ -6417,7 +6420,7 @@ function rpBody(){
   if(!RP.sel||!d.presets.find(p=>p.id===RP.sel)) RP.sel=(d.presets.find(p=>p.active)||d.presets.find(p=>p.id==="balanced")||d.presets[0]||{}).id;
   const cur=d.presets.find(p=>p.id===RP.sel);
   box.append(h("div",{class:"rp-tabs",role:"group","aria-label":"Preset"},...d.presets.map(p=>h("button",{type:"button",class:"btn"+(p.id===RP.sel?" pri":""),"aria-pressed":p.id===RP.sel?"true":"false",
-    onclick:()=>{RP.sel=p.id;rpDraw();}},p.label,p.active?h("span",{class:"chip good",style:"margin-left:6px"},"in force"):null))));
+    onclick:()=>{RP.sel=p.id;rpDraw();}},p.label,p.active?h("span",{class:"chip good ml-2"},"in force"):null))));
   if(cur){
     box.append(h("p",{class:"sub m0 my-2"},cur.blurb));
     box.append(cur.changes.length
@@ -6514,7 +6517,7 @@ function cmpFrame(theme){
    what it shows is what happened, never a guess; the simulation buttons are for learning the layout with no run going. */
 function hudPage(){
   const fr=h("iframe",{src:"/hud?live=1&root="+encodeURIComponent(run.root||""),title:"Harness HUD: the run as a live circuit",style:"width:100%;height:calc(100vh - 170px);min-height:560px;border:1px solid var(--line);border-radius:var(--rs);background:var(--hud-bg)"});
-  return [h("div",{class:"card",style:"padding:12px 16px"},
+  return [h("div",{class:"card card-tight"},
     h("div",{class:"row",style:"gap:12px;align-items:center;flex-wrap:wrap"},
       h("div",{class:"grow"},h("h2",{class:"m0 mb-1"},"Harness HUD"),
         h("p",{class:"sub m0"},"Every step, model call, check and verdict of the current run, drawn as a circuit. LIVE follows the run in the Console; REPLAY plays the newest finished run; SIMULATE shows the layout with no run going.")),
@@ -6528,7 +6531,7 @@ function componentsPage(){
     h("div",{class:"cmp-grid"},cmpFrame("light"),cmpFrame("dark")),
     cmpArt(),
     h("details",{class:"card"},h("summary",{style:"cursor:pointer;font:600 var(--t-head) var(--font-head)"},"The two curated themes: Midnight and Paper"),
-      h("div",{class:"cmp-grid",style:"margin-top:var(--s4)"},cmpFrame("midnight"),cmpFrame("paper")))];
+      h("div",{class:"cmp-grid mt-4"},cmpFrame("midnight"),cmpFrame("paper")))];
 }
 /* the art direction on one card: every icon in the sprite, every page drawing, and the four section hues */
 function cmpArt(){
@@ -6876,7 +6879,7 @@ function openKeys(){
   HELP_EL=modal("Keyboard shortcuts",{size:"drawer",heading:true,closeText:"Close",onClose:()=>{HELP_EL=null;}},
       h("dl",{class:"keylist"},...KEYS.flatMap(([a,b,d])=>[h("dt",{},h("kbd",{},a),b?(a==="1"||a==="j"?" to ":" "):null,b?h("kbd",{},b):null),h("dd",{},d)])),
       h("p",{class:"hd-key small mute"},"Shortcuts pause while you are typing in a box, except Ctrl+K and Esc."),
-      h("button",{class:"btn p",style:"margin-top:14px",onclick:()=>{closeHelp();openPalette();}},"Open the command list"));
+      h("button",{class:"btn p mt-4",onclick:()=>{closeHelp();openPalette();}},"Open the command list"));
 }
 function closeHelp(){if(!HELP_EL)return;const d=HELP_EL;HELP_EL=null;d.close();}         /* the browser puts focus back on the opener */
 
@@ -7929,7 +7932,7 @@ function flDrawWatch(r){
   box.append(h("div",{class:"ws-list"},...ags.map(a=>{
     const le=a.last_event||null, last=le?((le.type?le.type+": ":"")+(le.name?le.name+" ":"")+(le.text||le.arg||"")).replace(/\s+/g," ").slice(0,220):"";
     return h("div",{class:"ws-item"},h("div",{class:"fl-agent"},
-      h("div",{},h("b",{},a.name),h("span",{class:a.kind==="local"?"chip good":"cbadge",style:"margin-left:8px"},a.kind==="local"?"local":"Claude")),statusChip(a.status),
+      h("div",{},h("b",{},a.name),h("span",{class:(a.kind==="local"?"chip good":"cbadge")+" ml-2"},a.kind==="local"?"local":"Claude")),statusChip(a.status),
       h("div",{class:"ws-meta",style:"grid-column:1/-1"},h("span",{},h("b",{},wsMoney(a.cost,4))," of "+wsMoney(a.budget_usd)),a.turns!=null?h("span",{},a.turns+" turns"):null,
         h("span",{class:"mono",title:(a.files||[]).join("\n")},(a.files||[]).slice(0,3).join(", ")+((a.files||[]).length>3?" …":"")),
         a.why?h("span",{},a.why):null,a.waiting_for?h("span",{},"waiting for "+[].concat(a.waiting_for).join(", ")):null),

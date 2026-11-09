@@ -20,7 +20,7 @@ COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b|rgba?\(")
 # pointed at their tokens). The number may only go down: a new colour is a new token. See docs/design_system.md, "Still to fold".
 COLOUR_CEILING = 4
 # Inline styles that only set a margin or padding (203 on 2026-11-08 before the spacing classes; may only go down)
-SPACING_CEILING = 39
+SPACING_CEILING = 26   # 21 of them sit in the two guarded slices (owner's yes needed); 5 are list indents and one-off padding
 
 
 def _decls(block):

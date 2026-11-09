@@ -41,8 +41,9 @@ literal values and nine alias names into them; the only literal left is the root
 `--t-sub` 1.1875rem, `--t-title` 1.375rem, `--t-big` 1.625rem (big figures), `--t-hero` 1.75rem, `--t-display` 2rem (page title).
 Weights: 400 body, 500 controls, 600 labels, 650 titles. Nothing ships from the web; every face is an OS font.
 **Spacing**: `--s1` 4, `--s2` 8, `--s3` 12, `--s4` 16, `--s5` 24, `--s6` 32. Where a page only needs a gap it uses a spacing
-class, not an inline margin: `m0`, `mt-1`..`mt-5`, `mb-1`..`mb-5`, `my-1`..`my-5` (one step of the scale each; `mt-0`, `mb-0`). Like
-the inline styles they replaced (about 160 of 203), they win over a component's own margin (`!important`); the test counts the
+class, not an inline margin: `m0`, `mt-1`..`mt-5`, `mb-1`..`mb-5`, `my-1`..`my-5` (one step of the scale each; `mt-0`, `mb-0`),
+`ml-1`/`ml-2`/`mr-1`/`mr-2` (gaps between inline chips), `m-auto` (centring), and `.card.card-tight` (a one-line note card). Like
+the inline styles they replaced (177 of 203; 21 of the rest are in the guarded slices), they win over a component's own margin (`!important`); the test counts the
 inline spacing that is left and the number may only go down.
 **Radius**: `--r` 14 (cards, panels), `--rs` 10 (controls, inner boxes, rows); defined once (the sheet said 12/8 and a later
 block silently set 14/10, which is what everyone saw, so 14/10 is kept), `--r-xs` 6 (tags, code), `--r-pill`.
