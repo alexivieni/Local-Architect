@@ -27,6 +27,11 @@ TESTS = ("from pager import paginate\n\n\ndef test_first_page():\n    assert pag
          "def test_last_partial_page():\n    assert paginate(list(range(10)), 4, 3) == [9]\n")
 REPRO = "from pager import paginate\n\n\ndef test_repro_page_one():\n    assert paginate(list(range(10)), 1, 3) == [0, 1, 2]\n"
 FIX = "EDIT: pager.py\n<<<<<<< SEARCH\n    start = page * size\n=======\n    start = (page - 1) * size\n>>>>>>> REPLACE\n"
+A11Y_AUDIT = r"""(()=>{const v=document.getElementById('view'),bad=[];
+ v.querySelectorAll('button:not([aria-label])').forEach(b=>{const t=(b.textContent||'').trim();if(!t||/^[↑↓←→×✕⋯…▾▸›‹+−?]$/.test(t))bad.push('button '+t)});
+ v.querySelectorAll('input:not([aria-label]):not([aria-labelledby]):not([type=hidden]),textarea:not([aria-label]):not([aria-labelledby]),select:not([aria-label]):not([aria-labelledby])').forEach(i=>{if(!i.closest('label')&&!(i.id&&document.querySelector('label[for="'+i.id+'"]')))bad.push('field '+(i.placeholder||i.name||i.tagName))});
+ v.querySelectorAll('div,section,pre').forEach(el=>{if(el.hasAttribute('tabindex')||el.scrollWidth<=el.clientWidth+1||el.clientWidth===0)return;const ox=getComputedStyle(el).overflowX;if(ox!=='auto'&&ox!=='scroll')return;if(el.querySelector('a[href],button,input,select,textarea,[tabindex]'))return;bad.push('scroll '+el.className)});
+ v.querySelectorAll('[onclick]:not(button):not(a):not(input):not([tabindex])').forEach(el=>bad.push('click '+el.tagName));return bad})()"""   # what the scoped a11y pass must leave behind: nothing unnamed or unreachable
 GOAL = "paginate() returns the wrong rows: page 1 should give the first size items (pages are 1-based). Fix it so the tests pass."
 
 
@@ -43,9 +48,9 @@ def run():
         print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   ({str(extra)[:400]})" if extra and not ok else ""))
 
     planned = ["the hub opens in a real browser with no page error", "Home takes a typed folder and goal", "Do it starts the run",
-               "Home shows 'Working on it' while it runs", "Home shows the verdict 'It worked'", "an unchanged progress box is not rebuilt by the timer", "the fix is on disk and the tests pass",
+               "Home shows 'Working on it' while it runs", "Home shows the verdict 'It worked'", "the run's events were pushed over one stream", "the page asks for the live half of /api/state", "an unchanged progress box is not rebuilt by the timer", "the fix is on disk and the tests pass",
                "the run is listed in Recent runs", "Undo restores the file and removes the generated test",
-               "Home stops polling once the run is over", "no uncaught page error"]
+               "Home stops polling once the run is over", "the one dialog: focus in, Esc and backdrop close", "the accessibility pass left nothing behind", "no uncaught page error"]
     if not arch_browser.find_browser():
         for p in planned:
             print(f"  NOT RUN  {p} (no Edge or Chrome installed here)")
@@ -100,6 +105,11 @@ def run():
         b.navigate(base_url)
         up = b.wait_for("typeof simpleStart === 'function' && document.querySelector('#spGoal') && document.querySelector('#spRoot')", 30)
         check("the hub opens in a real browser with no page error", up and not b.exceptions, b.exceptions)
+        b.wait_for("performance.getEntriesByType('resource').some(e=>e.name.includes('part=live'))", 15)
+        res0 = b.eval("performance.getEntriesByType('resource').map(e=>e.name.replace(location.origin,''))") or []
+        plain = [r for r in res0 if r.startswith("/api/state") and "part=" not in r]
+        check("the page asks for the live half of /api/state (28 KB) and the catalog once, never the whole 140 KB",
+              not plain and any("part=live" in r for r in res0) and sum("part=catalog" in r for r in res0) == 1, (plain[:3], [r for r in res0 if "part=" in r][:4]))
 
         b.type_into("#spRoot", proj)
         b.eval("document.querySelector('#spRoot').dispatchEvent(new Event('change',{bubbles:true}))")
@@ -107,6 +117,7 @@ def run():
         typed = b.wait_for(f"run.root === {json.dumps(proj)} && run.goal === {json.dumps(GOAL)}", 5)
         check("Home takes a typed folder and goal", typed, b.eval("({root: run.root, goal: (run.goal||'').slice(0,40)})"))
 
+        b.eval("performance.setResourceTimingBufferSize(10000);performance.clearResourceTimings()")
         b.eval("document.querySelector('#spGo').click()")
         started = b.wait_for("RUNBAR.goal !== ''", 15)
         check("Do it starts the run", started, b.eval("document.querySelector('#spGoalErr') && document.querySelector('#spGoalErr').textContent"))
@@ -122,6 +133,10 @@ def run():
         box = b.eval("(()=>{const p=document.querySelector('#spProgress');return p?p.innerText:''})()") or ""
         check("Home shows 'Working on it' while it runs", seen_working, box[:200])
         check("Home shows the verdict 'It worked'", finished and "It worked" in box, box[:300])
+        res = b.eval("performance.getEntriesByType('resource').map(e=>e.name.replace(location.origin,''))") or []
+        polls = [r for r in res if r.startswith("/api/arch/events?")]
+        streams = [r for r in res if r.startswith("/api/arch/events/stream")]
+        check("the run's events were pushed over one stream, not polled (it asked every 1.5 s)", streams and not polls, (len(streams), len(polls)))
         b.eval("window.__spHead=document.querySelector('#spProgress .sp-h')")
         time.sleep(3.5)                                   # two ticks of the 1.5 s Home timer
         kept = b.eval("!!window.__spHead && document.querySelector('#spProgress .sp-h')===window.__spHead")
@@ -147,6 +162,20 @@ def run():
         time.sleep(6)
         polls = b.eval("performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/arch/events')).length")
         check("once the run is over, Home stops asking for run events (it polled every 1.5 s forever before)", polls == 0, f"{polls} requests in 6 s")
+        # the one dialog component: the shortcuts drawer opens with focus inside, Esc closes it and focus returns; a backdrop click closes
+        b.eval("openKeys()")
+        opened = b.wait_for("!!document.querySelector('dialog[open].xdlg-drawer') && document.querySelector('dialog[open]').contains(document.activeElement)", 5)
+        for kind in ("rawKeyDown", "keyUp"):
+            b.cmd("Input.dispatchKeyEvent", {"type": kind, "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
+        closed = b.wait_for("!document.querySelector('dialog[open]') && HELP_EL===null", 5)
+        b.eval("showText('A window','Some text.')")
+        b.wait_for("!!document.querySelector('dialog[open].xdlg-wide')", 5)
+        for kind in ("mousePressed", "mouseReleased"):
+            b.cmd("Input.dispatchMouseEvent", {"type": kind, "x": 4, "y": 4, "button": "left", "clickCount": 1})
+        backdrop = b.wait_for("!document.querySelector('dialog[open]')", 5)
+        check("every window is one native dialog: focus goes in, Esc closes it, a backdrop click closes it", opened and closed and backdrop, (opened, closed, backdrop))
+        left = b.eval(A11Y_AUDIT) or []
+        check("after the run, the scoped accessibility pass left nothing unnamed or unreachable on Home", not left, left[:5])
         b.eval("1")                                        # collect any late page error
         check("no uncaught page error", not b.exceptions, b.exceptions)
     except Exception as ex:

@@ -92,8 +92,9 @@ def run():
         # ---- the page
         ui = open(os.path.join(HERE, "hub_ui.html"), encoding="utf-8").read()
         rep = ui[ui.index("function showReport"):][:700]
+        # 2026-11-08: every window is the one native-dialog component (modal(): showModal gives Esc, the focus trap and focus back)
         check("the run report is a real dialog (Esc closes it, focus moves into it and is trapped)",
-              'role:"dialog","aria-modal":"true"' in rep and ".focus()" in rep)
+              'modal("Run report: "' in rep and "d.showModal()" in ui[ui.index("function modal("):][:1200])
         # ---- a suite run on its own never sees the person's settings
         probe_dir = tempfile.mkdtemp(prefix="archrev4probe_")
         probe = os.path.join(probe_dir, "arch_selftest_probe_rev4.py")

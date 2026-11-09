@@ -75,7 +75,43 @@ def ui():
     check(body.count("pollConsole._t=setTimeout") >= 3, "pollConsole still re-arms itself on every path")
 
 
+def ollama_down_fast():
+    """2026-11-08: with Ollama stopped, Windows took about 2 s to refuse each loopback connect, so every /api/state waited 2 s."""
+    import socket
+    import model_hub as mh
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()                                            # a loopback port nothing listens on
+    old = os.environ.get("OLLAMA_HOST")
+    os.environ["OLLAMA_HOST"] = f"127.0.0.1:{port}"
+    try:
+        t = time.time()
+        down = mh._loopback_down()
+        took = time.time() - t
+        check(down and took < 1.0, f"a stopped local Ollama is reported in under a second (took {took:.2f} s)")
+        try:
+            mh.model_list({"vram_gb": 0, "ram_gb": 8}, "f16", 100, 20)
+            check(False, "model_list reports a stopped Ollama")
+        except mh.OllamaError as e:
+            check("not reachable" in e.msg, "model_list says Ollama is not reachable")
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        os.environ["OLLAMA_HOST"] = f"127.0.0.1:{srv.getsockname()[1]}"
+        check(not mh._loopback_down(), "a local port that accepts is not reported down")
+        srv.close()
+        os.environ["OLLAMA_HOST"] = "10.1.2.3:11434"
+        check(not mh._loopback_down(), "a remote Ollama host is never probed by the loopback shortcut")
+    finally:
+        if old is None:
+            os.environ.pop("OLLAMA_HOST", None)
+        else:
+            os.environ["OLLAMA_HOST"] = old
+
+
 if __name__ == "__main__":
     backend()
     ui()
+    ollama_down_fast()
     print(f"ALL {N[0]} HUBPERF CHECKS PASSED")

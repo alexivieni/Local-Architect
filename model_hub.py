@@ -30,6 +30,7 @@ import math
 import os
 import re
 import secrets
+import socket
 import shutil
 import subprocess
 import sys
@@ -786,7 +787,25 @@ ACTIONS = {
 _show_cache = {}
 
 
+def _loopback_down():
+    """True when Ollama's address is on THIS machine and nothing accepts there. Windows takes about 2 s to report a refused
+    connection on loopback (it retries the SYN), so every /api/state used to wait 2 s while Ollama was stopped. A local listener
+    accepts in well under a millisecond, so 0.3 s only cuts the refusal short. A remote host keeps the normal path."""
+    from urllib.parse import urlparse
+    u = urlparse(ollama_host())
+    host, port = (u.hostname or ""), (u.port or 11434)
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        return False
+    try:
+        socket.create_connection((host, port), timeout=0.3).close()
+        return False
+    except OSError:
+        return True
+
+
 def model_list(hw, kv_type, gpu_bw, ram_bw):
+    if _loopback_down():
+        raise OllamaError(0, f"Ollama is not reachable at {ollama_host()} (nothing is listening). Start the Ollama app.")
     tags = oll("/api/tags", timeout=10).get("models", [])
     results = load_results()
     rows = []
@@ -928,10 +947,27 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text") or "json" in ctype else ""))
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        if getattr(self, "_etag", None):
+            self.send_header("ETag", self._etag)
+            self._etag = None
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Security-Policy", "default-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'")
         self.end_headers()
         self.wfile.write(data)
+
+    def _send_etag(self, body):
+        import hashlib
+        data = json.dumps(body, sort_keys=True).encode("utf-8")
+        tag = '"' + hashlib.sha1(data).hexdigest()[:20] + '"'
+        if (self.headers.get("If-None-Match") or "").strip() == tag:
+            self._responded = True
+            self.send_response(304)
+            self.send_header("ETag", tag)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return None
+        self._etag = tag
+        return self._send(200, data)
 
     def do_GET(self):
         if not self._host_ok():
@@ -947,7 +983,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(500, "hub_ui.html is missing next to model_hub.py", "text/plain")
                 return self._send(200, html.replace("__HUB_TOKEN__", Hub.token), "text/html")
             if u.path == "/api/state":
-                return self._send(200, build_state(q))
+                # ?part=catalog (what changes only when a flow, preset or template is saved) and ?part=live (the rest); no part = all
+                # of it, as before. The body carries an ETag: a repeat with If-None-Match gets 304 and no body.
+                return self._send_etag(build_state(q))
             if u.path == "/api/job":
                 return self._send(200, JOB.snapshot(int(q.get("since", ["0"])[0])))
             if u.path == "/api/runs":

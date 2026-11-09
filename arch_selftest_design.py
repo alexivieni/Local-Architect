@@ -19,6 +19,8 @@ COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b|rgba?\(")
 # Literal colours still below the token line (88 on 2026-11-04; 4 on 2026-11-08 after the dead and duplicated ones were removed or
 # pointed at their tokens). The number may only go down: a new colour is a new token. See docs/design_system.md, "Still to fold".
 COLOUR_CEILING = 4
+# Inline styles that only set a margin or padding (203 on 2026-11-08 before the spacing classes; may only go down)
+SPACING_CEILING = 39
 
 
 def _decls(block):
@@ -50,7 +52,7 @@ def run():
     # ---- 1. one token set
     check("the token block is the first thing in the stylesheet and ends at a marked line",
           end > 0 and css.lstrip().startswith("/*") and css.find(".th-light,:root{") < css.find("{", css.find("*/")) + 1)
-    families = {"colour": ["bg", "panel", "ink", "acc", "good", "warn", "bad"], "type": ["font", "font-head", "mono", "t-sm", "t-card", "t-2xl"],
+    families = {"colour": ["bg", "panel", "ink", "acc", "good", "warn", "bad"], "type": ["font", "font-head", "mono", "t-sm", "t-head", "t-display"],
                 "spacing": ["s1", "s4", "s6"], "radius": ["r", "rs", "r-xs", "r-pill"], "elevation": ["shadow", "lift", "pop", "modal"],
                 "motion": ["ease", "fast", "base", "slow"]}
     missing = {f: [t for t in ts if t not in L] for f, ts in families.items()}
@@ -83,6 +85,22 @@ def run():
     check("every type token is in rem (px ignored the browser's text size) and each is defined once",
           tdefs and all(v.strip().endswith("rem") for _, v in tdefs) and len(tdefs) == len({k for k, _ in tdefs}),
           [f"{k}:{v}" for k, v in tdefs if not v.strip().endswith("rem")][:5] or sorted({k for k, _ in tdefs if [x for x, _ in tdefs].count(k) > 1}))
+    # 2026-11-08 Phase 3 type sweep: every font size outside the two guarded slices is a token (the root size defines rem itself)
+    g0 = sorted([(html.find("/* ===== Caches (Models):"), html.find("/* ---- Benchmarks:")), (html.find("/* ===== Cost map (Models):"), html.find("function benchPage(){"))])
+    open_html = html
+    for a0, b0 in g0:
+        if 0 < a0 < b0:
+            open_html = open_html.replace(html[a0:b0], "")
+    lit = [x for x in re.findall(r"[^{;\s]{0,12}\{?font-size:\s*[0-9.]+r?em", open_html) if not x.endswith("html{font-size:1rem")]
+    lit += re.findall(r"font:\s*(?:[0-9]{3}\s+)?[0-9.]+r?em", open_html)
+    check("every font size is a --t-* step (no literal rem/em sizes, ~280 before the sweep)", not lit, lit[:5])
+    check("the type scale has no alias names left (label, xs, s, ms, m, l, card, xl, 2xl were second names for the same steps)",
+          not re.search(r"--t-(?:label|xs|s|ms|m|l|card|xl|2xl)", open_html))
+    script = html[html.find("</style>"):]
+    spacing_only = [x for x in re.findall(r'style:"([^"]*)"', script)
+                    if re.fullmatch(r"(?:(?:margin|padding)(?:-(?:top|bottom|left|right))?:[^;]+;?)+", x.strip())]
+    check(f"spacing comes from the scale's classes (m0, mt-/mb-/my-1..5), not inline margins: {len(spacing_only)} left, ceiling {SPACING_CEILING} (203 before)",
+          ".m0{margin:0!important}" in css and ".mt-3{margin-top:var(--s3)!important}" in css and len(spacing_only) <= SPACING_CEILING, len(spacing_only))
     kf = re.findall(r"@keyframes\s+([\w-]+)", html)
     check("no animation name is defined twice (the last one silently wins for the whole page)", len(kf) == len(set(kf)),
           sorted({k for k in kf if kf.count(k) > 1}))
@@ -116,6 +134,11 @@ def run():
     e_stray = [sel for sel, body in e_rules if re.search(r"(?:padding|background|border|color|font-size)\s*:", body)]
     check("empty states have ONE look: their box (padding, background, border, colour, size) is set only in the EMPTY STATES block",
           estart > 0 and ".empty,.st-empty,.bp-empty,.idle{" in eblock and not e_stray, e_stray[:6])
+    # ---- 2026-11-08 design-system Phase 3: one dialog
+    hand = re.findall(r'h\("div",\{class:"([^"]*)",role:"dialog","aria-modal":"true"', html)
+    check("every window is the one native dialog (modal() -> showModal); only the palette and the tour are hand-built overlays",
+          "d.showModal();return d;" in html and sorted(set(hand)) == ["fv", "palette"] and "card modal" not in html and "fi-overlay" not in html
+          and "hdrawer" not in html, sorted(set(hand)))
     check("the HUD frame and the role portraits draw with tokens (no colour literal left in the script either)",
           "background:var(--hud-bg)" in html and "--hud-bg:#07090e" in tokens and 'stroke="#' not in html and 'fill="#eaf1ff"' not in html)
     ws = html[html.find("/* ===== 2026-11-04: the agents' workspace"):html.find("</style>")]
@@ -137,7 +160,7 @@ def run():
     cp = html[html.find("function cmpFrame("):html.find("function componentsPage(")]
     parts = {"buttons": 'class:"btn p"', "chips": 'class:"chip good"', "cards": 'class:"card",role:"button"', "tabs": 'class:"subtabs"',
              "filter": 'class:"tfilter"', "inputs": 'class:"f"', "menus": "cmpMenu()", "tables": 'h("table"', "empty states": 'class:"empty"',
-             "loading": 'class:"st-load"', "errors": 'class:"st-err"', "live board": "cmpBoard()"}
+             "loading": 'class:"st-load', "errors": 'class:"st-err', "live board": "cmpBoard()"}
     check("the page shows every component: " + ", ".join(parts), cp and all(v in cp for v in parts.values()), [k for k, v in parts.items() if v not in cp])
     check("both themes, side by side", 'cmpFrame("light"),cmpFrame("dark")' in html and '"cmp-frame th-"+theme' in html)
     board = html[html.find("function cmpBoard("):html.find("function cmpFrame(")]

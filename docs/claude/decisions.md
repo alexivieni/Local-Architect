@@ -120,3 +120,23 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   checks then told the truth: the radius pair and the Claude token location).
 - Left: the Cost map's clickable row and anything else inside the two guarded slices (owner's yes); Phase 3 (one dialog, SSE, split
   /api/state with an ETag, the a11y observer scope, spacing classes, the type sweep, merging the remaining layers).
+
+## Design system Phase 3 (2026-11-09)
+- `/api/state` in two halves: `?part=catalog` (flows, presets, templates, schemas: read once, ETag, a repeat is 304) and `?part=live`
+  (28 KB instead of ~140 KB every 9 s); no part = all, for the checks. With Ollama stopped, Windows took ~2 s to refuse each loopback
+  connect, so every state build waited 2 s: `model_hub._loopback_down` (0.3 s probe, loopback only) -> 0.39 s. Idle traffic about
+  900 KB/min -> about 60 KB/min.
+- Live run events are pushed (SSE, `/api/arch/events/stream`, one stream for Home, the Console and the run bar), opened when a run starts
+  or `jobBadge` sees one, closed when it ends (the server now sends a frame when the run stops). Polls stay as the fallback. The Console
+  no longer polls events while idle (24 requests/min for nothing).
+- The a11y observer passes over added elements only (it re-scanned the whole view, forcing a layout per div, 120 ms after any change).
+  An audit of every page at 1280 and 390 px finds nothing left unnamed or unreachable; uismoke runs it on Home.
+- One dialog: `modal()` (native `<dialog>`, sizes form/wide/drawer). The report, timeline, score detail, text window, What's inside, the
+  page explainers and the shortcuts moved onto it; `.card.modal`, `.fi-overlay`, `.hdrawer` are gone.
+- Type sweep: 15 `--t-*` steps; ~280 literal sizes and 9 alias names folded in (no size moved more than 1 px but two 24 -> 26 px).
+  Spacing classes on the --s scale replaced ~160 inline margins (exact ones proven layout-neutral; 2/6/10/14/20 px snapped).
+- Layers merged for `.card` (7 rules), `.thread` (3), `.msg` (2), `.nav` (3), each at its last layer's position; the snapshot caught two
+  flips, fixed: empty-state cards keep their tint, and the recommendation card's accent edge (hidden since the transparent !important
+  card border) now shows. A dead phone rule for `.card` padding went.
+- Guards: design suite (one dialog, every size a token, no alias, spacing ratchet 39), hub check (halves = whole, 304), hubperf
+  (Ollama-down under 1 s), uismoke (stream not polled, live half only, dialog behaviour, a11y audit).

@@ -80,6 +80,17 @@ def run():
               "function cloudPlan()" in html and 'goSetting("online.cloud_tier")' in html and "ta,doIt),cloudLine()" in html and '"Claude: "+({escalation' not in html)
         check("changes without the token are refused", call("/api/arch/assign", {"roles": {}}, token=False).get("HTTP") in (401, 403))
         st = call("/api/state")
+        # 2026-11-08 design Phase 3: the page reads /api/state in two halves; the catalog carries an ETag and answers a repeat with 304
+        live, cat = call("/api/state?part=live"), call("/api/state?part=catalog")
+        r1 = urllib.request.urlopen(base + "/api/state?part=catalog")
+        tag = r1.headers.get("ETag") or ""
+        try:
+            code = urllib.request.urlopen(urllib.request.Request(base + "/api/state?part=catalog", headers={"If-None-Match": tag})).status
+        except urllib.error.HTTPError as e:
+            code = e.code
+        check("the live and catalog halves of /api/state together hold exactly what the whole does, and a repeated catalog read is 304",
+              set(live) | set(cat) == set(st) and "settings_schema" not in live and "models" not in cat and bool(tag) and code == 304,
+              (sorted(set(st) ^ (set(live) | set(cat)))[:5], tag, code))
         import arch_flows as _fl
         import arch_roles as _ro
         import arch_templates as _tp

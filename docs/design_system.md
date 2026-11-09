@@ -34,11 +34,16 @@ the dark ones, warm brown in Paper, which used to borrow the light theme's navy)
 list), `--modal` (dialogs, toasts), `--ring` (focus halo on inputs, derived from the accent), `--grad` (the nav marker).
 **Type**: `--font` (text: Segoe UI Variable Text and system fallbacks), `--font-head` (titles and big figures only),
 `--mono` (Cascadia). The scale is defined once, in rem, so it follows the browser's text size (it was px, written twice; same
-sizes at the default 16px): `--t-display` 2rem (page title), `--t-title` 1.375rem, `--t-head` 1.0625rem (card title), `--t-body` .90625rem,
-`--t-mono` .78125rem, `--t-caption` .75rem. The older names are aliases of those steps: `--t-label` / `--t-sm` / `--t-s` / `--t-ms` .8125rem,
-`--t-xs` .75rem, `--t-m` .90625rem, `--t-l` / `--t-card` 1.0625rem, `--t-xl` 1.375rem, `--t-2xl` 2rem.
+sizes at the default 16px). Fifteen steps, and every font size on the page is one of them (the 2026-11-08 sweep folded about 45
+literal values and nine alias names into them; the only literal left is the root size, and two inside the guarded Caches slice):
+`--t-art` .46875rem (labels inside drawings), `--t-2xs` .6875rem, `--t-caption` .75rem, `--t-mono` .78125rem, `--t-sm` .8125rem,
+`--t-ui` .875rem (chips, tables, small buttons), `--t-body` .90625rem, `--t-lead` .9375rem, `--t-md` 1rem, `--t-head` 1.0625rem (card title),
+`--t-sub` 1.1875rem, `--t-title` 1.375rem, `--t-big` 1.625rem (big figures), `--t-hero` 1.75rem, `--t-display` 2rem (page title).
 Weights: 400 body, 500 controls, 600 labels, 650 titles. Nothing ships from the web; every face is an OS font.
-**Spacing**: `--s1` 4, `--s2` 8, `--s3` 12, `--s4` 16, `--s5` 24, `--s6` 32.
+**Spacing**: `--s1` 4, `--s2` 8, `--s3` 12, `--s4` 16, `--s5` 24, `--s6` 32. Where a page only needs a gap it uses a spacing
+class, not an inline margin: `m0`, `mt-1`..`mt-5`, `mb-1`..`mb-5`, `my-1`..`my-5` (one step of the scale each; `mt-0`, `mb-0`). Like
+the inline styles they replaced (about 160 of 203), they win over a component's own margin (`!important`); the test counts the
+inline spacing that is left and the number may only go down.
 **Radius**: `--r` 14 (cards, panels), `--rs` 10 (controls, inner boxes, rows); defined once (the sheet said 12/8 and a later
 block silently set 14/10, which is what everyone saw, so 14/10 is kept), `--r-xs` 6 (tags, code), `--r-pill`.
 **Motion**: `--ease`, `--fast` .12s, `--base` .2s, `--slow` .4s.
@@ -56,6 +61,10 @@ for figures; a row that opens something uses `clickRow(fn, current)` (Tab reache
 marks the open one). Empty states have ONE look (`EMPTY STATES` block): `.empty`, `.st-empty` (a "No ... yet" sentence tagged by
 `markState`), `.bp-empty`, `.idle` (with an icon or live dot) share the box; `emptyState()` builds the whole-page card;
 `.idle.hero` and `.bp-empty` are only roomier. Loading and errors: `.st-load`, `.st-err`, `.note.*`.
+Windows: ONE dialog, `modal(title, [options], ...body)`, a native `<dialog>` opened with `showModal()`: Esc, the focus
+trap, the inert page and focus back to the opener come from the browser; a click on the backdrop closes it. Sizes: a form
+(640 px), `wide` (a report, a timeline, what's inside a workflow), `drawer` (the page explainers, the shortcuts). The command
+palette, the first-visit tour and the presets popover are the only other overlays, on purpose.
 Focus: one ring, `:focus-visible` 3 px in the accent, 2 px out, no `!important`; a component may change only its offset
 (menu rows pull it inward so the scrolling menu cannot clip it). The live board:
 `.doing` with `.plan`, `.lane`, `.gates`, `.verdictbox`.
@@ -88,7 +97,8 @@ staggered workflow steps are shown at once). Older per-layer copies above it say
 ## Still to fold (known, counted by the test, may only go down)
 Literal colours remain in a few page sections above the workspace section: the blueprint sheet's whites and rgba lines,
 the toast/modal/palette/slash/drawer shadows (use `--pop` / `--modal`), the old dark model-menu colours, the Claude rgba lines
-and lane colours that later rules already override, and a few `var(--x,#fallback)` fallbacks. Also several selectors are still
-declared in more than one layer with the later one winning (`.card`, `.msg`, `.thread`, `.nav`; `.btn` and the empty states
-were merged on 2026-11-08); merge them into one rule each when touching that section. The Cost map's clickable rows sit in a
+and lane colours that later rules already override, and a few `var(--x,#fallback)` fallbacks. `.card`, `.thread`, `.msg`, `.nav`, `.btn` and the empty states are one rule each (2026-11-08: each merged at the
+position of its last layer, verified by a computed-style snapshot and a layout fingerprint of every page). Other selectors
+still appear in several rules, mostly on purpose (one rule sets the face of a list of titles, another their weight); fold a
+component's base look into one rule when touching its section. The Cost map's clickable rows sit in a
 guarded byte-slice and wait for the owner's yes before they get `clickRow`.

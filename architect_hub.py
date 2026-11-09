@@ -451,7 +451,25 @@ def _flow_meta():
              "roles": sorted({s["role"].rstrip("*") for s in f.steps if s["role"] != "-"} | set(getattr(f, "uses_roles", []) or ({"generator_ui", "generator_sql"} if f.id in ("build", "refactor") else set())))} for f in fl.FLOWS.values()]
 
 
+# what only changes when a flow, preset or template is saved: ~120 of the ~140 KB /api/state used to send every 9 s. The page reads
+# it once (?part=catalog, with an ETag) and the 9 s poll asks for ?part=live. No part = everything, for the checks and old callers.
+CATALOG_KEYS = ("flows", "domains", "templates", "addons", "settings_schema", "run_options_schema", "override_schema", "presets",
+                "task_templates", "task_groups", "categories", "actions", "self_root", "projects_dir")
+
+
+def _catalog():
+    return {"flows": _flow_meta(), "domains": fl.DOMAINS, "templates": templates.listing(),
+            "addons": [{"id": k, "title": v[0], "files": sorted(v[1])} for k, v in templates.ADDONS.items()],
+            "settings_schema": params.SETTINGS, "run_options_schema": params.RUN_OPTIONS, "override_schema": params.OVERRIDE_FIELDS,
+            "presets": params.list_presets(), "task_templates": taskkit.all_templates(), "task_groups": taskkit.GROUPS,
+            "categories": mh.CATEGORIES, "actions": sorted(mh.ACTIONS), "self_root": HERE,
+            "projects_dir": os.path.join(os.path.expanduser("~"), "ArchitectProjects")}
+
+
 def build_state(q=None):
+    part = ((q or {}).get("part") or [""])[0]
+    if part == "catalog":
+        return _catalog()                                   # no Ollama call, no model scoring
     st = _base_state(q)
     cfg = core.deep_merge(core.DEFAULTS, mh.read_config())
     models = st.get("models", [])
@@ -485,12 +503,13 @@ def build_state(q=None):
             gaps.append({"role": rr["id"], "why": "no measurements yet: run the Scoreboard tests to replace this guess"})
         elif top["score"] < 55:
             gaps.append({"role": rr["id"], "why": f"best installed model scores {top['score']}: consider a model stronger in " + ", ".join(sorted(rr["needs"], key=lambda c: -rr["needs"][c])[:2])})
-    st.update(roles=role_rows, plan=plan, gaps=gaps, flows=_flow_meta(), portfolio=load_portfolio(), domains=fl.DOMAINS, templates=templates.listing(),
-              addons=[{"id": k, "title": v[0], "files": sorted(v[1])} for k, v in templates.ADDONS.items()],
-              arch_config=cfg, weights=mh.load_results().get("_weights") or dict(mh.DEFAULT_WEIGHTS),
-              settings_schema=params.SETTINGS, run_options_schema=params.RUN_OPTIONS, override_schema=params.OVERRIDE_FIELDS,
-              model_overrides=cfg.get("model_overrides", {}), presets=params.list_presets(), self_root=HERE, projects_dir=os.path.join(os.path.expanduser("~"), "ArchitectProjects"),
-              task_templates=taskkit.all_templates(), task_groups=taskkit.GROUPS)
+    st.update(roles=role_rows, plan=plan, gaps=gaps, portfolio=load_portfolio(), arch_config=cfg,
+              weights=mh.load_results().get("_weights") or dict(mh.DEFAULT_WEIGHTS), model_overrides=cfg.get("model_overrides", {}))
+    if part == "live":
+        for k in ("categories", "actions"):
+            st.pop(k, None)
+    else:
+        st.update(_catalog())
     try:
         import arch_cloud
         st["cloud"] = arch_cloud.status(core.load_config())
@@ -3905,7 +3924,7 @@ class AHandler(mh.Handler):
         except OSError:
             return
         import time as _t
-        quiet, started = 0, _t.time()
+        quiet, started, was_running = 0, _t.time(), None
         stream_epoch = mh.JOB.event_feed(since)["epoch"]
         try:
             while _t.time() - started < 3600:                      # a browser reconnects on its own; this keeps one socket bounded
@@ -3913,8 +3932,9 @@ class AHandler(mh.Handler):
                 if feed["epoch"] != stream_epoch:                  # a new run began while we were connected: send it from its first event
                     stream_epoch, since = feed["epoch"], 0
                     feed = mh.JOB.event_feed(0)
-                if feed["events"] or feed["next"] != since:
-                    since = feed["next"]
+                # a frame also goes out when the run stops with nothing new to say, so the page learns it ended and can close the stream
+                if feed["events"] or feed["next"] != since or feed["running"] != was_running:
+                    since, was_running = feed["next"], feed["running"]
                     self.wfile.write(f"id: {feed['epoch']}:{feed['next']}\n".encode("ascii") + b"data: " + json.dumps(feed).encode("utf-8") + b"\n\n")
                     quiet = 0
                 else:
