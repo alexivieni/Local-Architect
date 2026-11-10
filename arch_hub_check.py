@@ -411,7 +411,7 @@ def run():
               and (rv.get("verdict") or {}).get("verdict") == "fail" and rv["cost"]["local"] is True and rv["cost"]["calls"] == 1 and len(rv.get("plan", [])) == 1, rv)
         check("review refuses a run id that climbs out", call("/api/arch/review?root=" + urllib.parse.quote(rvroot) + "&run=..%2Fx").get("HTTP") == 400)
         pv = call("/api/arch/plan?root=" + urllib.parse.quote(rvroot) + "&run=r1")
-        check("the plan is read, and says plainly when editing is not available", len(pv.get("items", [])) == 1 and (pv.get("editable") or "not available" in (pv.get("why") or "")), pv)
+        check("the plan is read, and says plainly when editing is not available", len(pv.get("items", [])) == 1 and (pv.get("editable") or "built-in code" in (pv.get("why") or "")), pv)   # it says why: this workflow does not read an edited plan
         # ---- live-critique fixes: one verdict mapping, a clean plan, a stale-server guard, the page wiring
         for rid_, recs_, st_ in (("r2", [{"type": "verdict", "verdict": "pass", "why": ""}], {"status": "done", "goal": "g2"}),
                                  ("r3", [{"type": "verdict", "verdict": "not_sure", "why": "no tests ran"}], {"status": "done", "goal": "g3"}),

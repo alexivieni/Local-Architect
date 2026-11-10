@@ -56,7 +56,8 @@ def resume_checks(sq, orch, core, proj, dd, cfg, tmp):
                                    {"title": "Check", "agent": "reviewer", "task": "check"}]}
     vw, cw = sq.run_workflow(WW, proj, "g", cfg=cfg, data_dir=dd, use_cache=False)
     vw2, cw2 = sq.run_workflow(WW, proj, "g", cfg=cfg, data_dir=dd, resume_from=cw.run_id, use_cache=False)
-    ok(vw == "pass" and cw2.records[0].get("replayed"), "writer replays while its file is as it left it",
+    # a crew that changed a file with no test phase is not_sure (2026-11-09: crews are judged by code, not by agents finishing)
+    ok(vw == "not_sure" and cw2.records[0].get("replayed"), "writer replays while its file is as it left it (and an untested write is not_sure)",
        (vw, [r["verdict"] for r in cw.records], cw2.records[0].get("replayed")))
     with open(os.path.join(proj, "gen.py"), "w") as f:
         f.write("X = 2  # edited by hand\n")

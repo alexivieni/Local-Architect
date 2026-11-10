@@ -993,6 +993,7 @@ class Crew:
         self.cache_days = int(sq.get("step_cache_days", 30) or 30)
         self.budget = Budget(budget)
         self.budget_hit = False
+        self.judged = []                # code verdicts met on the way: ("suites", "pass"|"fail"|"not_sure") and ("panel", "pass"|"fail")
         self.resume_from = None
         self._prior = {}
         if resume_from and self.replay:
@@ -1641,9 +1642,12 @@ def run_suites(root, suites, jobs=4, timeout=600, env_extra=None):
     names = [str(x) for x in (suites or [])]
     with cf.ThreadPoolExecutor(max(1, min(int(jobs or 1), 16))) as ex:
         res = list(ex.map(one, names))
-    bad = [r for r in res if r["rc"] != 0]
-    return {"results": res, "passed": len(res) - len(bad), "failed": len(bad), "verdict": "pass" if res and not bad else "fail",
-            "summary": f"{len(res) - len(bad)}/{len(res)} suites green" + (": failing " + ", ".join(r["suite"] for r in bad) if bad else "")}
+    bad = [r for r in res if r["rc"] not in (0, None)]
+    missing = [r for r in res if r["rc"] is None]          # could not run: not a failure (three outcomes), but not a pass either
+    verdict = "fail" if bad else ("not_sure" if missing or not res else "pass")
+    return {"results": res, "passed": len(res) - len(bad) - len(missing), "failed": len(bad), "could_not_run": len(missing), "verdict": verdict,
+            "summary": f"{len(res) - len(bad) - len(missing)}/{len(res)} suites green" + (": failing " + ", ".join(r["suite"] for r in bad) if bad else "")
+                       + ("; could not run: " + ", ".join(r["suite"] for r in missing) if missing else "")}
 
 
 def diff_stats(root, base=None, files=None):
@@ -1950,6 +1954,22 @@ def check_inputs(w, vars_):
     return out, probs
 
 
+_FAIL_WORDS = ("fail", "failed", "no", "false", "reject", "rejected", "blocked")
+_PASS_WORDS = ("pass", "passed", "yes", "true", "accept", "accepted", "ok")
+
+
+def _code_verdict(crew):
+    """The crew's verdict from CODE, or None to keep the old rule (every agent finished). A failing test phase or a panel's majority
+    "fail" -> fail; files changed but nothing code-checked them as passing -> not_sure; a test phase that could not run -> not_sure."""
+    kinds = [v for _, v in crew.judged]
+    if "fail" in kinds:
+        return "fail"
+    edited = any(r.get("edited") for r in crew.records)
+    if "not_sure" in kinds or (edited and "pass" not in kinds):
+        return "not_sure"
+    return None
+
+
 def _majority(results, key):
     """-> (the value a strict majority of the WHOLE panel gave, or None; the vote counts). A judge that failed counts against."""
     votes = {}
@@ -1975,7 +1995,10 @@ def _run_phase(crew, ph, ctx, title):
                 "budget": en.get("budget")}
     if kind == "code":
         a = ph.get("with") if isinstance(ph.get("with"), dict) else {}
-        return CODE_STEPS[ph["code"]](prev, ctx, {k: (render(v, vars_) if isinstance(v, str) else v) for k, v in a.items()})
+        out = CODE_STEPS[ph["code"]](prev, ctx, {k: (render(v, vars_) if isinstance(v, str) else v) for k, v in a.items()})
+        if ph["code"] == "run_suites" and isinstance(out, dict) and out.get("verdict"):
+            crew.judged.append(("suites", out["verdict"]))       # a test phase decides the crew's verdict (_code_verdict)
+        return out
     if kind == "log":
         crew.log(render(ph["log"], dict(vars_, prev=prev if isinstance(prev, str) else json.dumps(prev, default=str)[:500],
                                         **{"prev.summary": (prev or {}).get("summary", "") if isinstance(prev, dict) else ""})))
@@ -1997,6 +2020,10 @@ def _run_phase(crew, ph, ctx, title):
         key = ph.get("vote", "verdict")
         win, votes = _majority(res, key)
         crew._event({"type": "panel", "title": title, "agent": ph["panel"], "n": n, "votes": votes, "majority": win})
+        if str(win or "").strip().lower() in _FAIL_WORDS:      # a verifier panel that votes "fail" by majority fails the crew
+            crew.judged.append(("panel", "fail"))
+        elif str(win or "").strip().lower() in _PASS_WORDS:
+            crew.judged.append(("panel", "pass"))
         return {key: win, "votes": votes, "results": [r for r in res if r is not None], "agreed": votes.get(win, 0) if win else 0}
     if kind == "loop":
         lp = ph["loop"]
@@ -2079,6 +2106,10 @@ def run_workflow(w, root=None, goal="", vars=None, overrides=None, **kw):
         crew._event({"type": "phase_done", "title": ph["title"], "kind": _phase_kind(ph), "secs": secs, "ok": prev not in (None, [])})
         crew.say(f"[{'ok' if prev not in (None, []) else '-'}] {ph['title']}: " + _cut(json.dumps(prev, ensure_ascii=False, default=str), 200))
     crew.final = prev
+    cv = _code_verdict(crew)
+    if cv:
+        crew.say({"fail": "[x] the crew fails: a test phase failed or the verifier panel voted fail",
+                  "not_sure": "[-] not sure: files were changed but no test checked them (or a test phase could not run)"}[cv])
     if isinstance(w.get("returns"), dict):
         import arch_schemas
         bad = arch_schemas.errors(prev, w["returns"]) if prev is not None else ["no result"]
@@ -2086,7 +2117,7 @@ def run_workflow(w, root=None, goal="", vars=None, overrides=None, **kw):
         if bad:
             crew.say("[x] the workflow result breaks its returns: schema: " + "; ".join(bad[:3]))
             return crew.close("fail"), crew
-    return crew.close(), crew
+    return crew.close(cv), crew
 
 
 # ---------------------------------------------------------------- catalogue for a UI: list, describe, save

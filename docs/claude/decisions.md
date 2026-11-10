@@ -188,3 +188,19 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   not "done"; the Models page speed inputs no longer override the measured bandwidth; Home's speed tile reads the usage meter; Tiers says
   estimate; Review, Doctor and Assess keep "could not check"; By job confirms after the job; dead `sheet()` (a false "twenty-three
   specialists") removed. Pinned by `arch_selftest_honesty.py` and the rewritten `arch_selftest_finops.py`.
+
+## Six places that broke the platform's own rules (review 2026-11-09)
+- Training: a best-of-N candidate that PASSED but lost to a smaller passing change was marked False, so the DPO export would have
+  taught "a correct answer is bad". It is None now (not chosen); only a candidate whose checks failed is False.
+- Nothing is "passed" without a code check: YAML text steps, review map/reduce chunks, applies with no gate and tool-loop answers were
+  marked True, which fed each model's ok rate, its few-shot "past reply that passed the checks" and "known good" tool trajectories.
+  They are None; a tool loop's answer is marked by its step's gate when it has one (explore has none, so it gives no trajectories).
+- A template whose dependency is missing (flask_app, fastapi) ends not_sure in both engines (the gate returned a pass, the legacy flow
+  said nothing).
+- Crews are judged by code: a failing `run_suites` phase or a panel's majority "fail" fails the crew; files changed with no passing test
+  is not_sure; a suite file that is missing is "could not run", not a failure (`_code_verdict`, `crew.judged`).
+- The Console box has "Do it" (a run; Ctrl+Enter) next to "Ask" (the chat, which only talks). Words sent to a running run now steer
+  it: `Engine._call` appends the run's inbox to the end of every later prompt (the cached prefix is unchanged) and traces a `guidance`
+  event the live board shows; `/api/arch/redirect` no longer writes STOP unless asked.
+- "Run this plan" is offered only when the run's flow is a YAML `DataFlow` (only it reads `plan_override.json`); otherwise the card
+  says the workflow runs as built-in code and how to switch. Pinned by `arch_selftest_rules.py`.

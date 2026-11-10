@@ -168,7 +168,8 @@ class NewFlow(Flow):
         e.say(f"[+] wrote {len(written)} file(s)")
         v = verify(e, [w for w in written if not w.startswith("tests/")], run_tests=True)
         log_checks(e, "template checks", v)
-        if tpl["needs"] and not all(core.has_module(m) for m in tpl["needs"]):
+        missing = bool(tpl["needs"]) and not all(core.has_module(m) for m in tpl["needs"])
+        if missing:
             e.say(f"[i] this template needs: pip install -r requirements.txt ({', '.join(tpl['needs'])}); its tests are skipped until then")
         write_handoff(e, goal=goal, flow="new", template=tid, domains=tpl["domains"], files=written, run=T.rendered_run(tid, name),
                       next="build the goal on top of the template" if goal else "describe what to build")
@@ -176,7 +177,8 @@ class NewFlow(Flow):
         then = params.get("then_build")
         if then is None:
             then = len(goal.split()) >= 5
-        if then and ok and e.review != "dry":
+        unsure = missing and v["ok"] is not False     # its tests could not run: not_sure, never a pass (and nothing to build a goal on yet)
+        if then and ok and not unsure and e.review != "dry":
             e.say("\n[build] building your goal on top of the template ...")
             e.report("", "## Build on top of the template")
             try:
@@ -185,8 +187,8 @@ class NewFlow(Flow):
             except LLMError as ex:
                 e.say(f"[!] the template is ready, but the build step needs a model: {ex}")
                 e.report(f"- Build step skipped: {ex}")
-        e.report("", f"- Project {'ready' if ok else 'created, with failing checks'}. Run it with: `{tpl['run']}`")
-        return {"ok": ok, "files": written}
+        e.report("", f"- Project {'created; its tests could not run until you install ' + ', '.join(tpl['needs']) if unsure else ('ready' if ok else 'created, with failing checks')}. Run it with: `{tpl['run']}`")
+        return {"ok": ok, "files": written, "unsure": unsure}
 
 
 # ------------------------------------------------------------------------------------------------ FEATURE

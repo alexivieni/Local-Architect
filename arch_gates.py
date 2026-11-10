@@ -585,7 +585,10 @@ def g_template(e, ctx, step, changed):
     ctx.update(template=tid, template_files=written, template_run=T.rendered_run(tid, name), domains=tpl["domains"])
     if tpl["needs"] and not all(core.has_module(m) for m in tpl["needs"]):
         e.say(f"[i] this template needs: pip install -r requirements.txt ({', '.join(tpl['needs'])}); its tests are skipped until then")
-        return R(True, "", {"template": tid, "files": len(written), "needs": tpl["needs"]})
+        if v["ok"] is False:                          # something that does not need the package already fails: that is a real failure
+            return R(False, v["text"], {"template": tid, "files": len(written), "needs": tpl["needs"]})
+        return R(None, f"its tests could not run: install {', '.join(tpl['needs'])} (pip install -r requirements.txt)",
+                 {"template": tid, "files": len(written), "needs": tpl["needs"]})
     return R(v["ok"], v["text"], {"template": tid, "files": len(written), "passed": v["passed"], "total": v["total"]})
 
 

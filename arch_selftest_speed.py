@@ -366,15 +366,16 @@ def _best_of_n_checks(check):
             marks = {r["id"]: r["accepted"] for r in recs if r.get("type") == "mark"}
             calls = [r for r in recs if r.get("type") == "call"]
             check(f"best of 3 ({word}): all three answers are traced, each with its own id", len(calls) == 3 and len({c["id"] for c in calls}) == 3, len(calls))
-            check(f"best of 3 ({word}): the winner is marked passed and both others are marked not chosen",
-                  sorted(marks.values(), key=str) == [False, False, True], marks)
+            # 2026-11-09: the other PASSING answer is None (not chosen), never False -- a correct answer must not become a DPO "rejected"
+            check(f"best of 3 ({word}): the winner is marked passed, the failing answer failed, the other passing one not chosen (None)",
+                  sorted(marks.values(), key=str) == [False, None, True], marks)
             if par == 3:
                 check("with three parallel slots, the three answers are generated at the same time, not one after another",
                       live["peak"] >= 2, (live["peak"], round(secs, 2)))
                 data = ds.build([proj])
                 pairs = [p for rows in data["dpo"].values() for p in rows]
-                check("every losing answer becomes a preference pair against the winner, to the same prompt",
-                      len(pairs) == 2 and all(good_small.strip() in p["chosen"] for p in pairs)
+                check("only the FAILING answer becomes a preference pair against the winner (a passing one is never 'rejected')",
+                      len(pairs) == 1 and all(good_small.strip() in p["chosen"] for p in pairs)
                       and all(p["meta"]["same_task"] for p in pairs), [(p["meta"].get("same_task"), p["rejected"][-30:]) for p in pairs])
             else:
                 check("with one slot, the answers are generated one at a time (nothing is sent the server cannot hold)", live["peak"] == 1, live["peak"])

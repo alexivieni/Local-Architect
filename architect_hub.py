@@ -2160,9 +2160,17 @@ def plan_view(root, run):
     run, d = _run_dir_of(root, run)
     if not run:
         return {"run": "", "items": [], "editable": False}
-    ok = _plan_hook()
+    ok, flow = _plan_hook(), str(_read_json(os.path.join(d, "run.json")).get("flow") or "")
+    try:
+        import arch_dataflow
+        import arch_flows as _fl
+        data = isinstance(_fl.FLOWS.get(flow), arch_dataflow.DataFlow)   # only a YAML flow reads <run>/plan_override.json
+    except Exception:
+        data = False
+    ok = ok and data
     return {"run": run, "items": review_view(root, run).get("plan") or [], "editable": ok,
-            "why": "" if ok else "Edit is not available yet: the engine does not read a plan override (needs Engine.plan_override reading <run>/plan_override.json)."}
+            "why": "" if ok else (f"The '{flow or 'unknown'}' workflow runs as built-in code here, which does not read an edited plan. "
+                                  "Set Settings > Workflows > engine to 'data' to edit plans.")}
 
 
 def save_config_checked(b):
@@ -4449,10 +4457,12 @@ class AHandler(mh.Handler):
                 raise ValueError("there is no run by that name")
             with open(os.path.join(d, "inbox.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps({"t": time.time(), "message": msg}) + "\n")
-            if b.get("stop", True):
+            # steer by default: the run reads its inbox before every model call and puts the message at the end of the prompt
+            # (Engine._call). It used to write STOP here, so the run ended instead of following the words.
+            if b.get("stop", False):
                 with open(os.path.join(root, ".arch", "STOP"), "w", encoding="utf-8") as f:
                     f.write(msg[:200])
-            return {"ok": True, "run": run, "message": msg, "stopping": bool(b.get("stop", True))}
+            return {"ok": True, "run": run, "message": msg, "stopping": bool(b.get("stop", False))}
         if path == "/api/arch/recipes/fill":
             return recipes_fill(b)
         if path == "/api/arch/review/accept":

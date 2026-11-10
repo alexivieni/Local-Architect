@@ -2740,7 +2740,7 @@ const EV={since:0,epoch:-1,steps:[],tools:[],gates:[],esc:[],calls:0,tokens:0,to
 
 function consolePage(){
   const msgs=h("div",{class:"msgs",id:"cMsgs"});
-  const ta=h("textarea",{id:"cIn",rows:2,placeholder:"Say what you want done, or / for a saved command.",
+  const ta=h("textarea",{id:"cIn",rows:2,placeholder:"Say what you want done and press Do it (Ctrl+Enter); Enter asks a question; / for a saved command.",
     oninput:slashUpdate,
     onblur:()=>setTimeout(slashClose,120),
     onkeydown:e=>{
@@ -2751,6 +2751,7 @@ function consolePage(){
           e.preventDefault();slashPick(SLASH.items[SLASH.idx]);return;}
         if(e.key==="Escape"){e.preventDefault();slashClose();return;}
       }
+      if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();cDoIt();return;}
       if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();cSend();}
     }});
   const thread=h("div",{class:"thread"},msgs,
@@ -2759,8 +2760,9 @@ function consolePage(){
       h("div",{class:"usepick",style:"display:none",role:"radiogroup","aria-label":"Who answers"},...[["local","Local"],["claude","Claude"]].map(([v,l])=>h("button",{class:"usebtn"+(store.get("chatUse","local")===v?" on":""),role:"radio","aria-checked":String(store.get("chatUse","local")===v),
         title:v==="claude"?(S.cloud&&S.cloud.chat_ready?"Answered by "+S.cloud.model+" (costs money; your question and the project context leave this machine)":"Not ready: "+((S.cloud&&S.cloud.chat_why)||"turn on online features")):"Answered by your own models, on this machine",
         onclick:e=>{store.set("chatUse",v);[...e.target.parentNode.children].forEach(b=>{b.classList.toggle("on",b===e.target);b.setAttribute("aria-checked",String(b===e.target));});
-          const ta=$("#cIn");if(ta)ta.placeholder=v==="claude"?"Ask Claude about this project (uses your API key)":"Say what you want done, or / for a saved command.";}},l))),
-      h("button",{class:"btn pri",id:"cSend",onclick:cSend},"Send",icon("arrow")),
+          const ta=$("#cIn");if(ta)ta.placeholder=v==="claude"?"Ask Claude about this project (uses your API key)":"Say what you want done and press Do it (Ctrl+Enter); Enter asks a question; / for a saved command.";}},l))),
+      h("button",{class:"btn",id:"cSend",title:"Ask a question about the project (talks only, changes nothing)",onclick:cSend},"Ask"),
+      h("button",{class:"btn pri",id:"cDo",title:"Start a run that does it (Ctrl+Enter)",onclick:cDoIt},"Do it",icon("arrow")),
       h("div",{class:"hint"},
         h("span",{class:"pair"},h("kbd",{},"Enter"),"send"),
         h("span",{class:"pair"},h("kbd",{},"Shift"),h("kbd",{},"Enter"),"new line"),
@@ -2869,6 +2871,7 @@ function renderDoing(){
       h("div",{style:"max-width:30ch"},"Ask for something on the left. The plan, every tool it uses and every check it runs will appear here as it happens.")));
     put(el,...kids); return;
   }
+  if(EV.guidance)kids.push(h("div",{class:"sect"},h("p",{class:"lbl"},"Following your message"),h("p",{class:"small"},EV.guidance)));
   if(EV.live&&!EV.verdict)kids.push(h("div",{class:"sect"},h("p",{class:"lbl"},"Writing now · "+(EV.liveRole||"")),
     h("pre",{class:"livetxt"},EV.live),h("div",{class:"small mute"},EV.liveModel||"")));
   if((EV.lanes||[]).length)kids.push(laneView());
@@ -2995,7 +2998,7 @@ function argLine(a){
 function applyEvents(feed){
   if(feed.epoch!==EV.epoch){                        // a new run: start the panel over rather than appending to the last one
     EV.epoch=feed.epoch;EV.since=0;EV.lanes=[];EV.live="";EV.steps=[];EV.tools=[];EV.gates=[];EV.esc=[];EV.todo=[];
-    EV.calls=0;EV.tokens=0;EV.tok_s=null;EV.now=null;EV.nowModel=null;EV.nowRole=null;EV.nowTier=null;EV.verdict=null;EV.post=null;EV.flow=null;EV.cached=0;EV.sel=-1;EV.lastType=null;
+    EV.calls=0;EV.tokens=0;EV.tok_s=null;EV.guidance=null;EV.now=null;EV.nowModel=null;EV.nowRole=null;EV.nowTier=null;EV.verdict=null;EV.post=null;EV.flow=null;EV.cached=0;EV.sel=-1;EV.lastType=null;
   }
   EV.running=!!feed.running;
   for(const ev of feed.events||[]){
@@ -3019,6 +3022,7 @@ function applyEvents(feed){
       if(EV.now===ev.step)EV.now=null;
     }
     else if(t==="postmortem"){ EV.post=ev; }
+    else if(t==="guidance"){ EV.guidance=ev.message; announce("The run is following your message"); }
     else if(t==="verdict"){ EV.verdict=ev; EV.now=null;
       if(ev.meter){EV.calls=ev.meter.calls||EV.calls;EV.tokens=(ev.meter.tokens_out||0);} }
   }
@@ -3117,12 +3121,23 @@ function renderText(t){
   }
   return out;
 }
+/* "Do it": the words become a run in the chosen project (the chat box itself only talks: arch_chat). The live board follows it. */
+async function cDoIt(){
+  const i=$("#cIn"); const txt=(i.value||"").trim(); if(!txt)return;
+  if(txt.startsWith("/")){ i.value=""; return runSlash(txt); }
+  if(!run.root){ toast.err("Choose the project folder first (Home, or the folder box above).",6000); return; }
+  if(EV.running){ toast.err("A run is going. Ask sends it your words as guidance; Do it starts the next run once this one ends.",6000); return; }
+  i.value=""; i.style.height="";
+  try{ await api("/api/arch/run",{goal:txt,flow:"auto",review:"auto",root:run.root}); rememberRoot(run.root); EV.verdict=null; RUNBAR.goal=txt;
+    homeEvents._idle=false; liveEnsure(); toast("Started: "+txt.slice(0,60)); pollConsole(); }
+  catch(e){ toast.err(e.message,7000); i.value=txt; }
+}
 async function cSend(){
   const i=$("#cIn"); const txt=(i.value||"").trim(); if(!txt)return;
   if(txt.startsWith("/")){ i.value=""; return runSlash(txt); }
   if(EV.running&&EV.run){
-    const how=confirm("A run is going. OK = change its course with this message (it finishes the current call, then follows your words). Cancel = just chat about it.");
-    if(how){ i.value=""; try{ await api("/api/arch/redirect",{root:run.root||"",run:EV.run,message:txt}); toast("Sent to the run: it will follow this after the current step."); }catch(e){ toast.err(e.message,6000); i.value=txt; } return; }
+    const how=confirm("A run is going. OK = send this to the run: from its next model call on, it follows your words (it keeps going). Cancel = just chat about it.");
+    if(how){ i.value=""; try{ await api("/api/arch/redirect",{root:run.root||"",run:EV.run,message:txt}); toast("Sent: from its next model call on, the run follows this."); }catch(e){ toast.err(e.message,6000); i.value=txt; } return; }
   }
   i.value=""; i.style.height="";
   const use=store.get("chatUse","local");
@@ -5503,7 +5518,7 @@ function rvPlan(el){
     const add=h("input",{type:"text",class:"grow","aria-label":"Add a step",placeholder:"Add a step",onkeydown:e=>{if(e.key==="Enter"&&e.target.value.trim()){items.push({id:"u"+Date.now(),title:e.target.value.trim(),status:"pending"});el.innerHTML="";rvPlan(el);}}});
     card.append(h("div",{class:"row",style:"gap:8px"},add),h("div",{class:"row",style:"gap:8px;margin-top:8px"},
       h("button",{class:"btn p",type:"button",onclick:rvPlanRun},icon("play"),"Run this plan")));
-  }else card.append(h("p",{class:"sub"},"Edit is not available yet."),learnMore(p.why||"The engine does not read an edited plan yet."));
+  }else card.append(h("p",{class:"sub"},"This plan cannot be edited for this workflow."),learnMore(p.why||"This workflow does not read an edited plan."));
   put(el,card);
 }
 async function rvPlanRun(){

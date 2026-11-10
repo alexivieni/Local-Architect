@@ -462,7 +462,9 @@ class DataFlow:
                     ctx[step["store_text"]] = text
                     out["text"] = text
                 if apply_spec is None and "apply" not in step and not verify_spec:   # a pure text step (a review, a detection list)
-                    e.mark(r["id"], True)
+                    # no code checked it, so it is marked None: the step is done (out ok), but it is neither a pass nor a failure for the
+                    # ledger's ok rates, its few-shot examples or training data (it was marked True: "a past reply that passed the checks")
+                    e.mark(r["id"], None, "a text step: no code check")
                     out["ok"] = True
                     if step.get("report_text") and text:        # advice the person should see in the report (the legacy flows kept it)
                         e.report(f"- {step.get('title') or step['id']} (advice only):", *["  " + ln for ln in text.splitlines()[:10] if ln.strip()])
@@ -508,7 +510,7 @@ class DataFlow:
                 out["changed"] = changed_all
                 gate_name = verify_spec.get("gate")
                 if not gate_name:
-                    e.mark(r["id"], True)
+                    e.mark(r["id"], None, "applied; no gate checks this step")   # applied is not verified: not training data either way
                     out["ok"] = True
                     break
                 g = self._gate(e, ctx, step, gate_name, applied, verify_spec)
@@ -777,8 +779,10 @@ class DataFlow:
             # Among the ones that passed, the smallest change wins: the same result for less edited code is easier to review.
             winner = min(passed, key=lambda x: (x["size"], x["i"])) if passed else None
             for x in scored:
-                e.mark(x["r"]["id"], (True if x is winner else (None if x["ok"] is None else False)),
-                       "" if x is winner else ("passed, but a smaller change also passed" if x["ok"] else x["why"][:300]))
+                # a passing loser is None ("not chosen"), never False: arch_dataset turns False into a DPO `rejected`, and a correct answer
+                # must never be taught as a bad one. Only a candidate whose checks FAILED is False.
+                e.mark(x["r"]["id"], (True if x is winner else (None if x["ok"] is None or x["ok"] is True else False)),
+                       "" if x is winner else ("passed, but a smaller change also passed (not chosen; not a failure)" if x["ok"] else x["why"][:300]))
             e._trace({"type": "best_of_n", "t": time.time(), "flow": self.id, "step": step["id"], "n": n, "parallel": par,
                       "passed": len(passed), "winner": (winner["i"] + 1) if winner else None})
             if not winner:
@@ -825,13 +829,13 @@ class DataFlow:
                     tpl = load_prompt(flow_id, step["map"]["prompt"], e)
                     r = e.call(role, render(tpl, ctx, {"chunk": c["text"], "path": f, "where": c["name"]}), label=f"{step['id']}-map")
                     parts.append(f"### {f} ({c['name']})\n{core.strip_think(r['text']).strip()}")
-                    e.mark(r["id"], True)
+                    e.mark(r["id"], None, "a text step: no code check")
             red = step.get("reduce")
             if red and parts:
                 tpl = load_prompt(flow_id, red["prompt"], e)
                 r = e.call(red.get("role") or role, render(tpl, ctx, {"parts": "\n\n".join(parts)[:60000]}), label=f"{step['id']}-reduce")
                 text = core.strip_think(r["text"]).strip()
-                e.mark(r["id"], True)
+                e.mark(r["id"], None, "a text step: no code check")
             else:
                 text = "\n\n".join(parts)
         finally:
@@ -914,7 +918,7 @@ class DataFlow:
         # An EMPTY list means "no tools" here; arch_tools.schema/call read an empty list as "all", so it is handled before them.
         schema = (arch_tools.schema(allowed) if allowed else
                   {"type": "object", "properties": {"final": {"type": "string"}}, "required": ["final"]})
-        turns, used, answer, transcript, seen_calls = [], [], None, [], set()
+        turns, used, answer, transcript, seen_calls, final_id = [], [], None, [], set(), None
         try:
             extra = {k: (render(v, ctx) if isinstance(v, str) else v) for k, v in (step.get("vars") or {}).items()}
             extra["tools"] = arch_tools.describe(allowed) if allowed else "(no tools: answer from what you were shown)"
@@ -933,7 +937,7 @@ class DataFlow:
                     continue
                 if j.get("final") and not j.get("tool"):
                     answer = str(j["final"])
-                    e.mark(r["id"], True)
+                    final_id = r["id"]                  # marked below, by the step's gate (or None: an answer nothing checked)
                     break
                 name, args = str(j.get("tool") or ""), j.get("args") or {}
                 sig = name + json.dumps(args, sort_keys=True, default=str)
@@ -961,7 +965,10 @@ class DataFlow:
                                   "\n\nYou are out of steps. Answer now from what you found, with {\"final\": \"...\"}. Name the files and lines you saw, "
                                   "and say plainly what you could not establish.", schema={"type": "object", "properties": {"final": {"type": "string"}}, "required": ["final"]})
                 answer = str((j or {}).get("final") or "").strip() or "stopped: step limit reached without an answer"
-                e.mark(r["id"], bool((j or {}).get("final")))
+                if (j or {}).get("final"):
+                    final_id = r["id"]
+                else:
+                    e.mark(r["id"], False, "no answer")
         finally:
             self._unpin(e, role, token)
         if step.get("store_text"):
@@ -971,6 +978,8 @@ class DataFlow:
         g = self._gate(e, ctx, step, gate_name, sorted(set(e.changed_files))) if gate_name else None
         if g is not None:
             self._log_gate(e, step.get("title") or step["id"], g)
+        if final_id:      # the final answer is a training sample only when a gate checked it (it was marked True as soon as it parsed)
+            e.mark(final_id, g["ok"] if g is not None else None, "" if g is not None else "an answer: no gate checks it")
         ok = (g["ok"] if g is not None else (answer is not None and not str(answer).startswith("stopped:")))
         return {"ok": bool(ok), "unsure": bool(g and g["ok"] is None), "answer": answer, "tools": used, "steps_used": len(turns), "transcript": transcript,
                 "why": (g.get("text") if g else None) if not ok else None}

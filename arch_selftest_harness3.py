@@ -117,7 +117,8 @@ def delegate_checks(tmp):
     try:
         e, crew = parent_engine(budget={"calls": 100, "tokens": 400000, "seconds": 600})
         out, good = arch_tools.call(e, "delegate", {"workflow": wf, "goal": "make gen.py", "owns": ["gen.py"]})
-        ok(good and "delegated" in out and "pass" in out, "delegate: runs the workflow and returns the digest", out)
+        # the child wrote gen.py and nothing tested it: not_sure (crews are judged by code since 2026-11-09)
+        ok(good and "delegated" in out and "not_sure" in out, "delegate: runs the workflow and returns the digest (an untested write: not_sure)", out)
         ok(os.path.isfile(os.path.join(proj, "gen.py")) and "gen.py" in out, "delegate: the child wrote the file it owns and the digest names it", out)
         ok(crew.budget.spent["calls"] > 0, "delegate: the child's spend is charged to the caller's budget", crew.budget.spent)
         ok(any(ev.get("type") == "delegated" for ev in [json.loads(x) for x in open(os.path.join(crew.dir, "journal.jsonl"), encoding="utf-8")]),

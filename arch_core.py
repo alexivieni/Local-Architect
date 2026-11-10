@@ -1830,6 +1830,14 @@ class Engine:
             if ex:                              # at the END of the user turn, not in the system prompt: the system prompt + project context stay byte-identical
                 user = user.rstrip() + ("\n\nFORMAT REFERENCE (a past reply of yours for a similar request that passed the checks; copy its SHAPE, "   # across retries, so the server reuses the cached prefill
                                         "not its content):\n" + ex["reply"])
+        msgs = self.inbox() if getattr(self, "run_dir", None) else []
+        if msgs:                                # the person changed course mid-run (Console / redirect): every later call follows it
+            user = user.rstrip() + ("\n\nFROM THE PERSON, sent while you were working (where it differs from the request above, follow this):\n"
+                                    + "\n".join("- " + str(m["message"])[:600] for m in msgs[-3:]))
+            seen = getattr(self, "_guidance_seen", 0)
+            if len(msgs) > seen:
+                self._guidance_seen = len(msgs)
+                self._trace({"type": "guidance", "t": time.time(), "flow": self.flow, "message": str(msgs[-1]["message"])[:300]})
         sys_text = arch_roles.system_prompt(role, extra_system)
         if os.environ.get("ARCHITECT_SELFDEV") == "1":           # a self-improve run: every call works as the Architect developer
             sys_text = sys_text + "\n\n" + selfdev_brief(self.root)
