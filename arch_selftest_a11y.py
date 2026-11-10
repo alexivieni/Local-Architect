@@ -21,7 +21,33 @@ def run():
     check("every focusable thing shows a visible focus ring", ":focus-visible{outline:3px solid var(--acc)" in ui)
     check("controls are at least 36 px tall (easy to hit)", "button,select,input,textarea,summary{min-height:36px}" in ui)
     check("a screen-reader-only class exists for words that colour alone would carry", ".sr-only{" in ui)
-    check("progress is announced to screen readers (live region)", 'id:"spProgress",role:"status","aria-live":"polite"' in ui)
+    # Phase A (2026-11-09): the progress card is rebuilt at every step, so it is a plain region and ONE sentence is spoken per change
+    check("progress is announced once per change (current step, then the outcome), not re-read at every redraw",
+          'id:"spProgress",role:"region","aria-label":"Progress"' in ui and 'simpleDraw._said!==EV.epoch+"|"+say' in ui
+          and '"It worked. Every check passed."' in ui)
+    check("panels rebuilt on a timer are not live regions (run bar, queue board); the end of a run is spoken once",
+          'id="runBar" class="runbar" hidden role="region"' in ui and 'h("div",{id:"qBoard"})' in ui
+          and 'announce("Run finished: "' in ui)
+    check("toasts are heard, also inside an open window: live regions there, errors assertive, no role on the visual toast",
+          "function srRegion(kind)" in ui and 'if(cls==="err")srAlert(m);else announce(m);' in ui
+          and 't.removeAttribute("role")' in ui and 'wrap("toast"' not in ui and "const el=srRegion(\"polite\")" in ui)
+    check("form fields have their own border token (3:1), in every theme",
+          ui.count("--field-line:#") >= 5 and "border:1px solid var(--field-line);" in ui)
+    check("focus is kept when a panel is rebuilt after a fetch (background jobs, queue, status chip) and lands on the heading after a page change",
+          "if(r&&typeof r.then===\"function\")return r.then(" in ui
+          and 'function loadBgJobs(){return keepFocus($("#bgList")' in ui and 'function loadQueue(){return keepFocus($("#qBoard")' in ui
+          and 'function liveChip(){return keepFocus($("#liveChip")' in ui
+          and ui.count('t.tabIndex=-1;t.focus({preventScroll:true})') >= 2)
+    check("the browser tab names the page; there is exactly one skip link",
+          'document.title=(ttl?ttl+" · ":"")+"Architect Hub"' in ui and 'if(!$(".skip-link,.skip"))' in ui
+          and ui.count('class="skip-link"') == 1)
+    check("the status chips and the Try: examples are buttons, not clickable spans or links",
+          '<button type="button" id="sJob" class="chip" hidden>' in ui and '<button type="button" id="sOllama" class="chip"' in ui
+          and 'h("button",{type:"button",class:"chip acc","aria-label":"Use this example: "+t' in ui)
+    check("text the audit measured below 4.5:1 is fixed at its rule (filter counts, terminal diff, kbd, plan to-dos, queue note, y/n/a/q)",
+          ".tfilter .n{font-variant-numeric:tabular-nums;opacity" not in ui and ".term .dh{color:var(--term-hunk)}" in ui and ui.count("--term-hunk:") >= 5
+          and "ul.plan li.todo{color:var(--faint)}" in ui and 'class:"qempty"' in ui
+          and 'b.disabled=!j.running;   /* answers only' in ui and '$("#inRow").style.opacity' not in ui)
     check("each Simple-mode step says its state in words, not only with a colour or symbol", 'h("span",{class:"sr-only"}," — "+label[st])' in ui and '"aria-hidden":"true"' in ui)
     check("icon-only and arrow buttons get spoken names after every render", "function a11yPass(" in ui and '"↑":"Move up","↓":"Move down"' in ui and "MutationObserver" in ui)
     check("clickable non-buttons become keyboard-reachable and answer Enter/Space", 'setAttribute("tabindex","0")' in ui and 'e.key==="Enter"||e.key===" "' in ui)

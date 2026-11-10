@@ -164,7 +164,7 @@ def run():
     check("the live-board sample shows all three check outcomes and the not-sure verdict", all(s in board for s in ('"passed"', '"failed"', '"not sure"', "verdictbox not_sure", "lane-b")))
 
     # ---- 3. keyboard and screen readers
-    check("a skip link and one polite live region", 'h("a",{class:"skip",href:"#view"}' in html and 'id:"srLive"' in html and '"aria-live":"polite"' in html)
+    check("one skip link and one polite live region", html.count('class="skip-link" href="#view"') == 1 and 'if(!$(".skip-link,.skip"))' in html and 'id:"srLive"' in html and '"aria-live":"polite"' in html)
     check("finished steps, checks, verdicts and replies are announced; streaming text is not",
           all(s in html for s in ('announce("Step "', 'announce("Check "', 'announce("Run finished: "', 'announce("Reply"')) and 'ev.type==="token"' not in html[html.find("function a11yWire("):])
     check("rebuilt panels keep focus where it was (live board, strip, thread)", all(f'wrap("{n}",o=>function' in html for n in ("renderDoing", "renderStrip", "renderThread"))

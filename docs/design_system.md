@@ -16,7 +16,8 @@ if one comes back. `.th-light` / `.th-dark` scope a theme to one subtree; that i
 
 ## Tokens
 **Surfaces and text**: `--bg` page, `--paper` the drafting table behind it, `--panel` cards, `--soft` inner boxes and chips,
-`--line` hairlines, `--ink` text, `--mute` secondary text, `--faint` labels (AA on a card in both themes).
+`--line` hairlines, `--field-line` the edge of a text field or select (at least 3:1 against the card, the page and the soft fill in every
+theme, WCAG 1.4.11; `--line` is too faint for a control's boundary), `--ink` text, `--mute` secondary text, `--faint` labels (AA on a card in both themes).
 **Accent**: `--acc`, `--acc2` (its soft fill), `--on-acc` (text on a filled accent). Accents: blueprint (default),
 graphite, copper, moss. Each sets `--acc --acc2 --tick --grid --grid2` in light and dark, and never a status colour: `--info`
 stays the theme's own blue (copper and moss turned every info note orange or green, which read as a warning or a success).
@@ -25,7 +26,8 @@ The test fails any accent rule that sets `--info`, `--good`, `--warn` or `--bad`
 `--infra --infrabg`.
 **Kinds of work**: `--llm` (a model step), `--code` (a code check), `--judge` (a reviewer; moved off orange),
 `--claude --claude-ink --claude-bg`. The orange means Claude and nothing else.
-**Terminal and diff**: `--term --term-ink --add --del --hunk`.
+**Terminal and diff**: `--term --term-ink --add --del --hunk`. Inside the terminal (dark in every theme) a diff uses
+`--term-add --term-del --term-hunk`, light-on-dark versions at 6.8:1 or more on `--term`; `--add --del --hunk` are for diffs on a card.
 **The blueprint sheet** (Home hero, the same in both themes): `--bp --bp2 --bp-edge --bpline --bp-rule --bpink --bpmute
 --on-bp --bp-wash --bp-yes --bp-no`.
 **Drafting surface**: `--grid --grid2 --tick`. **Misc**: `--knob` (toggle thumb), `--veil` (behind dialogs).

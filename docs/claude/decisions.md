@@ -226,3 +226,26 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   check could never fail, `tools/ci_parallel.py` never named a crashed suite's error, and the crawl's client-gone filter matched
   nothing. Fixed; `arch_selftest_debt` now fails on any control character in the source. The crawl ignores only a browser hanging
   up mid-request (ConnectionAborted/Reset, BrokenPipe in Python's HTTP server); any other traceback fails it.
+
+## Accessibility Phase A (2026-11-09; WCAG 2.1 AA, measured in headless Edge on every page, light and dark)
+- **Fields have their own edge** (`--field-line`, 3:1 or more in every theme; 1.4.11): `--line` measured 1.33:1, so a text box had no
+  visible edge. Hairlines between cards keep `--line`.
+- **Toasts are heard, also inside an open window** (4.1.3): a native `<dialog>` makes the rest of the page inert, so `#srLive` and the
+  toast outside it were neither seen nor heard. `srRegion()` puts the live region (polite, or assertive for errors via `srAlert`) inside
+  the open window and the toast moves in with it; the visual toast has no role (unhiding and filling at once is often not read, and the
+  old a11yWire wrapper put `role` back on every call). Home's goal and folder errors are spoken and set `aria-invalid`.
+- **Focus is never thrown onto `<body>`** (2.4.3): `keepFocus` also handles a rebuild that awaits a fetch (it waits for the promise and
+  restores by index only when focus fell off the page), and wraps the background jobs, the queue board and the status chip. A page
+  change from anywhere but the nav, or closing the palette when its opener is gone, focuses the page heading (`tabIndex -1`). The
+  browser tab names the page (2.4.2), without the About button's "?".
+- **Live regions speak only on change**: Home's progress card, the run bar and the queue board were live regions rebuilt every step or
+  every 2-6 s, so a screen reader re-read them constantly. They are plain regions; one sentence is spoken when the current step or the
+  outcome changes (`simpleDraw._said`, `runBar` `_said` keyed by `EV.epoch`).
+- **Clickable chips are buttons** (`#sJob`, `#sOllama` with `aria-expanded`, the Try: examples); the y/n/a/q answers are disabled while
+  no run asks (they were faded to 45% but still pressable) and named.
+- **Contrast at the rule that caused it** (1.4.3): faded filter counts, the terminal's diff colours (the terminal is dark in every theme:
+  `--term-add/--term-del/--term-hunk`, 6.8:1 or more), `kbd`, plan steps not reached yet, and the queue's empty line (it borrowed the
+  "cancelled" look). One skip link (a11yWire looked for `.skip`, the page's is `.skip-link`, so there were two).
+- Checked by `arch_selftest_a11y` (static) plus a headless-Edge behaviour pass (toast inside a window, focus after `go()` and after an
+  async rebuild, title, one skip link, no new page errors). Phases B and C wait for the owner; the Cost map's SVG point roles are inside a
+  guarded slice and need the owner's yes.
