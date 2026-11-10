@@ -841,6 +841,9 @@ def build_state(q=None):
         _m = {}
     gpu_bw = float(q.get("gpu_bw", [str(_m.get("gpu_bw") or 192)])[0])
     ram_bw = float(q.get("ram_bw", [str(_m.get("ram_bw") or 50)])[0])
+    # which numbers the speed estimates use, and where each came from (the page shows it): typed by the person, measured here, or an estimate
+    src = lambda k: "you" if q.get(k) else ("measured" if _m.get(k) else "estimate")
+    speed_inputs = {"kv": kv, "gpu_bw": gpu_bw, "ram_bw": ram_bw, "gpu_bw_src": src("gpu_bw"), "ram_bw_src": src("ram_bw")}
     hw = detect_hardware()
     if q.get("vram"):
         hw["vram_gb"] = float(q["vram"][0])
@@ -849,7 +852,7 @@ def build_state(q=None):
     st = {"hw": hw, "ollama": {"host": ollama_host(), "ok": True}, "models": [], "config": read_config(),
           "weights": load_results().get("_weights") or DEFAULT_WEIGHTS, "categories": CATEGORIES,
           "tests": {"running": TEST_STATE["running"], "log": TEST_STATE["log"][-30:]},
-          "actions": sorted(ACTIONS), "time": time.time()}
+          "actions": sorted(ACTIONS), "time": time.time(), "speed_inputs": speed_inputs}
     try:
         st["models"] = model_list(hw, kv, gpu_bw, ram_bw)
         try:

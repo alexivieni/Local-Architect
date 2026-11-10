@@ -9,7 +9,7 @@ import json
 import os
 import time
 
-WINDOWS = {"day": 86400, "week": 7 * 86400}
+WINDOWS = {"day": 86400, "week": 7 * 86400, "month": 30 * 86400}   # month: the FinOps report reads 30 days of measured usage
 TTL = 60.0
 _CACHE = {}
 
@@ -120,7 +120,7 @@ def _scan_traces(roots, cutoff):
                         continue
                     if j.get("type") == "call":
                         calls.append({k: j.get(k) for k in ("model", "tier", "transport", "prompt_tokens", "gen_tokens", "cache_n",
-                                                            "cached", "done_reason")})
+                                                            "cached", "done_reason", "tok_s")})
                     elif j.get("type") == "verdict":
                         runs[os.path.join(root, n)] = j.get("verdict")
     return calls, runs
@@ -177,6 +177,7 @@ def compute(window="day", roots=None, now=None):
     rs = _roots(roots) if roots is not None else known_roots()
     calls, runs = _scan_traces(rs, cutoff)
     by_model, by_tier = {}, {}
+    speeds = []                                # decode tokens/s of local calls that measured one (Home's speed tile)
     exact_hit = exact_total = pre_hit = pre_total = 0
     claude_in = claude_out = 0
     for c in calls:
@@ -195,6 +196,8 @@ def compute(window="day", roots=None, now=None):
             claude_in += ti
             claude_out += to
             continue
+        if isinstance(c.get("tok_s"), (int, float)) and c["tok_s"] > 0:
+            speeds.append(float(c["tok_s"]))
         for d, key in ((by_model, model), (by_tier, tier)):
             row = d.setdefault(key, {"calls": 0, "tokens_in": 0, "tokens_out": 0})
             row["calls"] += 1
@@ -217,6 +220,9 @@ def compute(window="day", roots=None, now=None):
     return {
         "window": window, "since": cutoff, "generated": now,
         "local": {"tokens_in": tot_in, "tokens_out": tot_out, "calls": sum(r["calls"] for r in by_model.values()),
+                  "median_tok_s": (round(sorted(speeds)[len(speeds) // 2] if len(speeds) % 2 else
+                                         (sorted(speeds)[len(speeds) // 2 - 1] + sorted(speeds)[len(speeds) // 2]) / 2, 1) if speeds else None),
+                  "tok_s_n": len(speeds),
                   "by_model": srt(by_model, "model"), "by_tier": srt(by_tier, "tier")},
         "gpu_hours": {"total": round(sum(gpu.values()), 4), "by_tier": gpu},
         "runs": n_runs, "passed": passed, "pass_rate": round(passed / n_runs, 3) if n_runs else None,

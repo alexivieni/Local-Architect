@@ -54,6 +54,21 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
 9. **Queue-Aware Distributed LAN Mesh & Instant Local Failover (`arch_hosts.py`, `arch_transport.py`, `arch_core.py`, `arch_squad.py`):** `Crew._loop()` honors remote `role_hosts` with per-host semaphores (`max_parallel`, default 2); `rank_hosts()` load-balances by effective speed `tok_s / (1 + in_flight)`; `is_llama_host()` and `/v1/models` discovery allow remote `llama-server` nodes alongside remote Ollama nodes; `mark_down()` and `Engine._call` fail over seamlessly to local execution mid-run if a LAN host drops.
 10. **FinOps & Optimization Scorecard + Live Visual Frontend Demo (`arch_finops.py`, `architect_hub.py`, `hub_ui.html`):** `/api/arch/finops` and Hub **Models > Speed > FinOps & savings** calculate measured and projected team savings vs. Claude Opus 4.6, Claude Sonnet 4.6, GPT-4o, Claude Haiku 4.5, and $20/$200 cloud seats, display the 10-way optimization table, export an executive Markdown report, and provide `/api/arch/demo` (`launchVisualDemo()`) to build, pytest-verify, and launch a live visual web application for stakeholder calls in one click.
 
+**Corrections to the list above (audit 2026-11-09, each checked in the code):**
+- 1: replies are in `responses.db`; router decisions are in `route_cache.json`, not SQLite.
+- 3: there is no `ToolEnv` class; `_fingerprint` is a module function in `arch_tools.py`, the cache covers 4 tools (`CACHED`: ls, grep,
+  search, outline), and `tree_fp` is dropped by `invalidate`, so an edit made outside the tools and `Engine.apply` is not seen.
+- 4: Ollama gets `OLLAMA_KV_CACHE_TYPE` / `OLLAMA_FLASH_ATTENTION` only when Architect starts it; llama-server gets `-fa` only with
+  layers on the card and falls back to an f16 cache when the build lacks the flags.
+- 5: unified memory caps heavy at 70% of RAM (`arch_port.py`), not 55%; the split penalty is 6 points (`gpu_ratio < 0.7`) vs 2.
+- 6: the router runs at 4096 on every gpu profile (2048 only on cpu8/cpu16); a context overflow comes back as a cut-off reply
+  (`done_reason: length`), it is not resized and retried.
+- 7: `shared_header` outlines the target files (`vars.target_files`, at most 6), not the owned files.
+- 8: the 30 s cache is in `arch_power.battery()`; there is no `on_battery()`.
+- 10: the FinOps report read no usage at all (it called `arch_usage.summary`, which does not exist), priced Opus 4.6 at $15/$75 and
+  Haiku 4.5 at $0.80/$4, showed 9 layers as "active" by construction, and filled gaps with invented numbers (64% prefix reuse, 85% / 100%
+  local share). Fixed on 2026-11-09: see "Honesty audit" below.
+
 ## Tech-debt Phase 1 (2026-11-08)
 - CLAUDE.md became an index (rules first, inside the 3000 characters a run reads) with these pages; `tools/doc_counts.py` computes the
   counts the docs state and `arch_selftest_docs` fails when one drifts. Release notes keep the numbers of their day.
@@ -151,3 +166,25 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
 - `arch_browser`: Edge on this laptop started handing off to a new browser process and exiting 0 (2026-11-09), so every browser
   check failed to launch. `launch` now keeps waiting for the debugging port when the launcher exits 0, and `close` sends
   `Browser.close` so a handed-off browser shuts down too (it was left running).
+
+## Honesty audit (2026-11-09: no stubs, every button works, no misrepresentation)
+- Stubs: `architect.py fakecode` finds 0 gate-level findings; the 19 non-error findings are test fakes, the stub detector's own
+  patterns and the redaction list. The page has no empty handlers or "coming soon" actions; every request path it uses has a route.
+- Buttons: a crawler (throwaway install, one real run with the scripted model, every POST answered in the page and never sent, so
+  nothing outside the install changes) went through 45 pages and 733 buttons: 658 pressed, 18 disabled, 57 rendered too late after a
+  rebuild to press (timing, not a fault). No uncaught page error, no server error. 20 pressed buttons changed nothing visible: 12
+  Components samples (now they answer), the already-selected tab or preset (Build group, Balanced), Refresh with unchanged data,
+  "Remove" on the only fleet row (it resets it), and four real gaps, fixed: "Run checks" and "Propose next steps" were answered from
+  the 60 s read cache (now they check again), and an empty queue "Add" or plugin "Install" only moved focus (now it says what to type).
+  Six toasts that read like errors ("Saved undefined", "Cannot read ... hunks") came from the crawler's stub answers; each real
+  endpoint was checked and returns the field. "What will it do?" now reads the route without assuming every field is there.
+- Recent runs on Home was read only when Home was built or the folder changed, so a run finished on Home appeared there only when
+  that first read happened to be slow (the old speed tile's slow request hid it; the uismoke check caught it once that was fast). It
+  is now read again once per finished run.
+- FinOps: real measured usage (30-day window), Claude list prices with source and date, no invented fallbacks, layer statuses read
+  from the settings (on / off / built in / not set up), gains labelled with their basis, the projection labelled as one; the demo
+  fills its figures in from this install and reports failed tests and a server that did not start.
+- Hub: Stop says it ends the run now; Free memory unloads Architect's models (it targeted the other apps' ones); an unfinished step is
+  not "done"; the Models page speed inputs no longer override the measured bandwidth; Home's speed tile reads the usage meter; Tiers says
+  estimate; Review, Doctor and Assess keep "could not check"; By job confirms after the job; dead `sheet()` (a false "twenty-three
+  specialists") removed. Pinned by `arch_selftest_honesty.py` and the rewritten `arch_selftest_finops.py`.

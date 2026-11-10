@@ -470,6 +470,9 @@ def build_state(q=None):
     part = ((q or {}).get("part") or [""])[0]
     if part == "catalog":
         return _catalog()                                   # no Ollama call, no model scoring
+    if not (q or {}).get("kv"):                             # the KV type the estimates use is the person's setting (it was always f16)
+        q = dict(q or {})
+        q["kv"] = [str(((core.deep_merge(core.DEFAULTS, mh.read_config()).get("server") or {}).get("kv")) or "f16")]
     st = _base_state(q)
     cfg = core.deep_merge(core.DEFAULTS, mh.read_config())
     models = st.get("models", [])
@@ -2098,13 +2101,15 @@ def review_view(root, run):
         a, rm = _diff_counts(t)
         files[f] = {"file": f, "added": a, "removed": rm, "new_file": False, "diff": t, "truncated": False, "source": "git" if t else "none"}
         order.append(f)
-    checks = [r for r in recs if r.get("type") == "check" and r.get("ok") is not None and r.get("gate")]
-    tests = [{"name": str(c["gate"])[:80], "ok": bool(c["ok"]), "text": str(c.get("text") or "")[:300], "step": c.get("step")} for c in checks]
+    checks = [r for r in recs if r.get("type") == "check" and r.get("gate")]
+    # three outcomes: True passed, False failed, None could not run (kept: dropping it made a not-sure run say "no checks ran")
+    tests = [{"name": str(c["gate"])[:80], "ok": None if c.get("ok") is None else bool(c["ok"]), "text": str(c.get("text") or "")[:300],
+              "step": c.get("step")} for c in checks]
     for t in tests:
         t["test"] = bool(_TESTLIKE.search(t["name"]))
     rv_ = run_verdict(d, st)
     verdict = {"verdict": rv_["verdict"], "word": rv_["word"], "why": rv_["why"]} if rv_["source"] else None
-    bad = next((t for t in tests if not t["ok"]), None)
+    bad = next((t for t in tests if t["ok"] is False), None)
     first_failure = ""
     if bad:
         first_failure = (bad["name"] + (": " + bad["text"].strip().splitlines()[0] if bad["text"].strip() else ""))[:300]
@@ -2924,7 +2929,7 @@ def select_why():
     d, err = _guarded(f, core.load_config(HERE))
     if err:
         return {"available": False, "why": err, "jobs": []}
-    keep = ("current", "best", "C", "pass_rate", "ci", "tok_s", "fits", "n", "reason", "suggestion")
+    keep = ("current", "best", "C", "pass_rate", "ci", "tok_s", "fits", "n", "reason", "suggestion", "prior", "prior_reasons")
     rows = [dict({"job": str(k)}, **{f_: (v or {}).get(f_) for f_ in keep}) for k, v in (d or {}).items() if isinstance(v, dict)]
     return _plain({"available": True, "jobs": rows})
 

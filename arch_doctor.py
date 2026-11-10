@@ -33,7 +33,8 @@ MIN_PYTHON = (3, 9)
 
 
 def _ok(name, ok, detail="", advisory=False):
-    return {"name": name, "ok": bool(ok), "detail": detail, "advisory": advisory}
+    """ok: True passed, False failed, None could not check (shown as such, never as a fail)."""
+    return {"name": name, "ok": None if ok is None else bool(ok), "detail": detail, "advisory": advisory}
 
 
 def check_python():
@@ -52,7 +53,7 @@ def check_test_python():
         with contextlib.redirect_stdout(io.StringIO()):
             exe = start.python_for_tests()
     except Exception as ex:
-        return _ok("Python for tests", False, f"could not tell: {ex}", advisory=True)
+        return _ok("Python for tests", None, f"could not tell: {ex}", advisory=True)
     v = sys.version_info
     here = os.path.normcase(os.path.abspath(exe)) == os.path.normcase(os.path.abspath(sys.executable))
     if here and importlib.util.find_spec("pytest"):
@@ -117,7 +118,7 @@ def check_disk(root, min_gb=1.0):
         free_gb = u.free / (1024 ** 3)
         return _ok(f"disk space in {root}", free_gb >= min_gb, f"{free_gb:.1f} GB free (need at least {min_gb:.0f} GB)" + (f", measured at {probe} (doesn't exist yet)" if probe != root else ""))
     except OSError as e:
-        return _ok(f"disk space in {root}", False, str(e))
+        return _ok(f"disk space in {root}", None, f"could not read the free space: {e}")
 
 
 def check_write(root, label=None):
@@ -231,7 +232,8 @@ def run(root=None, hub_port=8766):
         check_self_code(),
         check_ollama_port(cfg.get("ollama_host")),
     ]
-    ok = all(c["ok"] for c in checks if not c["advisory"])
+    hard = [c["ok"] for c in checks if not c["advisory"]]
+    ok = False if False in hard else (None if None in hard else True)       # None: nothing failed, but not everything could be checked
     return {"ok": ok, "root": root, "checks": checks}
 
 
@@ -289,7 +291,7 @@ def fix(root=None, hub_port=8766, install_missing=None, clean_runs=True, max_run
         else:
             actions.append({"what": "pip install pytest", "ok": False, "detail": "skipped: online.allow_pip is off (Settings > Online), so nothing reaches PyPI. Install it yourself: python -m pip install pytest"})
     disk_check = next((c for c in before["checks"] if c["name"].startswith("disk space in")), None)
-    if clean_runs and disk_check is not None and not disk_check["ok"]:
+    if clean_runs and disk_check is not None and disk_check["ok"] is False:     # only a real "low"; a disk that could not be read is not low
         freed, removed = clean_old_runs(root, max_run_age_days)
         actions.append({"what": f"clean .arch/runs/ older than {max_run_age_days}d", "ok": True,
                         "detail": f"freed {freed / 1024 / 1024:.1f} MB across {len(removed)} run(s)" if removed else "nothing old enough to clean -- disk is still low for another reason"})
@@ -308,7 +310,7 @@ def main(argv=None):
     def show(out):
         width = max(len(c["name"]) for c in out["checks"])
         for c in out["checks"]:
-            mark = "OK  " if c["ok"] else ("--  " if c["advisory"] else "FAIL")
+            mark = "OK  " if c["ok"] else ("??  " if c["ok"] is None else ("--  " if c["advisory"] else "FAIL"))
             line = f"  {mark}  {c['name']:<{width}}"
             if c["detail"]:
                 line += "   " + c["detail"]
@@ -333,7 +335,8 @@ def main(argv=None):
         out = run(a.root, a.port)
         show(out)
     print()
-    print("Ready to run." if out["ok"] else "Not ready: fix the FAIL line(s) above first.")
+    print("Ready to run." if out["ok"] else ("Could not check everything: see the ?? line(s) above." if out["ok"] is None
+                                              else "Not ready: fix the FAIL line(s) above first."))
     return 0 if out["ok"] else 1
 
 

@@ -13,40 +13,24 @@ import time
 
 import arch_core as core
 
-# Published cloud API pricing per 1,000,000 tokens (USD) + typical seat subscriptions for ROI comparison.
+# Cloud API list prices per 1,000,000 tokens (USD), each with its source and date. The Claude rows are Anthropic's first-party API
+# prices as listed on 2026-11-03 (the Opus 4.6 row used to say $15/$75 and Haiku 4.5 $0.80/$4, older prices that tripled "saved vs
+# Opus"). The GPT-4o row is OpenAI's list price as entered by hand; Architect does not check it. arch_selftest_finops compares every
+# Claude row with arch_cloud.PRICES where both list the model.
+RATES_AS_OF = "2026-11-03"
 CLOUD_RATES = {
-    "claude-opus-4-6": {
-        "label": "Claude Opus 4.6",
-        "vendor": "Anthropic",
-        "tier": "Frontier heavy",
-        "input": 15.00,
-        "cached_input": 1.50,
-        "output": 75.00,
-    },
-    "claude-sonnet-4-6": {
-        "label": "Claude Sonnet 4.6",
-        "vendor": "Anthropic",
-        "tier": "Standard coding",
-        "input": 3.00,
-        "cached_input": 0.30,
-        "output": 15.00,
-    },
-    "gpt-4o": {
-        "label": "GPT-4o",
-        "vendor": "OpenAI",
-        "tier": "Standard multimodal",
-        "input": 2.50,
-        "cached_input": 1.25,
-        "output": 10.00,
-    },
-    "claude-haiku-4-5": {
-        "label": "Claude Haiku 4.5",
-        "vendor": "Anthropic",
-        "tier": "Fast router / light",
-        "input": 0.80,
-        "cached_input": 0.08,
-        "output": 4.00,
-    },
+    "claude-opus-4-6": {"label": "Claude Opus 4.6", "vendor": "Anthropic", "tier": "Frontier heavy",
+                        "input": 5.00, "cached_input": 0.50, "output": 25.00,
+                        "source": "Anthropic first-party API price list", "as_of": RATES_AS_OF},
+    "claude-sonnet-4-6": {"label": "Claude Sonnet 4.6", "vendor": "Anthropic", "tier": "Standard coding",
+                          "input": 3.00, "cached_input": 0.30, "output": 15.00,
+                          "source": "Anthropic first-party API price list", "as_of": RATES_AS_OF},
+    "gpt-4o": {"label": "GPT-4o", "vendor": "OpenAI", "tier": "Standard multimodal",
+               "input": 2.50, "cached_input": 1.25, "output": 10.00,
+               "source": "OpenAI list price, entered by hand (not checked by Architect)", "as_of": RATES_AS_OF},
+    "claude-haiku-4-5": {"label": "Claude Haiku 4.5", "vendor": "Anthropic", "tier": "Fast router / light",
+                         "input": 1.00, "cached_input": 0.10, "output": 5.00,
+                         "source": "Anthropic first-party API price list", "as_of": RATES_AS_OF},
 }
 
 SEAT_PLANS = {
@@ -54,7 +38,8 @@ SEAT_PLANS = {
     "max_seat": {"label": "Power / Max Cloud Agent Seat ($200/dev/mo)", "usd_per_dev_month": 200.0},
 }
 
-# Reference multi-step agentic coding task token footprint (plan + 3 tool/edit turns + test check + judge).
+# ASSUMED size of one multi-step coding task (plan + 3 tool/edit turns + test check + judge). Not measured: every projection that
+# uses it says so, and the page shows these numbers next to it.
 REFERENCE_TASK_TOKENS = {
     "calls_per_task": 6,
     "tokens_in_per_task": 18000,
@@ -91,154 +76,134 @@ def _safe_call(fn, default):
 
 
 def _optimization_layers(cache_ledger, hw, cfg, cost_summary, evals):
-    """Build the 10-way optimization & speedup matrix ('How we save & compete vs. the start')."""
+    """The 10 optimization layers. `status` is READ from this install, never assumed:
+      on         - a setting turns it on here and it is on
+      off        - its setting is off here
+      built in   - part of the code path on every run (no setting)
+      not set up - it needs something this machine does not have yet (llama-server, another machine)
+    `gain` is what the layer is expected to give, with `gain_basis` saying where that number comes from (measured on the reference
+    laptop, by arithmetic, or an estimate); `measured` is what was read on THIS machine."""
     layers_by_id = {l.get("id"): l for l in (cache_ledger.get("layers") or []) if isinstance(l, dict)}
     route_l = layers_by_id.get("route") or {}
     reply_l = layers_by_id.get("reply") or {}
     prefix_l = layers_by_id.get("prefix") or {}
     slots_l = layers_by_id.get("slots") or {}
     lookup_l = layers_by_id.get("lookup") or {}
-
+    cfg = cfg or {}
+    server = cfg.get("server") or {}
+    cache_cfg = cfg.get("cache") or {}
+    squad = cfg.get("squad") or {}
+    hosts = cfg.get("hosts") or {}
+    tiers = cfg.get("tiers") or {}
+    gpu_name = (hw or {}).get("gpu") or "CPU / integrated"
     vram_gb = float((hw or {}).get("vram_gb") or 0.0)
     ram_gb = float((hw or {}).get("ram_gb") or 0.0)
-    gpu_name = (hw or {}).get("gpu") or "CPU / integrated"
-    tiers = (cfg or {}).get("tiers") or {}
-    worker_m = tiers.get("worker") or "local worker"
-    router_m = tiers.get("router") or "local router"
-    hosts = (cfg or {}).get("hosts") or []
-
+    try:
+        import arch_server
+        llama = bool(arch_server.resolve_binary(cfg))
+    except Exception:
+        llama = False
     rho = prefix_l.get("rho")
-    rho_str = f"{round(rho * 100)}% prompt prefix reuse across {prefix_l.get('calls', 0)} calls" if rho is not None else "Active (prefix ordering + keep_alive=30m)"
     reply_entries = (route_l.get("entries") or 0) + (reply_l.get("entries") or 0)
     reply_hits = (route_l.get("hits") or 0) + (reply_l.get("hits") or 0)
-
     best_eval = None
     for e in (evals or []):
         if e.get("C") is not None and (best_eval is None or e["C"] < best_eval["C"]):
             best_eval = e
-    c_str = f"Best measured C = {best_eval['C']}s/pass ({best_eval.get('model', '')})" if best_eval else "Active (Eq. 17 C = t / p_bar + retry_worth stopping)"
-
+    seed = (cfg.get("behavior") or {}).get("seed")
+    kv = str(server.get("kv") or "f16")
     return [
-        {
-            "num": 1,
-            "id": "exact_query_cache",
-            "category": "Cache",
-            "title": "Exact Query & Router Memoization (SQLite responses.db)",
-            "status": "active",
-            "before": "Every identical prompt or router check re-ran full LLM inference (1.5s–12s and 100% tokens).",
-            "after": "Deterministic calls (temperature=0 / seeded) and router classifications return in <2 ms from SQLite.",
-            "gain_label": "100% token & latency skip on hits",
-            "measured": f"{reply_entries} cached entries, {reply_hits} recorded hits",
-            "code_ref": "arch_core.py (Cache), arch_cachestats.py",
-        },
-        {
-            "num": 2,
-            "id": "kv_prefix_reuse",
-            "category": "Cache",
-            "title": "Prompt Prefix Ordering & KV Slot Persistence (Eq. 15)",
-            "status": "active",
-            "before": "Variable instructions were mixed at the top of prompts, invalidating the GPU KV cache on every turn.",
-            "after": "Static system rules + repo map + file outlines sit first (`arch_chain.py`), keeping KV hot (`cache_prompt=True`, disk `.slot` save/restore).",
-            "gain_label": "55%–80% prefill latency cut",
-            "measured": f"{rho_str}; {slots_l.get('entries', 0)} saved KV slot files",
-            "code_ref": "arch_chain.py, arch_server.py, arch_core.py",
-        },
-        {
-            "num": 3,
-            "id": "tool_tree_cache",
-            "category": "Cache",
-            "title": "Read-Only Tool Cache & O(1) Tree Fingerprint Memoization",
-            "status": "active",
-            "before": "Agents re-reading files or grepping re-walked the filesystem and re-hashed the repo on every tool call.",
-            "after": "In-memory tool cache (`_TOOL_CACHE`) + memoized `tree_fp` serves repeated reads/greps in 0 ms and invalidates automatically on write.",
-            "gain_label": "Zero duplicate disk walks",
-            "measured": "Active across all 12 read-only tools + Engine._tok_section_cache",
-            "code_ref": "arch_tools.py (ToolEnv._fingerprint), arch_core.py",
-        },
-        {
-            "num": 4,
-            "id": "q8_kv_flash_attn",
-            "category": "Memory",
-            "title": "q8_0 KV Cache Quantization & Flash Attention",
-            "status": "active",
-            "before": "fp16 KV cache consumed ~1.5–2.2 GB VRAM at 8k context, forcing model layers out of 6 GB GPUs into slow system RAM.",
-            "after": "Both llama-server (`-ctk q8_0 -ctv q8_0 -fa on`) and Ollama (`OLLAMA_KV_CACHE_TYPE=q8_0`, `OLLAMA_FLASH_ATTENTION=1`) halve KV memory.",
-            "gain_label": "~50% KV VRAM saved (2x context)",
-            "measured": f"Enabled for {gpu_name} ({vram_gb:.1f} GB VRAM)",
-            "code_ref": "arch_ollama.py, arch_server.py, Start_Architect_GUI.bat",
-        },
-        {
-            "num": 5,
-            "id": "gpu_residency_scoring",
-            "category": "Hardware",
-            "title": "100% GPU Residency & Split-Penalty Role Scoring",
-            "status": "active",
-            "before": "14B models (9 GB) were picked by raw parameter count, spilling 59% to DDR4/DDR5 RAM and dropping to ~6–9 tok/s.",
-            "after": "Role & tier scoring penalizes CPU-spill (`gpu_ratio < 0.7`) and accounts for live loaded VRAM, keeping 7B–8B Q4_K_M 100% on GPU.",
-            "gain_label": "5x–7x faster generation (45–65 tok/s)",
-            "measured": f"Worker: {worker_m} | Router: {router_m}",
-            "code_ref": "arch_roles.py (score_for_role), arch_port.py, arch_server.py",
-        },
-        {
-            "num": 6,
-            "id": "role_ctx_trimming",
-            "category": "Memory",
-            "title": "Adaptive Role Context Trimming & Prompt Token Budgeting",
-            "status": "active",
-            "before": "Every call allocated the full 8k–16k context window and sent untruncated file dumps.",
-            "after": "Router runs at 2,048 ctx (CPU), Worker at 6k–8k (GPU), and `fit_messages()` trims middle context while preserving head/tail.",
-            "gain_label": "Up to 75% routing KV & prefill saved",
-            "measured": f"Lookup n-gram cache: {lookup_l.get('entries', 0)} files",
-            "code_ref": "arch_server.py (plan), arch_core.py (fit_messages)",
-        },
-        {
-            "num": 7,
-            "id": "squad_shared_prefix",
-            "category": "Cache",
-            "title": "Subagent Shared-Prefix AST Outlines & deps_hash Step Cache",
-            "status": "active",
-            "before": "Multi-agent crews re-parsed files from scratch and re-ran unchanged steps, or reused stale steps when shared dependencies changed.",
-            "after": "Crew injects target AST symbol outlines into the shared prefix and keys `.arch/squad_cache` on both owned files and `deps_hash`.",
-            "gain_label": "0.0s cached step replay + fewer turns",
-            "measured": "Active in Crew.shared_header() & step_key()",
-            "code_ref": "arch_squad.py (step_key, shared_header)",
-        },
-        {
-            "num": 8,
-            "id": "hybrid_cpu_power",
-            "category": "Hardware",
-            "title": "Hybrid CPU P-Core Binding & 30s TTL Power-Aware Scheduling",
-            "status": "active",
-            "before": "CPU inference threads spilled onto slow E-cores, and battery checks spawned a 450 ms PowerShell process on every call.",
-            "after": " Worker threads bind to physical P-cores (`perf_cores`), and battery state is cached for 30s (0 ms overhead).",
-            "gain_label": "Zero PowerShell lag + faster CPU prefill",
-            "measured": f"RAM: {ram_gb:.1f} GB | P-core aware scheduling",
-            "code_ref": "arch_hw.py, arch_power.py (_BAT_CACHE)",
-        },
-        {
-            "num": 9,
-            "id": "distributed_lan_mesh",
-            "category": "Distributed",
-            "title": "Queue-Aware Distributed LAN Mesh & Instant Local Failover",
-            "status": "active" if hosts else "ready",
-            "before": "Remote `role_hosts` were bypassed in Crew loops, lacked concurrency caps, and failed runs if a LAN rig went offline.",
-            "after": "Effective throughput `tok_s / (1 + in_flight)` load-balances Ollama & llama-server nodes with per-host semaphores and automatic local fallback.",
-            "gain_label": "Linear multi-PC scaling + 0 downtime",
-            "measured": f"{len(hosts)} LAN host(s) configured" if hosts else "Ready (add any LAN PC in Machine > Hardware)",
-            "code_ref": "arch_hosts.py (rank_hosts), arch_transport.py, arch_core.py",
-        },
-        {
-            "num": 10,
-            "id": "verified_loop_cost",
-            "category": "Verification",
-            "title": "Code-Verified Cost Model (C = t / p_bar, Eq. 17) & Optimal Stopping",
-            "status": "active",
-            "before": "Unverified local models silently produced broken or stub code, wasting minutes of human debugging and blind retries.",
-            "after": "Real pytest + AST + fake-code gates verify every step; `retry_worth()` stops hopeless retries early and escalates only when profitable.",
-            "gain_label": "Lowest seconds per passing change",
-            "measured": c_str,
-            "code_ref": "arch_costmodel.py, arch_Checks.py, arch_select.py",
-        },
+        {"num": 1, "id": "exact_query_cache", "category": "Cache",
+         "title": "Exact reply cache and router memo (responses.db, route_cache.json)",
+         "status": "on" if cache_cfg.get("responses", True) else "off",
+         "before": "Every identical prompt or routing question ran the model again.",
+         "after": "A temperature-0 or seeded reply, and a routing decision the router model made, is answered again from disk"
+                  + ("" if seed is not None else "; with no seed set, only temperature-0 calls are kept") + ".",
+         "gain": "a repeated call costs no model time", "gain_basis": "by design (a hit skips the model)",
+         "measured": f"{reply_entries} cached entries, {reply_hits} recorded hits",
+         "code_ref": "arch_cache.py, arch_cachestats.py"},
+        {"num": 2, "id": "kv_prefix_reuse", "category": "Cache",
+         "title": "Prompt prefix ordering and KV slot reuse",
+         "status": ("on" if server.get("slots", True) else "off") if llama else "not set up",
+         "before": "Changing text near the top of a prompt invalidated the server's KV cache on every turn.",
+         "after": "Stable instructions and project context come first, so llama-server reuses the cached prefix (cache_prompt) and saves "
+                  "slots to disk" + ("" if llama else " (needs llama-server; Ollama keeps its own prefix cache)") + ".",
+         "gain": "less prompt to re-read on a retry", "gain_basis": "estimate",
+         "measured": (f"{round(rho * 100)}% of prompt tokens served from the prefix cache over {prefix_l.get('calls', 0)} calls"
+                      if rho is not None else "not measured yet (no traced llama-server calls)")
+                     + f"; {slots_l.get('entries', 0)} saved slot files",
+         "code_ref": "arch_chain.py, arch_server.py, arch_transport.py"},
+        {"num": 3, "id": "tool_tree_cache", "category": "Cache",
+         "title": "Read-only tool cache and memoized tree fingerprint",
+         "status": "built in",
+         "before": "Repeated ls/grep/search/outline calls walked the project again.",
+         "after": "The results of ls, grep, search and outline are kept per run and dropped when Architect writes a file; the token "
+                  "count of an unchanged context section is reused.",
+         "gain": "no repeated directory walks inside one run", "gain_basis": "by design",
+         "measured": "4 cached tools (ls, grep, search, outline)",
+         "code_ref": "arch_tools.py (CACHED, _fingerprint), arch_core.py (_tok_section_cache)"},
+        {"num": 4, "id": "q8_kv_flash_attn", "category": "Memory",
+         "title": "Quantized KV cache and flash attention",
+         "status": "on" if kv in ("q8_0", "q4_0") and server.get("flash_attn", True) else "off",
+         "before": "An f16 KV cache needed twice the graphics memory for the same context.",
+         "after": f"llama-server starts with a {kv} KV cache and flash attention when its build supports them (f16 otherwise); Ollama "
+                  "gets OLLAMA_KV_CACHE_TYPE and OLLAMA_FLASH_ATTENTION only when Architect starts Ollama itself.",
+         "gain": "half the KV memory at q8_0", "gain_basis": "by arithmetic (q8_0 stores half the bytes of f16)",
+         "measured": f"setting server.kv = {kv}; {gpu_name}, {vram_gb:.1f} GB",
+         "code_ref": "arch_server.py (plan), arch_ollama.py"},
+        {"num": 5, "id": "gpu_residency_scoring", "category": "Hardware",
+         "title": "Prefer models that fit on the graphics card",
+         "status": "built in",
+         "before": "Models were ranked by size alone, so a model half in system memory could win.",
+         "after": "Role scoring takes points off a model that would run partly in system memory, and the server plan subtracts what "
+                  "the card already holds.",
+         "gain": "55 tok/s fully on the card vs about 8 tok/s split (qwen3:8b)", "gain_basis": "measured once on the reference laptop (RTX 4050 6 GB, 2026-11-05)",
+         "measured": f"worker: {tiers.get('worker') or 'not chosen yet'}, router: {tiers.get('router') or 'not chosen yet'}",
+         "code_ref": "arch_roles.py, arch_port.py, arch_server.py"},
+        {"num": 6, "id": "role_ctx_trimming", "category": "Memory",
+         "title": "Prompts fitted to the served window",
+         "status": "built in",
+         "before": "A prompt larger than the model's window failed or was silently cut by the server.",
+         "after": "Each call is fitted to the smaller of the setting and the server's own window: the format example goes first, "
+                  "then the longest project context is cut at a section boundary.",
+         "gain": "no overflowing prompts", "gain_basis": "by design",
+         "measured": f"n-gram lookup cache: {lookup_l.get('entries', 0)} files",
+         "code_ref": "arch_core.py (Engine._call), arch_tune.py (cut_context)"},
+        {"num": 7, "id": "squad_shared_prefix", "category": "Cache",
+         "title": "Crew shared prefix and step cache",
+         "status": "on" if int(squad.get("step_cache_days", 30) or 0) > 0 else "off",
+         "before": "Crew agents re-read files from scratch and re-ran unchanged steps.",
+         "after": "The crew's shared header carries outlines of the target files, and a step whose inputs, files and dependencies "
+                  "are unchanged is replayed from the step cache.",
+         "gain": "an unchanged step costs no model time", "gain_basis": "by design",
+         "measured": f"step cache kept {int(squad.get('step_cache_days', 30) or 0)} days",
+         "code_ref": "arch_squad.py (shared_header, step_key)"},
+        {"num": 8, "id": "hybrid_cpu_power", "category": "Hardware",
+         "title": "Performance-core threads and a cached battery check",
+         "status": "built in",
+         "before": "Model threads could land on efficiency cores, and every battery check started PowerShell.",
+         "after": "Threads are sized to the performance cores, and the battery state is cached for 30 seconds.",
+         "gain": "faster CPU work on hybrid processors", "gain_basis": "estimate",
+         "measured": f"{ram_gb:.1f} GB RAM",
+         "code_ref": "arch_hw.py (perf_cores), arch_power.py (battery, _BAT_CACHE)"},
+        {"num": 9, "id": "distributed_lan_mesh", "category": "Distributed",
+         "title": "Other machines on your network, with local fallback",
+         "status": "on" if hosts else "not set up",
+         "before": "Every model call ran on this machine.",
+         "after": "Roles can run on other machines you add; hosts are ranked by speed / (1 + calls in flight), and a call falls back "
+                  "to this machine when a host stops answering.",
+         "gain": "more machines, more parallel calls", "gain_basis": "estimate",
+         "measured": f"{len(hosts)} other machine(s) added" if hosts else "none added (Machine > Computers)",
+         "code_ref": "arch_hosts.py (rank_hosts, mark_down), arch_core.py"},
+        {"num": 10, "id": "verified_loop_cost", "category": "Verification",
+         "title": "Code-checked results and a cost per accepted change",
+         "status": "built in",
+         "before": "A model's own claim that it was done was taken at face value.",
+         "after": "Tests, AST checks and the fake-code gate decide every step; the cost model (C = t / p) ranks models per kind of task.",
+         "gain": "fewer wasted retries", "gain_basis": "estimate",
+         "measured": (f"best measured C = {best_eval['C']} s per accepted change ({best_eval.get('model', '')})" if best_eval
+                      else "no benchmark run yet (architect.py eval --set representative)"),
+         "code_ref": "arch_checks.py, arch_fakecode.py, arch_costmodel.py"},
     ]
 
 
@@ -257,7 +222,8 @@ def report(days=30, roots=None, team_devs=5, tasks_per_day=20):
     cfg = _safe_call(core.load_config, {})
     hw = _safe_call(arch_hw.detect, {})
     cache_ledger = _safe_call(arch_cachestats.ledger, {"layers": [], "findings": []})
-    usage = _safe_call(lambda: arch_usage.summary("week" if days >= 7 else "day", roots=roots), {})
+    window = "day" if days <= 1 else "week" if days <= 7 else "month"
+    usage = _safe_call(lambda: arch_usage.usage(window, roots=roots, fresh=True), {})      # (it called arch_usage.summary, which does not exist: always 0)
     costs = _safe_call(lambda: arch_costs.summary(days=days, roots=roots), {})
     eval_files = sorted(glob.glob(os.path.join(core.data_dir(), "evals", "*.json")))
     evals = _safe_call(lambda: cm.from_evals(eval_files), [])
@@ -272,13 +238,12 @@ def report(days=30, roots=None, team_devs=5, tasks_per_day=20):
     measured_runs = int((costs or {}).get("runs") or (usage or {}).get("runs") or 0)
     measured_passed = int((costs or {}).get("passed") or (usage or {}).get("passed") or 0)
 
-    # Prefix cache ratio from cachestats or usage
+    # The share of prompt tokens the local server served from its prefix cache: measured, or None. (It fell back to a fixed 0.64.)
+    # usage's prefix_hit_rate is a share of CALLS, not of tokens, so it is not used for this.
     prefix_layer = next((l for l in (cache_ledger.get("layers") or []) if l.get("id") == "prefix"), {})
     rho = prefix_layer.get("rho")
-    if rho is None:
-        rho = cache_u.get("prefix_hit_rate")
-    rho_val = float(rho) if rho is not None else 0.64  # measured or standard Architect prefix share
-    measured_cached_in = int(round(measured_in * rho_val))
+    rho_val = float(rho) if rho is not None else None
+    measured_cached_in = int(round(measured_in * rho_val)) if rho_val is not None else 0
 
     # Cloud equivalent of actual measured local tokens
     measured_equivalents = {
@@ -286,9 +251,7 @@ def report(days=30, roots=None, team_devs=5, tasks_per_day=20):
         for k in CLOUD_RATES
     }
     actual_claude_usd = round(float(cl.get("usd") or (costs or {}).get("cost_usd") or 0.0), 4)
-    local_share = (costs or {}).get("local_share")
-    if local_share is None:
-        local_share = 1.0 if actual_claude_usd == 0 else 0.85
+    local_share = (costs or {}).get("local_share") if (costs or {}).get("runs") else None     # measured, or None (it invented 0.85 / 1.0)
 
     # Team projection / ROI simulator (monthly = 22 working days, 1-year = 260 working days, 3-year = 780 working days)
     monthly_tasks = team_devs * tasks_per_day * 22
@@ -319,6 +282,9 @@ def report(days=30, roots=None, team_devs=5, tasks_per_day=20):
     opus_mo = projected_models["claude-opus-4-6"]["monthly_api_usd"]
 
     optimizations = _optimization_layers(cache_ledger, hw, cfg, costs, evals)
+    status_counts = {}
+    for o in optimizations:
+        status_counts[o["status"]] = status_counts.get(o["status"], 0) + 1
 
     rep = {
         "available": True,
@@ -333,7 +299,8 @@ def report(days=30, roots=None, team_devs=5, tasks_per_day=20):
             "heavy": ((cfg or {}).get("tiers") or {}).get("heavy") or "",
         },
         "measured": {
-            "basis": "measured" if measured_calls > 0 else "ready_for_first_run",
+            "basis": "measured" if measured_calls > 0 else "none_yet",
+            "window": window,
             "runs": measured_runs,
             "passed": measured_passed,
             "local_calls": measured_calls,
@@ -341,17 +308,23 @@ def report(days=30, roots=None, team_devs=5, tasks_per_day=20):
             "tokens_cached_est": measured_cached_in,
             "tokens_out": measured_out,
             "total_tokens": measured_in + measured_out,
-            "prefix_reuse_rho": round(rho_val, 3),
+            "prefix_reuse_rho": round(rho_val, 3) if rho_val is not None else None,
+            "cache_priced": rho_val is not None,     # False: priced without any prompt caching on the cloud side (an upper bound)
             "exact_hit_rate": cache_u.get("exact_hit_rate"),
             "local_cost_usd": 0.0,
             "actual_cloud_usd": actual_claude_usd,
-            "local_share": round(float(local_share), 3),
+            "local_share": round(float(local_share), 3) if local_share is not None else None,
             "cloud_equivalents": measured_equivalents,
-            "saved_vs_opus_usd": measured_equivalents["claude-opus-4-6"]["usd"],
-            "saved_vs_sonnet_usd": measured_equivalents["claude-sonnet-4-6"]["usd"],
-            "saved_vs_gpt4o_usd": measured_equivalents["gpt-4o"]["usd"],
+            # what the measured local tokens would have cost on each API at list prices (not money saved: hardware and power are not counted)
+            "would_cost_opus_usd": measured_equivalents["claude-opus-4-6"]["usd"],
+            "would_cost_sonnet_usd": measured_equivalents["claude-sonnet-4-6"]["usd"],
+            "would_cost_gpt4o_usd": measured_equivalents["gpt-4o"]["usd"],
         },
         "projection": {
+            "basis": "projection",
+            "assumption": (f"Assumes {REFERENCE_TASK_TOKENS['tokens_in_per_task']:,} input tokens ({REFERENCE_TASK_TOKENS['tokens_cached_per_task']:,} "
+                           f"of them cached) and {REFERENCE_TASK_TOKENS['tokens_out_per_task']:,} output tokens per task and 22 working days a "
+                           "month; not measured. Local hardware and power are not counted."),
             "team_devs": team_devs,
             "tasks_per_day": tasks_per_day,
             "monthly_tasks": monthly_tasks,
@@ -359,73 +332,76 @@ def report(days=30, roots=None, team_devs=5, tasks_per_day=20):
             "local_monthly_usd": 0.0,
             "pro_seats_monthly_usd": pro_seats_mo,
             "max_seats_monthly_usd": max_seats_mo,
-            "sonnet_monthly_saved_usd": sonnet_mo,
-            "sonnet_yearly_saved_usd": round(sonnet_mo * 12, 2),
-            "sonnet_three_year_saved_usd": round(sonnet_mo * 36, 2),
-            "opus_monthly_saved_usd": opus_mo,
-            "opus_yearly_saved_usd": round(opus_mo * 12, 2),
-            "opus_three_year_saved_usd": round(opus_mo * 36, 2),
+            "sonnet_monthly_api_usd": sonnet_mo,
+            "sonnet_yearly_api_usd": round(sonnet_mo * 12, 2),
+            "sonnet_three_year_api_usd": round(sonnet_mo * 36, 2),
+            "opus_monthly_api_usd": opus_mo,
+            "opus_yearly_api_usd": round(opus_mo * 12, 2),
+            "opus_three_year_api_usd": round(opus_mo * 36, 2),
             "models": projected_models,
         },
         "cloud_rates": CLOUD_RATES,
+        "rates_as_of": RATES_AS_OF,
         "optimizations": optimizations,
         "optimization_count": len(optimizations),
-        "active_optimizations": sum(1 for o in optimizations if o["status"] == "active"),
+        "status_counts": status_counts,
+        "active_optimizations": status_counts.get("on", 0) + status_counts.get("built in", 0),
     }
     rep["markdown"] = markdown_report(rep)
     return rep
 
 
 def markdown_report(rep):
-    """-> Clean executive FinOps & Optimization Markdown report for sharing or downloading."""
+    """-> The FinOps report as Markdown. Every figure says whether it was measured here, is a projection, or an estimate."""
     hw = rep.get("hardware") or {}
     m = rep.get("measured") or {}
     p = rep.get("projection") or {}
     opts = rep.get("optimizations") or []
     models = p.get("models") or {}
-
+    sc = rep.get("status_counts") or {}
+    share = m.get("local_share")
+    rho = m.get("prefix_reuse_rho")
     lines = [
-        "# Local-Architect v12 — FinOps & Optimization Executive Report",
+        "# Local-Architect: cost and optimization report",
         "",
-        f"- **Machine:** {hw.get('gpu', 'Local PC')} ({hw.get('vram_gb', 0):.1f} GB VRAM, {hw.get('ram_gb', 0):.0f} GB RAM)",
-        f"- **Active Local Team:** Worker `{hw.get('worker') or 'auto'}` · Router `{hw.get('router') or 'auto'}` · Heavy `{hw.get('heavy') or 'auto'}`",
-        f"- **Local Inference Bill:** **$0.00** ({round((m.get('local_share') or 1.0) * 100)}% of work run locally on your hardware)",
-        f"- **Active Optimization Layers:** **{rep.get('active_optimizations', 10)} of {rep.get('optimization_count', 10)}** active",
+        f"- **Machine:** {hw.get('gpu', 'Local PC')} ({hw.get('vram_gb', 0):.1f} GB graphics memory, {hw.get('ram_gb', 0):.0f} GB RAM)",
+        f"- **Local team:** worker `{hw.get('worker') or 'not chosen'}`, router `{hw.get('router') or 'not chosen'}`, heavy `{hw.get('heavy') or 'not chosen'}`",
+        f"- **Share of model calls that ran locally (measured):** {str(round(share * 100)) + '%' if share is not None else 'no runs recorded yet'}",
+        f"- **Optimization layers:** {sc.get('on', 0)} on, {sc.get('built in', 0)} built in, {sc.get('off', 0)} off, {sc.get('not set up', 0)} not set up (read from this install)",
         "",
-        "## 1. Measured Local Usage vs. Cloud API Equivalent",
+        f"## 1. Measured local usage (last {m.get('window', 'month')})",
         "",
-        f"- **Local Calls Recorded:** {m.get('local_calls', 0):,} calls ({m.get('tokens_in', 0):,} input tokens, {m.get('tokens_out', 0):,} output tokens)",
-        f"- **Prompt Prefix Reuse (rho):** {round((m.get('prefix_reuse_rho') or 0) * 100)}%",
-        f"- **What This Work Costs Locally:** **$0.00**",
-        f"- **Cloud Equivalent Saved (Claude Opus 4.6):** ${m.get('saved_vs_opus_usd', 0):.2f}",
-        f"- **Cloud Equivalent Saved (Claude Sonnet 4.6):** ${m.get('saved_vs_sonnet_usd', 0):.2f}",
-        f"- **Cloud Equivalent Saved (GPT-4o):** ${m.get('saved_vs_gpt4o_usd', 0):.2f}",
+        f"- **Local model calls:** {m.get('local_calls', 0):,} ({m.get('tokens_in', 0):,} input tokens, {m.get('tokens_out', 0):,} output tokens)",
+        f"- **Prompt tokens served from the prefix cache:** {str(round(rho * 100)) + '%' if rho is not None else 'not measured yet'}",
+        f"- **API bill for this work:** $0.00 (hardware and power are not counted here)",
+        f"- **The same tokens on Claude Opus 4.6 would cost:** ${m.get('would_cost_opus_usd', 0):.2f}",
+        f"- **On Claude Sonnet 4.6:** ${m.get('would_cost_sonnet_usd', 0):.2f}",
+        f"- **On GPT-4o:** ${m.get('would_cost_gpt4o_usd', 0):.2f}",
+        f"- Prices: list prices as of {rep.get('rates_as_of', '?')}" + ("" if m.get("cache_priced") else "; priced without prompt caching because no cache share was measured (an upper bound)"),
         "",
-        f"## 2. Team FinOps Projection ({p.get('team_devs', 5)} Developers × {p.get('tasks_per_day', 20)} Tasks/Day = {p.get('monthly_tasks', 2200):,} Tasks/Month)",
+        f"## 2. Projection for a team ({p.get('team_devs', 5)} developers x {p.get('tasks_per_day', 20)} tasks a day = {p.get('monthly_tasks', 2200):,} tasks a month)",
         "",
-        "| Option / Provider | Per Task | Monthly | 1-Year | 3-Year | Data Privacy |",
-        "|---|---:|---:|---:|---:|---|",
-        "| **Local-Architect v12 (This PC / LAN)** | **$0.00** | **$0.00** | **$0.00** | **$0.00** | **100% On-Premise** |",
+        f"{p.get('assumption', '')}",
+        "",
+        "| Option | Per task | Monthly | 1 year | 3 years |",
+        "|---|---:|---:|---:|---:|",
+        "| Local-Architect (this PC / your network): API bill | $0.00 | $0.00 | $0.00 | $0.00 |",
     ]
     for k in ("claude-opus-4-6", "claude-sonnet-4-6", "gpt-4o", "claude-haiku-4-5"):
         mk = models.get(k) or {}
-        lines.append(
-            f"| {mk.get('label', k)} (API) | ${mk.get('per_task_usd', 0):.4f} | ${mk.get('monthly_api_usd', 0):,.2f} | "
-            f"${mk.get('yearly_api_usd', 0):,.2f} | ${mk.get('three_year_api_usd', 0):,.2f} | Cloud API |"
-        )
+        lines.append(f"| {mk.get('label', k)} API | ${mk.get('per_task_usd', 0):.4f} | ${mk.get('monthly_api_usd', 0):,.2f} | "
+                     f"${mk.get('yearly_api_usd', 0):,.2f} | ${mk.get('three_year_api_usd', 0):,.2f} |")
     lines.extend([
-        f"| Standard Cloud Seats ($20/dev/mo) | — | ${p.get('pro_seats_monthly_usd', 0):,.2f} | ${p.get('pro_seats_monthly_usd', 0) * 12:,.2f} | ${p.get('pro_seats_monthly_usd', 0) * 36:,.2f} | Cloud SaaS |",
-        f"| Power Cloud Agent Seats ($200/dev/mo) | — | ${p.get('max_seats_monthly_usd', 0):,.2f} | ${p.get('max_seats_monthly_usd', 0) * 12:,.2f} | ${p.get('max_seats_monthly_usd', 0) * 36:,.2f} | Cloud SaaS |",
+        f"| Cloud coding seats ($20 per developer a month) | - | ${p.get('pro_seats_monthly_usd', 0):,.2f} | ${p.get('pro_seats_monthly_usd', 0) * 12:,.2f} | ${p.get('pro_seats_monthly_usd', 0) * 36:,.2f} |",
+        f"| Cloud agent seats ($200 per developer a month) | - | ${p.get('max_seats_monthly_usd', 0):,.2f} | ${p.get('max_seats_monthly_usd', 0) * 12:,.2f} | ${p.get('max_seats_monthly_usd', 0) * 36:,.2f} |",
         "",
-        "## 3. 10-Way Optimization Scorecard (How We Compete vs. the Start)",
+        "## 3. Optimization layers (status read from this install)",
         "",
-        "| # | Layer | Category | At the Start (Baseline) | Optimized Now (v12) | Gain |",
-        "|---:|---|---|---|---|---|",
+        "| # | Layer | Status | What it does now | Expected gain | Basis | Measured here |",
+        "|---:|---|---|---|---|---|---|",
     ])
     for o in opts:
-        lines.append(
-            f"| {o['num']} | **{o['title']}** | {o['category']} | {o['before']} | {o['after']} | **{o['gain_label']}** |"
-        )
+        lines.append(f"| {o['num']} | {o['title']} | {o['status']} | {o['after']} | {o['gain']} | {o['gain_basis']} | {o['measured']} |")
     lines.append("")
     return "\n".join(lines)
 
@@ -490,20 +466,20 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);display
       <div class="logo">A</div>
       <div>
         <h1>Local-Architect v12 · Live Visual Frontend Showcase</h1>
-        <p class="sub">Built, verified by pytest, and served 100% locally on your hardware ($0 Cloud API)</p>
+        <p class="sub">Written from a ready-made template, checked by its own pytest tests, served on this computer</p>
       </div>
     </div>
     <div class="row">
       <span class="chip good">● Live Python HTTP + JSON API</span>
-      <span class="chip acc" id="testBadge">pytest: 4/4 passing</span>
+      <span class="chip acc" id="testBadge">{{TEST_BADGE}}</span>
       <button class="btn" id="themeBtn" type="button">Toggle Light / Dark</button>
     </div>
   </header>
 
   <section class="kpis" id="kpiGrid">
-    <div class="card"><div class="kpi-lbl">Local Inference Bill</div><div class="kpi-val" style="color:var(--good)">$0.00</div><div class="kpi-lbl">100% On-Premise GPU + CPU</div></div>
-    <div class="card"><div class="kpi-lbl">Cloud API Saved (5 Devs / Yr)</div><div class="kpi-val" id="kpiSaved">$1,908</div><div class="kpi-lbl">vs. Claude Sonnet 4.6 API</div></div>
-    <div class="card"><div class="kpi-lbl">Prompt Prefix Reuse (ρ)</div><div class="kpi-val" id="kpiRho">68%</div><div class="kpi-lbl">KV Slot + SQLite Query Cache</div></div>
+    <div class="card"><div class="kpi-lbl">API bill for local runs</div><div class="kpi-val" style="color:var(--good)">$0.00</div><div class="kpi-lbl">hardware and power not counted</div></div>
+    <div class="card"><div class="kpi-lbl">Same work on Claude Sonnet 4.6, 5 devs, 1 year</div><div class="kpi-val" id="kpiSaved">{{PROJ_SONNET_YEAR}}</div><div class="kpi-lbl">projection: assumed task size, list prices {{RATES_AS_OF}}</div></div>
+    <div class="card"><div class="kpi-lbl">Prompt tokens from the prefix cache</div><div class="kpi-val" id="kpiRho">{{RHO}}</div><div class="kpi-lbl">measured on this computer</div></div>
     <div class="card"><div class="kpi-lbl">Active Feature Sprint Tasks</div><div class="kpi-val" id="kpiTasks">0</div><div class="kpi-lbl">Live state via /api/tasks</div></div>
   </section>
 
@@ -513,7 +489,7 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);display
         <h2>Interactive Feature Board (Live REST API)</h2>
         <span class="chip" id="apiLatency">API: <1 ms</span>
       </div>
-      <p class="sub">Add or toggle items below — every action hits the local Python backend (<code>GET/POST /api/tasks</code>) and updates the live SVG telemetry chart.</p>
+      <p class="sub">Add or toggle items below: every action goes to the local Python backend (<code>GET/POST /api/tasks</code>).</p>
       <form id="addForm" class="row" style="margin-top:12px">
         <input type="text" id="titleIn" placeholder="Add a live feature or demo item..." style="flex:1" required/>
         <select id="tagIn">
@@ -528,25 +504,24 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);display
     </section>
 
     <section class="card">
-      <h2>10-Layer Speed & FinOps Telemetry</h2>
-      <p class="sub">Live comparison of unoptimized baseline vs. Local-Architect v12:</p>
+      <h2>Speed figures from the reference laptop</h2>
+      <p class="sub">Measured once on an RTX 4050 6 GB laptop (2026-11), not on this computer; KV memory by arithmetic:</p>
       <div style="margin-top:14px">
         <div class="bar-row"><span>GPU Residency</span><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><b style="text-align:right">55 tok/s</b></div>
         <div class="bar-row"><span>q8_0 KV + FlashAttn</span><div class="bar-track"><div class="bar-fill" style="width:88%"></div></div><b style="text-align:right">-50% VRAM</b></div>
-        <div class="bar-row"><span>Prefix Cache (Eq.15)</span><div class="bar-track"><div class="bar-fill" style="width:74%"></div></div><b style="text-align:right">68% hit</b></div>
-        <div class="bar-row"><span>SQLite Exact Cache</span><div class="bar-track"><div class="bar-fill" style="width:95%"></div></div><b style="text-align:right">&lt;2 ms</b></div>
+        <div class="bar-row"><span>Prefix cache (here)</span><div class="bar-track"><div class="bar-fill" style="width:{{RHO_W}}%"></div></div><b style="text-align:right">{{RHO}}</b></div>
         <div class="bar-row"><span>Speculative N-Gram</span><div class="bar-track"><div class="bar-fill" style="width:92%"></div></div><b style="text-align:right">306 tok/s</b></div>
       </div>
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
-        <h2>Live Throughput Curve (SVG)</h2>
+        <h2>Generation speed: split across card and RAM vs. fully on the card (reference laptop)</h2>
         <svg viewBox="0 0 420 120" width="100%" style="display:block;margin-top:6px" role="img" aria-label="Throughput chart">
           <line x1="30" y1="20" x2="400" y2="20" stroke="var(--line)" stroke-dasharray="3 3"/>
           <line x1="30" y1="60" x2="400" y2="60" stroke="var(--line)" stroke-dasharray="3 3"/>
           <line x1="30" y1="100" x2="400" y2="100" stroke="var(--line)"/>
           <polyline fill="none" stroke="var(--mute)" stroke-width="2" stroke-dasharray="4 4" points="35,94 110,92 185,90 260,91 335,89 395,90"/>
           <polyline id="liveLine" fill="none" stroke="var(--acc)" stroke-width="3" points="35,75 110,52 185,38 260,30 335,24 395,18"/>
-          <text x="35" y="114" fill="var(--mute)" font-size="10">Start (7.9 tok/s)</text>
-          <text x="310" y="114" fill="var(--acc)" font-size="10" font-weight="bold">v12 Now (56+ tok/s)</text>
+          <text x="35" y="114" fill="var(--mute)" font-size="10">Split (about 8 tok/s)</text>
+          <text x="300" y="114" fill="var(--acc)" font-size="10" font-weight="bold">On the card (55 tok/s)</text>
         </svg>
       </div>
     </section>
@@ -754,16 +729,32 @@ def create_visual_demo(root=None, start_server=True):
     with open(os.path.join(root, ".arch", "handoff.json"), "w", encoding="utf-8") as f:
         f.write(_json.dumps(handoff, indent=2))
 
-    # Run pytest to verify the visual demo app passes its own test gate
-    tr = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    tests_ok = tr.returncode == 0
-    test_out = ((tr.stdout or "") + (tr.stderr or "")).strip()
+    # Run the demo's own tests. Three outcomes: True passed, False failed, None could not run (pytest missing, or it timed out)
+    import re as _re
+    try:
+        tr = subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=root, capture_output=True, text=True, timeout=60)
+        test_out = ((tr.stdout or "") + (tr.stderr or "")).strip()
+        counts = {k: int(n) for n, k in _re.findall(r"(\d+) (passed|failed|error|errors)", test_out)}
+        n_pass, n_bad = counts.get("passed", 0), counts.get("failed", 0) + counts.get("error", 0) + counts.get("errors", 0)
+        tests_ok = True if tr.returncode == 0 and n_pass else (False if n_bad else None)
+    except (subprocess.TimeoutExpired, OSError) as ex:
+        test_out, n_pass, n_bad, tests_ok = f"the tests could not run: {type(ex).__name__}: {ex}", 0, 0, None
+    # the page's figures are filled in now, from this install (they were fixed numbers in the template)
+    badge = (f"pytest: {n_pass}/{n_pass + n_bad} passing" if tests_ok else
+             f"pytest: {n_bad} of {n_pass + n_bad} failing" if tests_ok is False else "pytest: could not run")
+    try:
+        rr = report(days=30, team_devs=5, tasks_per_day=20)
+    except Exception:
+        rr = {}
+    rho = ((rr.get("measured") or {}).get("prefix_reuse_rho"))
+    yr = ((rr.get("projection") or {}).get("sonnet_yearly_api_usd"))
+    page = (_DEMO_HTML.replace("{{TEST_BADGE}}", badge)
+            .replace("{{PROJ_SONNET_YEAR}}", f"${yr:,.0f}" if isinstance(yr, (int, float)) else "n/a")
+            .replace("{{RATES_AS_OF}}", RATES_AS_OF)
+            .replace("{{RHO}}", f"{round(rho * 100)}%" if rho is not None else "not measured")
+            .replace("{{RHO_W}}", str(round(rho * 100)) if rho is not None else "0"))
+    with open(os.path.join(root, "static", "index.html"), "w", encoding="utf-8") as f:
+        f.write(page)
 
     srv = {"ok": False, "port": None, "url": None}
     if start_server:
@@ -788,7 +779,7 @@ def create_visual_demo(root=None, start_server=True):
         }
 
     return {
-        "ok": bool(tests_ok and (srv["ok"] if start_server else True)),
+        "ok": bool(tests_ok is True and (srv["ok"] if start_server else True)),
         "root": root,
         "tests_ok": tests_ok,
         "test_output": test_out,

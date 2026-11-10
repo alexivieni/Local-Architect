@@ -38,18 +38,54 @@ def run():
               abs(c_sonnet["usd"] - 3.15) < 1e-4 and abs(c_sonnet["usd_without_cache"] - 4.50) < 1e-4
               and abs(c_sonnet["cache_savings_usd"] - 1.35) < 1e-4, c_sonnet)
 
-        # 2. Full report structure & 10 optimization layers
-        rep = arch_finops.report(days=30, team_devs=5, tasks_per_day=20)
-        check("report returns available=True, hardware, measured, projection, 10 optimizations, and markdown",
-              rep.get("available") is True and len(rep.get("optimizations") or []) == 10
-              and rep.get("optimization_count") == 10 and rep.get("active_optimizations") >= 9
-              and isinstance(rep.get("markdown"), str) and "FinOps & Optimization Executive Report" in rep["markdown"],
-              list(rep.keys()))
+        # 2. Prices: the Anthropic list prices (cached 2026-11-03), each row with its source and date. Opus 4.6 used to say $15/$75
+        #    and Haiku 4.5 $0.80/$4, which tripled every "vs. Opus" figure.
+        R_ = arch_finops.CLOUD_RATES
+        want = {"claude-opus-4-6": (5.0, 0.5, 25.0), "claude-sonnet-4-6": (3.0, 0.3, 15.0), "claude-haiku-4-5": (1.0, 0.1, 5.0)}
+        check("Claude list prices are right (Opus 4.6 $5/$25, Sonnet 4.6 $3/$15, Haiku 4.5 $1/$5; cache reads 0.1x) and every row says its source and date",
+              all((R_[k]["input"], R_[k]["cached_input"], R_[k]["output"]) == v for k, v in want.items())
+              and all(r.get("source") and r.get("as_of") for r in R_.values()), {k: (R_[k]["input"], R_[k]["output"]) for k in R_})
 
+        # 3. Measured usage is really read (it called arch_usage.summary, which does not exist, so it was always 0)
+        import json as _json
+        import time as _time
+        proj_root = os.path.join(tmp, "proj")
+        rd = os.path.join(proj_root, ".arch", "runs", "r1")
+        os.makedirs(rd)
+        with open(os.path.join(rd, "trace.jsonl"), "w", encoding="utf-8") as f:
+            for i in range(3):
+                f.write(_json.dumps({"type": "call", "t": _time.time(), "model": "qwen3:8b", "tier": "worker", "transport": "llama",
+                                     "prompt_tokens": 1000, "gen_tokens": 200, "cache_n": 0}) + chr(10))
+            f.write(_json.dumps({"type": "verdict", "t": _time.time(), "verdict": "pass"}) + chr(10))
+        rep = arch_finops.report(days=30, roots=[proj_root], team_devs=5, tasks_per_day=20)
+        m = rep.get("measured") or {}
+        check("measured usage is read from the run traces (3 local calls, 3000 in / 600 out), over a 30-day window",
+              m.get("basis") == "measured" and m.get("local_calls") == 3 and m.get("tokens_in") == 3000 and m.get("tokens_out") == 600
+              and m.get("window") == "month", m)
+        check("nothing is invented when it was not measured: no prefix cache share (it used a fixed 64%) means None, priced without cache",
+              m.get("prefix_reuse_rho") is None and m.get("cache_priced") is False and m.get("tokens_cached_est") == 0
+              and abs(m.get("would_cost_opus_usd", 0) - (3000 * 5 + 600 * 25) / 1e6) < 1e-6, m)
+        empty = arch_finops.report(days=30, roots=[os.path.join(tmp, "nothing_here")])
+        check("with no runs the local share is None, not 100% (or the 85% it used to make up)",
+              (empty.get("measured") or {}).get("local_share") is None and (empty.get("measured") or {}).get("basis") == "none_yet", empty.get("measured"))
+
+        # 4. The 10 layers: status READ from this install (it was "active" for 9 of them, always)
+        opts = {o["id"]: o for o in rep.get("optimizations") or []}
+        check("10 layers, each status one of on / off / built in / not set up, each gain with its basis",
+              len(opts) == 10 and all(o["status"] in ("on", "off", "built in", "not set up") for o in opts.values())
+              and all(o.get("gain") and o.get("gain_basis") for o in opts.values())
+              and sum(rep["status_counts"].values()) == 10, rep.get("status_counts"))
+        check("the statuses follow the settings: no other machines = 'not set up', step cache 0 days = 'off', KV f16 = 'off'",
+              opts["distributed_lan_mesh"]["status"] == "not set up"
+              and arch_finops._optimization_layers({}, {}, {"squad": {"step_cache_days": 0}, "server": {"kv": "f16"}}, {}, [])[6]["status"] == "off"
+              and arch_finops._optimization_layers({}, {}, {"server": {"kv": "f16"}}, {}, [])[3]["status"] == "off"
+              and arch_finops._optimization_layers({}, {}, {"hosts": {"desk": "http://10.0.0.2:11434"}}, {}, [])[8]["status"] == "on")
+        md = rep.get("markdown") or ""
         proj = rep.get("projection") or {}
-        check("team ROI projection scales with devs and tasks_per_day (5 devs * 20 tasks * 22 days = 2200 tasks/mo)",
-              proj.get("monthly_tasks") == 2200 and proj.get("local_monthly_usd") == 0.0
-              and proj.get("sonnet_yearly_saved_usd", 0) > 500 and proj.get("opus_yearly_saved_usd", 0) > 2500, proj)
+        check("the projection says it is one, with its assumed task size; the Markdown labels measured vs. projection",
+              proj.get("basis") == "projection" and "not measured" in proj.get("assumption", "") and proj.get("monthly_tasks") == 2200
+              and proj.get("local_monthly_usd") == 0.0 and proj.get("sonnet_yearly_api_usd", 0) > 0
+              and "Measured local usage" in md and "Projection for a team" in md and "status read from this install" in md, proj)
 
         # 3. Desktop shortcut creation in isolated temp dir
         desk = os.path.join(tmp, "Desktop")
@@ -68,6 +104,10 @@ def run():
               "finops" in reg["page_ids"] and "finops" in place_pages.get("cost", [])
               and len(place_pages.get("cost", [])) <= 5 and "function finopsPage(" in html
               and "function makeDesktopShortcut(" in html and "function launchVisualDemo(" in html, place_pages.get("cost"))
+        fo = html[html.find("function launchVisualDemo("):html.find("/* ===== Cost map (Models):")]
+        check("the FinOps page invents nothing: no 0.64 / ??1 / ||10 fallbacks, no 'Save 100%', the demo does not switch your project unasked",
+              "0.64" not in fo and "local_share??1" not in fo and "||10" not in fo and "Save 100%" not in fo
+              and "tests failed" in fo and 'if(r&&r.root){run.root=r.root' not in fo)
 
         # 5. One-click visual frontend demo creation & pytest verification
         demo_dir = os.path.join(tmp, "visual_demo")
@@ -76,6 +116,10 @@ def run():
               demo.get("ok") is True and demo.get("tests_ok") is True
               and os.path.isfile(os.path.join(demo_dir, "static", "index.html"))
               and os.path.isfile(os.path.join(demo_dir, ".arch", "handoff.json")), demo)
+        page = open(os.path.join(demo_dir, "static", "index.html"), encoding="utf-8").read()
+        check("the demo page shows the real test count (it said 4/4 for a 2-test file) and no unfilled or invented figure",
+              "pytest: 2/2 passing" in page and "{{" not in page and "$1,908" not in page and "68%" not in page
+              and "reference laptop" in page, [l for l in page.splitlines() if "pytest:" in l][:1])
 
         core.set_home(old_home)
     finally:

@@ -1872,7 +1872,9 @@ const cell=v=>v==null?h("span",{class:"cell s-na"},"–"):h("span",{class:"cell 
 const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:v;}catch(_){return d;}},set(k,v){try{localStorage.setItem(k,v);}catch(_){}}};
 
 let S=null, cfg={}, dirty=false, page="console", weights={};
-const opts={kv:"f16",gpu_bw:192,ram_bw:50,vram:"",ram:""};
+/* What-if inputs for the Models page. Empty = the server uses this machine's measured bandwidth and your KV setting (it always sent
+   192 / 50 GB/s and f16, guesses that overrode the measurement); S.speed_inputs says which values were used and where they came from. */
+const opts={kv:"",gpu_bw:"",ram_bw:"",vram:"",ram:""};
 const run={tpl:"",tplTarget:"",root:store.get("root",""),app:"",flow:"auto",review:store.get("review","ask"),domains:[],goal:"",template:"auto",name:"",addons:[],thenBuild:true,autofix:false,options:{}};
 const sel={models:new Set(),cats:null,think:false};
 /* ONE page registry (NAV_GROUPS keeps its old name because the hub check reads it) and ONE sidebar (SIDEBAR). PAGES, SUBNAME,
@@ -1924,7 +1926,7 @@ const NAV_GROUPS=[
     ["telemetry","chart","Telemetry","Calls, tokens, cache reuse, errors and graphics memory, live"],
     ["lessons","check","Lessons","What we learned, and the code that keeps each lesson true"],
     ["squadruns","crew","Squad runs","Every local crew run; resume one and reuse what is cached"],
-    ["finops","coin","FinOps & savings","Cloud vs. local cost model, 10-way optimization savings, and ROI calculator"]]],
+    ["finops","coin","FinOps & savings","What local runs would cost on cloud APIs, a team projection, and the optimization layers on this install"]]],
 ];
 const PAGES=NAV_GROUPS.flatMap(([,items])=>items);
 /* The sidebar: [section, [[place id, icon, label, [page ids = its sub-tabs, at most 5, so no overflow menu]]]]. */
@@ -2055,7 +2057,7 @@ const STATE_VOLATILE=new Set(["time","ram_free_gb","vram_free_gb","expires_at","
 async function refresh(force){  /* -> true (read), false (the hub did not answer), undefined (one was already running) */
   /* one state build at a time: a slow /api/state (Ollama loading a model) used to stack a new request every 9 s */
   if(refresh.busy&&!force)return; refresh.busy=1;
-  const q=new URLSearchParams({kv:opts.kv,gpu_bw:opts.gpu_bw,ram_bw:opts.ram_bw}); if(opts.vram)q.set("vram",opts.vram); if(opts.ram)q.set("ram",opts.ram);
+  const q=new URLSearchParams(); for(const k of ["kv","gpu_bw","ram_bw","vram","ram"])if(opts[k])q.set(k,opts[k]);
   try{
     /* two halves: the catalog (read once, ETag) and the live part (28 KB instead of ~140 KB every 9 s); S is both, as before */
     const catNew=await loadCatalog();
@@ -2105,8 +2107,11 @@ async function tryPractice(){
   catch(e){toast.err("The practice task could not start: "+e.message);}
 }
 function simpleDraw(){
+  /* a run that finished while Home is open goes into Recent runs at once: the list is read again once per finished run (it was
+     read only when Home was built or the folder changed, and showed the new run only if that read happened to be slow) */
+  if(EV.verdict&&page==="overview"&&simpleDraw._fed!==EV.epoch&&$("#homeFeed")){simpleDraw._fed=EV.epoch;loadHome();}
   const box=$("#spProgress"); if(!box)return;
-  const steps=(EV.steps||[]).map(x=>[PLAIN_STEP(x.step),x.ok===false?"fail":x.unsure?"unsure":"done"]);
+  const steps=(EV.steps||[]).map(x=>[PLAIN_STEP(x.step),x.ok===false?"fail":x.unsure||(x.ok==null&&EV.verdict)?"unsure":x.ok==null?"now":"done"]);
   if(EV.now&&!EV.verdict)steps.push([PLAIN_STEP(EV.now),"now"]);
   const seen=new Set(),list=steps.filter(([t,st])=>{const k=t+st;if(seen.has(k))return false;seen.add(k);return true;});
   /* change-checked: the 1.5 s timer calls this whether or not anything moved. Rebuilding anyway restarted the shimmer, dropped
@@ -2460,10 +2465,15 @@ async function loadByJob(){
 }
 async function applyJob(job,model){
   if(!await confirmBox("Use "+model+" for "+job+"?","The "+job+" job will use "+model+" from now on. You can undo it straight after.","Apply"))return;
-  try{await api("/api/arch/select/apply",{job,model});toast("Applying "+model+" for "+job);
-    const u=$("#bjUndo");if(u){u.innerHTML="";u.append(h("div",{class:"row"},h("span",{class:"grow small"},model+" is now set for "+job+"."),
-      h("button",{class:"btn",type:"button",onclick:async()=>{try{await api("/api/arch/select/undo",{});toast("Undone");u.innerHTML="";setTimeout(loadByJob,1500);}catch(e){toast.err(e.message,7000);}}},"Undo")));}
-    setTimeout(loadByJob,1500);}catch(e){toast.err(e.message,7000);}
+  try{await api("/api/arch/select/apply",{job,model});
+    const u=$("#bjUndo"); if(u){u.innerHTML="";u.append(h("p",{class:"small st-load"},"Writing "+model+" for "+job+"…"));}
+    let j={running:true}; for(let i=0;i<60&&j.running;i++){await new Promise(r=>setTimeout(r,1000));try{j=await api("/api/job?since=1000000000");}catch(_){}}
+    if(u){u.innerHTML="";
+      if(j.running)u.append(h("p",{class:"small"},"Still writing "+model+" for "+job+": the job output is under Runs > History."));
+      else if(j.code===0)u.append(h("div",{class:"row"},h("span",{class:"grow small"},model+" is now set for "+job+"."),
+        h("button",{class:"btn",type:"button",onclick:async()=>{try{await api("/api/arch/select/undo",{});toast("Undone");u.innerHTML="";setTimeout(loadByJob,1500);}catch(e){toast.err(e.message,7000);}}},"Undo")));
+      else u.append(h("p",{class:"note bad"},model+" was not set for "+job+": the job ended with code "+j.code+". Its output is under Runs > History."));}
+    loadByJob();}catch(e){toast.err(e.message,7000);}
 }
 /* ---- Home quick-launch "options": only run settings that exist in arch_params.SETTINGS, written through /api/arch/settings ---- */
 const QL_OPTS=["behavior.review_mode","behavior.thinking","behavior.test_first","behavior.best_of_n","flows.budget_scale"];
@@ -2569,7 +2579,7 @@ function homeHero(){
     h("div",{id:"homeFeed",class:"card feed","aria-busy":"true"},h("div",{class:"skeleton",style:"height:56px"})),
     h("div",{id:"homeNight"}),
     h("details",{class:"card thispc",id:"homePc",open:true},h("summary",{class:"more-sum"},"This computer"),
-      h("div",{class:"statrow"},stat("stPass","Tests passed","check","template"),stat("stTok","Words per second","bolt","cost"),stat("stRuns","Runs this week","play","flow"),stat("stGpu","Graphics memory free","chip","model")))];
+      h("div",{class:"statrow"},stat("stPass","Benchmark pass rate","check","template"),stat("stTok","Tokens per second","bolt","cost"),stat("stRuns","Runs this week","play","flow"),stat("stGpu","Graphics memory free","chip","model")))];
 }
 function setStat(id,big,sub,tone,series){const c=$("#"+id);if(!c)return;c.querySelector("b").textContent=big;c.querySelector(".sc-sub").textContent=sub||"";c.dataset.tone=tone||"";
   const sp=c.querySelector(".sc-spark");if(sp){sp.innerHTML="";const g=spark(series);if(g)sp.append(g);}}
@@ -2581,10 +2591,11 @@ async function loadHome(){
       f.append(h("div",{class:"row"},h("span",{class:"grow mute"},"Still reading…"),h("button",{class:"btn sm",type:"button",onclick:()=>loadHome()},"Retry")));}
     for(const id of ["stPass","stTok","stRuns","stGpu"]){const c=$("#"+id);if(c&&c.dataset.tone==="loading")c.querySelector(".sc-sub").textContent="Still reading…";}},8000);
   try{const r=await api("/api/arch/evals"),runs=(r.runs||[]).filter(x=>!x.fake),last=runs[runs.length-1];
-    if(last&&last.pass_rate!=null)setStat("stPass",fmt(last.pass_rate,0)+"%",`${last.n} tasks, ${when(last.ts)}`,last.pass_rate>=75?"good":last.pass_rate>=45?"warn":"bad",runs.map(x=>x.pass_rate));
+    if(last&&last.pass_rate!=null)setStat("stPass",fmt(last.pass_rate,0)+"%",`latest benchmark: ${last.n} tasks, ${when(last.ts)}`,last.pass_rate>=75?"good":last.pass_rate>=45?"warn":"bad",runs.map(x=>x.pass_rate));
     else setStat("stPass","—",NOSTAT);}catch(e){setStat("stPass","—","could not read the test results");}
-  try{const m=await api("/api/arch/machine"),ts=JSON.stringify(m).match(/"(?:tok_s|tokps|tok_per_s)"\s*:\s*([0-9.]+)/);
-    setStat("stTok",ts?fmt(+ts[1],0):"—",ts?"how fast your model writes":NOSTAT);}catch(_){setStat("stTok","—",NOSTAT);}
+  try{const u=await api("/api/arch/usage?window=week"),l=u.local||{};
+    setStat("stTok",l.median_tok_s!=null?fmt(l.median_tok_s,0):"—",l.median_tok_s!=null?`median of ${l.tok_s_n} local model calls, last 7 days`:NOSTAT);}
+  catch(_){setStat("stTok","—",NOSTAT);}
   const feed=$("#homeFeed"),pc=$("#homePc");
   if(pc&&!pc.dataset.bound){pc.dataset.bound="1";pc.addEventListener("toggle",()=>{if(pc.dataset.auto!=="1")pc.dataset.touched="1";pc.dataset.auto="";});}
   const done=()=>{if(feed)feed.setAttribute("aria-busy","false");};
@@ -2660,9 +2671,11 @@ async function liveChip(){
   c.title=full.join(" · ")+(G?" — "+gpuTitle(G):"");
   if(busy)c.append(h("span",{class:"lc-dot","aria-hidden":"true"}));
   c.append(h("span",{class:"lc-txt"},short),h("span",{class:"sr-only"}," "+full.join(". ")));
-  if(O&&(O.models||[]).length)c.append(h("button",{class:"btn sm",type:"button","aria-label":"Free graphics memory by unloading Architect's models",title:"Unload the models Ollama holds (our llama-server tiers are not touched)",onclick:async()=>{
-    for(const m of O.models.filter(m=>!m.ours)){try{await api("/api/arch/ollama/unload",{model:m.name});}catch(e){toast.err("Not unloaded: "+e.message,6000);return;}}
-    toast("Graphics memory freed");liveChip();}},"Free memory"));
+  if(O&&(O.models||[]).some(m=>m.ours))c.append(h("button",{class:"btn sm",type:"button","aria-label":"Free graphics memory by unloading Architect's models",
+    title:"Unload the models Architect uses from Ollama (other apps' models and our llama-server tiers are not touched)",onclick:async()=>{
+    const gone=[];
+    for(const m of O.models.filter(m=>m.ours)){try{const r=await api("/api/arch/ollama/unload",{model:m.name});gone.push(...(r.unloaded||[]));}catch(e){toast.err("Not unloaded: "+e.message,6000);return;}}
+    if(gone.length)toast("Unloaded "+gone.join(", "));else toast.err("Nothing was unloaded",5000);liveChip();}},"Free memory"));
 }
 setInterval(liveChip,10000);setTimeout(liveChip,1200);
 function navOpen(){document.body.classList.add("nav-open");const t=$("#navToggle"),v=$("#navVeil");if(t)t.setAttribute("aria-expanded","true");if(v)v.hidden=false;const f=$("#nav .nav");if(f)f.focus();}
@@ -2822,7 +2835,7 @@ function renderStrip(){
       h("span",{class:"num"},kfmt(EV.tokens)),"tokens"));
   if(EV.cached) kids.push(h("span",{class:"sg",title:"answers reused from a reply already given to exactly the same question"},
       icon("check"),h("span",{class:"num"},EV.cached),"reused"));
-  kids.push(h("button",{class:"btn sm killbtn",disabled:!EV.running,title:"Stop between steps (Esc)",onclick:cStop},icon("stop"),"Stop"));
+  kids.push(h("button",{class:"btn sm killbtn",disabled:!EV.running,title:"Stop the run now (Esc twice). Files it already changed stay until you undo them",onclick:cStop},icon("stop"),"Stop"));
   el.innerHTML=""; put(el,...kids);
 }
 var GPU=null;            // /api/arch/gpu, polled every 5 s while the console is open
@@ -2834,7 +2847,7 @@ function gpuTitle(G){
 async function pollGpu(){
   if(document.hidden||!$("#cStrip")) return;
   try{ window.LIVE=await api("/api/arch/live"); }catch(_){}
-  try{ GPU=await api("/api/arch/gpu"); (window.PULSE=window.PULSE||[]).push(GPU.gpu_pct||0); if(PULSE.length>36)PULSE.shift(); renderStrip(); }catch(_){}
+  try{ GPU=await api("/api/arch/gpu"); if(typeof GPU.gpu_pct==="number")(window.PULSE=window.PULSE||[]).push(GPU.gpu_pct); if(PULSE.length>36)PULSE.shift(); renderStrip(); }catch(_){}
 }
 setInterval(pollGpu,5000); setTimeout(pollGpu,800);
 const kfmt=n=>n==null?"–":n>=1000?(n/1000).toFixed(n>=10000?0:1)+"k":String(n);
@@ -2862,8 +2875,9 @@ function renderDoing(){
   if(EV.steps.length||EV.now){
     const ul=h("ul",{class:"plan"});
     EV.steps.forEach((st,i)=>{
-      const cls=st.status==="skipped"?"skip":st.unsure?"unsure":st.ok===true?"done":st.ok===false?"fail":"done";
-      const ico=st.status==="skipped"?"dash":st.unsure?"question":st.ok===false?"x":"check";
+      /* ok null with no "unsure": the step only said it started. Running -> in progress; run over -> no result recorded (it was "done") */
+      const cls=st.status==="skipped"?"skip":st.unsure?"unsure":st.ok===true?"done":st.ok===false?"fail":EV.verdict?"unsure":"now";
+      const ico=st.status==="skipped"?"dash":st.unsure||(st.ok==null&&EV.verdict)?"question":st.ok===false?"x":st.ok==null?"spark":"check";
       ul.append(h("li",{class:cls+(EV.sel===i?" sel":""),tabindex:"0",title:stepTitle(st),
         onclick:()=>{EV.sel=EV.sel===i?-1:i;renderDoing();}},icon(ico),
         h("span",{},h("span",{},prettyStep(st.step)),
@@ -2879,7 +2893,7 @@ function renderDoing(){
     const total=Math.max(EV.steps.length+(EV.todo||[]).filter(t=>t.status==="pending"&&!EV.steps.some(x=>x.step===t.id)).length+(EV.now&&!EV.steps.some(x=>x.step===EV.now)?1:0),1);
     kids.push(h("div",{class:"sect"},h("p",{class:"lbl","data-n":"01"},"Plan"),
       h("div",{class:"wprog"},h("span",{class:"meter"},h("i",{style:"width:"+Math.round(100*EV.steps.length/total)+"%"})),
-        h("span",{class:"small mute num"},EV.steps.length+" of "+total+" steps done"+(EV.calls?" · "+EV.calls+" model calls":"")+" · click a step for details")),ul));
+        h("span",{class:"small mute num"},EV.steps.filter(s=>s.ok!=null||s.unsure||s.status==="skipped").length+" of "+total+" steps done"+(EV.calls?" · "+EV.calls+" model calls":"")+" · click a step for details")),ul));
   }
   if(EV.tools.length){
     const ul=h("ul",{class:"tools"});
@@ -3122,7 +3136,8 @@ async function cNew(){
   catch(e){ toast.err(e.message); }
 }
 async function cStop(){
-  try{ await api("/api/stop",{}); toast("Stopping between steps…"); }
+  /* the hub ends the run's process at once (it does not wait for the step to finish); Undo puts back any file it had changed */
+  try{ await api("/api/stop",{}); toast("Stopped. Files it changed so far stay until you undo them."); }
   catch(e){ toast.err(e.message); }
 }
 
@@ -3502,12 +3517,12 @@ async function loadTeam(){
     h("div",{class:"card"},h("div",{class:"teamhead"},
       h("div",{class:"grow"},
         h("h2",{},d.first_run?"Pick a team for this machine":"Your team on this machine"),
-        h("p",{class:"sub m0"},"Models measured against your graphics card."),learnMore("Each installed model was measured against this card: does it fit entirely, how much spills into memory, and what its compression costs in accuracy. Reputation is not part of it."),
+        h("p",{class:"sub m0"},"Models compared with your graphics card (an estimate from their size)."),learnMore("Each installed model is compared with this card from its file size: whether it fits entirely, how much would spill into memory, and what its compression is known to cost in accuracy. This is an estimate, not a benchmark run; the Benchmarks and By job pages hold the measurements. Reputation is not part of it."),
         h("div",{class:"hwpills"},
           h("span",{},icon("chip"),h("b",{},hw.gpu?shortGpu(hw.gpu):"No graphics card")),
           h("span",{},h("b",{},fmt(hw.vram_gb,1)+" GB")," graphics memory"),
           h("span",{},h("b",{},fmt(hw.ram_gb,0)+" GB")," system memory"),
-          h("span",{},h("b",{},String(d.plan.considered||0))," models measured"))),
+          h("span",{},h("b",{},String(d.plan.considered||0))," models compared"))),
       anyRec&&!same?h("button",{class:"btn pri",onclick:useRecommended},icon("check"),"Use the recommended team"):
         anyRec?h("span",{class:"chip good"},icon("check")," using the recommended team"):null)),
     h("div",{class:"tiergrid"},...["worker","router","heavy","draft"].map(t=>tierCard(t,d))),
@@ -3933,7 +3948,7 @@ async function loadEffective(){
     h("p",{class:"small mute"},"Strongest first: "+["explicit arg","person role profile","preset","shipped role profile","model family default","built-in default"].map(k=>EFF_WORDS[k]).join(", then ")+"."));
 }
 async function qAdd(){
-  const g=$("#qGoal"); const goal=(g.value||"").trim(); if(!goal){g.focus();return;}
+  const g=$("#qGoal"); const goal=(g.value||"").trim(); if(!goal){g.focus();toast("Type the task to queue first");return;}
   try{ await api("/api/arch/queue",{add:{goal:goal,root:run.root||"",flow:$("#qFlow").value}}); g.value=""; toast("Queued."); loadQueue(); }
   catch(e){ toast.err(e.message); }
 }
@@ -4301,7 +4316,7 @@ function renderIndex(ix){
   if(!ix){box.style.display="none";return;}box.style.display="";
   const on=ix.state==="on";
   const go=async(body,msg)=>{try{await api("/api/arch/index",Object.assign({root:run.root},body));toast(msg);}catch(e){toast("Could not do that: "+e.message);}};
-  const q=h("input",{type:"text",class:"grow",placeholder:"Try a request, e.g. add throttling to the API — shows the keyword, vector and fused rankings"});
+  const q=h("input",{type:"text",class:"grow",placeholder:"Try a request, e.g. add throttling to the API: shows how the project's code ranks for it (vector ranking only with an embedding model set)"});
   put(box,h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"What the prompt shows"),
       h("p",{class:"sub"},"Small models read few files, so ranking matters."),learnMore("A small context window only carries a few files, so the ranking of files and functions is what makes a 4B-8B model usable. Keywords find exact names; a tiny embedding model (274 MB, loaded for a batch and released) also finds the function that does what you described in other words. Both are fused; the code checks still decide.")),
     h("span",{class:"chip "+(on?"good":"warn")},on?"on · "+(ix.model||""):"off")));
@@ -4311,7 +4326,7 @@ function renderIndex(ix){
     h("button",{class:"btn sm",disabled:!on,onclick:()=>go({query:q.value.trim()},"Comparing rankings in the console…")},"Compare rankings"),
     h("button",{class:"btn sm",disabled:!on,onclick:()=>go({},"Indexing in the console…")},"Index this project"),
     h("button",{class:"btn sm",disabled:!on,onclick:()=>go({rebuild:true},"Rebuilding in the console…")},"Rebuild")),
-    h("div",{class:"mute small mt-2"},"Uses the project folder from the Work page"+(run.root?": "+run.root:" (none chosen yet)")+". Stored in the project's .arch/index/."));
+    h("div",{class:"mute small mt-2"},"Uses the project folder chosen on Home"+(run.root?": "+run.root:" (none chosen yet)")+". Stored in the project's .arch/index.db."));
 }
 function renderOpt(t){
   const box=$("#optBox");if(!box)return;box.innerHTML="";const o=t.opt;
@@ -4448,8 +4463,8 @@ function oneShotCard(){
       act("New job queue here","layers","Worker/job-queue template, built in this folder now",()=>{if(needRoot())oneShotTemplate("worker","Job queue");}),
       act("New REST API here","server","Stdlib JSON API template, built in this folder now",()=>{if(needRoot())oneShotTemplate("rest_api","REST API");}),
             act("Improve this app safely","refresh","Works on a copy, must pass the gates, then asks before it changes anything",()=>go("tune")),
-            act("FinOps & cost savings","coin","Cloud API vs. local $0 cost model, 10-way optimization scorecard & ROI report",()=>go("finops")),
-            act("Launch visual frontend demo","monitor","Builds, tests (pytest) and starts a live interactive web app for calls & demos",launchVisualDemo),
+            act("FinOps & cost savings","coin","What your local runs would cost on cloud APIs, a team projection, and the optimization layers on this install",()=>go("finops")),
+            act("Launch visual frontend demo","monitor","Writes a ready-made demo web app, runs its pytest tests and starts it",launchVisualDemo),
             act("Put Architect on my Desktop","rocket","Creates a one-click desktop launcher so anyone can open the GUI like a regular app",makeDesktopShortcut),
     ));
 }
@@ -4560,41 +4575,6 @@ function portrait(r){
     <text x="50" y="${hy+4.5}" text-anchor="middle" style="font-family:var(--mono)" font-size="12" fill="currentColor">${r.icon}</text>
   </svg>`;
 }
-function sheet(){
-  const ms=installed(),r=(S.readyInfo&&S.readyInfo.ready)||{},steps=r.steps||[],prof=S.readyInfo&&S.readyInfo.profile;
-  const assigned=S.roles.filter(x=>x.assigned);
-  const pins=[
-    [S.ollama.ok,S.ollama.ok?`Ollama is up with ${ms.length} chat model${ms.length===1?"":"s"}`:"Ollama is not reachable",S.ollama.ok?(S.loaded&&S.loaded.length?"loaded now: "+S.loaded.map(m=>m.name).join(", "):"nothing loaded yet"):"start the Ollama app, then this page updates on its own"],
-    [!!prof,prof?`Tuned for this machine: ${prof.tier_label} harness`:"Not tuned yet",prof?`builder ${prof.builder}`:"Get ready measures this PC and sets context, timeouts and the team"],
-    [steps.length&&r.ok,steps.length?(r.ok?"Ready: the builder proved itself on real tasks":"Get ready found things to fix"):"Get ready has not run",steps.length?`${steps.filter(x=>x.ok).length} of ${steps.length} checks passed`:"one click, a few minutes"],
-    [assigned.length>0,`${assigned.length} of ${S.roles.length} roles have a model`,assigned.length?`${new Set(assigned.map(x=>x.assigned)).size} distinct model${new Set(assigned.map(x=>x.assigned)).size===1?"":"s"}`:"one model can do every job to start"],
-    [!!(S.embed_model),S.embed_model?`Function-level retrieval is on (${S.embed_model})`:"Retrieval by keywords only",S.embed_model?"the prompt shows the functions that match your request, not just file names":"ollama pull nomic-embed-text (274 MB) adds a vector index of your functions"]];
-  const show=S.roles.slice(0,11);
-  const hw=S.hw||{};
-  return h("section",{class:"sheet","aria-label":"Your engineering team"},h("div",{class:"frame"}),
-    h("div",{class:"cols"},
-      h("div",null,
-        h("h1",null,"Your engineering team. On this machine."),
-        h("p",{class:"lede"},"Twenty-three specialists, planners to penetration testers, run by the models you already have. Nothing leaves this computer. Code decides what passes: tests, verifiers and the fake-code gate, not the model's own opinion."),
-        h("ul",{class:"pins"},...pins.map(([ok,t,d])=>h("li",{class:ok?"ok":"no"},h("i"),h("div",null,t,h("br"),h("span",null,d))))),
-        (()=>{ /* one primary action, chosen from the state: the next thing that actually moves you forward */
-          const win=/Win/.test(navigator.platform),mac=/Mac/.test(navigator.platform);
-          const hint=win?"Open the Ollama app from the Start menu (it sits in the tray), then this page updates by itself.":mac?"Open the Ollama app (menu bar icon), then this page updates by itself.":"Run `ollama serve` in a terminal, then this page updates by itself.";
-          let primary,next;
-          if(!S.ollama.ok){primary=h("button",{class:"btn p",onclick:()=>toast(hint,9000)},"How to start Ollama");next=hint;}
-          else if(!ms.length){primary=h("button",{class:"btn p",onclick:()=>startJob("/api/arch/ready",{root:run.root||undefined})},"Get ready");next="No chat model yet: Get ready suggests the best one for this machine and asks before downloading.";}
-          else if(!steps.length||!r.ok){primary=h("button",{class:"btn p",onclick:()=>startJob("/api/arch/ready",{root:run.root||undefined})},steps.length?"Run Get ready again":"Get ready");next=steps.length?"Last time some checks did not pass; the list below says which.":"Measures this PC, tunes context and timeouts, proves the builder on real tasks. A few minutes.";}
-          else {primary=h("button",{class:"btn p",onclick:()=>go("run")},"Give the team a task");next="Everything checks out. Describe what you want built or fixed; the router picks the workflow.";}
-          return [h("div",{class:"acts"},primary,
-            S.ollama.ok&&ms.length?h("button",{class:"btn",onclick:()=>go("run")},"Give the team a task"):null,
-            h("button",{class:"btn",onclick:()=>go("roles")},"Meet the whole team"),
-            steps.length&&r.ok?h("button",{class:"btn",onclick:()=>startJob("/api/arch/livetest",{quick:true})},"Quick test with my models"):null),
-            h("p",{class:"small",style:"margin:10px 0 0;color:var(--bpmute);max-width:60ch"},next)];})(),
-        h("div",{class:"tblock"},h("div",null,"Machine",h("b",null,(hw.gpu||"no dedicated GPU").replace(/NVIDIA GeForce |AMD Radeon /,""))),h("div",null,"Memory",h("b",null,`${fmt(hw.vram_gb,0)} GB VRAM, ${fmt(hw.ram_gb,0)} GB RAM`)),h("div",null,"Sheet",h("b",null,"A-01, home")))),
-      h("div",{class:"crew","aria-label":"The team"},...show.map(x=>h("figure",{title:x.title+(x.assigned?": "+x.assigned:": no model yet (fallback)")},h("div",{html:portrait(x)}),h("figcaption",null,x.title,h("span",null,x.assigned||"fallback")))),
-        S.roles.length>show.length?h("div",{class:"more",role:"button",tabindex:0,onclick:()=>go("roles"),onkeydown:e=>{if(e.key==="Enter")go("roles");}},`+${S.roles.length-show.length} more`):null)));
-}
-
 /* Get started: four steps, one action each, the current one highlighted. Built from what the hub already knows; every action is an
    existing one (Get ready, the recommended models, Start a project, the Workspace), so nothing here is a second way of doing things. */
 function getStarted(){
@@ -4606,7 +4586,7 @@ function getStarted(){
                   :"Start the Ollama app first (it sits in the tray). This page notices by itself.",
      a:S.ollama.ok?["Get ready",()=>startJob("/api/arch/ready",{root:run.root||undefined})]:null},
     {done:installed().length>0&&S.roles.some(r=>r.assigned), t:"Choose your models",
-     d:"One click picks the best model you have for each job, measured on this machine. You can change any of them later.",
+     d:"One click picks the model that scores best for each job: from measurements on this machine where there are any, otherwise from its size and compression. You can change any of them later.",
      a:["Use the recommended models",async()=>{try{await api("/api/arch/apply_recommended",{});toast("Recommended models saved");await refresh(true);}catch(e){toast.err(e.message,6000);}}]},
     {done:!!run.root||(S.portfolio||[]).length>0, t:"Pick a project",
      d:"Start from a template (a working base with tests), or point the team at a folder you already have.",
@@ -4656,6 +4636,8 @@ function homeMore(){
   return more;
 }
 /* ---------- Models ---------- */
+/* the value a speed input falls back to, and where it came from: "158 (measured)" / "192 (estimate)" */
+function spIn(k){const s=S.speed_inputs||{};return s[k]==null?"":fmt(s[k],0)+" ("+(s[k+"_src"]||"estimate")+")";}
 function models(){
   const out=[]; const hw=S.hw;
   const miss=Object.keys(S.deps||{}).filter(k=>!S.deps[k]);
@@ -4664,9 +4646,10 @@ function models(){
     h("div",{class:"row"},
       h("label",{class:"f"},"VRAM (GB)",h("input",{type:"number",step:"0.5",value:opts.vram||fmt(hw.vram_gb),onchange:e=>{opts.vram=e.target.value;refresh(true);}})),
       h("label",{class:"f"},"RAM (GB)",h("input",{type:"number",value:opts.ram||fmt(hw.ram_gb),onchange:e=>{opts.ram=e.target.value;refresh(true);}})),
-      h("label",{class:"f"},"KV cache type",h("select",{onchange:e=>{opts.kv=e.target.value;refresh(true);}},...["f16","q8_0","q4_0"].map(v=>h("option",{value:v,selected:v===opts.kv},v)))),
-      h("label",{class:"f"},"GPU GB/s",h("input",{type:"number",value:opts.gpu_bw,onchange:e=>{opts.gpu_bw=+e.target.value||192;refresh(true);}})),
-      h("label",{class:"f"},"RAM GB/s",h("input",{type:"number",value:opts.ram_bw,onchange:e=>{opts.ram_bw=+e.target.value||50;refresh(true);}})),
+      h("label",{class:"f"},"KV cache type",h("select",{onchange:e=>{opts.kv=e.target.value;refresh(true);}},
+        h("option",{value:"",selected:!opts.kv},"your setting ("+((S.speed_inputs||{}).kv||"?")+")"),...["f16","q8_0","q4_0"].map(v=>h("option",{value:v,selected:v===opts.kv},v)))),
+      h("label",{class:"f"},"GPU GB/s",h("input",{type:"number",value:opts.gpu_bw,placeholder:spIn("gpu_bw"),onchange:e=>{opts.gpu_bw=e.target.value.trim();refresh(true);}})),
+      h("label",{class:"f"},"RAM GB/s",h("input",{type:"number",value:opts.ram_bw,placeholder:spIn("ram_bw"),onchange:e=>{opts.ram_bw=e.target.value.trim();refresh(true);}})),
       h("span",{class:"grow"}),h("button",{class:"btn",onclick:()=>refresh(true)},"Refresh")),
     h("p",{class:"sub mt-3"},"How well each model fits this PC."),learnMore("Fit = weights + context memory, spread over layers; the GPU takes what fits, the rest runs from RAM (about 4 GB kept for the OS). Speed is a bandwidth estimate; the Speed test gives the real number."),
     ...(hw.notes||[]).map(n=>h("div",{class:"note warn"},n))));
@@ -4923,26 +4906,28 @@ function doctorPage(){
     h("div",{class:"card"},h("h2",null,"Doctor"),
       h("p",{class:"sub"},"Real tests of this PC, not guesses."),learnMore("Real probes, not assumptions: a real HTTP call to Ollama, a real socket bind on the hub's port, a real disk-usage check, a real file write. Run this first when something isn't working."),
       h("div",{class:"row"},h("label",{class:"f grow"},"Project folder",root),
-        h("button",{class:"btn p",onclick:runDoctor},"Run checks"),
+        h("button",{class:"btn p",onclick:()=>runDoctor(true)},"Run checks"),
         h("button",{class:"btn",id:"dxFixBtn",onclick:fixDoctor},"Self-repair what's fixable")),
       h("div",{id:"dxOut",style:"margin-top:14px;display:flex;flex-direction:column;gap:8px"},h("p",{class:"sub"},"Running…"))),
   ];
 }
 function doctorChecks(out,checks){
   out.innerHTML="";
-  const ok=checks.every(c=>c.ok||c.advisory);
-  out.append(h("div",{class:"row"},h("span",{class:"chip "+(ok?"good":"bad")},ok?"Ready to run":"Needs attention")));
+  const bad=checks.some(c=>c.ok===false&&!c.advisory), unsure=checks.some(c=>c.ok==null&&!c.advisory);
+  out.append(h("div",{class:"row"},h("span",{class:"chip "+(bad?"bad":unsure?"warn":"good")},bad?"Needs attention":unsure?"Could not check everything":"Ready to run")));
   for(const c of checks){
-    const tone=c.ok?"good":(c.advisory?"warn":"bad");
+    const tone=c.ok===true?"good":c.ok==null?"warn":(c.advisory?"warn":"bad");
     out.append(h("div",{class:"row",style:"align-items:flex-start"},
-      h("span",{class:"chip "+tone,style:"flex-shrink:0"},c.ok?"ok":(c.advisory?"info":"fail")),
+      h("span",{class:"chip "+tone,style:"flex-shrink:0"},c.ok===true?"ok":c.ok==null?"could not check":(c.advisory?"info":"fail")),
       h("div",null,h("div",null,c.name),c.detail?h("div",{class:"sub"},c.detail):null)));
   }
 }
-async function runDoctor(){
+async function runDoctor(fresh){
   const out=$("#dxOut");if(!out)return;
+  /* a press of "Run checks" really checks again (it was answered from the 60 s read cache, so pressing it changed nothing) */
+  if(fresh===true){out.innerHTML="";out.append(h("p",{class:"sub st-load"},"Checking this PC…"));}
   try{
-    const r=await api("/api/arch/doctor?root="+encodeURIComponent(run.root||""));
+    const r=await api("/api/arch/doctor?root="+encodeURIComponent(run.root||"")+(fresh===true?"&fresh=1":""));
     doctorChecks(out,r.checks);
   }catch(e){out.innerHTML="";out.append(h("div",{class:"note bad"},e.message));}
 }
@@ -4985,7 +4970,7 @@ async function runAssess(){
     out.append(h("div",{class:"note info"},h("b",null,hw.gpu||"No GPU detected")," · ",fmt(hw.vram_gb),(" GB VRAM · "+fmt(hw.ram_gb)+" GB RAM · tier: "+r.vram_tier_label)));
     const drift=r.tuning_drift||[];
     put(out,h("div",{class:"card mt-3"},h("div",{class:"row"},h("h3",{class:"grow"},r.tuned_from==="tune"?"Settings from your last Tune":"Settings for this machine (rough estimate)"),
-        h("span",{class:"chip "+(drift.length?"warn":"good")},drift.length?drift.length+" setting(s) drifted":"already tuned")),
+        h("span",{class:"chip "+(drift.length?"warn":"good")},drift.length?drift.length+" setting(s) drifted":"matches the estimate")),
       h("p",{class:"sub"},"Keeps your graphics card from overloading."),learnMore("Keeps this specific card/RAM from thrashing (context size, keep-alive, sampled attempts) -- not a quality tweak, that's what the Scoreboard measures. Self-tuning check: compares this recommendation against what's actually saved right now."),
       h("div",{class:"small mute"},Object.entries(r.tuned_settings||{}).map(([k,v])=>`${k}=${v}`).join("  ·  ")),
       drift.length?h("div",{class:"mt-2"},...drift.map(d=>h("div",{class:"small"},h("span",{class:"mono"},d.path),": currently ",h("b",null,String(d.current??"(unset/default)")),` → recommended `,h("b",null,String(d.recommended))))):null,
@@ -5011,7 +4996,7 @@ function advisorPage(){
     h("div",{class:"card"},h("h2",null,"Advisor"),
       h("p",{class:"sub"},"Your next steps, ranked by impact."),learnMore("Combines the Doctor's real environment checks, the Assess page's hardware/workload read-out, a real static scan of this project's own code, and (if scope.json + findings.json are present) a real scope-vs-findings check -- into one ranked list. Every item cites the exact check, finding or config value it came from; nothing here is a model's impression of the code."),
       h("div",{class:"row"},h("label",{class:"f grow"},"Project folder",root),
-        h("button",{class:"btn p",onclick:runAdvise},"Propose next steps")),
+        h("button",{class:"btn p",onclick:()=>runAdvise(true)},"Propose next steps")),
       h("div",{id:"adOut",style:"margin-top:14px;display:flex;flex-direction:column;gap:8px"},h("p",{class:"sub"},"Click “Propose next steps” to combine everything into one list."))),
   ];
 }
@@ -5092,7 +5077,7 @@ function pluginsPage(){
       h("p",{class:"sub"},"Add-ons that bring agents, workflows, skills, commands and hooks."),
       learnMore("A plugin is a folder with plugin.json and any of agents/, workflows/, skills/, commands/ and hooks.json. Installed plugins start disabled and untrusted. Agents and workflows work once enabled; hooks and commands run only after you trust the plugin."),
       h("div",{class:"row",style:"gap:8px;margin-top:10px"},path,
-        h("button",{class:"btn p",type:"button",onclick:async()=>{const p=path.value.trim();if(!p){path.focus();return;}
+        h("button",{class:"btn p",type:"button",onclick:async()=>{const p=path.value.trim();if(!p){path.focus();toast("Type the plugin's folder path first");return;}
           try{const r=await api("/api/arch/plugins/install",{path:p});PL.data=r;toast("Installed "+r.name+" (disabled, untrusted)");path.value="";plDraw();}catch(e){toast.err(e.message);}}},icon("plus"),"Install"))),
     h("div",{id:"plOut",style:"display:flex;flex-direction:column;gap:10px"},loadingLine("Reading plugins…"))];
 }
@@ -5428,10 +5413,10 @@ function rvDraw(){
   put(fl,box);
   /* tests */
   const tests=d.tests||[], tt=tests.filter(x=>x.test), other=tests.filter(x=>!x.test);
-  const tb=h("div",{class:"card"},h("h3",null,"Tests"+(tt.length?" ("+tt.filter(x=>x.ok).length+" of "+tt.length+" passed)":"")));
+  const tb=h("div",{class:"card"},h("h3",null,"Tests"+(tt.length?" ("+tt.filter(x=>x.ok===true).length+" of "+tt.length+" passed"+(tt.some(x=>x.ok==null)?", "+tt.filter(x=>x.ok==null).length+" could not run":"")+")":"")));
   if(!tests.length)tb.append(h("p",{class:"sub"},"No tests or checks ran in this run."));
   else if(!tt.length)tb.append(h("p",{class:"sub"},"No test ran; these checks did:"));
-  const li=x=>h("li",{class:"rv-test"},h("span",{class:"chip "+(x.ok?"good":"bad")},x.ok?"Passed":"Failed"),h("span",{class:"grow"},x.name),
+  const li=x=>h("li",{class:"rv-test"},h("span",{class:"chip "+(x.ok===true?"good":x.ok===false?"bad":"warn")},x.ok===true?"Passed":x.ok===false?"Failed":"Could not check"),h("span",{class:"grow"},x.name),
     x.text?h("span",{class:"mute rv-tx",title:x.text},x.text):null);
   if(tt.length)tb.append(h("ul",{class:"rv-tests"},...tt.map(li)));
   if(other.length)tb.append(tt.length?h("details",{class:"more"},h("summary",null,"Other checks ("+other.length+")"),h("ul",{class:"rv-tests"},...other.map(li))):h("ul",{class:"rv-tests"},...other.map(li)));
@@ -5710,22 +5695,26 @@ async function makeDesktopShortcut(){
     else toast.err((r&&r.why)||"Could not create the desktop launcher",6000);
   }catch(e){toast.err(e.message,6000);}
 }
+/* The demo: a ready-made small web app is written, its own pytest tests run, and it is started. What the page says follows what
+   happened: tests passed / failed / could not run, running or not. Your project folder is NOT switched to the demo; the
+   "Work on it" button does that when you ask. */
 async function launchVisualDemo(){
-  toast("Building, testing & starting live visual frontend demo…",4000);
+  toast("Writing the demo app, running its tests and starting it…",4000);
   try{
     const r=await api("/api/arch/demo",{start:true});
-    if(r&&r.root){run.root=r.root;store.set("root",r.root);}
+    const t=r.tests_ok===true?["good","tests passed"]:r.tests_ok===false?["bad","tests failed"]:["warn","tests could not run"];
+    const up=!!r.url;
     const b=$("#foDemoBar");
     if(b){
       b.innerHTML="";
-      b.append(h("div",{class:"note good row",style:"gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px"},
-        h("span",{class:"chip good"},r.tests_ok?"pytest passed":"checked"),
-        h("span",{class:"grow"},h("b",null,"Live Visual Frontend Demo is running at "),h("code",null,r.url||r.root)),
-        r.url?h("a",{class:"btn p sm",href:r.url,target:"_blank",rel:"noopener"},"Open live visual app ↗"):null,
-        h("button",{class:"btn sm",type:"button",onclick:()=>{run.root=r.root;store.set("root",r.root);run.goal="Add a Dark/Neon theme toggle and an Export CSV button to the visual dashboard, with tests";go("run");}},"Live-edit with Architect →")));
+      b.append(h("div",{class:"note row mt-3 "+(r.tests_ok===true&&up?"good":"warn"),style:"gap:10px;align-items:center;flex-wrap:wrap"},
+        h("span",{class:"chip "+t[0]},t[1]),
+        h("span",{class:"grow"},up?h("b",null,"The demo app is running at "):h("b",null,"The demo app is not running. It was written to "),h("code",null,up?r.url:r.root)),
+        up?h("a",{class:"btn p sm",href:r.url,target:"_blank",rel:"noopener"},"Open the demo app ↗"):null,
+        h("button",{class:"btn sm",type:"button",onclick:()=>{run.root=r.root;store.set("root",r.root);run.goal="Add a Dark/Neon theme toggle and an Export CSV button to the visual dashboard, with tests";go("run");}},"Work on it in Architect →")));
     }
-    if(r&&r.url){try{window.open(r.url,"_blank","noopener");}catch(_){}}
-    toast("Visual frontend demo is live at "+(r.url||r.root),6000);
+    if(up){try{window.open(r.url,"_blank","noopener");}catch(_){}}
+    if(up&&r.tests_ok===true)toast("The demo app is running at "+r.url,6000);else toast.err(up?"The demo app is running, but its "+t[1]:"The demo app did not start",6000);
   }catch(e){toast.err(e.message,6000);}
 }
 function finopsPage(){
@@ -5733,14 +5722,15 @@ function finopsPage(){
     oninput:e=>{FO.devs=Math.max(1,Math.min(500,parseInt(e.target.value,10)||1));store.set("foDevs",String(FO.devs));finopsDraw();}});
   const tasksIn=h("input",{type:"number",min:"1",max:"500",value:String(FO.tasks),"aria-label":"Tasks per developer per day",
     oninput:e=>{FO.tasks=Math.max(1,Math.min(500,parseInt(e.target.value,10)||1));store.set("foTasks",String(FO.tasks));finopsDraw();}});
-  const modSel=h("select",{"aria-label":"Cloud baseline model",onchange:e=>{FO.model=e.target.value;store.set("foModel",FO.model);finopsDraw();}},
-    ...[["claude-opus-4-6","Claude Opus 4.6 ($15 / $75 per 1M)"],["claude-sonnet-4-6","Claude Sonnet 4.6 ($3 / $15 per 1M)"],["gpt-4o","GPT-4o ($2.50 / $10 per 1M)"],["claude-haiku-4-5","Claude Haiku 4.5 ($0.80 / $4 per 1M)"]].map(([v,l])=>h("option",{value:v,selected:FO.model===v},l)));
+  /* the model list and its prices come from the server (arch_finops.CLOUD_RATES, with source and date); filled in by finopsDraw */
+  const modSel=h("select",{id:"foModelSel","aria-label":"Cloud baseline model",onchange:e=>{FO.model=e.target.value;store.set("foModel",FO.model);finopsDraw();}},
+    h("option",{value:FO.model,selected:true},"Loading prices…"));
   return [
     h("section",{class:"card"},
       h("div",{class:"row",style:"gap:10px;align-items:center;flex-wrap:wrap"},
         h("div",{class:"grow"},
-          h("h2",{class:"m0"},"FinOps & optimization savings"),
-          h("p",{class:"sub m0 mt-1"},"How Local-Architect saves cloud spend, memory and time across 10 optimization layers — and what your runs would cost on cloud APIs.")),
+          h("h2",{class:"m0"},"FinOps: what your local runs would cost on cloud APIs"),
+          h("p",{class:"sub m0 mt-1"},"Measured local usage priced at cloud list prices, a team projection from an assumed task size, and the optimization layers read from this install. Each figure says which it is.")),
         h("button",{class:"btn",type:"button",onclick:launchVisualDemo},icon("monitor"),"Launch live visual demo (for calls)"),
         h("button",{class:"btn",type:"button",onclick:makeDesktopShortcut},icon("rocket"),"Put Architect on my Desktop"),
         h("button",{class:"btn",type:"button",onclick:()=>loadFinops(true)},"Refresh"),
@@ -5748,20 +5738,20 @@ function finopsPage(){
       h("div",{id:"foDemoBar"})),
     h("div",{id:"foHead",class:"btiles"}),
     h("section",{class:"card"},
-      h("h2",{class:"m0"},"Team ROI & cloud vs. local cost simulator"),
-      h("p",{class:"sub"},"Adjust team size and daily agentic coding tasks to compare Local-Architect ($0 API + $0 seat fees, 100% on-premise) against cloud APIs and seat subscriptions."),
+      h("h2",{class:"m0"},"Projection: a team on cloud APIs vs. local"),
+      h("p",{class:"sub"},"Not measured: it multiplies an assumed task size by your team size and tasks per day. Local runs have no API bill or seat fee; your hardware and power are not counted."),
       h("div",{class:"fgrid mt-3"},
         h("label",{class:"f"},"Developers on team",devsIn),
         h("label",{class:"f"},"Tasks per dev / day",tasksIn),
         h("label",{class:"f"},"Cloud API comparison baseline",modSel)),
       h("div",{class:"mt-3",id:"foSim"})),
     h("section",{class:"card"},
-      h("h2",{class:"m0"},"10 ways we save, optimize & compete vs. the start"),
-      h("p",{class:"sub"},"Every caching, memory, hardware, distributed LAN and verification layer active on this machine compared against the unoptimized baseline."),
+      h("h2",{class:"m0"},"Optimization layers on this install"),
+      h("p",{class:"sub"},"Status is read from your settings and this machine: on, off, built in (always part of a run) or not set up. Expected gains say where their number comes from."),
       h("div",{class:"mt-3",id:"foOpts"},loadingLine("Reading FinOps & optimization metrics…"))),
     h("section",{class:"card"},
       h("details",null,
-        h("summary",{style:"cursor:pointer;font-weight:600"},"Executive Markdown report template (ready to paste into docs or slides)"),
+        h("summary",{style:"cursor:pointer;font-weight:600"},"The same report as Markdown (to paste into docs or slides)"),
         h("pre",{id:"foMd",class:"term",style:"margin-top:10px;white-space:pre-wrap"},"Loading…")))
   ];
 }
@@ -5782,9 +5772,13 @@ function finopsDraw(){
   const m=d.measured||{}, hw=d.hardware||{}, rates=d.cloud_rates||{};
   const tile=(big,lbl,cls)=>h("div",{class:"btile "+(cls||"")},h("b",{class:"num"},big),h("span",{class:"mute small"},lbl));
   const monthlyTasks=FO.devs*FO.tasks*22;
-  const ref=d.projection&&d.projection.reference_task||{tokens_in_per_task:18000,tokens_cached_per_task:11500,tokens_out_per_task:2400};
+  const ref=(d.projection||{}).reference_task; if(!ref)return;
+  const sel=$("#foModelSel");
+  if(sel&&!sel.dataset.filled){sel.dataset.filled="1";sel.innerHTML="";
+    for(const [k,r] of Object.entries(rates))sel.append(h("option",{value:k,selected:FO.model===k},`${r.label} ($${r.input} / $${r.output} per 1M, ${r.as_of})`));
+    if(!rates[FO.model]){FO.model=Object.keys(rates)[0];sel.value=FO.model;}}
   const calcModel=(rk)=>{
-    const r=rates[rk]||{input:3,cached_input:0.3,output:15,label:rk,tier:""};
+    const r=rates[rk]; if(!r)return {label:rk,tier:"",perTask:0,perTaskUncached:0,mo:0,yr:0,yr3:0};
     const tin=ref.tokens_in_per_task, tca=ref.tokens_cached_per_task, tout=ref.tokens_out_per_task;
     const perTask=((tin-tca)*r.input + tca*r.cached_input + tout*r.output)/1e6;
     const perTaskUncached=(tin*r.input + tout*r.output)/1e6;
@@ -5796,11 +5790,11 @@ function finopsDraw(){
   if(head){
     head.innerHTML="";
     put(head,
-      tile("$0.00","local inference bill ("+Math.round((m.local_share??1)*100)+"% local)","good"),
-      tile(foUsd(curM.yr)+"/yr","projected team savings vs. "+curM.label,"good"),
-      tile(Math.round((m.prefix_reuse_rho||0.64)*100)+"%","prompt prefix reuse (rho)"),
-      tile((d.active_optimizations||10)+" / "+(d.optimization_count||10),"optimization layers active","good"),
-      tile(m.local_calls?(m.local_calls.toLocaleString()+" calls"):(hw.worker||"ready"),m.local_calls?("saved "+foUsd(m.saved_vs_opus_usd)+" vs. Opus"):"100% GPU-resident local team"));
+      tile(m.local_share==null?"no runs yet":Math.round(m.local_share*100)+"%","of model calls ran locally (measured, last "+(m.window||"month")+")",m.local_share==null?"":"good"),
+      tile(m.local_calls?m.local_calls.toLocaleString():"0","local model calls (measured)"),
+      tile(m.local_calls?foUsd(m.would_cost_sonnet_usd):"–",m.local_calls?"the same tokens on Claude Sonnet 4.6 (list price"+(m.cache_priced?"":", no cache share measured: upper bound")+")":"no local calls recorded yet"),
+      tile(m.prefix_reuse_rho==null?"not measured":Math.round(m.prefix_reuse_rho*100)+"%","prompt tokens from the prefix cache (measured)"),
+      tile(String((d.status_counts||{})["on"]||0)+" on · "+String((d.status_counts||{})["built in"]||0)+" built in","of "+(d.optimization_count||0)+" layers; "+String(((d.status_counts||{})["off"]||0)+((d.status_counts||{})["not set up"]||0))+" off or not set up"));
   }
   const sim=$("#foSim");
   if(sim){
@@ -5813,25 +5807,26 @@ function finopsDraw(){
         h("td",{class:"n"},foUsd(c.mo)),
         h("td",{class:"n"},foUsd(c.yr)),
         h("td",{class:"n"},foUsd(c.yr3)),
-        h("td",null,h("span",{class:"chip good"},"Save 100% ("+foUsd(c.yr)+"/yr)")));
+        h("td",{class:"small mute"},(rates[k]||{}).source||""));
     });
     const proMo=FO.devs*20, maxMo=FO.devs*200;
     put(sim,
-      h("div",{class:"note good mb-3"},
-        h("b",null,`${FO.devs} developer${FO.devs===1?"":"s"} × ${FO.tasks} tasks/day = ${monthlyTasks.toLocaleString()} tasks/month. `),
-        `Running locally saves `,h("b",null,foUsd(curM.mo)+"/month"),` (`,h("b",null,foUsd(curM.yr)+"/year"),` · `,h("b",null,foUsd(curM.yr3)+" over 3 years"),`) against ${curM.label} API pricing, or `,
-        h("b",null,foUsd(proMo*12)+"–"+foUsd(maxMo*12)+"/year"),` against $20–$200/seat cloud coding subscriptions — while keeping 100% of source code on your own hardware.`),
+      h("div",{class:"note info mb-3"},
+        h("b",null,`Projection: ${FO.devs} developer${FO.devs===1?"":"s"} × ${FO.tasks} tasks/day = ${monthlyTasks.toLocaleString()} tasks/month. `),
+        `On ${curM.label} at list price that work would cost about `,h("b",null,foUsd(curM.mo)+"/month"),` (`,foUsd(curM.yr)+"/year",`), or `,
+        foUsd(proMo*12)+"–"+foUsd(maxMo*12)+"/year",` in $20–$200 seats. Locally there is no API bill and the code stays on your hardware. `,
+        h("span",{class:"small"},(d.projection||{}).assumption||"")),
       h("div",{style:"overflow-x:auto"},
         h("table",{class:"tbl"},
-          h("thead",null,h("tr",null,...["Provider / Model","Cost / task","Monthly","1-Year","3-Year","Local-Architect advantage"].map((x,i)=>h("th",{class:i>=1&&i<=4?"n":""},x)))),
+          h("thead",null,h("tr",null,...["Provider / Model","Cost / task","Monthly","1-Year","3-Year","Price source"].map((x,i)=>h("th",{class:i>=1&&i<=4?"n":""},x)))),
           h("tbody",null,
             h("tr",null,
-              h("td",null,h("b",null,"Local-Architect v12 (This PC / LAN)"),h("div",{class:"small mute"},`${hw.gpu||"Local GPU"} · ${hw.vram_gb||0} GB VRAM · ${hw.ram_gb||0} GB RAM`)),
+              h("td",null,h("b",null,"Local-Architect v12 (This PC / LAN)"),h("div",{class:"small mute"},`${hw.gpu||"Local GPU"} · ${fmt(hw.vram_gb||0,1)} GB VRAM · ${fmt(hw.ram_gb||0,0)} GB RAM`)),
               h("td",{class:"n"},h("b",null,"$0.0000")),
               h("td",{class:"n"},h("b",null,"$0.00")),
               h("td",{class:"n"},h("b",null,"$0.00")),
               h("td",{class:"n"},h("b",null,"$0.00")),
-              h("td",null,h("span",{class:"chip good"},"100% private · $0 API · $0 seats"))),
+              h("td",{class:"small mute"},"no API bill; hardware and power not counted")),
             ...rows,
             h("tr",null,
               h("td",null,"Cloud Coding Seats ($20/dev/mo)",h("div",{class:"small mute"},"Standard per-seat subscription")),
@@ -5839,30 +5834,31 @@ function finopsDraw(){
               h("td",{class:"n"},foUsd(proMo)),
               h("td",{class:"n"},foUsd(proMo*12)),
               h("td",{class:"n"},foUsd(proMo*36)),
-              h("td",null,h("span",{class:"chip good"},"Save "+foUsd(proMo*12)+"/yr"))),
+              h("td",{class:"small mute"},"$20 per developer a month")),
             h("tr",null,
               h("td",null,"Power Cloud Agent Seats ($200/dev/mo)",h("div",{class:"small mute"},"Max / enterprise agent subscription")),
               h("td",{class:"n"},"–"),
               h("td",{class:"n"},foUsd(maxMo)),
               h("td",{class:"n"},foUsd(maxMo*12)),
               h("td",{class:"n"},foUsd(maxMo*36)),
-              h("td",null,h("span",{class:"chip good"},"Save "+foUsd(maxMo*12)+"/yr")))))));
+              h("td",{class:"small mute"},"$200 per developer a month"))))));
   }
   const ob=$("#foOpts");
   if(ob){
     ob.innerHTML="";
     put(ob,h("div",{style:"overflow-x:auto"},
       h("table",{class:"tbl"},
-        h("thead",null,h("tr",null,...["#","Optimization layer","At the start (baseline)","Optimized now (v12)","Measured gain & live status"].map(x=>h("th",null,x)))),
+        h("thead",null,h("tr",null,...["#","Optimization layer","Before","Now","Expected gain (and where the number comes from)","Read on this machine"].map(x=>h("th",null,x)))),
         h("tbody",null,...(d.optimizations||[]).map(o=>h("tr",null,
           h("td",{class:"n"},h("b",null,String(o.num))),
           h("td",null,h("b",null,o.title),h("div",{class:"row",style:"gap:6px;margin-top:4px"},
-            h("span",{class:"chip "+(o.status==="active"?"good":"info")},o.status),
+            h("span",{class:"chip "+(o.status==="on"||o.status==="built in"?"good":o.status==="off"?"warn":"info")},o.status),
             h("span",{class:"chip"},o.category),
             h("code",{class:"small mute"},o.code_ref||""))),
           h("td",{class:"small mute"},o.before),
           h("td",{class:"small"},o.after),
-          h("td",null,h("span",{class:"chip good"},o.gain_label),h("div",{class:"small mute mt-1"},o.measured||""))))))));
+          h("td",null,h("b",null,o.gain),h("div",{class:"small mute mt-1"},o.gain_basis)),
+          h("td",{class:"small"},o.measured||"")))))));
   }
   const md=$("#foMd");
   if(md)md.textContent=d.markdown||"";
@@ -6152,11 +6148,11 @@ async function loadBench(){
 }
 const ADV_SEV={high:["bad","high"],medium:["warn","medium"],low:["info","low"]};
 const ADV_SRC={doctor:"Doctor",assess:"Assess",code_scan:"Code scan",scope:"Scope/findings"};
-async function runAdvise(){
+async function runAdvise(fresh){
   const out=$("#adOut");if(!out)return;
   out.innerHTML="";out.append(h("p",{class:"sub"},"Combining doctor + assess + a real code scan…"));
   try{
-    const r=await api("/api/arch/advise?root="+encodeURIComponent(run.root||""));
+    const r=await api("/api/arch/advise?root="+encodeURIComponent(run.root||"")+(fresh===true?"&fresh=1":""));
     out.innerHTML="";
     const bs=r.by_severity||{};
     out.append(h("div",{class:"row"},
@@ -6197,7 +6193,7 @@ async function sharpenGoal(){
 async function previewRoute(quiet){
   const g=run.goal.trim();if(!g){if(quiet!==true)toast("Type a goal first");return;}
   try{const r=await api("/api/arch/route",{goal:g,root:run.root||undefined});const fl=S.flows.find(f=>f.id===r.flow);
-    const o=$("#routeOut");o.innerHTML="";const note=h("div",{class:"note info"},h("b",null,fl?fl.title:r.flow)," flow · domains: "+r.domains.join(", ")+" · "+r.why);o.append(note);
+    const o=$("#routeOut");o.innerHTML="";const note=h("div",{class:"note info"},h("b",null,fl?fl.title:r.flow)," flow · domains: "+(r.domains||[]).join(", ")+(r.why?" · "+r.why:""));o.append(note);
     cxLoad().then(rows=>{try{const l=rows.length?cxLine(rows,r.flow):null;if(l&&note.isConnected)note.append(l);}catch(_){}});
     try{const m=await api("/api/arch/flowmap?flow="+encodeURIComponent(r.flow));if(m&&m.steps&&m.steps.length)o.append(flowMap(m));}catch(_){}
   }catch(e){if(quiet!==true)toast.err(e.message,6000);}
@@ -6391,14 +6387,17 @@ function ctl(path,type,label,hint){
     h("button",{class:"btn sm",onclick:()=>{ch(r.value);render();}},"Use"),h("span",{class:"hint"},r.why+(r.basis==="measured"?" (measured here)":""))):null;
   return h("label",{class:"f"+(r&&!same?" hasrec":""),"data-path":path},label,i,recEl,hint?h("span",{class:"hint"},hint):null);
 }
-async function loadRec(){try{window.REC=await api("/api/arch/recommend");}catch(_){window.REC={};}if(page==="settings")render();}
+async function loadRec(){try{window.REC=await api("/api/arch/recommend");}catch(e){window.REC={_error:{why:e.message}};}if(page==="settings")render();}
 function recCard(){
   const R=window.REC; if(R===undefined){setTimeout(loadRec,0);return null;}
-  const todo=Object.entries(R).filter(([p,r])=>JSON.stringify(getP(p))!==JSON.stringify(r.value));
+  if(R._error)return h("div",{class:"card reccard"},h("div",{class:"row"},h("span",{class:"recdot warn"}),
+    h("div",{class:"grow"},h("h2",{class:"m0"},"Could not read the recommendations"),h("p",{class:"sub m0 mt-1"},R._error.why||"")),
+    h("button",{class:"btn",onclick:()=>{window.REC=undefined;loadRec();}},"Try again")));
+  const todo=Object.entries(R).filter(([p,r])=>p!=="_error"&&JSON.stringify(getP(p))!==JSON.stringify(r.value));
   if(!todo.length)return h("div",{class:"card reccard ok"},h("div",{class:"row"},h("span",{class:"recdot"}),h("h2",{class:"grow m0"},"Tuned for this PC"),
     h("span",{class:"chip good"},"all recommendations applied")));
   return h("div",{class:"card reccard"},h("div",{class:"row"},h("span",{class:"recdot warn"}),h("div",{class:"grow"},h("h2",{class:"m0"},todo.length+" recommendation"+(todo.length>1?"s":"")+" for this PC"),
-      h("p",{class:"sub m0 mt-1"},"From your measured hardware and today's runs. Review them below, or apply all and press Save (every save can be undone).")),
+      h("p",{class:"sub m0 mt-1"},"From your measured hardware and today's runs. Review them below, or apply all and press Save (the settings you had are kept as architect_config.json.bak).")),
     h("button",{class:"btn p",onclick:()=>{for(const [p,r] of todo)setP(p,r.value);mark();render();toast("Applied "+todo.length+": press Save changes to keep them");}},"Apply all")),
     h("ul",{class:"reclist"},...todo.map(([p,r])=>h("li",null,h("b",null,p)," → ",h("code",null,String(r.value)),h("span",{class:"mute small"}," "+r.why)))));
 }
@@ -6492,10 +6491,10 @@ function cmpFrame(theme){
   return h("section",{class:"cmp-frame th-"+theme,"aria-label":name+" theme"},
     h("header",{},h("b",{},name),h("span",{class:"small mute"},"class th-"+theme)),
     cmpSec("Colour tokens",h("div",{class:"cmp-sw"},...CMP_SWATCHES.map(t=>h("div",{},h("i",{style:"background:var(--"+t+")"}),h("code",{},"--"+t))))),
-    cmpSec("Type",h("div",{class:"cmp-type"},h("p",{style:"font:650 var(--t-display)/1.15 var(--font-head)"},"Page title 26"),h("p",{style:"font:650 var(--t-head)/1.3 var(--font-head)"},"Card title 17"),
-      h("p",{},"Body 15: what the person reads."),h("p",{class:"sub m0"},"Sub 13.5: one line of help."),h("p",{class:"small mute"},"Small 12.5: meta and figures 1234"),h("p",{class:"lbl"},"Label 11 caps"))),
+    cmpSec("Type",h("div",{class:"cmp-type"},h("p",{class:"cmp-ms",style:"font:650 var(--t-display)/1.15 var(--font-head)"},"Page title"),h("p",{class:"cmp-ms",style:"font:650 var(--t-head)/1.3 var(--font-head)"},"Card title"),
+      h("p",{class:"cmp-ms"},"Body: what the person reads."),h("p",{class:"sub m0 cmp-ms"},"Sub: one line of help."),h("p",{class:"small mute cmp-ms"},"Small: meta and figures 1234"),h("p",{class:"lbl cmp-ms"},"Label caps"))),
     cmpSec("Buttons",h("div",{class:"cmp-row"},h("button",{class:"btn p",onclick:()=>toast("Primary pressed")},"Primary"),h("button",{class:"btn",onclick:()=>toast("Secondary pressed")},"Secondary"),
-      h("button",{class:"btn sm"},icon("refresh"),"Small"),h("button",{class:"btn danger"},"Remove"),h("button",{class:"btn",disabled:true},"Disabled"),helpBtn("console"))),
+      h("button",{class:"btn sm",onclick:()=>toast("Small pressed (a sample)")},icon("refresh"),"Small"),h("button",{class:"btn danger",onclick:()=>toast("Remove pressed (a sample: nothing removed)")},"Remove"),h("button",{class:"btn",disabled:true},"Disabled"),helpBtn("console"))),
     cmpSec("Chips and status",h("div",{class:"cmp-row"},h("span",{class:"chip"},"plain"),h("span",{class:"chip good"},icon("check"),"passed"),h("span",{class:"chip bad"},icon("x"),"failed"),
       h("span",{class:"chip warn"},icon("question"),"not sure"),h("span",{class:"chip info live"},"live"),h("span",{class:"chip acc"},"accent"),h("span",{class:"cbadge"},"Claude"),
       h("span",{},h("kbd",{},"Ctrl"),h("kbd",{},"K")),h("span",{class:"sg"},h("i",{class:"dot on"})," up"),h("span",{class:"sg"},h("i",{class:"dot off"})," down"))),
@@ -6524,7 +6523,12 @@ function hudPage(){
       h("a",{class:"btn",href:"/hud",target:"_blank",rel:"noopener"},"Open in its own tab"))),
     fr];
 }
+/* the type samples say the size they really render at, measured in the browser (they printed fixed numbers that went stale when the
+   scale changed: "Page title 26" while the step was 32 px) */
+function cmpMeasure(){for(const el of document.querySelectorAll(".cmp-ms:not([data-ms])")){el.dataset.ms="1";
+  const px=Math.round(parseFloat(getComputedStyle(el).fontSize)*2)/2;el.append(h("span",{class:"mute"}," · "+px+" px"));}}
 function componentsPage(){
+  setTimeout(cmpMeasure,0);
   return [h("div",{class:"card"},h("div",{class:"chead"},h("div",{class:"t"},h("h2",null,"Components"),
       h("p",{class:"sub"},"Every interface part, light and dark."),learnMore("Every part of the interface in the light and the dark theme, side by side: for checking a change to the look, the contrast, and that everything works from the keyboard. The rules are in docs/design_system.md.")),
     h("div",{class:"acts"},h("button",{class:"btn",onclick:()=>go("settings")},"Back to Settings")))),
@@ -6536,10 +6540,10 @@ function componentsPage(){
 /* the art direction on one card: every icon in the sprite, every page drawing, and the four section hues */
 function cmpArt(){
   const ids=[...document.querySelectorAll("svg defs symbol[id^='i-']")].map(s=>s.id.slice(2));
-  const hues=[["home","Projects"],["console","Workspace"],["team","Models"],["settings","Settings"]];
+  const hues=[["home","Home","projects"],["console","Runs and workflows","workspace"],["team","Models","models"],["settings","System","settings"]];
   return h("div",{class:"card"},h("div",{class:"chead"},h("div",{class:"t"},h("h2",null,"Art direction"),
       h("p",{class:"sub"},"One icon set (24-unit grid, 1.7 round stroke), one drawing per page, one hue per place. The rules are in docs/art_direction.md."))),
-    cmpSec("Section hues",h("div",{class:"cmp-row"},...hues.map(([s,l])=>h("span",{class:"chip","data-sec":s,style:"--hue:var(--hue-"+l.toLowerCase()+")"},
+    cmpSec("Section hues",h("div",{class:"cmp-row"},...hues.map(([s,l,hu])=>h("span",{class:"chip","data-sec":s,style:"--hue:var(--hue-"+hu+")"},
       h("i",{class:"dot",style:"background:var(--hue)"}),l)))),
     cmpSec("Icons ("+ids.length+")",h("div",{class:"cmp-row"},...ids.map(n=>h("span",{class:"chip",title:"i-"+n},icon(n),n)))),
     cmpSec("Drawings",h("div",{class:"cmp-row"},...Object.keys(ART).map(n=>h("figure",{style:"margin:0;display:grid;gap:4px;justify-items:center"},
@@ -6871,7 +6875,7 @@ function openHelp(key){
 const G_CHORDS={h:["overview","Home"],r:["console","Watch a run"],n:["run","New run"],w:["flows","Workflows"],a:["agents","Agent teams"],
   m:["models","Models"],s:["costmap","Speed"],c:["doctor","Health"],t:["settings","Settings"],e:["components","Help"]};
 const KEYS=[["Ctrl","K","Go to any page, or do something"],["?","","This list"],["/","","Saved commands (/review, /fix ...) in the Console"],
-  ["Enter","","Send what you typed"],["Shift","Enter","A new line instead of sending"],["Esc","","Close a panel; pressed twice with nothing open, stop the run between steps"],
+  ["Enter","","Send what you typed"],["Shift","Enter","A new line instead of sending"],["Esc","","Close a panel; pressed twice with nothing open, stop the run now"],
   ["j","k","Walk the plan of the current run (Watch a run)"],["Ctrl","Enter","Start the job you typed on Home"],
   ...Object.entries(G_CHORDS).map(([k,[,l]])=>["g",k,l]),["Ctrl",".","Switch between your models and Claude (chat)"]];
 function openKeys(){
@@ -7314,7 +7318,7 @@ function commandList(){
       try{const rs=await api("/api/arch/runs?root="+encodeURIComponent(run.root||""));const r=rs&&rs[0];if(!r){toast("No runs in this project yet");return;}
         window.open("/api/arch/receipt?run="+encodeURIComponent(r.name)+"&root="+encodeURIComponent(run.root||""),"_blank");}catch(e){toast.err(e.message);}}},
     {ic:"search",label:"Keyboard shortcuts",sub:"Every key this hub answers to (or press ?)",go:()=>openKeys()},
-    {ic:"stop",label:"Stop the run",sub:"Stops between steps, nothing is half-applied",go:()=>cStop()},
+    {ic:"stop",label:"Stop the run",sub:"Ends it now; Undo puts back any file it changed",go:()=>cStop()},
     {ic:THEME_ICON[store.get("theme","system")]||"palette",label:"Change appearance",sub:"Auto, Light, Dark, Midnight or Paper (next one)",go:cycleTheme},
     {ic:"palette",label:"Choose a theme",sub:"See all five looks side by side and pick one",go:()=>setTimeout(openThemePick,30)},
     {ic:"health",label:"Run the doctor",sub:"Real checks: Python, Ollama, disk, port, git",go:()=>{go("doctor");}},
@@ -7653,7 +7657,7 @@ const HINTS={
   assess:["Readiness","Is this machine and model lineup ready, per kind of work."],
   flows:["Workflows","The workflows and the checks inside them: which step uses which model, and which check decides it."],
   train:["Training data","Only work that passed its checks becomes training data. Claude-written text never does."],
-  finops:["FinOps & savings","What your local runs would have cost on cloud APIs, every optimization layer active on this machine, and a team ROI calculator."]};
+  finops:["FinOps & savings","What your local runs would have cost on cloud APIs (measured), a team projection (assumed task size), and each optimization layer with the status read from this install."]};
 function pageHint(id){
   const box=$("#pageHint"); if(!box)return; box.innerHTML="";
   const x=HINTS[id]; if(!x)return;
