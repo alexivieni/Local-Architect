@@ -287,6 +287,12 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   a redraw dropped it. Found by the browser check, not by reading.
 - Watch a run's "What I'm doing" is an h2 (`.doing-h`, same look): with the page's h1 kept since Phase B, its h3 skipped a level
   (found by the full audit after Phase B).
-- Not done, waiting for the owner's yes because it is inside the guarded Cost map slice: the chart's `<svg role="img">` makes its
-  keyboard-operable points (`g.cm-pt`, role=button) invisible to screen readers (children of an image are presentational); the fix is
-  `role="group"` on that svg. The same slice scrolls the detail into view with `behavior:"smooth"`, which ignores Reduce motion.
+- **Inside the guarded Cost map slice, with the owner's yes (2026-11-10)**, two edits and nothing else in either slice moved (checked
+  byte for byte): the chart's `<svg>` is `role="group"` instead of `role="img"` (by the ARIA spec an image's children are
+  presentational, which hides its keyboard-operable points), and the detail scrolls into view instantly under Reduce motion. Measured
+  honestly: in Edge the 4 points were already in the accessibility tree with `role="img"` (Chromium exposes focusable children of an
+  image anyway), so the gain is for browsers and screen readers that follow the spec. `arch_selftest_costmodel` now requires the group
+  role. The rule stands: the next edit inside a guarded slice needs a new yes.
+- **Enter on a Cost map point threw** (`e.target.click is not a function`, found by the browser check): the page-wide "Enter/Space
+  presses a role=button" handler called `.click()`, which SVG elements do not have. It now leaves alone a key the element's own
+  handler already took (`defaultPrevented`) and sends an SVG element a real click event.

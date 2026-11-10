@@ -122,8 +122,8 @@ def run():
           and 'costmap:"models"' in html and 'if(page==="costmap")' in html)
     check("hub: it draws only with theme colours (no literal colour), so every theme and accent applies",
           bool(block) and not re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", block), re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", block)[:4])
-    check("hub: every point is a keyboard button with a spoken description; the chart has a text alternative",
-          'tabindex="0" role="button"' in block and 'aria-label="${escx(tip)}"' in block and 'role="img" aria-label="Cost map' in block
+    check("hub: every point is a keyboard button with a spoken description; the chart is a labelled group (an image would hide its points)",
+          'tabindex="0" role="button"' in block and 'aria-label="${escx(tip)}"' in block and 'role="group" aria-label="Cost map' in block and 'role="img" aria-label="Cost map' not in block
           and 'e.key==="Enter"||e.key===" "' in block)
     check("hub: it reads /api/arch/cost and only shows; it never assigns a model",
           'api("/api/arch/cost")' in block and "not a recommendation to switch" in block

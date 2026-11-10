@@ -86,6 +86,15 @@ def run():
     check("a refused Settings save survives a redraw of the page (the recommendations arriving used to wipe it) and focus returns",
           "let SET_ERR={msg:\"\",f:{}};" in ui and 'hidden:!SET_ERR.f[path]},SET_ERR.f[path]||"")' in ui
           and 'hidden:!SET_ERR.msg},SET_ERR.msg?"Not saved: "+SET_ERR.msg:"")' in ui and "SET_ERR.focus=first;" in ui)
+    # inside the guarded Cost map slice, with the owner's yes (2026-11-10)
+    check("no image hides interactive points: every svg holding role=button points is a labelled group, not role=img",
+          'role="group" aria-label="Cost map' in ui and 'role="img" aria-label="Cost map' not in ui)
+    check("no smooth scroll ignores Reduce motion",
+          'behavior:"smooth"' not in ui and 'behavior:typeof reduceMotion==="function"&&reduceMotion()?"auto":"smooth"' in ui)
+    check("Enter/Space on a role=button presses it once: a key its own handler took is left alone, and an SVG point gets a real click",
+          'document.addEventListener("keydown",e=>{if(e.defaultPrevented)return;' in ui
+          and 'if(typeof e.target.click==="function")e.target.click();else e.target.dispatchEvent(new MouseEvent("click",{bubbles:true}));' in ui
+          and "e.preventDefault();e.target.click();}});" not in ui)
     check("each Simple-mode step says its state in words, not only with a colour or symbol", 'h("span",{class:"sr-only"}," — "+label[st])' in ui and '"aria-hidden":"true"' in ui)
     check("icon-only and arrow buttons get spoken names after every render", "function a11yPass(" in ui and '"↑":"Move up","↓":"Move down"' in ui and "MutationObserver" in ui)
     check("clickable non-buttons become keyboard-reachable and answer Enter/Space", 'setAttribute("tabindex","0")' in ui and 'e.key==="Enter"||e.key===" "' in ui)

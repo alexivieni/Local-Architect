@@ -2039,7 +2039,9 @@ new MutationObserver(ms=>{
   if((A11Y.add.size||A11Y.txt.size)&&!A11Y.t)A11Y.t=setTimeout(a11yFlush,120);
 }).observe(document.documentElement,{childList:true,subtree:true});
 setTimeout(()=>a11yPass(document.body),0);                                          /* the page as first parsed */
-document.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.getAttribute&&e.target.getAttribute("role")==="button"&&e.target.tagName!=="BUTTON"){e.preventDefault();e.target.click();}});
+document.addEventListener("keydown",e=>{if(e.defaultPrevented)return;   /* the element's own handler already pressed it */
+  if((e.key==="Enter"||e.key===" ")&&e.target.getAttribute&&e.target.getAttribute("role")==="button"&&e.target.tagName!=="BUTTON"){e.preventDefault();
+    if(typeof e.target.click==="function")e.target.click();else e.target.dispatchEvent(new MouseEvent("click",{bubbles:true}));}});   /* SVG has no .click() */
 document.addEventListener("dragstart",e=>{const el=e.target.closest&&e.target.closest(".sidea,.msg.you .body,.tcard,.chip.acc");if(el&&!e.dataTransfer.getData("text/plain"))e.dataTransfer.setData("text/plain",el.innerText);},true);
 document.addEventListener("click",e=>{const c=e.target.closest&&e.target.closest("#sOllama");if(c){const f=c.closest(".sidefoot");if(f){f.classList.toggle("sf-open");c.setAttribute("aria-expanded",String(f.classList.contains("sf-open")));}}});
 function buildNav(){
@@ -5993,7 +5995,7 @@ function cmChart(rows){
   for(let i=1;i<labels.length;i++) if(labels[i].left===labels[i-1].left&&Math.abs(labels[i].cx-labels[i-1].cx)<140&&labels[i].y-labels[i-1].y<14) labels[i].y=labels[i-1].y+14;
   const lt=labels.map(l=>`<text x="${l.left?l.cx-l.s-6:l.cx+l.s+6}" y="${l.y}" font-size="11.5" fill="var(--ink)" text-anchor="${l.left?"end":"start"}">${escx(l.t)}</text>`).join("");
   const box=h("div",{style:"overflow-x:auto"});
-  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block" role="img" aria-label="Cost map: pass rate across, seconds per task up; dashed rays are equal cost per accepted change">`+g+trails+pts+lt+`</svg>`;
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block" role="group" aria-label="Cost map: pass rate across, seconds per task up; dashed rays are equal cost per accepted change">`+g+trails+pts+lt+`</svg>`;
   return box;
 }
 function cmDraw(){
@@ -6013,7 +6015,7 @@ function cmDraw(){
       h("label",{class:"small",style:"display:flex;gap:6px;align-items:center"},
         h("input",{type:"checkbox",checked:CM.trail,onchange:e=>{CM.trail=e.target.checked;cmDraw();}}),"Show how points moved between runs"))));
   const chart=cmChart(rows);
-  const pick=k=>{CM.sel=CM.sel===k?null:k;cmDraw();const d=$("#cmDetail");if(d&&CM.sel)d.scrollIntoView({block:"nearest",behavior:"smooth"});};
+  const pick=k=>{CM.sel=CM.sel===k?null:k;cmDraw();const d=$("#cmDetail");if(d&&CM.sel)d.scrollIntoView({block:"nearest",behavior:typeof reduceMotion==="function"&&reduceMotion()?"auto":"smooth"});};
   chart.addEventListener("click",e=>{const g=e.target.closest&&e.target.closest(".cm-pt");if(g)pick(g.dataset.k);});
   chart.addEventListener("keydown",e=>{const g=e.target.closest&&e.target.closest(".cm-pt");if(g&&(e.key==="Enter"||e.key===" ")){e.preventDefault();pick(g.dataset.k);}});
   out.append(chart);
