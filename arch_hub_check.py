@@ -368,7 +368,7 @@ def run():
               'store.get("recentRoots"' in html and '.slice(0,5)' in html and 'role:"combobox"' in html and '"Paste a path…"' in html and 'role:"listbox"' in html)
         check("top bar live chip is capped at 360px with ellipsis and never wraps",
               "#liveChip.livechip{max-width:360px;" in html and "text-overflow:ellipsis" in html and "white-space:nowrap" in html)
-        check("Esc stops a run only when pressed twice, and bare digits no longer navigate", "Press Esc again within 2 s" in html and "n<=TABS.length" not in html)
+        check("Esc stops a run only when pressed twice, and bare digits no longer navigate", "Press Esc again within 5 s" in html and "n<=TABS.length" not in html)
         check("the V2 category colour tokens exist in light and dark, and the reduced-motion rule is one block",
               html.count("--c-agent-bg:") >= 3 and html.count("prefers-reduced-motion:reduce") == 1, html.count("prefers-reduced-motion:reduce"))
         check("each agent card carries model, effort, tools and budget", all({"name", "model", "effort", "tools", "budget"} <= set(a) for a in sa.get("agents") or []), sa)

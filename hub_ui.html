@@ -354,7 +354,7 @@ kbd{font:var(--t-2xs)/1.4 var(--mono);background:var(--soft);border:1px solid va
 /* the live panel */
 .doing{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);position:sticky;top:16px;
   max-height:78vh;overflow-y:auto}
-.doing h3{margin:0;padding:13px 16px 11px;font:650 var(--t-caption)/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+.doing h3,.doing .doing-h{margin:0;padding:13px 16px 11px;font:650 var(--t-caption)/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
   border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;position:sticky;top:0;background:var(--panel);z-index:1}
 .doing .sect{padding:13px 16px;border-bottom:1px solid var(--line)}
 .doing .sect:last-child{border-bottom:0}
@@ -1022,7 +1022,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:1
 .top h1,.card h2,.card>h3,.sheet h1,.fv h2,.xdlg-t,.mm-top h2,.teamhead h2,.tc-head b,.setupcard b,.idle.hero .lead,
 .tcard h3,.bp-ed h3,.sstep-h h3,.rcard h3,.ws-md h1,.ws-md h2,.ws-md h3,.ws-stat b,.btile b{font-family:var(--font-head)}
 .nav,.subtabs button,.tfilter button,.strip,.strip b,.num,.meter+span,.qstats b,.k b,.vram .legend,.msg .meta,
-.doing h3,.lbl,.doing .lbl,.tcard .plate .cat,.tcard .plate .no,.rv-tog b,.gs-step .tick,.msg .who,.brand .sub,.blueprint-art text{font-family:var(--font)}
+.doing h3,.doing .doing-h,.lbl,.doing .lbl,.tcard .plate .cat,.tcard .plate .no,.rv-tog b,.gs-step .tick,.msg .who,.brand .sub,.blueprint-art text{font-family:var(--font)}
 .top h1{font-weight:650;letter-spacing:-.01em}
 .card h2,.mm-top h2,.teamhead h2,.fv h2,.xdlg-t{font-weight:650;letter-spacing:-.01em}
 .btile b,.ws-stat b{font-weight:650;letter-spacing:-.01em}
@@ -1031,8 +1031,8 @@ th{font-weight:600}
 /* the wordmark reads as a name, not a shout */
 .brand>span:nth-child(2){font:650 var(--t-head)/1 var(--font-head);letter-spacing:-.01em;text-transform:none}
 /* tiny capital labels: one size band and one tracking */
-.lbl,.doing .lbl,.doing h3,.bp-pal .lbl,.crew-models .lbl,.fl-row.head,.fl-lbl,.tcard .plate .cat,.fv-top,.msg .who,.brand .sub{letter-spacing:.08em}
-.doing h3,.fv-top{font-size:var(--t-caption)}
+.lbl,.doing .lbl,.doing h3,.doing .doing-h,.bp-pal .lbl,.crew-models .lbl,.fl-row.head,.fl-lbl,.tcard .plate .cat,.fv-top,.msg .who,.brand .sub{letter-spacing:.08em}
+.doing h3,.doing .doing-h,.fv-top{font-size:var(--t-caption)}
 .sdetail h4,.formsec>h4{text-transform:none}
 
 /* ---- the side bar tabs and the sub-tab pills: one height, one active state, they scroll instead of wrapping ---- */
@@ -1632,6 +1632,12 @@ body.sheet-wrap #subtabs,body.sheet-wrap #pageHint{display:none}
   .shimmer,.statcard[data-tone=loading] b{background:var(--soft)}
   .fm-step{opacity:1;transform:none}
   .st-load::before{border-top-color:currentColor}}
+/* the same, chosen in the app (Settings, Reduce motion), for a computer whose own setting is not used */
+:root[data-motion=reduce] *,:root[data-motion=reduce] *::before,:root[data-motion=reduce] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+:root[data-motion=reduce] .shimmer,:root[data-motion=reduce] .statcard[data-tone=loading] b{background:var(--soft)}
+:root[data-motion=reduce] .fm-step{opacity:1;transform:none}
+:root[data-motion=reduce] .st-load::before{border-top-color:currentColor}
+.navgrp{display:contents}
 /* Data night, Train the worker, Last night, Lessons, Advanced settings: theme tokens only; primary actions are 44px or taller
    (the primaries get it from the BUTTONS block) */
 .btn.danger.dn-big{min-height:44px}
@@ -1795,6 +1801,7 @@ function toast(m,ms=3800,cls="ok"){const t=$("#toast");if(!t)return;
   const host=[...document.querySelectorAll("dialog[open]")].pop()||document.body; if(t.parentNode!==host)host.append(t);
   t.textContent=m;t.className="toast "+cls;t.hidden=false;t.removeAttribute("role");
   if(cls==="err")srAlert(m);else announce(m);
+  ms=Math.max(ms,4000);                    /* every toast is up at least 4 s (some were 1.4 s), and stays while pointed at or focused */
   if(cls==="err"){ms=Math.max(ms,8000);t.append(" ",h("button",{class:"btn sm",type:"button",onclick:()=>{try{navigator.clipboard.writeText(m);}catch(_){}t.hidden=true;}},"Copy details"));}
   clearTimeout(toast._t);const arm=()=>{clearTimeout(toast._t);toast._t=setTimeout(()=>{if(t.matches(":hover")||t.contains(document.activeElement))arm();else t.hidden=true;},ms);};arm();}
 toast.err=(m,ms=8000)=>toast(m,ms,"err");
@@ -2038,9 +2045,13 @@ document.addEventListener("click",e=>{const c=e.target.closest&&e.target.closest
 function buildNav(){
   const n=$("#nav");n.innerHTML="";const cur=tabOf(page);
   for(const [sec,places] of SIDEBAR){
-    n.append(h("div",{class:"navsec","aria-hidden":"true"},sec));
+    /* a labelled group per section: "Models, group" is read before its places (the label was aria-hidden). display:contents keeps
+       the sidebar's flat layout and every #nav .nav rule as it was. */
+    const sid="navsec_"+String(sec).toLowerCase().replace(/[^a-z0-9]+/g,"_"), g=h("div",{class:"navgrp",role:"group","aria-labelledby":sid});
+    g.append(h("div",{class:"navsec",id:sid},sec));
     for(const t of places){const b=h("button",{class:"nav","aria-current":t===cur?"page":false,onclick:()=>{go(t[3][0]);navClose();}},icon(t[1]),t[2]);
-      if(t[0]==="runs"){b.title="Drop a task here to queue it";queueDropTarget(b);} n.append(b);}
+      if(t[0]==="runs"){b.title="Drop a task here to queue it";queueDropTarget(b);} g.append(b);}
+    n.append(g);
   }
   const sb=$("#subtabs");sb.innerHTML="";
   const subs=cur[3].filter(id=>showAdvanced()||!ADVANCED.has(id)||id===page);
@@ -2897,7 +2908,7 @@ const shortGpu=g=>String(g).replace(/NVIDIA |GeForce |Laptop GPU/g,"").trim();
 function renderDoing(){
   const el=$("#cDoing"); if(!el)return;
   el.innerHTML="";
-  const kids=[h("h3",{},icon("play"),"What I'm doing")];
+  const kids=[h("h2",{class:"doing-h"},icon("play"),"What I'm doing")];
   if(!EV.steps.length&&!EV.now&&!EV.verdict&&EV.running){   /* the job is running (same EV.running the strip shows) but no step event yet */
     kids.push(h("div",{class:"idle"},h("span",{class:"dot busy","aria-hidden":"true"}),
       h("div",{},"Running"+(EV.flow?" "+EV.flow:"")+"."),h("div",{style:"max-width:30ch"},"Getting started: the first step appears here as soon as it begins.")));
@@ -5455,8 +5466,9 @@ function rvDraw(){
     rvSession(se); return;
   }
   const vk=(d.verdict||{}).verdict||"", v=verd(vk), vIco=vk==="pass"?"check":vk==="fail"?"x":vk==="stopped"?"stop":"question";
+  {const k=(d.run||RV.run||"")+"|"+vk;if(vk&&rvDraw._said!==k){rvDraw._said=k;announce("Review: "+v[1]);}}   /* spoken once per run */
   put(head,h("div",{class:"card"},
-    h("h2",{class:"rv-verdict "+v[0],role:"status"},icon(vIco),v[1]),
+    h("h2",{class:"rv-verdict "+v[0]},icon(vIco),v[1]),   /* a heading (role=status had taken its heading role away) */
     d.first_failure&&vk!=="pass"?h("p",{class:"rv-fail"},d.first_failure):null,
     h("div",{class:"row",style:"gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px"},h("b",null,"Review"),
       d.flow?h("span",{class:"chip"},d.flow):null,
@@ -6447,14 +6459,17 @@ function ctl(path,type,label,hint){
     h("button",{class:"btn sm",onclick:()=>{ch(r.value);render();}},"Use"),h("span",{class:"hint"},r.why+(r.basis==="measured"?" (measured here)":""))):null;
   /* the field's name is its label alone (the label element wraps the hint and the Use button, which made all of it the name);
      the hint, the recommendation and a refused save's reason are read as its description */
-  const lid="set_"+path.replace(/[^\w]/g,"_"), hd=hint?h("span",{class:"hint",id:lid+"_h"},hint):null, er=h("span",{class:"ferr",id:lid+"_e",hidden:true});
+  const lid="set_"+path.replace(/[^\w]/g,"_"), hd=hint?h("span",{class:"hint",id:lid+"_h"},hint):null, er=h("span",{class:"ferr",id:lid+"_e",hidden:!SET_ERR.f[path]},SET_ERR.f[path]||"");
   if(recEl)recEl.id=lid+"_r";
-  i.id=lid+"_i";i.setAttribute("aria-labelledby",lid);
+  i.id=lid+"_i";i.setAttribute("aria-labelledby",lid);if(SET_ERR.f[path])i.setAttribute("aria-invalid","true");
   i.setAttribute("aria-describedby",[recEl?lid+"_r":"",hint?lid+"_h":"",lid+"_e"].filter(Boolean).join(" "));
   return h("label",{class:"f"+(r&&!same?" hasrec":""),"data-path":path},h("span",{id:lid},label),i,er,recEl,hd);
 }
-/* one field's refused-save reason, shown under it and tied to it (aria-invalid + describedby); "" clears it */
+/* one field's refused-save reason, shown under it and tied to it (aria-invalid + describedby); "" clears it. Kept in SET_ERR so a
+   redraw of the page (the recommendations arriving, a refresh) draws it again instead of wiping it. */
+let SET_ERR={msg:"",f:{}};
 function fieldErr(path,msg){
+  if(msg)SET_ERR.f[path]=msg;else delete SET_ERR.f[path];
   const l=document.querySelector('[data-path="'+(window.CSS&&CSS.escape?CSS.escape(path):path)+'"]'); if(!l)return false;
   const c=l.querySelector("select,input"), e=l.querySelector(".ferr");
   if(e){e.textContent=msg||"";e.hidden=!msg;}
@@ -6481,16 +6496,17 @@ async function saveSettings(){
   for(const rows of Object.values(schema))for(const [p] of rows)patch[p]=getP(p)??"";
   const note=$("#cfgErr");
   try{await api("/api/arch/settings",{settings:patch});dirty=false;
-    if(note){note.hidden=true;note.textContent="";}for(const p of Object.keys(patch))fieldErr(p,"");
+    SET_ERR={msg:"",f:{}};if(note){note.hidden=true;note.textContent="";}for(const p of Object.keys(patch))fieldErr(p,"");
     toast("Settings saved");await refresh(true);}
   catch(e){
     /* the server names each refused setting ("limits.num_ctx: must be ...; 'x.y' is not a recognised setting"): the reason goes
        under that field, the whole message stays above (a toast that fades is not enough), and focus goes to the first one */
-    const msg=String(e.message||e);let first=null;
+    const msg=String(e.message||e);let first=null;SET_ERR={msg,f:{}};
     for(const part of msg.split("; ")){const m=part.match(/^'?([A-Za-z_][\w.]*)'?(?::\s*| is )/);
       if(m&&fieldErr(m[1],part.replace(/^'?[\w.]+'?:\s*/,""))&&!first)first=m[1];}
     if(note){note.textContent="Not saved: "+msg;note.hidden=false;}
     srAlert("Settings not saved. "+msg);
+    SET_ERR.focus=first;
     if(first){const d=$("#setAdv");if(d)d.open=true;const l=document.querySelector('[data-path="'+first+'"]'),c=l&&l.querySelector("select,input");
       if(c){c.scrollIntoView({block:"center"});c.focus({preventScroll:true});}}
   }
@@ -6561,7 +6577,7 @@ function cmpMenu(){
 function cmpBoard(){
   const step=(cls,ic,t,extra)=>h("li",{class:cls},icon(ic),h("span",{},t,extra?h("span",{class:"mute small"}," · "+extra):null));
   const gate=(ok,g)=>h("li",{},icon(ok===true?"check":ok===false?"x":"question"),h("span",{class:"nm"},g),h("span",{class:"v "+(ok===true?"ok":ok===false?"no":"un")},ok===true?"passed":ok===false?"failed":"not sure"));
-  return h("div",{class:"doing"},h("h3",{},icon("play"),"What I'm doing"),
+  return h("div",{class:"doing"},h("h2",{class:"doing-h"},icon("play"),"What I'm doing"),
     h("div",{class:"sect"},h("p",{class:"lbl","data-n":"01"},"Plan"),h("ul",{class:"plan"},step("done","check","read the request","2 s"),
       step("fail","x","write the fix","rejected by a check"),step("unsure","question","run the tests","could not run"),step("now","dot","write the fix again"),step("todo","dot","review"))),
     h("div",{class:"sect"},h("p",{class:"lbl"},"Who did the work"),...[["router",2,6],["worker",10,60],["heavy",72,20]].map(([t,l,w])=>h("div",{class:"lane"},h("span",{class:"lane-n"},t),
@@ -6786,6 +6802,9 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 
 function settings(){
   const schema=S.settings_schema||{};
+  /* a redraw after a refused save: focus goes back to the field it named, but only if it fell off the page (onto <body>) */
+  if(SET_ERR.focus&&SET_ERR.f[SET_ERR.focus]){const p=SET_ERR.focus;setTimeout(()=>{const a=document.activeElement;if(a&&a!==document.body&&a.isConnected)return;
+    const c=document.querySelector('[data-path="'+p+'"] select,[data-path="'+p+'"] input');if(c)c.focus({preventScroll:true});},0);}
   const out=[h("div",{class:"card"},h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Settings"),
       h("p",{class:"sub m0"},"Empty fields use the built-in default. Every change is checked before saving, and can be undone.")),
     h("button",{class:"btn p",id:"saveCfg",disabled:!dirty,onclick:saveSettings},dirty?"Save changes":"Saved"),
@@ -6793,8 +6812,8 @@ function settings(){
     h("label",{class:"f row",style:"gap:8px;align-items:center;margin-top:10px"},
       h("input",{type:"checkbox",id:"showAdv",checked:showAdvanced(),onchange:e=>{store.set("showAdvanced",e.target.checked?"1":"0");buildNav();}}),
       "Show advanced pages",h("span",{class:"small mute"},"Off: report cards, recipes, maps and samples stay in Ctrl+K only.")),
-    h("div",{class:"mt-2"},singleKeysSwitch()),
-    h("p",{class:"note warn",id:"cfgErr",hidden:true}))];
+    h("div",{class:"mt-2"},singleKeysSwitch()),h("div",{class:"mt-2"},motionSwitch()),
+    h("p",{class:"note warn",id:"cfgErr",hidden:!SET_ERR.msg},SET_ERR.msg?"Not saved: "+SET_ERR.msg:""))];
   out.push(rpresetCard());                       /* Presets first: Fast / Balanced / Quality / Battery, "now -> new" preview, Undo */
   const adv=[]; const rc=recCard(); if(rc)adv.push(rc);
   for(const [t,l] of Object.entries(schema))adv.push(h("div",{class:"card"},h("h2",null,t),h("div",{class:"fgrid mt-3"},...l.map(([p,ty,lb,hn])=>ctl(p,ty,lb,hn)))));
@@ -7481,6 +7500,13 @@ const typing=e=>{const t=e.target,n=t&&t.tagName;return n==="INPUT"||n==="TEXTAR
 /* WCAG 2.1.4: shortcuts made of one character (?, /, j, k, g then a letter, a/u/r on Review, typing straight into Home's box) can be
    turned off, for speech input and for people who press keys by accident. Ctrl+K, Ctrl+Enter, Ctrl+. and Esc stay. */
 function singleKeys(){return store.get("keys.single","1")!=="0";}
+/* Reduce motion: "system" follows the computer's own setting, "reduce" stops animation here whatever it says */
+function reduceMotion(){return store.get("motion","system")==="reduce"||!!(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches);}
+function applyMotion(){document.documentElement.toggleAttribute("data-motion",false);if(store.get("motion","system")==="reduce")document.documentElement.setAttribute("data-motion","reduce");}
+function motionSwitch(){return h("label",{class:"sw"},h("input",{type:"checkbox",id:"motionReduce",checked:store.get("motion","system")==="reduce",
+  onchange:e=>{store.set("motion",e.target.checked?"reduce":"system");applyMotion();announce(e.target.checked?"Motion reduced":"Motion follows this computer's setting");}}),
+  h("span",null,"Reduce motion (no animation; otherwise this computer's own setting decides)"));}
+applyMotion();
 function singleKeysSwitch(){return h("label",{class:"sw"},h("input",{type:"checkbox",id:"keysSingle",checked:singleKeys(),
   onchange:e=>{store.set("keys.single",e.target.checked?"1":"0");announce(e.target.checked?"Single-key shortcuts on":"Single-key shortcuts off");}}),
   h("span",null,"Single-key shortcuts (?, /, j and k, g then a letter, typing on Home)"));}
@@ -7495,8 +7521,9 @@ document.addEventListener("keydown",e=>{
     if(document.body.classList.contains("nav-open")){e.preventDefault();navClose();return;}
     if(document.querySelector("dialog[open]"))return;          // every window is a native dialog: it closes itself, and Esc never also arms "stop the run"
     if(EV.running){e.preventDefault();const now=Date.now();
-      if(ESC_AT&&now-ESC_AT<2000){ESC_AT=0;cStop();toast("Stopping after this step");}
-      else{ESC_AT=now;toast("Press Esc again within 2 s to stop the run",2000);}return;}
+      /* 5 s, and the hint stays up the whole time (2 s was a time limit few people can meet); the Stop button has none */
+      if(ESC_AT&&now-ESC_AT<5000){ESC_AT=0;cStop();toast("Stopping after this step");}
+      else{ESC_AT=now;toast("Press Esc again within 5 s to stop the run, or use Stop",5000);}return;}
   }
   if(typing(e)){G_AT=0;return;}
   if(!singleKeys()&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.length===1){G_AT=0;return;}   /* turned off: the key does what the browser does */
@@ -7839,7 +7866,7 @@ function artEmpty(el){
 }
 /* dashboard figures: count from the last value shown in the same place (from 0 the first time), once, for about half a second */
 const COUNT_SEL=".btile b,.ws-stat b,.qstats b", COUNT_LAST=new Map(), COUNTING=new WeakSet();
-const artStill=()=>document.hidden||(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches);
+const artStill=()=>document.hidden||reduceMotion();
 function countUp(el,key){
   if(COUNTING.has(el))return;
   const txt=(el.textContent||"").trim(), m=/^(\$?)(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(\s?[%a-zA-Z/]{0,6})$/.exec(txt);

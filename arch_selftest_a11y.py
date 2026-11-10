@@ -62,7 +62,7 @@ def run():
     check("a Settings field is named by its label only; the hint and recommendation describe it",
           'i.setAttribute("aria-labelledby",lid)' in ui and 'i.setAttribute("aria-describedby",[recEl?lid+"_r":"",hint?lid+"_h":"",lid+"_e"]' in ui)
     check("a refused Settings save says which field and why, next to it, and stays (no fading toast only); focus goes there",
-          "function fieldErr(path,msg)" in ui and 'id:"cfgErr",hidden:true' in ui and 'note.textContent="Not saved: "+msg' in ui
+          "function fieldErr(path,msg)" in ui and 'id:"cfgErr",hidden:!SET_ERR.msg}' in ui and 'note.textContent="Not saved: "+msg' in ui
           and 'srAlert("Settings not saved. "+msg)' in ui and 'c.focus({preventScroll:true});}}' in ui)
     vl = re.findall(r'"data-vlabel":"([^"]+)"', ui)
     check("fields built without a label get a visible one (data-vlabel -> label for, wrapped in place); 21 fields carry one (23 with Review and the backlog)",
@@ -71,6 +71,21 @@ def run():
     check("reflow: sub-tabs wrap on wide screens, the top bar wraps, card grids never need more than the screen",
           ".subtabs{overflow:visible;flex-wrap:wrap" in ui and ".topbar{display:flex;flex-wrap:wrap" in ui
           and "minmax(min(340px,100%),1fr)" in ui)
+    # Phase C (2026-11-10)
+    check("Review's verdict is a heading, not a status region, and it is spoken once per run",
+          'h("h2",{class:"rv-verdict "+v[0]},icon(vIco),v[1])' in ui and 'role:"status"},icon(vIco)' not in ui
+          and 'announce("Review: "+v[1])' in ui)
+    check("no 2-second limits: Esc-twice waits 5 s with its hint up the whole time, every toast stays at least 4 s",
+          "now-ESC_AT<5000" in ui and '"Press Esc again within 5 s to stop the run, or use Stop",5000' in ui
+          and "now-ESC_AT<2000" not in ui and "ms=Math.max(ms,4000);" in ui)
+    check("the sidebar's section names are read: each section is a labelled group, and none is aria-hidden",
+          'role:"group","aria-labelledby":sid' in ui and 'h("div",{class:"navsec","aria-hidden":"true"}' not in ui and ".navgrp{display:contents}" in ui)
+    check("Reduce motion can be chosen in the app (Settings), on top of the computer's own setting, and stops JS counters too",
+          "function reduceMotion()" in ui and ":root[data-motion=reduce] *" in ui and "motionSwitch()" in ui
+          and "const artStill=()=>document.hidden||reduceMotion();" in ui)
+    check("a refused Settings save survives a redraw of the page (the recommendations arriving used to wipe it) and focus returns",
+          "let SET_ERR={msg:\"\",f:{}};" in ui and 'hidden:!SET_ERR.f[path]},SET_ERR.f[path]||"")' in ui
+          and 'hidden:!SET_ERR.msg},SET_ERR.msg?"Not saved: "+SET_ERR.msg:"")' in ui and "SET_ERR.focus=first;" in ui)
     check("each Simple-mode step says its state in words, not only with a colour or symbol", 'h("span",{class:"sr-only"}," — "+label[st])' in ui and '"aria-hidden":"true"' in ui)
     check("icon-only and arrow buttons get spoken names after every render", "function a11yPass(" in ui and '"↑":"Move up","↓":"Move down"' in ui and "MutationObserver" in ui)
     check("clickable non-buttons become keyboard-reachable and answer Enter/Space", 'setAttribute("tabindex","0")' in ui and 'e.key==="Enter"||e.key===" "' in ui)

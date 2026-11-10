@@ -203,7 +203,8 @@ def run():
           "body.is-busy .nav[data-sec=console]::after" in layer and 'document.body.classList.toggle("is-busy"' in sec and 'attributeFilter:["hidden","class"]' in sec)
     check("loading blocks shimmer, from tokens", ".card>div.st-load::after" in layer and "animation:shimmer" in layer)
     check("figures count up only when they change, and never under reduced motion or in a hidden tab",
-          "prefers-reduced-motion: reduce" in sec and "document.hidden" in sec and "if(from===to||!isFinite(to)||artStill())return;" in sec
+          "const artStill=()=>document.hidden||reduceMotion();" in sec and 'store.get("motion","system")==="reduce"' in js
+          and "prefers-reduced-motion: reduce" in js[js.find("function reduceMotion()"):][:300] and "if(from===to||!isFinite(to)||artStill())return;" in sec
           and "el.textContent=txt;COUNTING.delete(el)" in sec)
     check("a hidden tab pauses every animation, and the art layer starts no timer of its own",
           ".tab-away *,.tab-away *::before,.tab-away *::after{animation-play-state:paused!important}" in layer and '"visibilitychange"' in sec

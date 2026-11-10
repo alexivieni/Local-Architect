@@ -272,3 +272,21 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   have. Measured from the pixels: #767676 on white (4.5:1) and #858585 on the dark card (4.65:1). Nothing to fix.
 - Checked by `arch_selftest_a11y` (static) and a headless-Edge behaviour pass (shortcuts on/off, Space on Home, one h1, visible
   heading focus, Settings name and refused save, visible labels).
+
+## Accessibility Phase C (2026-11-10)
+- **Review's verdict is a heading again**: `role=status` on the `<h2>` replaced its heading role, so heading navigation skipped the
+  most important line on the page. The verdict is spoken once per run instead (`rvDraw._said`).
+- **No 2-second limits** (2.2.1): "press Esc again to stop" waits 5 s and its hint stays up the whole time (the Stop button has no
+  limit at all); every toast stays at least 4 s (some were 1.4 s) and, as before, while it is pointed at or focused.
+- **Sidebar section names are read** (1.3.1): Work, Models, System were `aria-hidden`; each section is now a group labelled by its
+  name (`display:contents`, so the sidebar's layout and every `#nav .nav` rule are unchanged).
+- **Reduce motion in the app** (2.3.3): Settings has a switch (`motion` = system | reduce, per browser). "reduce" sets
+  `data-motion=reduce`, whose rules mirror the operating-system block, and `reduceMotion()` also stops the JS counters (`artStill`).
+- **A refused Settings save survives a redraw**: the page redraws when the recommendations arrive, which wiped the error the moment
+  after it appeared. The message and the field errors live in `SET_ERR` and are drawn from it; focus returns to the named field when
+  a redraw dropped it. Found by the browser check, not by reading.
+- Watch a run's "What I'm doing" is an h2 (`.doing-h`, same look): with the page's h1 kept since Phase B, its h3 skipped a level
+  (found by the full audit after Phase B).
+- Not done, waiting for the owner's yes because it is inside the guarded Cost map slice: the chart's `<svg role="img">` makes its
+  keyboard-operable points (`g.cm-pt`, role=button) invisible to screen readers (children of an image are presentational); the fix is
+  `role="group"` on that svg. The same slice scrolls the detail into view with `behavior:"smooth"`, which ignores Reduce motion.
