@@ -796,8 +796,8 @@ def plan(cfg=None, hw=None, caps_=None):
                     args += ["--spec-type", pick]
             if fast:
                 sp = args[args.index("--spec-type") + 1] if "--spec-type" in args else ("n-gram lookup" if "--lookup-cache-dynamic" in args else None)
-                fast_did.append(f"speculative decoding is on ({sp}: guesses the next words from the prompt itself; measured 56 -> 306-343 "
-                                "tokens/s on edits here)" if sp else "speculative decoding was asked for, but this llama-server build offers "
+                fast_did.append(f"speculative decoding is on ({sp}: guesses the next words from the prompt itself; on the reference "
+                                "laptop, an RTX 4050, it measured 56 -> 306-343 tokens/s on edits, not measured on this machine)" if sp else "speculative decoding was asked for, but this llama-server build offers "
                                 "no n-gram kind, so it stays off")
         d_used = None
         if tier == "worker" and draft and "--model-draft" in flags:
@@ -1480,7 +1480,7 @@ def step_aside_for(model, cfg=None, live=None, busy_=None, held_=None):
         # on the card) and 2.3-2.7 on our own server with 21 of 40 layers on a full card. The half left in RAM sets the speed, so a model
         # that still does not fit gains nothing and the swap costs ~25 s. Only a model that then fits whole gets the card.
         out["why"] = (f"it would still run mostly from RAM (it needs about {need} GB; the card would have about {round(free + freed, 1)} GB), "
-                      "and that measured no faster")
+                      "and on the reference laptop such a model measured no faster with the card to itself (not measured here)")
         return out
     check = busy_ or busy
     for t, rec in on_card:
@@ -1714,7 +1714,10 @@ def _bench_variants_run(cfg, hw, tier="worker", variants=None, say=print, n_toke
         stop([tier], say=lambda m: None)
         st = start(c2, hw, tiers=[tier], say=lambda m: None, watch=False)
         rec = (st.get("processes") or {}).get(tier) or {}
-        row = {"variant": v, "healthy": bool(rec.get("healthy")), "gen_tok_s": None, "prefill_tok_s": None, "vram_used_gb": None, "error": None}
+        # draft_used: the draft model the server really loaded (None: none was, e.g. no candidate shares the worker's tokenizer, so the
+        # "draft" variant ran plain n-gram). The variant only says what was ASKED for.
+        row = {"variant": v, "healthy": bool(rec.get("healthy")), "gen_tok_s": None, "prefill_tok_s": None, "vram_used_gb": None, "error": None,
+               "draft_used": rec.get("draft") or None, "kv_used": rec.get("kv") or None}
         if rec.get("healthy"):
             try:
                 tr = arch_transport.LlamaTransport(rec["url"])

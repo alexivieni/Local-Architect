@@ -34,11 +34,9 @@ def plan(hw=None, kv="q8_0", slots=(1, 2, 4), windows=(4096, 8192), models=None)
     if hw is None:
         import arch_hw
         hw = arch_hw.detect()
-    try:
-        bw = json.load(open(os.path.join(__import__("arch_core").data_dir(), "bandwidth.json"), encoding="utf-8"))
-    except (OSError, ValueError):
-        bw = {}
-    bg, br = float(bw.get("gpu_bw") or 158.0), float(bw.get("ram_bw") or 19.5)
+    import arch_hw
+    B = arch_hw.bandwidth()                  # measured here, else a labelled estimate (it fell back to the reference laptop's 158 / 19.5)
+    bg, br = B["gpu_bw"], B["ram_bw"]
     rows = []
     for d in _passports():
         if models and d.get("name") not in models:
@@ -57,7 +55,7 @@ def plan(hw=None, kv="q8_0", slots=(1, 2, 4), windows=(4096, 8192), models=None)
                 batch = (size + N * kv_gb) / (size + kv_gb) if full else None
                 rows.append({"model": d["name"], "window": n, "slots": N, "layers": f"{ngl}/{a['layers']}", "full": bool(full),
                              "gpu_gb": round(est, 2), "tok_s_bound": round(1 / t_tok, 1) if t_tok else None,
-                             "n_candidates_cost": round(batch, 2) if batch else None})
+                             "n_candidates_cost": round(batch, 2) if batch else None, "bandwidth": B["label"]})
     return rows
 
 
@@ -68,7 +66,8 @@ def report(rows):
     for r in rows:
         lines.append(f"{r['model'][:34]:<34} {r['window']:>6} {r['slots']:>5} {r['layers']:>7} {r['gpu_gb']:>6} {str(r['tok_s_bound']):>6}  "
                      + (f"{r['n_candidates_cost']}x one call" if r["n_candidates_cost"] else "-- does not fit whole: no cheap batch"))
-    lines.append("tok/s is the per-pass bound from measured bandwidth (Eq. 7); speculation can beat it. A batch of N candidates is cheap only "
+    lines.append(f"tok/s is the per-pass bound from the memory bandwidth (Eq. 7; bandwidth: {rows[0].get('bandwidth') or 'estimate'}); "
+                 "speculation can beat it. A batch of N candidates is cheap only "
                  "when every layer and all N windows fit on the card (Eq. 11, 21).")
     return "\n".join(lines)
 

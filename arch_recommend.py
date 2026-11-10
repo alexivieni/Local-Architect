@@ -39,7 +39,7 @@ def recommend(cfg=None, hw=None, drives=None):
     key = bool(os.environ.get("ANTHROPIC_API_KEY"))
     if vram >= 4:
         rec("server.fast_lane", "on", f"Your {vram:.0f} GB card holds the whole worker with its cache; giving it the card, n-gram "
-            "speculation and high priority makes every local answer faster. It costs nothing but card space for the heavy model.", "measured")
+            "speculation and high priority makes every local answer faster. It costs nothing but card space for the heavy model.")
     rec("behavior.ground_edits", "on", "Edits are only accepted on lines the model has looked at. Today's agents read about 5 times "
         "per edit; small models that edit blind miss.")
     if online and key:
@@ -47,8 +47,8 @@ def recommend(cfg=None, hw=None, drives=None):
             rec("online.cloud_tier", "plan", "Claude does the planning and judging (a few hundred tokens), your GPU writes the code for "
                 "free. 'all' sends every coding step to Claude; 'plan' keeps most of the quality for a fraction of the cost.")
         rec("online.cloud_cache", True, "The same Claude question is answered from your disk for free (kept 30 days).")
-        rec("online.cloud_cache_ttl", "1h", "Long sessions with pauses keep Claude's prompt cache warm (reads cost 0.1x). Today's "
-            "agents read 107 million tokens from cache.", "measured")
+        rec("online.cloud_cache_ttl", "1h", "Long sessions with pauses keep Claude's prompt cache warm (reads cost 0.1x the input "
+            "price), so a pause of more than five minutes does not pay to read the whole prompt again.")
         rec("online.local_scout", "on", "Your local worker reads the code first and hands Claude a short brief, so Claude reads less.")
         cap = _get(cfg, "limits.cloud_usd_per_day")
         if not cap or float(cap) > 10:

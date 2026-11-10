@@ -614,13 +614,29 @@ def save_bandwidth(bw, source):
 
 
 def load_bandwidth():
-    """-> {"gpu_bw", "ram_bw", "source"} measured on this machine, or {} (then the estimates 192 / 50 GB/s are used, and said so)."""
+    """-> {"gpu_bw", "ram_bw", "source"} measured on this machine, or {} (then bandwidth() uses the estimates BW_ESTIMATE, and says so)."""
     import json
     try:
         with open(_bw_path(), encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return {}
+
+
+BW_ESTIMATE = {"gpu_bw": 192.0, "ram_bw": 50.0}       # GB/s, used ONLY when nothing was measured here, and always called an estimate
+
+
+def bandwidth(bw=None):
+    """-> {"gpu_bw", "ram_bw", "gpu_measured", "ram_measured", "label"}: this machine's measured bandwidth (hub_data/bandwidth.json, or
+    `bw` when given), each figure falling back to BW_ESTIMATE on its own. One place, so no module borrows the reference laptop's
+    figures (158 / 19.5 GB/s) for another machine, and no label says "measured" for a figure that was not."""
+    m = load_bandwidth() if bw is None else (bw or {})
+    g, r = m.get("gpu_bw"), m.get("ram_bw")
+    out = {"gpu_bw": float(g or BW_ESTIMATE["gpu_bw"]), "ram_bw": float(r or BW_ESTIMATE["ram_bw"]),
+           "gpu_measured": bool(g), "ram_measured": bool(r)}
+    out["label"] = ("measured here" if g and r else "estimate" if not (g or r) else
+                    "GPU measured here, RAM estimate" if g else "RAM measured here, GPU estimate")
+    return out
 
 
 def fingerprint(hw):
@@ -634,7 +650,9 @@ def detect(run=_run):
     hw = {"gpu": None, "vram_gb": 0.0, "vram_free_gb": 0.0, "ram_gb": 0.0, "ram_free_gb": 0.0, "cpu": None, "os": sys.platform,
           "notes": [], "gpus": [], "vendor": None, "unified": False}
     ram, ram_free = _ram_gb()
-    hw["ram_gb"], hw["ram_free_gb"] = ram, (ram_free if ram_free is not None else ram * 0.6)
+    # free RAM is read, never guessed: None when this system does not say (macOS here). It was ram * 0.6, unlabelled, and fed the
+    # server plan's RAM budget; the plan already budgets from total RAM minus a reserve when free is unknown.
+    hw["ram_gb"], hw["ram_free_gb"] = ram, ram_free
     gpus = _nvidia(run) or _amd(run) or (_win_gpu(run) if sys.platform.startswith("win") and run is _run else None)
     if gpus:
         hw["gpus"] = gpus

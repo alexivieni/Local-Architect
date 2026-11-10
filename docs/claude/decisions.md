@@ -69,6 +69,26 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   Haiku 4.5 at $0.80/$4, showed 9 layers as "active" by construction, and filled gaps with invented numbers (64% prefix reuse, 85% / 100%
   local share). Fixed on 2026-11-09: see "Honesty audit" below.
 
+**Second corrections (debug audit 2026-11-10, each checked in the code; fixes in "Debug audit" below):**
+- 1: on default settings only the router is at temperature 0 (the other roles are 0.1-0.5, no seed), so the reply cache holds almost
+  nothing but router calls until `behavior.seed` is set.
+- 3: the tree fingerprint is O(files), reused for `TREE_FP_TTL` = 1 s, not O(1); `_tok_section_cache` only feeds the per-section token
+  statistics in the trace (llama transport), not prompt fitting.
+- 5: the split penalty never fired: `score_for_role` read `rec["gpu_ratio"]`, which `model_hub.recommend` never wrote (only
+  `min_gpu_ratio`), so every split model got the small 2-point penalty. Fixed: `recommend` now hands over `gpu_ratio`. `arch_port` does
+  not call `score_for_role`.
+- 6: the 2026-11-09 correction "not resized and retried" was wrong: `Engine._call` doubles `num_ctx` once when a prompt silently filled
+  the window (`ctx_autogrow`; Ollama, local or remote). On llama-server `num_ctx` is the served window and a mid-reply overflow is a
+  cut-off reply. The worker runs at 8192-32768 on gpu profiles (4096 on cpu8/cpu16), not 6k-8k; every shipped profile sets a tier ctx, so
+  `model_overrides[name].num_ctx` and `limits.num_ctx` are only reached when a profile does not.
+- 7: the outlines appear only when a workflow sets `vars.target_files`; nothing on the crew path sets it. Deliberately NOT filled from
+  the owned files: the header is part of every step's cache key, and owned files change as a run writes them, so `crew --resume` would
+  replay nothing. `_tree_hash` also skips dot-folders and stops at 5000 files.
+- 9: the per-host semaphores live in the agent runner (`hosts_parallel` / `mesh.max_parallel`, default 2), not `Crew._loop`; in-flight
+  counts are per process. A remote llama-server could not be used by address or by name: `normalize` turned `http://x:8080/v1` into
+  `http://x:8080/v1:11434`, and a role routed by name never ran the health check that tells llama-server from Ollama, so it got a 404 and
+  quietly ran here. Fixed: the address keeps its path, and a health check's finding (`kind`) is kept in hosts.json for every process.
+
 ## Tech-debt Phase 1 (2026-11-08)
 - CLAUDE.md became an index (rules first, inside the 3000 characters a run reads) with these pages; `tools/doc_counts.py` computes the
   counts the docs state and `arch_selftest_docs` fails when one drifts. Release notes keep the numbers of their day.
@@ -226,6 +246,30 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   check could never fail, `tools/ci_parallel.py` never named a crashed suite's error, and the crawl's client-gone filter matched
   nothing. Fixed; `arch_selftest_debt` now fails on any control character in the source. The crawl ignores only a browser hanging
   up mid-request (ConnectionAborted/Reset, BrokenPipe in Python's HTTP server); any other traceback fails it.
+
+## Debug audit: stubs, hardcoded figures, fake code (2026-11-10)
+The fake-code scanner had 0 gate-level findings and there were no TODO / NotImplementedError / personal paths outside the tests; the
+problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fail and could-not-run):
+- **Three outcomes lost:** the first-visit page turned a doctor check that could not run into a failure and a blocker
+  (`first_visit_info` used `bool()`); the `ship` pipeline stored each stage as `bool(ok)`, so a template whose tests could not run ended
+  "pass" and bugfix's "no test ran" ended "fail" (now not_sure); the `lint` gate returned a pass when pyflakes could not start (now
+  None) and read only the last file's exit code; `log_checks` listed checks that could not run under "failing".
+- **A reproduction that proves nothing:** `run_tests` maps a timeout to "fail", so a hanging test was accepted as the bug's proof; with
+  a project test command (or unittest discover) the target is ignored and the whole suite runs, so another test's failure was the
+  "proof". `core.repro_check` (used by the gate and the legacy bugfix flow): a timeout is not a proof; a failure whose output does not
+  name the file is None.
+- **Invented or borrowed figures shown as measured:** `arch_costs` gave $0.00 per finished task and 0% local for "nothing yet" (now
+  None); recommendations quoted "107 million tokens" and labelled a VRAM rule "measured"; the server plan told every machine
+  "measured 56 -> 306-343 tok/s here" (the reference laptop's); memplan and swap fell back to this laptop's 158 / 19.5 GB/s and modelmath
+  labelled a half-measured pair "measured here" (one `arch_hw.bandwidth()` now, each figure measured or the labelled estimate);
+  `detect()` guessed free RAM as 60% of total on macOS (now None; the plan budgets from total minus a reserve); port said it "measured"
+  what is fit arithmetic; autotune called a variant "with a draft model" without knowing one loaded (`draft_used` is recorded now);
+  the broker labelled fixed 30 s / 120 s waits and ETAs with fixed parts "measured"; FinOps' "Measured here" column held unrelated
+  figures for three layers, and its demo page drew bars not to scale and an invented speed curve.
+- **Dead code:** `arch_cloud._add_spend` (superseded by `settle`), `arch_compact.should_compact` and `router_from_engine` removed;
+  `Engine.end_step` now closes the postmortem step that `set_step` opens.
+- Left as they are, on purpose: the GPT-4o price and the $20 / $200 seats in FinOps are labelled as entered by hand; the recommended
+  `limits.cloud_usd_per_day` of $5 is a suggestion the person applies or not, never written by itself.
 
 ## Accessibility Phase A (2026-11-09; WCAG 2.1 AA, measured in headless Edge on every page, light and dark)
 - **Fields have their own edge** (`--field-line`, 3:1 or more in every theme; 1.4.11): `--line` measured 1.33:1, so a text box had no

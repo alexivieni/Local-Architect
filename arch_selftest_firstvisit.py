@@ -134,6 +134,12 @@ def run():
         m = info["machine"]
         check("machine: passed and total are counted", m.get("passed") == 1 and m.get("total") == 3, str(m))
         check("machine: only a non-advisory failure blocks", m.get("blocking") == ["pytest"], str(m.get("blocking")))
+
+        def doctor_unsure(root_, port):                       # a check that could not run is neither a pass nor a blocker
+            return {"ok": None, "checks": [{"name": "python", "ok": True}, {"name": "disk space", "ok": None, "detail": "could not read"}]}
+        mu = hub.first_visit_info(tmp, 8766, doctor_run=doctor_unsure, team_plan=plan)["machine"]
+        check("machine: a check that could not run keeps None (not a fail)", [c["ok"] for c in mu["checks"]] == [True, None] and mu["ok"] is None, str(mu))
+        check("machine: ... it is counted apart and never blocks", mu.get("unsure") == 1 and mu.get("blocking") == [] and mu.get("passed") == 1, str(mu))
         t = info["team"]
         check("team: all four jobs are described in plain words", [x["tier"] for x in t["tiers"]] == ["worker", "router", "heavy", "draft"] and all(x["what"] for x in t["tiers"]))
         w = next(x for x in t["tiers"] if x["tier"] == "worker")

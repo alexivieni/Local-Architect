@@ -87,12 +87,14 @@ def explain(e, verdict, why=""):
         small = ((e.cfg.get("behavior") or {}).get("small_helpers", "on") == "on" and (e.cfg.get("tiers") or {}).get("router"))
         r, out =e.ask_json("router" if small else "reviewer", PROMPT.format(goal=(e.goal or "")[:1500], flow=e.flow, why=(why or verdict)[:400], digest=d), schema=SCHEMA)
         if not isinstance(out, dict) or not out.get("cause"):
+            e.end_step("postmortem", ok=None, unsure=True)          # no usable explanation: the step ends, not sure
             return None
         out = {k: str(out.get(k) or "").strip()[:600] for k in ("cause", "next_try", "fault")}
         with open(path(e.run_dir), "w", encoding="utf-8") as f:
             f.write(f"# Why this run did not pass\n\n{out['cause']}\n\n## What the next attempt should do\n\n{out['next_try']}\n\n"
                     f"_Most likely at fault: {out['fault']}. Written by the model from the run's own checks; advice, not a verdict._\n")
         e._trace({"type": "postmortem", "t": time.time(), "flow": e.flow, **out})
+        e.end_step("postmortem", ok=True)
         e.say(f"[postmortem] {out['cause']}")
         e.report("", "## Why it did not pass", out["cause"], "", f"- Next attempt: {out['next_try']}")
         return out

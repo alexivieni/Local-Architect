@@ -92,7 +92,6 @@ def _optimization_layers(cache_ledger, hw, cfg, cost_summary, evals):
     reply_l = layers_by_id.get("reply") or {}
     prefix_l = layers_by_id.get("prefix") or {}
     slots_l = layers_by_id.get("slots") or {}
-    lookup_l = layers_by_id.get("lookup") or {}
     cfg = cfg or {}
     server = cfg.get("server") or {}
     cache_cfg = cfg.get("cache") or {}
@@ -115,6 +114,7 @@ def _optimization_layers(cache_ledger, hw, cfg, cost_summary, evals):
         if e.get("C") is not None and (best_eval is None or e["C"] < best_eval["C"]):
             best_eval = e
     seed = (cfg.get("behavior") or {}).get("seed")
+    perf = (hw or {}).get("cpu_perf_cores")
     kv = str(server.get("kv") or "f16")
     return [
         {"num": 1, "id": "exact_query_cache", "category": "Cache",
@@ -144,7 +144,7 @@ def _optimization_layers(cache_ledger, hw, cfg, cost_summary, evals):
          "after": "The results of ls, grep, search and outline are kept per run and dropped when Architect writes a file; the token "
                   "count of an unchanged context section is reused.",
          "gain": "no repeated directory walks inside one run", "gain_basis": "by design",
-         "measured": "4 cached tools (ls, grep, search, outline)",
+         "measured": "not counted (the cache lives inside one run; 4 tools use it: ls, grep, search, outline)",
          "code_ref": "arch_tools.py (CACHED, _fingerprint), arch_core.py (_tok_section_cache)"},
         {"num": 4, "id": "q8_kv_flash_attn", "category": "Memory",
          "title": "Quantized KV cache and flash attention",
@@ -171,7 +171,7 @@ def _optimization_layers(cache_ledger, hw, cfg, cost_summary, evals):
          "after": "Each call is fitted to the smaller of the setting and the server's own window: the format example goes first, "
                   "then the longest project context is cut at a section boundary.",
          "gain": "no overflowing prompts", "gain_basis": "by design",
-         "measured": f"n-gram lookup cache: {lookup_l.get('entries', 0)} files",
+         "measured": "not counted (a prompt that had to be cut is noted in that run's trace)",
          "code_ref": "arch_core.py (Engine._call), arch_tune.py (cut_context)"},
         {"num": 7, "id": "squad_shared_prefix", "category": "Cache",
          "title": "Crew shared prefix and step cache",
@@ -188,7 +188,7 @@ def _optimization_layers(cache_ledger, hw, cfg, cost_summary, evals):
          "before": "Model threads could land on efficiency cores, and every battery check started PowerShell.",
          "after": "Threads are sized to the performance cores, and the battery state is cached for 30 seconds.",
          "gain": "faster CPU work on hybrid processors", "gain_basis": "estimate",
-         "measured": f"{ram_gb:.1f} GB RAM",
+         "measured": (f"{perf} performance cores read on this processor" if perf else "performance cores could not be read here"),
          "code_ref": "arch_hw.py (perf_cores), arch_power.py (battery, _BAT_CACHE)"},
         {"num": 9, "id": "distributed_lan_mesh", "category": "Distributed",
          "title": "Other machines on your network, with local fallback",
@@ -511,21 +511,23 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);display
       <h2>Speed figures from the reference laptop</h2>
       <p class="sub">Measured once on an RTX 4050 6 GB laptop (2026-11), not on this computer; KV memory by arithmetic:</p>
       <div style="margin-top:14px">
-        <div class="bar-row"><span>GPU Residency</span><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><b style="text-align:right">55 tok/s</b></div>
-        <div class="bar-row"><span>q8_0 KV + FlashAttn</span><div class="bar-track"><div class="bar-fill" style="width:88%"></div></div><b style="text-align:right">-50% VRAM</b></div>
+        <!-- bars are to scale: the two speeds share one scale (306 tok/s = full width), the two shares are out of 100% -->
+        <div class="bar-row"><span>Fully on the card</span><div class="bar-track"><div class="bar-fill" style="width:18%"></div></div><b style="text-align:right">55 tok/s</b></div>
+        <div class="bar-row"><span>+ n-gram speculation (edits)</span><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><b style="text-align:right">306 tok/s</b></div>
+        <div class="bar-row"><span>KV memory saved by q8_0</span><div class="bar-track"><div class="bar-fill" style="width:50%"></div></div><b style="text-align:right">50%</b></div>
         <div class="bar-row"><span>Prefix cache (here)</span><div class="bar-track"><div class="bar-fill" style="width:{{RHO_W}}%"></div></div><b style="text-align:right">{{RHO}}</b></div>
-        <div class="bar-row"><span>Speculative N-Gram</span><div class="bar-track"><div class="bar-fill" style="width:92%"></div></div><b style="text-align:right">306 tok/s</b></div>
       </div>
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
         <h2>Generation speed: split across card and RAM vs. fully on the card (reference laptop)</h2>
-        <svg viewBox="0 0 420 120" width="100%" style="display:block;margin-top:6px" role="img" aria-label="Throughput chart">
-          <line x1="30" y1="20" x2="400" y2="20" stroke="var(--line)" stroke-dasharray="3 3"/>
-          <line x1="30" y1="60" x2="400" y2="60" stroke="var(--line)" stroke-dasharray="3 3"/>
-          <line x1="30" y1="100" x2="400" y2="100" stroke="var(--line)"/>
-          <polyline fill="none" stroke="var(--mute)" stroke-width="2" stroke-dasharray="4 4" points="35,94 110,92 185,90 260,91 335,89 395,90"/>
-          <polyline id="liveLine" fill="none" stroke="var(--acc)" stroke-width="3" points="35,75 110,52 185,38 260,30 335,24 395,18"/>
-          <text x="35" y="114" fill="var(--mute)" font-size="10">Split (about 8 tok/s)</text>
-          <text x="300" y="114" fill="var(--acc)" font-size="10" font-weight="bold">On the card (55 tok/s)</text>
+        <!-- two measured figures, drawn to one scale (55 tok/s = 330 units wide, so 8 tok/s = 48); there is no time series to plot -->
+        <svg viewBox="0 0 420 92" width="100%" style="display:block;margin-top:6px" role="img"
+             aria-label="Generation speed on the reference laptop: about 8 tokens per second split across card and RAM, 55 fully on the card">
+          <text x="0" y="14" fill="var(--mute)" font-size="11">Split across card and RAM</text>
+          <rect x="0" y="20" width="48" height="16" rx="4" fill="var(--mute)"/>
+          <text x="56" y="33" fill="var(--ink)" font-size="11">about 8 tok/s</text>
+          <text x="0" y="60" fill="var(--mute)" font-size="11">Fully on the card</text>
+          <rect x="0" y="66" width="330" height="16" rx="4" fill="var(--acc)"/>
+          <text x="338" y="79" fill="var(--ink)" font-size="11" font-weight="bold">55 tok/s</text>
         </svg>
       </div>
     </section>

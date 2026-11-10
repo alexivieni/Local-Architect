@@ -808,10 +808,12 @@ def first_visit_info(root=None, hub_port=8766, doctor_run=None, team_plan=None):
             doctor_run = arch_doctor.run
         d = doctor_run(root or HERE, hub_port)
         checks = d.get("checks") or []
-        out["machine"] = {"ok": bool(d.get("ok")), "checks": [{"name": c.get("name"), "ok": bool(c.get("ok")), "advisory": bool(c.get("advisory")),
+        tri = lambda v: None if v is None else bool(v)        # three outcomes: a check that could not run is neither a pass nor a fail
+        out["machine"] = {"ok": tri(d.get("ok")), "checks": [{"name": c.get("name"), "ok": tri(c.get("ok")), "advisory": bool(c.get("advisory")),
                                                                "detail": str(c.get("detail") or "")[:240]} for c in checks],
                           "passed": sum(1 for c in checks if c.get("ok")), "total": len(checks),
-                          "blocking": [c.get("name") for c in checks if not c.get("ok") and not c.get("advisory")]}
+                          "unsure": sum(1 for c in checks if c.get("ok") is None),
+                          "blocking": [c.get("name") for c in checks if c.get("ok") is False and not c.get("advisory")]}
     except Exception as ex:
         out["machine"] = {"error": f"{type(ex).__name__}: {str(ex)[:200]}"}
     try:

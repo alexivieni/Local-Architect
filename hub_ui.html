@@ -7629,11 +7629,12 @@ function fvMachine(){
   if(!i)kids.push(h("p",{class:"small mute",role:"status"},"Checking this computer… this takes a few seconds."));
   else if(i.error||!m||m.error)kids.push(h("div",{class:"note warn"},"The checkup could not run: "+(i.error||(m&&m.error)||"no reply")+". Settings > Checkup has the details."));
   else{
-    const rank=c=>c.ok?2:c.advisory?1:0, rows=[...m.checks].sort((a,b)=>rank(a)-rank(b)).slice(0,7);
-    kids.push(h("p",{},m.blocking.length?`${m.passed} of ${m.total} checks pass. ${m.blocking.length===1?"One needs":m.blocking.length+" need"} fixing before work can run:`
-      :`${m.passed} of ${m.total} checks pass.`+(m.passed<m.total?" The rest are advice, not blockers.":" Nothing is in the way.")));
-    kids.push(h("ul",{class:"fv-list"},...rows.map(c=>h("li",{class:c.ok?"":c.advisory?"adv":"bad"},
-      h("span",{class:"tick"+(c.ok?" ok":"")},c.ok?"✓":c.advisory?"–":"!"),
+    const rank=c=>c.ok?2:c.ok==null||c.advisory?1:0, rows=[...m.checks].sort((a,b)=>rank(a)-rank(b)).slice(0,7);
+    const un=m.unsure||0, unTxt=un?` ${un===1?"One":un} could not be checked here, which is not a failure.`:"";   /* three outcomes: could not run is not a fail */
+    kids.push(h("p",{},m.blocking.length?`${m.passed} of ${m.total} checks pass.${unTxt} ${m.blocking.length===1?"One needs":m.blocking.length+" need"} fixing before work can run:`
+      :`${m.passed} of ${m.total} checks pass.`+unTxt+(m.passed+un<m.total?" The rest are advice, not blockers.":un?"":" Nothing is in the way.")));
+    kids.push(h("ul",{class:"fv-list"},...rows.map(c=>h("li",{class:c.ok?"":c.ok==null||c.advisory?"adv":"bad"},
+      h("span",{class:"tick"+(c.ok?" ok":""),title:c.ok?"passed":c.ok==null?"could not be checked":c.advisory?"advice":"needs fixing"},c.ok?"✓":c.ok==null?"?":c.advisory?"–":"!"),
       h("div",{},c.name,c.ok||!c.detail?null:h("small",{},c.detail))))));
     if(m.total>rows.length)kids.push(h("p",{class:"small mute"},`${m.total-rows.length} more: Settings > Checkup lists them all.`));
   }

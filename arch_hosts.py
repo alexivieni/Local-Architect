@@ -18,6 +18,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import arch_core as core
@@ -41,9 +42,23 @@ def mark_down(name, url=None):
             _LIVE[(n, u)] = dict(rec, ok=False, error="found unreachable in this run", ts=time.time())
 
 
+_KIND_CACHE = {"ts": 0.0, "llama": set()}
+
+
+def _stored_llama():
+    """Urls a health check (in ANY process, kept in hosts.json) found to be a llama-server. A run that routes a role to a host by
+    name never runs a health check itself, so the per-process set alone sent it to the Ollama API: a 404, then a silent local
+    fallback. Re-read at most every 30 s."""
+    now = time.time()
+    if now - _KIND_CACHE["ts"] > 30:
+        recs = ((core.load_json(path()) or {}).get("health") or {}).values()
+        _KIND_CACHE.update(ts=now, llama={str(r.get("url") or "").rstrip("/") for r in recs if isinstance(r, dict) and r.get("kind") == "llama"})
+    return _KIND_CACHE["llama"]
+
+
 def is_llama_host(url):
     u = (url or "").rstrip("/")
-    return u in _LLAMA_HOSTS or u.endswith("/v1")
+    return u in _LLAMA_HOSTS or u.endswith("/v1") or u in _stored_llama()
 
 
 def path():
@@ -56,9 +71,11 @@ def normalize(addr):
         raise ValueError("an address is required, for example 192.168.1.20 or http://desktop:11434")
     if not a.startswith("http"):
         a = "http://" + a
-    if not re.search(r":\d+$", a):
-        a += ":11434"
-    return a
+    p = urllib.parse.urlsplit(a)
+    if p.port is None:                      # no port: Ollama's, or llama-server's for an OpenAI-style /v1 address
+        # (it appended ":11434" to the END, so http://x:8080/v1 became http://x:8080/v1:11434 and could never answer)
+        p = p._replace(netloc=p.netloc + (":8080" if p.path.rstrip("/").endswith("/v1") else ":11434"))
+    return urllib.parse.urlunsplit(p).rstrip("/")
 
 
 def hosts_of(cfg):
@@ -243,24 +260,29 @@ def health(name, cfg=None, get=None, timeout=None):
     try:
         tags = get(url + "/api/tags", timeout=timeout) or {}
         models = [m.get("name") for m in (tags.get("models") or []) if m.get("name")][:200]
-        ok, err = True, None
+        ok, err, kind = True, None, "ollama"
     except urllib.error.HTTPError as e:
         if e.code == 404 and get is _get:
             try:
                 v1 = get(url + "/v1/models", timeout=timeout) or {}
                 models = [m.get("id") for m in (v1.get("data") or []) if m.get("id")][:200]
                 _LLAMA_HOSTS.add(url.rstrip("/"))
-                ok, err = True, None
+                ok, err, kind = True, None, "llama"
             except Exception as e2:
-                ok, models, err = False, None, f"not reachable ({str(getattr(e2, 'reason', e2))[:80]})"
+                ok, models, err, kind = False, None, f"not reachable ({str(getattr(e2, 'reason', e2))[:80]})", None
         else:
-            ok, models, err = False, None, f"not reachable ({str(getattr(e, 'reason', e))[:80]})"
+            ok, models, err, kind = False, None, f"not reachable ({str(getattr(e, 'reason', e))[:80]})", None
     except Exception as e:                               # refused, timed out, not Ollama, garbage: all mean "not usable now"
         why = getattr(e, "reason", e)
         slow = isinstance(e, TimeoutError) or isinstance(why, TimeoutError) or "timed out" in str(why).lower()
-        ok, models = False, None
+        ok, models, kind = False, None, None
         err = f"did not answer within {timeout:g} s" if slow else f"not reachable ({str(why)[:80]})"
-    res = {"name": name, "url": url, "ok": ok, "ms": round((time.time() - t0) * 1000), "error": err, "models": models, "ts": time.time()}
+    if kind is None:                          # unreachable now: keep what an earlier check learned about the server's kind
+        kind = (((core.load_json(path()) or {}).get("health") or {}).get(name) or {}).get("kind")
+    res = {"name": name, "url": url, "ok": ok, "ms": round((time.time() - t0) * 1000), "error": err, "models": models, "ts": time.time(),
+           "kind": kind}
+    if kind == "llama":
+        _KIND_CACHE["llama"].add(url.rstrip("/"))
     _LIVE[(name, url)] = res
     _store("health", name, res)
     return res

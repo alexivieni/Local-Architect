@@ -85,7 +85,8 @@ def run():
         check("by_day has today", len(s["by_day"]) == 1 and s["by_day"][0]["runs"] == 2 and s["by_day"][0]["passed"] == 1)
         check("wider window sees the old run", arch_costs.summary(days=60, roots=[root])["runs"] == 3)
         e = arch_costs.summary(days=7, roots=[os.path.join(tmp, "nowhere")])
-        check("no runs: zeros, no crash", e["runs"] == 0 and e["per_task_usd"] == 0.0 and e["by_model"] == [])
+        check("no runs: no crash, and the unknowns are None (not an invented $0.00 / 0% local)",
+              e["runs"] == 0 and e["per_task_usd"] is None and e["local_share"] is None and e["by_model"] == [])
 
         cfg = {"online": {"enabled": True, "cloud_tier": "all"}}
         cl = _FakeClient()

@@ -695,14 +695,20 @@ def best_settings(profile=None, plan=None, variants=None, hw=None):
 
     # ---- speculative decoding: what was measured beats what the planner chose
     def kind(row):
-        return "draft" if (row.get("variant") or {}).get("draft") else "ngram"
+        if "draft_used" in row:                  # what the server really loaded
+            return "draft" if row.get("draft_used") else "ngram"
+        return "draft asked for" if (row.get("variant") or {}).get("draft") else "ngram"     # an older row: whether one loaded is not recorded
     if variants:
         best = max(variants, key=lambda r: r["gen_tok_s"])
         other = [r["gen_tok_s"] for r in variants if kind(r) != kind(best)]
         out["speedup"] = {"value": kind(best), "gen_tok_s": best["gen_tok_s"], "evidence": "measured",
-                          "why": f"{best['gen_tok_s']} tok/s with {'a draft model' if kind(best) == 'draft' else 'n-gram lookup'}" +
+                          "why": f"{best['gen_tok_s']} tok/s with " + {"draft": f"the draft model {best.get('draft_used')}",
+                                                                       "ngram": "n-gram lookup",
+                                                                       "draft asked for": "a draft model asked for (whether one loaded was not recorded)"}[kind(best)] +
                                  (f" vs {max(other)} tok/s with the other" if other else "")}
-        out["kv"] = {"value": (best.get("variant") or {}).get("kv") or "q8_0", "evidence": "measured", "why": "the cache type of the fastest variant"}
+        kv_best = best.get("kv_used") or (best.get("variant") or {}).get("kv")
+        out["kv"] = ({"value": kv_best, "evidence": "measured", "why": "the cache type of the fastest variant"} if kv_best else
+                     {"value": None, "evidence": "none", "why": "the fastest variant does not say which cache type it used"})
     else:
         args = " ".join(str(a) for a in (wp.get("args") or []))
         val = "draft" if wp.get("draft") else ("ngram" if ("ngram" in args or "lookup-cache" in args) else "none")

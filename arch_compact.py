@@ -64,10 +64,6 @@ def messages_tokens(messages):
     return sum(tokens(_text(m)) + 4 for m in messages)
 
 
-def should_compact(messages, budget_tokens, pct=80):
-    return messages_tokens(messages) > int(budget_tokens) * pct / 100.0
-
-
 def window_tokens(cfg, role="", e=None):
     """The window a role's prompt must fit: the served window when the engine knows it, else limits.num_ctx; the role profile's
     ctx_max can only lower it."""
@@ -209,17 +205,6 @@ def compact_turns(turns, budget_tokens, pct=80, keep_tail=4, router=None, force=
     msgs = [{"role": "user", "content": t} for t in turns]
     new, info = compact(msgs, budget_tokens, pct=pct, keep_prefix=0, keep_tail=keep_tail, router=router, force=force, events=events)
     return [m["content"] for m in new], info
-
-
-def router_from_engine(e):
-    """A callable(prompt) -> text on the router tier of an Engine, or None when the engine has no way to ask."""
-    if not hasattr(e, "call"):
-        return None
-
-    def ask(prompt):
-        r = e.call("router", prompt, "You shorten notes. Plain text only.")
-        return r.get("text", "") if isinstance(r, dict) else ""
-    return ask
 
 
 def record(e, info):

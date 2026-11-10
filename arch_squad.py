@@ -1292,6 +1292,8 @@ class Crew:
             h = getattr(self, "_shared_hdr", None)
             if h is None:
                 contract = str(self.vars.get("contract") or self.goal or "").strip()[:2000]
+                # outlines only for files a workflow names in vars.target_files. NOT the --owns files by default: the header is part
+                # of every step's cache key, and an owned file changes as the run writes it, so a resumed run would replay nothing.
                 tfiles = self.vars.get("target_files")
                 outline_blk = ""
                 if isinstance(tfiles, (list, tuple)) and tfiles:

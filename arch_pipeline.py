@@ -85,9 +85,12 @@ class ShipFlow(fl.Flow):
             if out.get("stopped"):
                 return {"ok": False, "stopped": True, "files": files}
             files = sorted(set(files + [f for f in (out.get("files") or []) if isinstance(f, str)] + list(e.changed_files)))
-            done[stage] = {"ok": bool(out.get("ok")), "error": out.get("error")}
+            # three outcomes: a stage whose checks could not run is not_sure, never a pass and never a plain fail
+            done[stage] = {"ok": bool(out.get("ok")) and not out.get("unsure"), "unsure": bool(out.get("unsure")), "error": out.get("error"),
+                           "why": out.get("why")}
             e.checkpoint(ship_done=done, files=files)
-            e.report(f"- {stage}: {'passed its gates' if out.get('ok') else 'did NOT pass'}" + (f" ({out['error'][:160]})" if out.get("error") else ""), "")
+            said = "could not be checked" if out.get("unsure") else ("passed its gates" if out.get("ok") else "did NOT pass")
+            e.report(f"- {stage}: {said}" + (f" ({(out.get('error') or out.get('why'))[:160]})" if out.get("error") or (out.get("unsure") and out.get("why")) else ""), "")
             if stage == "build" and not out.get("ok"):
                 e.say("[ship] the build did not pass its checks; the later stages need working code, so the pipeline stops here (resume continues it)")
                 break
@@ -95,14 +98,21 @@ class ShipFlow(fl.Flow):
         lines = ["# Shipped: " + goal, "", f"Pipeline: {' -> '.join(want)}  ({round(time.time() - t0)} s, {e.calls} model calls)", ""]
         for s in want:
             d = done.get(s)
-            lines.append(f"- **{s}**: " + ("not run" if not d else "skipped (nothing to work on)" if d.get("skipped") else "passed" if d["ok"] else "failed" + (f": {d.get('error')}" if d.get("error") else "")))
+            lines.append(f"- **{s}**: " + ("not run" if not d else "skipped (nothing to work on)" if d.get("skipped") else
+                                            "could not be checked (not sure)" if d.get("unsure") else
+                                            "passed" if d["ok"] else "failed" + (f": {d.get('error')}" if d.get("error") else "")))
         docs = [p for p in ("docs/bugs.md", "docs/security.md", "docs/review.md") if os.path.isfile(os.path.join(e.root, p))]
         if docs:
             lines += ["", "Reports: " + ", ".join(f"`{p}`" for p in docs)]
         lines += ["", f"Files touched: {len(files)}"] + [f"- `{f}`" for f in files[:40]]
         e.put_file("docs/ship.md", "\n".join(lines) + "\n", "ship summary", quiet=True)
-        ok = all(d.get("ok") for d in done.values()) and "build" in done
-        return {"ok": ok, "files": files, "stages": done}
+        failed = any(not d.get("ok") and not d.get("unsure") and not d.get("skipped") for d in done.values())
+        unsure = not failed and any(d.get("unsure") for d in done.values())
+        ok = "build" in done and not failed and all(d.get("ok") or d.get("unsure") or d.get("skipped") for d in done.values())
+        out = {"ok": ok, "files": files, "stages": done}
+        if unsure:              # run_flow turns this into the not_sure verdict; a pass needs every stage checked
+            out.update(unsure=True, why="; ".join(f"{s}: {d.get('why') or 'its checks could not run'}" for s, d in done.items() if d.get("unsure"))[:400])
+        return out
 
 
 fl.FLOWS["ship"] = ShipFlow()

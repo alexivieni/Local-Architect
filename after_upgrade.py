@@ -130,7 +130,7 @@ def main():
     if sticks:
         both = len(sticks) >= 2 and len({s[0] for s in sticks}) == 1 and len({s[2] for s in sticks}) == 1
         out(f"- {'Dual channel: matched sticks, so RAM bandwidth roughly doubles' if both else 'Check: one stick, or sticks that do not match (single channel or a lower speed)'}")
-    out(f"- RAM: {hw.get('ram_gb', 0):.1f} GB, {hw.get('ram_free_gb', 0):.1f} GB free now; graphics card: {hw.get('gpu')} {hw.get('vram_gb', 0):.1f} GB; "
+    out(f"- RAM: {hw.get('ram_gb', 0):.1f} GB, {(format(hw['ram_free_gb'], '.1f') + ' GB') if hw.get('ram_free_gb') is not None else 'unknown amount'} free now; graphics card: {hw.get('gpu')} {hw.get('vram_gb', 0):.1f} GB; "
         f"performance cores: {hw.get('cpu_perf_cores')}")
     for name, bus, gb in disks():
         out(f"- Drive: {name} ({bus}, {gb} GB)")

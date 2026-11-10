@@ -96,8 +96,12 @@ def _local_option(tier, rec, job, state):
     if not rec or not rec.get("configured", True):
         return None
     tok_s, ev = tok_s_for(tier, rec, state.get("bandwidth"))
-    eta = job["size_tokens"] / max(tok_s, 0.1) + job["prompt_tokens"] / float(rec.get("prefill_tok_s") or FALLBACK_PREFILL)
     notes = [f"{tok_s:g} tok/s ({ev})"]
+    # the ETA is "measured" only while every part of it is: a fixed start time, busy wait, prefill speed or hot-card factor makes it
+    # an estimate (the speed itself keeps its own label in the note)
+    if job["prompt_tokens"] and not rec.get("prefill_tok_s"):
+        ev = "estimate"
+    eta = job["size_tokens"] / max(tok_s, 0.1) + job["prompt_tokens"] / float(rec.get("prefill_tok_s") or FALLBACK_PREFILL)
     ok = True
     if not rec.get("up"):
         ram = state.get("ram_free_gb")
@@ -105,13 +109,16 @@ def _local_option(tier, rec, job, state):
             return {"target": TIER_TARGET[tier], "tier": tier, "eta_s": None, "evidence": ev, "ok": False,
                     "note": f"stopped, and only {ram:g} GB of RAM is free to start it"}
         eta += float(rec.get("load_s") or START_S)
+        ev = ev if rec.get("load_s") else "estimate"
         notes.append("not running: it has to start first")
     if rec.get("busy"):
         eta += BUSY_WAIT_S
+        ev = "estimate"
         notes.append("busy with another answer")
     gpu = state.get("gpu_pct")
     if gpu is not None and gpu >= GPU_HOT_PCT and not rec.get("on_cpu") and not rec.get("busy") and not state.get("ours_busy"):
         eta *= GPU_HOT_FACTOR                  # the card is busy and none of our tiers is the reason: another program has it
+        ev = "estimate"
         notes.append(f"graphics card {gpu:g}% busy with other work")
     return {"target": TIER_TARGET[tier], "tier": tier, "eta_s": round(eta, 1), "evidence": ev, "ok": ok, "note": "; ".join(notes)}
 
@@ -144,7 +151,7 @@ def _decide(job, state):
         base = CPU_JOB_S[kind]
         if ram is not None and ram < RAM_LOW_GB:
             return _d("wait", f"only {ram:g} GB of RAM is free; starting a {kind} job now could push the model servers out of memory",
-                      30.0, "measured", [])
+                      30.0, "estimate", [])           # the RAM figure is measured; the 30 s wait is a fixed guess
         held = state.get("heavy_job")
         if state.get("ecores"):
             return _d("ecores", f"{kind} is processor work, not model work; the {state['ecores']} efficiency cores run it so the "
@@ -159,7 +166,7 @@ def _decide(job, state):
     held, gpu = state.get("heavy_job"), state.get("gpu_pct")
     if held and gpu is not None and gpu >= BENCH_GPU_PCT and not job["deadline_s"]:
         return _d("wait", f"a heavy job ({held}) is measuring the graphics card ({gpu:g}% busy); work started now would skew its "
-                  "numbers, and this job has no deadline", 120.0, "measured", [])
+                  "numbers, and this job has no deadline", 120.0, "estimate", [])     # the 120 s wait is a fixed guess
     opts = [o for o in (_local_option(t, tiers.get(t), job, state) for t in ("router", "worker", "heavy")) if o]
     usable = [o for o in opts if o["ok"]]
     good = [o for o in usable if TIER_QUALITY[o["tier"]] >= need]

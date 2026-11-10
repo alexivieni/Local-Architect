@@ -1101,7 +1101,11 @@ def related_tests(e, files):
 
 def log_checks(e, title, v):
     e.say(f"[check] {title}: {v['passed']}/{v['total']} passed" + ("" if v["ok"] else "\n" + v["text"]))
-    e.report(f"  - {title}: {v['passed']}/{v['total']} checks" + ("" if v["ok"] else " (failing: " + "; ".join(r['name'] for r in v['results'] if not r['ok'])[:300] + ")"))
+    bad = [r['name'] for r in v['results'] if r['ok'] is False]
+    unrun = [r['name'] for r in v['results'] if r['ok'] is None]          # three outcomes: could not run is not a failure
+    e.report(f"  - {title}: {v['passed']}/{v['total']} checks"
+             + ("" if v["ok"] or not bad else " (failing: " + "; ".join(bad)[:300] + ")")
+             + ("" if not unrun else " (could not run: " + "; ".join(unrun)[:200] + ")"))
 
 
 def parse_docs(text):
@@ -2056,14 +2060,12 @@ class BugfixFlow(Flow):
                 return {"ok": True, "dry": True}
             if new:
                 repro_rel = new[0]
-                st, log = core.run_tests(e.root, e.cfg, [repro_rel])
-                bad_fail = re.search(r"SyntaxError|ModuleNotFoundError|ImportError|NameError|IndentationError", log)
-                if st == "fail" and not bad_fail:
+                rok, why, log = core.repro_check(e.root, e.cfg, repro_rel)
+                if rok is not False:              # None: it fails, but the test command cannot say it is this file: kept, marked not sure
                     failure = log[-1500:]
-                    e.mark(r["id"], True, "fails for the right reason")
-                    e.say("[+] reproduction test fails as it should")
+                    e.mark(r["id"], rok, "fails for the right reason" if rok else why)
+                    e.say("[+] reproduction test fails as it should" if rok else f"[?] reproduction test fails; {why[:120]}")
                 else:
-                    why = "it passes already (cannot reproduce)" if st == "pass" else "it fails for the wrong reason:\n" + log[-500:]
                     e.mark(r["id"], False, why)
                     e.say(f"[!] reproduction test is not usable: {why[:100]}")
                     e.report(f"- Reproduction test not usable: {why[:200]}")

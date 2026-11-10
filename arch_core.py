@@ -1146,6 +1146,30 @@ def run_tests(root, cfg, targets=None):
     return ("pass" if rc == 0 else "fail"), out
 
 
+_WRONG_REASON = re.compile(r"SyntaxError|ModuleNotFoundError|ImportError|NameError|IndentationError")
+
+
+def repro_check(root, cfg, rel):
+    """Is the test file `rel` a proof of the bug? -> (ok, why, log): True = it fails by assertion on today's code, False = it is not a
+    proof (passes, cannot load, has no test, or timed out: a hang proves nothing), None = it failed but we cannot tell it was THIS file
+    (the project's own test command, or unittest discover, runs every test; their output does not name it)."""
+    st, log = run_tests(root, cfg, [rel])
+    if log.startswith("timed out after"):
+        return False, "it timed out instead of failing by assertion (a hang is not a proof of the bug)", log
+    if st == "pass":
+        return False, "it passes already (cannot reproduce)", log
+    if st == "none":
+        return False, "no test ran in it", log
+    if _WRONG_REASON.search(log):
+        return False, "it fails for the wrong reason:\n" + log[-500:], log
+    targeted = not cfg["tests"].get("command") and has_module("pytest")      # only pytest is handed the one file
+    stem = os.path.splitext(os.path.basename(rel))[0]
+    if not targeted and stem not in log:
+        return None, (f"the test command runs every test and its output does not name {rel}, so the failure may be another test's "
+                      "(could not check)"), log
+    return True, "", log
+
+
 _FAILED_NODE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+?)(?:\s+-\s.*)?\s*$", re.M)
 
 

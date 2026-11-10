@@ -59,16 +59,21 @@ def fit(c, hw, ctx, kv="q8_0", overhead_gb=0.7, headroom_gb=0.35):
     total = w + kv_gb
     vram = max(float(hw.get("vram_gb") or 0) - overhead_gb - headroom_gb, 0.0)
     ram = max(float(hw.get("ram_gb") or 0) - 4.0, 0.0)
+    import arch_hw
+    saved = {}
     if not (hw.get("gpu_bw") and hw.get("ram_bw")):
         try:
-            import arch_hw
-            m = arch_hw.load_bandwidth()
-            hw = dict(hw, gpu_bw=hw.get("gpu_bw") or m.get("gpu_bw"), ram_bw=hw.get("ram_bw") or m.get("ram_bw"),
-                      bw_source=m.get("source") if m.get("gpu_bw") else None)
+            saved = arch_hw.load_bandwidth()
         except Exception:
-            pass
-    gpu_bw, ram_bw = float(hw.get("gpu_bw") or 192.0), float(hw.get("ram_bw") or 50.0)
-    bw_label = "measured here" if hw.get("bw_source") else "estimate"
+            saved = {}
+    # each figure on its own: measured (given, or saved here) or the labelled estimate. A saved GPU figure with no RAM figure used to
+    # label BOTH "measured here".
+    src = hw.get("bw_source")                # a figure handed in counts as measured only when it says where it was measured
+    B = arch_hw.bandwidth({"gpu_bw": (hw.get("gpu_bw") if src else None) or saved.get("gpu_bw"),
+                           "ram_bw": (hw.get("ram_bw") if src else None) or saved.get("ram_bw")})
+    gpu_bw = float(hw.get("gpu_bw") or B["gpu_bw"])
+    ram_bw = float(hw.get("ram_bw") or B["ram_bw"])
+    bw_label = B["label"]
     moe = bool(a.get("experts") and a.get("experts_used"))
     read_frac = (0.15 + 0.85 * a["experts_used"] / a["experts"]) if moe else 1.0
     if vram <= 0:

@@ -112,8 +112,8 @@ def summary(days=7, roots=None):
     for d in by_day.values():
         d["usd"] = round(d["usd"], 5)
     return {"days": days, "runs": n_runs, "passed": passed, "cost_usd": round(total, 5),
-            "per_task_usd": round(total / passed, 5) if passed else 0.0,
-            "local_share": round(local / n_calls, 3) if n_calls else 0.0,
+            "per_task_usd": round(total / passed, 5) if passed else None,      # None = no finished task yet (0.0 read as "free")
+            "local_share": round(local / n_calls, 3) if n_calls else None,     # None = no model call recorded (0.0 read as "nothing local")
             "by_model": sorted(by_model.values(), key=lambda r: -r["usd"]),
             "by_day": [by_day[k] for k in sorted(by_day)]}
 

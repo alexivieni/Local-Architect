@@ -66,7 +66,8 @@ _LOSS_PREFIX = [("F16", 0.0), ("BF16", 0.0), ("Q8", 0.0), ("Q6", 0.5), ("Q5", 1.
 
 
 def quant_loss(quant):
-    """Points of accuracy this quantisation is expected to cost, from the measured table in arch_modelmath (unknown -> a cautious 5)."""
+    """Points of accuracy this quantisation is expected to cost: arch_modelmath.QUALITY_LOSS, community measurements on code tasks, so
+    an ESTIMATE, not measured here (unknown -> a cautious 5). `eval` measures the real number on this machine."""
     q = (quant or "").upper().strip()
     if not q:
         return 5.0
@@ -143,7 +144,8 @@ def _fit(m, hw, ctx, kv="q8_0"):
 def pick_tiers(hw=None, cfg=None, models=None, say=None):
     """-> {"profile", "ctx", "tiers": {tier: {...}}, "notes": [...], "considered": n}.
 
-    Nothing here looks at a model's reputation. It measures each installed model against this machine and says what it found.
+    Nothing here looks at a model's reputation. It checks each installed model against this machine by arithmetic (does it fit the
+    card and RAM, at what window) and an estimated quantisation cost, and says what it found; nothing is run or timed here.
     """
     import arch_hw
     import arch_server
@@ -223,7 +225,8 @@ def pick_tiers(hw=None, cfg=None, models=None, say=None):
     if tiny:
         d = sorted(tiny, key=lambda m: m["size_gb"])[0]
         out["tiers"]["draft"] = _tier(d, w_ctx, (f"a {d['eff_b']}B model of the same family as the worker, so it shares its vocabulary "
-                                                 "and can guess its next words. Kept only if measuring shows it is actually faster"), hw, kv)
+                                                 "and can guess its next words. Not measured yet: the server uses it only when its tokenizer "
+                                                 "matches the worker's exactly, and `architect.py tune` measures whether it is faster"), hw, kv)
     else:
         out["tiers"]["draft"] = {"model": "", "why": ("speculative decoding needs a tiny model from the SAME family as the worker, "
                                                       f"and there is no small {fam or 'matching'} model installed. Nothing is lost: it is a "
@@ -251,7 +254,8 @@ def render(plan):
     hw = plan.get("hardware") or {}
     out = [f"This machine: {hw.get('gpu') or 'no dedicated graphics card'}, {round(hw.get('vram_gb') or 0, 1)} GB of graphics memory, "
            f"{round(hw.get('ram_gb') or 0)} GB of system memory.",
-           f"Looked at {plan.get('considered', 0)} installed model(s) and measured each one against it.", ""]
+           f"Looked at {plan.get('considered', 0)} installed model(s) and checked each one against it (fit arithmetic and an "
+           "estimated quantisation cost; nothing was timed: `architect.py eval` and `tune` measure).", ""]
     for tier in ("worker", "router", "heavy", "draft"):
         t = (plan.get("tiers") or {}).get(tier) or {}
         if not t.get("model"):

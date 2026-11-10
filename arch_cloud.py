@@ -581,21 +581,6 @@ def _mutate(fn):
             return res, _write_spend(d)
 
 
-def _add_spend(usd):
-    """Add what was really spent to today's total (keeps the last 60 days). A write that fails is said on stderr; it never fails the
-    reply. -> True when recorded."""
-    try:
-        usd = float(usd or 0)
-    except (TypeError, ValueError):
-        return False
-    if usd <= 0:
-        return True
-
-    def add(d):
-        d[_today()] = round(_day_total(d) + usd, 6)
-    return _mutate(add)[1]
-
-
 class SpendRefused(LLMError, RuntimeError):
     """A cap would be passed: refused before any money moves. Is an LLMError (could not run) and a RuntimeError (the hub's 'refused')."""
 

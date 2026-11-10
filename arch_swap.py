@@ -187,8 +187,10 @@ def placement(fact, hw, ctx, kv="q8_0", desk_gb=0.7, bw=None, vm=None, on_cpu=Fa
     vram = float(hw.get("vram_gb") or 0)
     ram = float(hw.get("ram_gb") or 0)
     bw = bw or {}
-    bg, br = float(bw.get("gpu_bw") or 158.0), float(bw.get("ram_bw") or 19.5)
-    bw_label = "[M]" if bw.get("source") else "[E]"
+    import arch_hw
+    B = arch_hw.bandwidth(bw)               # each figure measured here or a labelled estimate (it fell back to the reference laptop's 158 / 19.5)
+    bg, br = B["gpu_bw"], B["ram_bw"]
+    bw_label = "[M]" if B["gpu_measured"] and B["ram_measured"] else "[E]" if not (B["gpu_measured"] or B["ram_measured"]) else "[M GPU, E RAM]" if B["gpu_measured"] else "[E GPU, M RAM]"
     kvt = mh.kv_bytes_per_token(a, kv) or 0
     kv_gb = kvt * ctx * max(1, slots) / GB
     moe = bool(a.get("experts") and a.get("experts_used") and int(a["experts"]) > 1)

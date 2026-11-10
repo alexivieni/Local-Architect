@@ -106,16 +106,17 @@ def g_lint(e, ctx, step, changed):
     files = [f for f in (changed or []) if f.endswith(".py")]
     if not files:
         return R(True, "")
-    probs = []
+    probs, unrun = [], []
     if core.has_module("pyflakes"):
-        import subprocess
         import sys
         for f in files:
             rc, out = core.run_cmd([sys.executable, "-m", "pyflakes", f], e.root, 60, True)
-            if rc not in (0, 127) and out.strip():
+            if rc in (124, 127):                      # timed out / could not start: this file was not checked
+                unrun.append(f)
+            elif rc != 0 and out.strip():
                 probs.append(out.strip()[-600:])
-        if not probs and rc == 127:
-            return R(True, "pyflakes could not start; skipped")
+        if not probs and unrun:
+            return R(None, "pyflakes could not run on " + ", ".join(unrun[:5]) + " (could not check)", {"problems": 0, "unchecked": len(unrun)})
     else:
         import arch_quality as q
         probs = [f"{x['file']}:{x['line']} {x['msg']}" for x in q.static_scan(e.root, files) if x.get("severity") == "high"]
@@ -130,12 +131,10 @@ def g_repro(e, ctx, step, changed):
     if not new:
         return R(False, "no test file was written under tests/")
     rel = new[0]
-    st, log = core.run_tests(e.root, e.cfg, [rel])
-    wrong = re.search(r"SyntaxError|ModuleNotFoundError|ImportError|NameError|IndentationError", log)
-    if st == "fail" and not wrong:
+    ok, why, log = core.repro_check(e.root, e.cfg, rel)
+    if ok is not False:                         # True: the proof; None: it fails, but whether it is THIS test could not be told
         ctx["repro_path"], ctx["repro_failure"] = rel, log[-1500:]      # the step's own output overwrites ctx["repro"], so the proof lives under its own keys
-        return R(True, "", {"repro": rel}, log[-800:])
-    why = "it passes already (cannot reproduce)" if st == "pass" else "it fails for the wrong reason:\n" + log[-500:]
+        return R(ok, why, {"repro": rel}, log[-800:])
     return R(False, why, {"repro": rel})
 
 

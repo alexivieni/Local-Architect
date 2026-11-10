@@ -210,7 +210,8 @@ def recommend(fit, hw):
     text = {"fast": "Fits on the GPU.", "split": "Splits between GPU and RAM: slower, but the answer quality is the same.",
             "slow": "Mostly runs from RAM: expect a few tokens per second."}[ver]
     return {"verdict": ver, "text": text, "num_ctx": best["ctx"], "ctx_candidates": cands[:4],
-            "min_gpu_ratio": min_ratio, "est_tok_s": best["est_tok_s"]}
+            "min_gpu_ratio": min_ratio, "est_tok_s": best["est_tok_s"],
+            "gpu_ratio": best["gpu_ratio"]}     # the share on the card at this window: arch_roles.score_for_role penalises < 0.7 (it was never set)
 
 
 # ---------------------------------------------------------------------------------------------

@@ -173,7 +173,7 @@ def stack_advice(own, hw, cfg):
         out.append({"topic": "Inference server", "advice": "Stay on Ollama.",
                     "source": "inference", "why": "Everything installed here fits the way Ollama loads it. llama.cpp gives finer control and earlier model support, but costs a build, a GGUF path per model and a launch command per model."})
     out.append({"topic": "Tool calling", "advice": "Run Probe on each model; trust the score, not the model card.",
-                "source": "measured", "why": "Chat templates differ per model, and one reported run had a model that scored 100 on tool use with one template and failed with another. Probe measures the template Ollama actually applies."})
+                "source": "inference", "why": "Chat templates differ per model, and one reported run had a model that scored 100 on tool use with one template and failed with another. Probe measures the template Ollama actually applies."})
     out.append({"topic": "Harness", "advice": "Use this harness's own loop (plan, edit, run the code checks) and keep the editors you like (Aider, Cline, OpenCode, Qwen Code) for interactive work.",
                 "source": "inference", "why": "Those tools are interactive; this one decides pass/fail with code (tests, AST, fake-code gate) and can run unattended. They can point at the same Ollama server."})
     if any(o["tier"] in ("tiny", "small") for o in own):
