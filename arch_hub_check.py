@@ -359,8 +359,8 @@ def run():
         check("a template thumbnail with an unsafe id is refused", call("/templates/..%2Fhub_ui.svg").get("HTTP") in (400, 404))
         check("Home leads with one headline, a Do it button, the practice project and no duplicate quick launch",
               "What should your computer work on?" in html and '"Do it"' in html and "Use the practice project" in html and '"Quick launch"' not in html)
-        check("Home: nothing above #spTitle (no subtabs, no page tip, no page title on Home)",
-              "body.sheet-wrap #subtabs,body.sheet-wrap #pageHint{display:none}" in html and ".sheet-wrap .top{display:none}" in html
+        check("Home: nothing visible above #spTitle (no subtabs, no page tip; the page title is kept for screen readers only)",
+              "body.sheet-wrap #subtabs,body.sheet-wrap #pageHint{display:none}" in html and ".sheet-wrap .top,body.oneScreen .top{position:absolute;width:1px;height:1px" in html
               and 'h("div",{class:"sp-head"},h("h2",{class:"sp-title",id:"spTitle"}' in html and '"aria-label":"About this page"' in html)
         check("Home: Do it is disabled while the goal box is empty, with a tooltip",
               'b.disabled=!g;b.title=g?"Start (Ctrl+Enter)":"Type what you want done"' in html and 'id:"spGo"' in html)

@@ -249,3 +249,26 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
 - Checked by `arch_selftest_a11y` (static) plus a headless-Edge behaviour pass (toast inside a window, focus after `go()` and after an
   async rebuild, title, one skip link, no new page errors). Phases B and C wait for the owner; the Cost map's SVG point roles are inside a
   guarded slice and need the owner's yes.
+
+## Accessibility Phase B (2026-11-10; measured in headless Edge on all 45 pages)
+- **Single-key shortcuts can be turned off** (2.1.4): `singleKeys()` (`keys.single`, per browser) gates ?, /, j/k, the g-chords,
+  Review's a/u/r/j/k and typing straight into Home's box; the switch is in the shortcut list and in Settings. Ctrl+K, Ctrl+Enter,
+  Ctrl+. and Esc stay. Space on Home scrolls the page again (it was typed into the goal box).
+- **One main heading on every page**: Home and Watch a run hid the whole title row with display:none, so they had no h1; the row is
+  now visually hidden (the h1 stays in the outline) and only its visible parts are left out. Markdown shown in a page starts at h3
+  (`mdView`), so a document's own "# title" is never a second h1. Focus after a page change goes to a heading you can SEE
+  (`focusPageHeading`: the title, or the first visible heading on those two pages).
+- **Settings fields** (3.3.1, 3.3.2): a field's name is its label only (`aria-labelledby`); the hint and the recommendation are its
+  description. A refused save puts the server's reason under the field it names (`fieldErr`, aria-invalid), keeps "Not saved: ..."
+  above (a fading toast was the only trace) and focuses the field.
+- **Visible labels** for the 23 fields that had only a placeholder or an aria-label: the field says `data-vlabel`, and `a11yPass`
+  wraps it in place with a real `<label for>` (rows and grids keep their shape; the aria-label is dropped so the spoken name is the
+  seen one, 2.5.3).
+- **Reflow** (1.4.4, 1.4.10): sub-tabs wrap on wide screens instead of running off the page at 200% text (20 pages), the top bar
+  wraps at 320 px (the ? button pushed 39 pages sideways) and the search box starts at 180 px so it does not wrap at 1280 px, card
+  grids use `minmax(min(340px,100%),1fr)` (Jobs at 320 px). Measured after: 0 pages scroll sideways at 320 px or at 200% text.
+- The GPU chip in the top bar was still a live region rebuilt every 10 s (a Phase A miss); it is not any more.
+- Checkboxes were reported as failing 3:1 in Phase A's audit: that was the audit reading a CSS border, which native checkboxes do not
+  have. Measured from the pixels: #767676 on white (4.5:1) and #858585 on the dark card (4.65:1). Nothing to fix.
+- Checked by `arch_selftest_a11y` (static) and a headless-Edge behaviour pass (shortcuts on/off, Space on Home, one h1, visible
+  heading focus, Settings name and refused save, visible labels).

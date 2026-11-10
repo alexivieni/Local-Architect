@@ -37,7 +37,7 @@ def run():
           "if(r&&typeof r.then===\"function\")return r.then(" in ui
           and 'function loadBgJobs(){return keepFocus($("#bgList")' in ui and 'function loadQueue(){return keepFocus($("#qBoard")' in ui
           and 'function liveChip(){return keepFocus($("#liveChip")' in ui
-          and ui.count('t.tabIndex=-1;t.focus({preventScroll:true})') >= 2)
+          and "function focusPageHeading()" in ui and ui.count("focusPageHeading()") >= 3)
     check("the browser tab names the page; there is exactly one skip link",
           'document.title=(ttl?ttl+" · ":"")+"Architect Hub"' in ui and 'if(!$(".skip-link,.skip"))' in ui
           and ui.count('class="skip-link"') == 1)
@@ -48,6 +48,29 @@ def run():
           ".tfilter .n{font-variant-numeric:tabular-nums;opacity" not in ui and ".term .dh{color:var(--term-hunk)}" in ui and ui.count("--term-hunk:") >= 5
           and "ul.plan li.todo{color:var(--faint)}" in ui and 'class:"qempty"' in ui
           and 'b.disabled=!j.running;   /* answers only' in ui and '$("#inRow").style.opacity' not in ui)
+    check("the GPU chip, rebuilt every 10 s, is not a live region",
+          '<span id="liveChip" class="chip livechip" hidden>' in ui)
+    # Phase B (2026-11-10)
+    check("single-key shortcuts can be turned off (2.1.4), from the shortcut list and from Settings; Space on Home scrolls",
+          "function singleKeys()" in ui and 'if(!singleKeys()&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.length===1)' in ui
+          and ui.count("singleKeysSwitch()") >= 3 and '||!singleKeys())return;' in ui and 'e.key!=="?"&&e.key!==" "' in ui)
+    check("every page keeps one h1: Home and Watch a run hide the title row visually, not from the outline; focus lands on a heading you can see",
+          ".sheet-wrap .top,body.oneScreen .top{position:absolute" in ui and ".sheet-wrap .top{display:none}" not in ui
+          and "body.oneScreen .top{display:none}" not in ui and "const vis=e=>e&&e.getClientRects().length" in ui)
+    check("Markdown inside a page starts at h3, so a document's own title is never a second h1",
+          'h("h"+(m[1].length+2),{class:"md-h"+m[1].length}' in ui)
+    check("a Settings field is named by its label only; the hint and recommendation describe it",
+          'i.setAttribute("aria-labelledby",lid)' in ui and 'i.setAttribute("aria-describedby",[recEl?lid+"_r":"",hint?lid+"_h":"",lid+"_e"]' in ui)
+    check("a refused Settings save says which field and why, next to it, and stays (no fading toast only); focus goes there",
+          "function fieldErr(path,msg)" in ui and 'id:"cfgErr",hidden:true' in ui and 'note.textContent="Not saved: "+msg' in ui
+          and 'srAlert("Settings not saved. "+msg)' in ui and 'c.focus({preventScroll:true});}}' in ui)
+    vl = re.findall(r'"data-vlabel":"([^"]+)"', ui)
+    check("fields built without a label get a visible one (data-vlabel -> label for, wrapped in place); 21 fields carry one (23 with Review and the backlog)",
+          'h("label",{class:"vlbl",for:i.id},i.dataset.vlabel)' in ui and len(vl) >= 23
+          and not re.search(r'h\("(?:input|select|textarea)",\{[^{}]*"aria-label":"(?:Flow|Rounds|Time span|Time window|Search the gallery|Plugin folder or zip)"', ui))
+    check("reflow: sub-tabs wrap on wide screens, the top bar wraps, card grids never need more than the screen",
+          ".subtabs{overflow:visible;flex-wrap:wrap" in ui and ".topbar{display:flex;flex-wrap:wrap" in ui
+          and "minmax(min(340px,100%),1fr)" in ui)
     check("each Simple-mode step says its state in words, not only with a colour or symbol", 'h("span",{class:"sr-only"}," — "+label[st])' in ui and '"aria-hidden":"true"' in ui)
     check("icon-only and arrow buttons get spoken names after every render", "function a11yPass(" in ui and '"↑":"Move up","↓":"Move down"' in ui and "MutationObserver" in ui)
     check("clickable non-buttons become keyboard-reachable and answer Enter/Space", 'setAttribute("tabindex","0")' in ui and 'e.key==="Enter"||e.key===" "' in ui)

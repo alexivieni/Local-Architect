@@ -193,7 +193,7 @@ main{padding:24px clamp(16px,3vw,40px) 60px;max-width:1240px;width:100%}
 .section-head{display:flex;align-items:baseline;gap:8px;margin:26px 0 10px}.section-head:first-child{margin-top:4px}
 .section-head b{font-size:var(--t-mono);color:var(--mute);font-weight:650}.section-head i{flex:1;height:1px;background:var(--line)}
 .row{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center}.grow{flex:1 1 auto}
-.grid{display:grid;gap:16px}.g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}.g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}.g4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.grid{display:grid;gap:16px}.g2{grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr))}.g3{grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr))}.g4{grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))}
 .mono{font-family:var(--mono)}.mute{color:var(--mute)}.small{font-size:var(--t-mono)}
 .card[role=button]{cursor:pointer;transition:border-color .12s,box-shadow .12s,transform .1s}
 .card[role=button]:hover{border-color:var(--acc);transform:translateY(-1px)}
@@ -297,7 +297,12 @@ details>summary{cursor:pointer;color:var(--mute);padding:4px 0}
 .crew .more{display:grid;place-items:center;font-size:var(--t-sm);color:var(--bpmute);border:1px dashed var(--bp-rule);border-radius:8px;aspect-ratio:1;cursor:pointer;align-self:start}.crew .more:hover{border-color:var(--on-bp);color:var(--on-bp)}
 .tblock{display:grid;grid-template-columns:repeat(3,auto);gap:0;border:1px solid var(--bp-rule);border-radius:6px;margin-top:24px;font-size:var(--t-caption);width:max-content;max-width:100%;overflow:hidden}
 .tblock div{padding:7px 12px;border-right:1px solid var(--bp-rule);color:var(--bpmute)}.tblock div:last-child{border-right:0}.tblock b{display:block;color:var(--on-bp);font-weight:500;font-family:var(--mono);font-size:var(--t-mono)}
-.sheet-wrap .top{display:none}
+.sheet-wrap .top,body.oneScreen .top{position:absolute;width:1px;height:1px;margin:0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.ferr{display:block;color:var(--bad);font-size:var(--t-sm);margin-top:4px}
+.vfield{display:flex;flex-direction:column;gap:4px;min-width:0}.vfield>input,.vfield>select,.vfield>textarea{width:100%}
+.vlbl{font-size:var(--t-sm);font-weight:600;color:var(--mute)}
+.row:has(>.vfield){align-items:flex-end}
+.sheet-wrap #pageSub,.sheet-wrap #pageActions,.sheet-wrap .aboutq,body.oneScreen #pageSub,body.oneScreen #pageActions,body.oneScreen .aboutq{display:none}
 
 /* ---------- iconography: one inline sprite, no network, inherits colour and weight ---------- */
 .ic{width:1.15em;height:1.15em;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.18em}
@@ -404,7 +409,6 @@ kbd{font:var(--t-2xs)/1.4 var(--mono);background:var(--soft);border:1px solid va
 @media (max-width:1000px){.console{grid-template-columns:minmax(0,1fr)}.doing{position:static;max-height:none}}
 
 /* the one screen earns its space: no page heading above it, and the two columns match in height */
-body.oneScreen .top{display:none}
 body.oneScreen main{padding-top:18px}
 body.oneScreen .subtabs{margin-bottom:12px}
 .console{align-items:stretch}
@@ -948,7 +952,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:1
 .ws-tl{list-style:none;margin:0;padding:0}.ws-tl li{display:grid;grid-template-columns:64px minmax(0,140px) minmax(0,1fr);gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);font-size:var(--t-mono)}
 .ws-tl li:last-child{border-bottom:0}.ws-tl .k-conflict{background:var(--badbg)}.ws-tl .k-stall{background:var(--warnbg)}.ws-tl time{color:var(--faint);font-variant-numeric:tabular-nums}
 .ws-tl .ag{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ws-md h1,.ws-md h2,.ws-md h3{font:650 var(--t-md)/1.3 var(--font-head);margin:16px 0 6px}.ws-md h1{font-size:var(--t-sub)}.ws-md p{margin:6px 0}.ws-md ul{margin:6px 0;padding-left:20px}.ws-md li{margin:3px 0}
+.ws-md h1,.ws-md h2,.ws-md h3,.ws-md h4,.ws-md h5{font:650 var(--t-md)/1.3 var(--font-head);margin:16px 0 6px}.ws-md h1,.ws-md .md-h1{font-size:var(--t-sub)}.ws-md p{margin:6px 0}.ws-md ul{margin:6px 0;padding-left:20px}.ws-md li{margin:3px 0}
 .ws-md pre{white-space:pre-wrap;overflow-wrap:anywhere;font:var(--t-mono)/1.5 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:var(--rs);padding:8px 10px}
 .ws-split{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:var(--s4);align-items:start}
 @media (max-width:860px){.ws-split{grid-template-columns:minmax(0,1fr)}}
@@ -1303,7 +1307,7 @@ p,li,dd,td{font-size:inherit}
 #sOllama,#sJob{cursor:pointer}
 button.chip{font-family:inherit;line-height:inherit;min-height:0;text-align:left}  /* a chip you can press keeps the chip's look */
 /* sub-tabs: at most five per place (arch_selftest_hubcalm); on a wide screen they never scroll */
-@media (min-width:701px){.subtabs{overflow:visible}}
+@media (min-width:701px){.subtabs{overflow:visible;flex-wrap:wrap;row-gap:6px}}   /* at 200% text they wrap, never off the page */
 /* life: content settles in; a run's newest step glows once */
 #view>*{animation:rs-in .22s ease-out both}
 @keyframes rs-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -1329,8 +1333,8 @@ button.chip{font-family:inherit;line-height:inherit;min-height:0;text-align:left
 /* ---- flagship layout (ui rebuild 2026-11-05): grouped sidebar, top bar, Home dashboard ---- */
 .navsec{font-size:var(--t-caption);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:14px 12px 4px}
 .navsec:first-child{padding-top:4px}
-.topbar{display:flex;align-items:center;gap:10px;margin:0 0 14px;min-width:0}
-.tsearch{display:flex;align-items:center;gap:10px;min-height:36px;padding:0 10px 0 12px;flex:0 1 380px;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--mute);font:inherit;cursor:pointer}
+.topbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 14px;min-width:0}   /* wraps at 320 px and at 200% text */
+.tsearch{display:flex;align-items:center;gap:10px;min-height:36px;padding:0 10px 0 12px;flex:1 1 180px;max-width:380px;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--mute);font:inherit;cursor:pointer}
 .tsearch span{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tsearch:hover{border-color:color-mix(in srgb,var(--acc) 40%,var(--line))}
 .livechip{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
@@ -1746,7 +1750,7 @@ details.adv>summary{min-height:44px;display:flex;align-items:center}.adv-body{di
         <button data-acc="moss" title="Moss" aria-label="Accent: Moss"></button></div></div>
   </aside>
   <main>
-    <div class="topbar"><button class="btn sm navtoggle" id="navToggle" type="button" aria-label="Menu" aria-controls="nav" aria-expanded="false">Menu</button><button class="tsearch" id="topSearch" type="button" aria-label="Search pages and commands (Ctrl+K)"><span>Search pages and commands</span><kbd>Ctrl K</kbd></button><span class="grow"></span><span id="liveChip" class="chip livechip" role="status" aria-live="polite" hidden></span><button class="btn sm" id="usageChip" type="button" hidden aria-label="Usage today. Open the details." onclick="go('telemetry')"></button><button class="btn sm" id="presetBtn" type="button" aria-haspopup="dialog" aria-expanded="false" title="Fast, Balanced, Quality or Battery">Presets</button><button class="btn sm topicon" id="paletteBtn" type="button" aria-label="Commands (Ctrl+K)" title="Commands (Ctrl+K)">Commands</button><button class="btn sm topicon" id="keysBtn" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button></div>
+    <div class="topbar"><button class="btn sm navtoggle" id="navToggle" type="button" aria-label="Menu" aria-controls="nav" aria-expanded="false">Menu</button><button class="tsearch" id="topSearch" type="button" aria-label="Search pages and commands (Ctrl+K)"><span>Search pages and commands</span><kbd>Ctrl K</kbd></button><span class="grow"></span><span id="liveChip" class="chip livechip" hidden></span><button class="btn sm" id="usageChip" type="button" hidden aria-label="Usage today. Open the details." onclick="go('telemetry')"></button><button class="btn sm" id="presetBtn" type="button" aria-haspopup="dialog" aria-expanded="false" title="Fast, Balanced, Quality or Battery">Presets</button><button class="btn sm topicon" id="paletteBtn" type="button" aria-label="Commands (Ctrl+K)" title="Commands (Ctrl+K)">Commands</button><button class="btn sm topicon" id="keysBtn" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button></div>
     <div id="runBar" class="runbar" hidden role="region" aria-label="Current run"></div>
     <div class="top"><div class="grow"><h1 id="pageTitle"></h1><p id="pageSub"></p></div><div class="row" id="pageActions"></div></div>
     <div class="subtabs" id="subtabs"></div>
@@ -1994,6 +1998,15 @@ function a11yPass(root){
   root=root||document;
   a11yEach(root,"button:not([aria-label])",b=>{const t=(b.textContent||"").trim();
     if(!t||/^[↑↓←→×✕⋯…▾▸›‹+−?]$/.test(t))b.setAttribute("aria-label",b.title||({"↑":"Move up","↓":"Move down","×":"Close","✕":"Close","?":"Help","+":"Add","−":"Remove"}[t]||"Button"));});
+  /* a visible label for a field built without one: data-vlabel="Project folder" -> <div class=vfield><label for>Project folder</label>
+     field</div>. The wrapper takes the field's place (and its flex share) so rows and grids keep their shape; the label is the name, so
+     an aria-label that said something else is dropped (the spoken name must match what is seen, 2.5.3). */
+  a11yEach(root,"[data-vlabel]",i=>{
+    if(i.parentElement&&i.parentElement.classList.contains("vfield"))return;
+    if(!i.id){a11yPass.n=(a11yPass.n||0)+1;i.id="vl_"+a11yPass.n;}
+    const w=h("div",{class:"vfield"+(i.classList.contains("grow")?" grow":"")});
+    if(i.style.flex){w.style.flex=i.style.flex;i.style.flex="";}
+    i.replaceWith(w);w.append(h("label",{class:"vlbl",for:i.id},i.dataset.vlabel),i);i.removeAttribute("aria-label");});
   a11yEach(root,"input:not([aria-label]):not([aria-labelledby]):not([type=hidden]),textarea:not([aria-label]):not([aria-labelledby]),select:not([aria-label]):not([aria-labelledby])",i=>{
     if(i.closest("label")||(i.id&&document.querySelector('label[for="'+i.id.replace(/"/g,'\\"')+'"]')))return;     /* a real label names it; an id alone does not */
     i.setAttribute("aria-label",i.placeholder||i.title||i.name||(i.tagName==="TEXTAREA"?"Text":"Field"));});
@@ -2765,7 +2778,7 @@ const EV={since:0,epoch:-1,steps:[],tools:[],gates:[],esc:[],calls:0,tokens:0,to
 
 function consolePage(){
   const msgs=h("div",{class:"msgs",id:"cMsgs"});
-  const ta=h("textarea",{id:"cIn",rows:2,placeholder:"Say what you want done and press Do it (Ctrl+Enter); Enter asks a question; / for a saved command.",
+  const ta=h("textarea",{id:"cIn","data-vlabel":"What you want done",rows:2,placeholder:"Say what you want done and press Do it (Ctrl+Enter); Enter asks a question; / for a saved command.",
     oninput:slashUpdate,
     onblur:()=>setTimeout(slashClose,120),
     onkeydown:e=>{
@@ -3495,7 +3508,7 @@ async function agentsLoad(){
   const ag=h("select",{id:"agSel"},...(r.agents||[]).map(a=>h("option",{value:a.id,selected:store.get("agAgent","")===a.id},a.name+" · "+a.model)));
   const env=h("select",{id:"agEnv"},h("option",{value:""},"(default environment)"),...(r.environments||[]).map(e=>h("option",{value:e.id,selected:store.get("agEnv","")===e.id},e.name)));
   const repo=h("input",{type:"text",id:"agRepo",placeholder:"https://github.com/you/repo (optional: lets the agent read and change your code)",value:store.get("agRepo","https://github.com/alexivieni/Local-Architect")});
-  const msg=h("textarea",{id:"agMsg",rows:3,placeholder:"e.g. Look through the hub UI code and propose three low-risk speed or clarity improvements, with the exact edits.",style:"width:100%;font:inherit"});
+  const msg=h("textarea",{id:"agMsg","data-vlabel":"Message to the agent",rows:3,placeholder:"e.g. Look through the hub UI code and propose three low-risk speed or clarity improvements, with the exact edits.",style:"width:100%;font:inherit"});
   const desc=h("p",{class:"small mute",id:"agDesc"});
   const showDesc=()=>{const a=(r.agents||[]).find(x=>x.id===ag.value);desc.textContent=a?a.description:"";};
   ag.onchange=()=>{store.set("agAgent",ag.value);showDesc();}; env.onchange=()=>store.set("agEnv",env.value); repo.oninput=()=>store.set("agRepo",repo.value); showDesc();
@@ -3622,9 +3635,9 @@ async function useRecommended(){
 const Q_ICON={pending:"dot",running:"play",done:"check",failed:"x",dead:"x",not_sure:"question",cancelled:"dash"};
 const Q_WORD={pending:"waiting",running:"running",done:"done",failed:"did not pass",dead:"gave up",not_sure:"not sure",cancelled:"cancelled"};
 function queuePage(){
-  const goal=h("input",{id:"qGoal",type:"text",placeholder:"A task, in your own words",
+  const goal=h("input",{id:"qGoal","data-vlabel":"Task",type:"text",placeholder:"A task, in your own words",
     onkeydown:e=>{if(e.key==="Enter"){e.preventDefault();qAdd();}}});
-  const flow=h("select",{id:"qFlow","aria-label":"Flow"},h("option",{value:""},"router decides"),
+  const flow=h("select",{id:"qFlow","data-vlabel":"Workflow"},h("option",{value:""},"router decides"),
     ...["bugfix","build","feature","refactor","test","optimize","review","secure","explore","hunt"].map(f=>h("option",{value:f},f)));
   return [bgJobsCard(),h("div",{class:"card"},
     h("h2",{},"Work it does on its own"),
@@ -3879,7 +3892,7 @@ async function loadUsageChip(){
   catch(_){b.hidden=true;}
 }
 function usageCard(){
-  const sel=h("select",{"aria-label":"Time span",onchange:e=>{US.w=e.target.value;loadUsageCard();}},h("option",{value:"day"},"Today (last 24 hours)"),h("option",{value:"week"},"This week"));
+  const sel=h("select",{"data-vlabel":"Time span",onchange:e=>{US.w=e.target.value;loadUsageCard();}},h("option",{value:"day"},"Today (last 24 hours)"),h("option",{value:"week"},"This week"));
   return h("section",{class:"card","aria-labelledby":"usT"},h("div",{class:"row",style:"gap:10px;align-items:center;flex-wrap:wrap"},
       h("div",{class:"grow"},h("h2",{class:"m0",id:"usT"},"Usage"),h("p",{class:"sub m0"},"What your models and Claude used. Read from this PC’s run records.")),sel),
     h("div",{id:"usBody","aria-live":"polite"},loadingLine("Reading usage…")));
@@ -4121,10 +4134,10 @@ function setP(p,v){const ks=p.split(".");let o=cfg;for(const k of ks.slice(0,-1)
 let studioSeq=-1,studioTimer=null,studioJob=null;
 function studioPage(){
   const apps=S.portfolio||[];
-  const rootIn=h("input",{type:"text",class:"grow",placeholder:"Project folder (the thread belongs to it)",value:run.root,oninput:e=>{run.root=e.target.value;store.set("root",run.root);studioSeq=-1;loadBacklog();}});
-  const appSel=h("select",{onchange:e=>{const a=apps.find(x=>x.name===e.target.value);if(a){run.root=a.path;rootIn.value=a.path;store.set("root",a.path);studioSeq=-1;}}},h("option",{value:""},"(a folder)"),...apps.map(a=>h("option",{value:a.name,selected:a.path===run.root},a.name)));
-  const box=h("textarea",{id:"stIn",rows:3,placeholder:"Ask about the code, or say what you want done. Shift+Enter for a new line.",onkeydown:e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();studioSend(false);}}});
-  const review=h("select",{id:"stReview"},h("option",{value:"ask"},"ask: approve each diff"),h("option",{value:"auto"},"auto: apply, I will undo if needed"),h("option",{value:"dry"},"dry: show, change nothing"));
+  const rootIn=h("input",{type:"text",class:"grow","data-vlabel":"Project folder",placeholder:"Project folder (the thread belongs to it)",value:run.root,oninput:e=>{run.root=e.target.value;store.set("root",run.root);studioSeq=-1;loadBacklog();}});
+  const appSel=h("select",{"data-vlabel":"Or a project",onchange:e=>{const a=apps.find(x=>x.name===e.target.value);if(a){run.root=a.path;rootIn.value=a.path;store.set("root",a.path);studioSeq=-1;}}},h("option",{value:""},"(a folder)"),...apps.map(a=>h("option",{value:a.name,selected:a.path===run.root},a.name)));
+  const box=h("textarea",{id:"stIn","data-vlabel":"Your message",rows:3,placeholder:"Ask about the code, or say what you want done. Shift+Enter for a new line.",onkeydown:e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();studioSend(false);}}});
+  const review=h("select",{id:"stReview","data-vlabel":"Changes"},h("option",{value:"ask"},"ask: approve each diff"),h("option",{value:"auto"},"auto: apply, I will undo if needed"),h("option",{value:"dry"},"dry: show, change nothing"));
   const hello=S.embed_model?"Function-level retrieval is on, so I can see the functions that match what you ask.":"Retrieval is by keywords; pull nomic-embed-text and I see the functions that match what you ask.";
   return [h("div",{class:"card"},
     h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Studio"),h("p",{class:"sub m0",title:"Answers come from the project's own files. Nothing changes until you press Do it, which hands the message to the team as a task."},"Ask about your project. Nothing changes.",h("span",{class:"mute",title:hello}," ⓘ"))),
@@ -4142,9 +4155,9 @@ async function loadBacklog(){
   const box=$("#backlogBox");if(!box||!run.root)return;
   let bl;try{bl=await api("/api/arch/backlog?root="+encodeURIComponent(run.root));}catch(e){box.textContent=e.message;return;}
   const post=async(body,msg)=>{try{await api("/api/arch/backlog",Object.assign({root:run.root},body));toast(msg);if(body.add||body.remove)loadBacklog();else{jobSince=0;studioJob={goal:"autopilot",started:Date.now(),done:false};appendJobCard(body.propose?"propose from findings":"autopilot");}}catch(e){toast.err(e.message,7000);}};
-  const add=h("input",{type:"text",class:"grow",placeholder:"Add a goal to the backlog, e.g. add input validation to the booking endpoint, with tests",onkeydown:e=>{if(e.key==="Enter"&&e.target.value.trim()){post({add:e.target.value.trim()},"Added.");e.target.value="";}}});
+  const add=h("input",{type:"text",class:"grow","data-vlabel":"New backlog goal",placeholder:"Add a goal to the backlog, e.g. add input validation to the booking endpoint, with tests",onkeydown:e=>{if(e.key==="Enter"&&e.target.value.trim()){post({add:e.target.value.trim()},"Added.");e.target.value="";}}});
   const hours=h("input",{type:"number",value:"1",min:"0.1",step:"0.5",style:"width:70px"}),maxN=h("input",{type:"number",value:"5",min:"1",style:"width:60px"});
-  const rev=h("select",null,h("option",{value:"auto"},"auto: apply, undo if needed"),h("option",{value:"ask"},"ask: approve each diff"));
+  const rev=h("select",{"data-vlabel":"Changes"},h("option",{value:"auto"},"auto: apply, undo if needed"),h("option",{value:"ask"},"ask: approve each diff"));
   const more=h("input",{type:"checkbox"});
   box.innerHTML="";
   put(box,h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"Backlog · let it work while you are away"),
@@ -4254,7 +4267,7 @@ const siChip=st=>h("span",{class:"chip "+({pass:"good",fail:"bad","could-not-run
   ({pass:"passed",fail:"failed","could-not-run":"could not run",no_progress:"no progress",rolled_back:"rolled back",ok:"done"}[st]||st||"–"));
 function selfImprovePage(){
   const goal=h("textarea",{id:"siGoal",rows:2,placeholder:"What should the app improve about itself? Leave empty to let it pick from failing checks, errors and advice."});
-  const rounds=h("select",{id:"siRounds","aria-label":"Rounds"},...[1,2,3,5].map(n=>h("option",{value:n,selected:n===3},n+" round"+(n>1?"s":""))));
+  const rounds=h("select",{id:"siRounds","data-vlabel":"Rounds"},...[1,2,3,5].map(n=>h("option",{value:n,selected:n===3},n+" round"+(n>1?"s":""))));
   const fake=h("input",{type:"checkbox",id:"siFake"});
   const start=async()=>{try{await api("/api/arch/selfimprove/start",{goal:goal.value.trim(),rounds:+rounds.value,fake:fake.checked});toast("Started: the first round audits a copy of the app");SI.sel=null;setTimeout(loadSelfImprove,1500);}catch(e){toast.err(e.message);}};
   const suggestBtn=async()=>{const b=$("#siSuggest");b.disabled=true;b.textContent="Looking…";
@@ -4336,7 +4349,7 @@ function renderMachines(m){
         h("td",{class:"small"},Object.entries(m.role_hosts).filter(([r,n])=>n===x.name).map(([r])=>roleName(r)).join(", ")||"–"),
         h("td",null,h("button",{class:"btn",onclick:()=>act({remove:x.name},"Removed "+x.name+"; its roles are back on this computer.")},"Remove"))))))):h("p",{class:"mute"},"No other machines yet."),
     (m.plan||[]).length?h("div",null,h("p",{class:"small"},"Suggested: "+m.plan.map(s=>`${roleName(s.role)} → ${s.host} (${s.model})`).join(" · ")),h("button",{class:"btn p",onclick:()=>act({apply_plan:true},"Routed. Remove a machine to undo.")},"Use these")):"",
-    h("div",{class:"row mt-2"},h("input",{id:"hostName",placeholder:"name (desktop)",style:"width:120px"}),h("input",{id:"hostAddr",placeholder:"192.168.1.20",class:"grow"}),
+    h("div",{class:"row mt-2"},h("input",{id:"hostName","data-vlabel":"Name",placeholder:"desktop",style:"width:120px"}),h("input",{id:"hostAddr","data-vlabel":"Address",placeholder:"192.168.1.20",class:"grow"}),
       h("button",{class:"btn",onclick:()=>act({add:{name:$("#hostName").value.trim(),address:$("#hostAddr").value.trim()}},"Added.")},"Add machine")));
 }
 function renderFit(f){
@@ -4362,7 +4375,7 @@ function renderIndex(ix){
   if(!ix){box.style.display="none";return;}box.style.display="";
   const on=ix.state==="on";
   const go=async(body,msg)=>{try{await api("/api/arch/index",Object.assign({root:run.root},body));toast(msg);}catch(e){toast("Could not do that: "+e.message);}};
-  const q=h("input",{type:"text",class:"grow",placeholder:"Try a request, e.g. add throttling to the API: shows how the project's code ranks for it (vector ranking only with an embedding model set)"});
+  const q=h("input",{type:"text",class:"grow","data-vlabel":"Try a request",placeholder:"Try a request, e.g. add throttling to the API: shows how the project's code ranks for it (vector ranking only with an embedding model set)"});
   put(box,h("div",{class:"row"},h("div",{class:"grow"},h("h2",null,"What the prompt shows"),
       h("p",{class:"sub"},"Small models read few files, so ranking matters."),learnMore("A small context window only carries a few files, so the ranking of files and functions is what makes a 4B-8B model usable. Keywords find exact names; a tiny embedding model (274 MB, loaded for a batch and released) also finds the function that does what you described in other words. Both are fused; the code checks still decide.")),
     h("span",{class:"chip "+(on?"good":"warn")},on?"on · "+(ix.model||""):"off")));
@@ -4536,7 +4549,7 @@ function start(){
   const folder=h("input",{type:"text",value:run.root,placeholder:"C:\\code\\my-app",oninput:e=>{run.root=e.target.value;run._folderEdited=true;store.set("root",run.root);}});
   const name=h("input",{type:"text",value:run.name||"",placeholder:"booking-app",oninput:e=>{run.name=e.target.value;
     if(!run._folderEdited){const f=autoFolder();if(f){run.root=f;folder.value=f;}}btn.textContent=label();}});
-  const goal=h("textarea",{rows:3,class:"sgoal",placeholder:"e.g. A booking API with a small web page where staff see the day's schedule",
+  const goal=h("textarea",{rows:3,class:"sgoal","data-vlabel":"Your idea (optional)",placeholder:"e.g. A booking API with a small web page where staff see the day's schedule",
     value:run.goal||"",oninput:e=>{run.goal=e.target.value;btn.textContent=label();}});
   const label=()=>(run.goal||"").trim()?"Create it and build my idea":"Create it";
   const btn=h("button",{class:"btn p sgo",onclick:()=>startNew(!!(run.goal||"").trim())},label());
@@ -4821,7 +4834,7 @@ function runPage(){
   return [h("div",{class:"runlay"},h("div",{class:"runmain"},
     h("div",{class:"card"},h("h2",null,"What should change?"),
       h("p",{class:"sub mt-1"},"Say it in plain words. The team picks the workflow, plans the steps, and real tests decide whether each change is kept."),
-      h("textarea",{id:"goal",rows:4,placeholder:"e.g. Add rate limiting to the login endpoint, with tests. Or: Design the data model for a booking service.",style:"font-family:inherit;font-size:var(--t-lead)",value:run.goal,oninput:e=>{run.goal=e.target.value;livePreview();}}),
+      h("textarea",{id:"goal","data-vlabel":"What you want done",rows:4,placeholder:"e.g. Add rate limiting to the login endpoint, with tests. Or: Design the data model for a booking service.",style:"font-family:inherit;font-size:var(--t-lead)",value:run.goal,oninput:e=>{run.goal=e.target.value;livePreview();}}),
       h("div",{class:"row",style:"margin-top:10px;align-items:flex-end"},
         h("label",{class:"f"},"Approve changes",h("select",{id:"rRev",onchange:e=>run.review=e.target.value},...[["ask","Ask me before each change"],["dry","Only show what it would change"],["auto","Apply, then prove it with tests"]].map(([v,l])=>h("option",{value:v,selected:run.review===v},l)))),
         h("span",{class:"grow"}),
@@ -4841,7 +4854,7 @@ function runPage(){
       h("pre",{class:"term",id:"term",tabindex:0}),
       h("div",{class:"row mt-3",id:"inRow"},...["y","n","a","q"].map(k=>{const say={y:"yes, apply",n:"no, skip",a:"apply all remaining",q:"quit the run"}[k];
         return h("button",{class:"btn sm",type:"button",title:say,"aria-label":k+": "+say,disabled:true,onclick:()=>sendIn(k)},k);}),
-        h("input",{type:"text",class:"grow",id:"inTxt",placeholder:"reply to the Architect, then Enter",onkeydown:e=>{if(e.key==="Enter"){sendIn(e.target.value);e.target.value="";}}}))),
+        h("input",{type:"text",class:"grow",id:"inTxt","data-vlabel":"Reply to the Architect",placeholder:"reply to the Architect, then Enter",onkeydown:e=>{if(e.key==="Enter"){sendIn(e.target.value);e.target.value="";}}}))),
     h("div",{class:"card"},h("div",{class:"row"},h("h2",{class:"grow"},"Past runs"),h("button",{class:"btn danger sm",onclick:()=>{if(confirm("Restore every file the most recent run changed (and remove files it created)?"))undoRun();}},"Undo last run")),h("div",{id:"runs",class:"mute boxlist"},"Pick a project first: its runs show up here.")),
     h("div",{class:"card"},h("h2",null,"Tools"),h("div",{class:"row"},...[["selftest","Self-test (no GPU needed)"],["flows","List workflows"],["show_config","Show settings"],["portfolio","List projects"]].map(([a,l])=>h("button",{class:"btn sm",onclick:()=>action(a)},l)))))
   )];
@@ -5119,7 +5132,7 @@ function loadingLine(t){return h("p",{class:"sub",role:"status"},t);}
 /* ---------- Plugins: list, enable/disable, trust (with a warning), install from a folder, what each provides ---------- */
 const PL={data:null};
 function pluginsPage(){
-  const path=h("input",{type:"text",id:"plPath",class:"grow",placeholder:"C:\\path\\to\\plugin-folder or plugin.zip","aria-label":"Plugin folder or zip"});
+  const path=h("input",{type:"text",id:"plPath",class:"grow","data-vlabel":"Plugin folder or zip",placeholder:"C:\\path\\to\\plugin-folder or plugin.zip"});
   return [h("section",{class:"card"},h("h2",{class:"m0"},"Plugins"),
       h("p",{class:"sub"},"Add-ons that bring agents, workflows, skills, commands and hooks."),
       learnMore("A plugin is a folder with plugin.json and any of agents/, workflows/, skills/, commands/ and hooks.json. Installed plugins start disabled and untrusted. Agents and workflows work once enabled; hooks and commands run only after you trust the plugin."),
@@ -5173,7 +5186,7 @@ function plTrust(p,act){
 /* ---------- Telemetry: live summary cards and one run's timeline as nested spans with duration bars ---------- */
 const TE={win:3600,sum:null,ev:null,t:0};
 function telemetryPage(){
-  const sel=h("select",{"aria-label":"Time window",onchange:e=>{TE.win=+e.target.value;loadTelemetry();}},
+  const sel=h("select",{"data-vlabel":"Time window",onchange:e=>{TE.win=+e.target.value;loadTelemetry();}},
     ...[[900,"Last 15 minutes"],[3600,"Last hour"],[86400,"Last day"],[604800,"Last week"]].map(([v,t])=>h("option",{value:v,selected:v===TE.win},t)));
   return [usageCard(),h("section",{class:"card"},h("div",{class:"row",style:"gap:10px;align-items:center;flex-wrap:wrap"},
       h("div",{class:"grow"},h("h2",{class:"m0"},"Telemetry"),h("p",{class:"sub m0"},"What the local models did: calls, tokens, cache reuse, errors.")),
@@ -5469,7 +5482,7 @@ function rvDraw(){
   if(other.length)tb.append(tt.length?h("details",{class:"more"},h("summary",null,"Other checks ("+other.length+")"),h("ul",{class:"rv-tests"},...other.map(li))):h("ul",{class:"rv-tests"},...other.map(li)));
   put(ts,tb);
   /* actions */
-  const note=h("textarea",{id:"rvNote",rows:2,"aria-label":"Note for the retry",placeholder:"For a retry: what should it do differently?",
+  const note=h("textarea",{id:"rvNote",rows:2,"data-vlabel":"Note for the retry",placeholder:"For a retry: what should it do differently?",
     value:RV.note!=null?RV.note:(vk!=="pass"&&d.first_failure?"It failed here: "+d.first_failure+" Fix this.":""),oninput:e=>{RV.note=e.target.value;},
     onkeydown:e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();rvRetry();}if(e.key==="Escape")e.target.blur();}});
   const key=k=>h("kbd",{class:"rv-k","aria-hidden":"true"},k);
@@ -5517,7 +5530,7 @@ async function rvRetry(){
   catch(e){toast.err(e.message);}
 }
 document.addEventListener("keydown",e=>{
-  if(page!=="review"||e.ctrlKey||e.metaKey||e.altKey||e.repeat||document.querySelector("dialog[open]"))return;   /* a held key must not confirm Undo */
+  if(page!=="review"||e.ctrlKey||e.metaKey||e.altKey||e.repeat||document.querySelector("dialog[open]")||!singleKeys())return;   /* a held key must not confirm Undo */
   const a=document.activeElement; if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
   const k=e.key.toLowerCase();
   if(k==="a"){e.preventDefault();rvAccept();}else if(k==="u"){e.preventDefault();rvUndo();}
@@ -6423,7 +6436,7 @@ function goSetting(path){go("settings");let n=0;const t=()=>{const l=document.qu
   l.scrollIntoView({block:"center"});const c=l.querySelector("select,input");if(c)c.focus();};setTimeout(t,60);}
 function dflt(p){const d=(S.defaults||{})[p];return d!=null&&d!==""?`default ${String(d).slice(0,24)}`:"default";}
 function ctl(path,type,label,hint){
-  const cur=getP(path); const ch=v=>{setP(path,v);mark();}; let i;
+  const cur=getP(path); const ch=v=>{setP(path,v);mark();fieldErr(path,"");}; let i;
   if(type.startsWith("choice:"))i=h("select",{onchange:e=>ch(e.target.value)},h("option",{value:""},dflt(path)),...type.slice(7).split(",").map(v=>h("option",{value:v,selected:v===cur},v)));
   else if(type==="bool")i=h("select",{onchange:e=>ch(e.target.value===""?"":e.target.value==="true")},h("option",{value:""},dflt(path)),h("option",{value:"true",selected:cur===true},"on"),h("option",{value:"false",selected:cur===false},"off"));
   else if(type==="int"||type==="float")i=h("input",{type:"number",step:type==="float"?"0.1":"1",value:cur??"",placeholder:dflt(path),onchange:e=>ch(e.target.value===""?"":(type==="int"?parseInt(e.target.value,10):parseFloat(e.target.value)))});
@@ -6432,7 +6445,21 @@ function ctl(path,type,label,hint){
   const r=(window.REC||{})[path], same=r&&JSON.stringify(cur)===JSON.stringify(r.value);
   const recEl=r&&!same?h("div",{class:"recline"},h("span",{class:"recchip",title:r.why},"Recommended for this PC: ",h("b",null,String(r.value===true?"on":r.value===false?"off":r.value))),
     h("button",{class:"btn sm",onclick:()=>{ch(r.value);render();}},"Use"),h("span",{class:"hint"},r.why+(r.basis==="measured"?" (measured here)":""))):null;
-  return h("label",{class:"f"+(r&&!same?" hasrec":""),"data-path":path},label,i,recEl,hint?h("span",{class:"hint"},hint):null);
+  /* the field's name is its label alone (the label element wraps the hint and the Use button, which made all of it the name);
+     the hint, the recommendation and a refused save's reason are read as its description */
+  const lid="set_"+path.replace(/[^\w]/g,"_"), hd=hint?h("span",{class:"hint",id:lid+"_h"},hint):null, er=h("span",{class:"ferr",id:lid+"_e",hidden:true});
+  if(recEl)recEl.id=lid+"_r";
+  i.id=lid+"_i";i.setAttribute("aria-labelledby",lid);
+  i.setAttribute("aria-describedby",[recEl?lid+"_r":"",hint?lid+"_h":"",lid+"_e"].filter(Boolean).join(" "));
+  return h("label",{class:"f"+(r&&!same?" hasrec":""),"data-path":path},h("span",{id:lid},label),i,er,recEl,hd);
+}
+/* one field's refused-save reason, shown under it and tied to it (aria-invalid + describedby); "" clears it */
+function fieldErr(path,msg){
+  const l=document.querySelector('[data-path="'+(window.CSS&&CSS.escape?CSS.escape(path):path)+'"]'); if(!l)return false;
+  const c=l.querySelector("select,input"), e=l.querySelector(".ferr");
+  if(e){e.textContent=msg||"";e.hidden=!msg;}
+  if(c){if(msg)c.setAttribute("aria-invalid","true");else c.removeAttribute("aria-invalid");}
+  return true;
 }
 async function loadRec(){try{window.REC=await api("/api/arch/recommend");}catch(e){window.REC={_error:{why:e.message}};}if(page==="settings")render();}
 function recCard(){
@@ -6452,8 +6479,21 @@ function mark(){dirty=true;const b=$("#saveCfg");if(b){b.disabled=false;b.textCo
 async function saveSettings(){
   const schema=S.settings_schema||{}; const patch={};
   for(const rows of Object.values(schema))for(const [p] of rows)patch[p]=getP(p)??"";
-  try{await api("/api/arch/settings",{settings:patch});dirty=false;toast("Settings saved");await refresh(true);}
-  catch(e){toast.err(e.message,7000);}
+  const note=$("#cfgErr");
+  try{await api("/api/arch/settings",{settings:patch});dirty=false;
+    if(note){note.hidden=true;note.textContent="";}for(const p of Object.keys(patch))fieldErr(p,"");
+    toast("Settings saved");await refresh(true);}
+  catch(e){
+    /* the server names each refused setting ("limits.num_ctx: must be ...; 'x.y' is not a recognised setting"): the reason goes
+       under that field, the whole message stays above (a toast that fades is not enough), and focus goes to the first one */
+    const msg=String(e.message||e);let first=null;
+    for(const part of msg.split("; ")){const m=part.match(/^'?([A-Za-z_][\w.]*)'?(?::\s*| is )/);
+      if(m&&fieldErr(m[1],part.replace(/^'?[\w.]+'?:\s*/,""))&&!first)first=m[1];}
+    if(note){note.textContent="Not saved: "+msg;note.hidden=false;}
+    srAlert("Settings not saved. "+msg);
+    if(first){const d=$("#setAdv");if(d)d.open=true;const l=document.querySelector('[data-path="'+first+'"]'),c=l&&l.querySelector("select,input");
+      if(c){c.scrollIntoView({block:"center"});c.focus({preventScroll:true});}}
+  }
 }
 /* Presets: Fast / Balanced / Quality / Battery (the same as `architect.py preset NAME`). Shows what changes before applying; Undo puts it back. */
 const RP={data:null,sel:null,busy:false};
@@ -6610,6 +6650,11 @@ function announce(msg){
 const FOCUSABLE="button,a[href],input,select,textarea,summary,[tabindex]";
 /* An async rebuild (fetch, then innerHTML) works too: focus is put back once the promise settles, and only when it fell off the page
    (onto <body>): someone who tabbed elsewhere while it loaded keeps their place. The panel is found again by id if it was replaced. */
+function focusPageHeading(){
+  const vis=e=>e&&e.getClientRects().length&&e.offsetWidth>2&&e.offsetHeight>2;
+  const t=$("#pageTitle"), v=vis(t)?t:[...document.querySelectorAll("#view h1,#view h2,#view h3")].find(vis)||t;
+  if(v){if(!v.hasAttribute("tabindex"))v.tabIndex=-1;v.focus({preventScroll:true});}
+}
 function keepFocus(el,build){
   const a=document.activeElement, i=el&&a&&el!==a&&el.contains(a)?[...el.querySelectorAll(FOCUSABLE)].indexOf(a):-1, sel=el&&el.id?"#"+el.id:null;
   const fix=()=>{const f=document.activeElement;if(i<0||(f&&f!==document.body&&f.isConnected))return;
@@ -6668,7 +6713,7 @@ function a11yWire(){
   wrap("go",o=>function(){const a=document.activeElement, from=a&&a.closest?a.closest("#nav,#subtabs"):null; const r=o.apply(this,arguments);
     const ttl=pageName();
     if(from){const c=document.querySelector("#"+from.id+" [aria-current=page]");if(c)c.focus({preventScroll:true});}
-    else{const f=document.activeElement;if(!f||f===document.body||!f.isConnected){const t=$("#pageTitle");if(t){t.tabIndex=-1;t.focus({preventScroll:true});}}}
+    else{const f=document.activeElement;if(!f||f===document.body||!f.isConnected)focusPageHeading();}
     document.title=(ttl?ttl+" · ":"")+"Architect Hub";             /* the browser tab and the screen reader's window title name the page */
     announce(ttl+" page");return r;});
   {const n=pageName();if(n)document.title=n+" · Architect Hub";}                 /* the page open when the hub starts is named too */
@@ -6747,11 +6792,13 @@ function settings(){
     h("button",{class:"btn",type:"button",onclick:()=>go("effective")},"See what each setting really is")),
     h("label",{class:"f row",style:"gap:8px;align-items:center;margin-top:10px"},
       h("input",{type:"checkbox",id:"showAdv",checked:showAdvanced(),onchange:e=>{store.set("showAdvanced",e.target.checked?"1":"0");buildNav();}}),
-      "Show advanced pages",h("span",{class:"small mute"},"Off: report cards, recipes, maps and samples stay in Ctrl+K only.")))];
+      "Show advanced pages",h("span",{class:"small mute"},"Off: report cards, recipes, maps and samples stay in Ctrl+K only.")),
+    h("div",{class:"mt-2"},singleKeysSwitch()),
+    h("p",{class:"note warn",id:"cfgErr",hidden:true}))];
   out.push(rpresetCard());                       /* Presets first: Fast / Balanced / Quality / Battery, "now -> new" preview, Undo */
   const adv=[]; const rc=recCard(); if(rc)adv.push(rc);
   for(const [t,l] of Object.entries(schema))adv.push(h("div",{class:"card"},h("h2",null,t),h("div",{class:"fgrid mt-3"},...l.map(([p,ty,lb,hn])=>ctl(p,ty,lb,hn)))));
-  adv.push(h("div",{class:"card"},h("details",null,h("summary",null,"Everything as JSON (advanced, unvalidated)"),h("textarea",{rows:16,id:"allTxt",spellcheck:false},JSON.stringify(cfg,null,2)),
+  adv.push(h("div",{class:"card"},h("details",null,h("summary",null,"Everything as JSON (advanced, unvalidated)"),h("textarea",{rows:16,id:"allTxt","data-vlabel":"The whole settings file (JSON)",spellcheck:false},JSON.stringify(cfg,null,2)),
     h("p",{class:"small mute m0 my-2"},"This writes the whole file directly and skips the checks above -- for scripting or restoring a backup, not everyday edits."),
     h("div",{class:"row mt-2"},h("button",{class:"btn",onclick:async()=>{try{const parsed=JSON.parse($("#allTxt").value||"{}");await api("/api/config",{config:parsed});dirty=false;toast("Saved");await refresh(true);}catch(e){toast.err("Not saved: "+e.message,6000);}}},"Save this JSON")))));
   /* everything but Presets lives under Advanced, closed until the person opens it (the choice is remembered) */
@@ -6940,6 +6987,7 @@ function openKeys(){
   HELP_EL=modal("Keyboard shortcuts",{size:"drawer",heading:true,closeText:"Close",onClose:()=>{HELP_EL=null;}},
       h("dl",{class:"keylist"},...KEYS.flatMap(([a,b,d])=>[h("dt",{},h("kbd",{},a),b?(a==="1"||a==="j"?" to ":" "):null,b?h("kbd",{},b):null),h("dd",{},d)])),
       h("p",{class:"hd-key small mute"},"Shortcuts pause while you are typing in a box, except Ctrl+K and Esc."),
+      singleKeysSwitch(),
       h("button",{class:"btn p mt-4",onclick:()=>{closeHelp();openPalette();}},"Open the command list"));
 }
 function closeHelp(){if(!HELP_EL)return;const d=HELP_EL;HELP_EL=null;d.close();}         /* the browser puts focus back on the opener */
@@ -6992,7 +7040,7 @@ function showText(title,text){modal(title,{size:"wide",heading:true,closeText:"C
 /* ---- Gallery: everything ready-made, one look ---- */
 function galleryPage(){
   const box=h("div",{id:"galBox"},h("div",{class:"skeleton",style:"height:140px"}));
-  const q=h("input",{type:"search",class:"gal-q","aria-label":"Search the gallery",placeholder:"Search: bug, review, tests, overnight…",oninput:()=>galDraw()});
+  const q=h("input",{type:"search",class:"gal-q","data-vlabel":"Search the gallery",placeholder:"Search: bug, review, tests, overnight…",oninput:()=>galDraw()});
   if(!TPLC.asked)tplCatalogLoad().then(()=>galDraw());
   setTimeout(async()=>{try{window.GAL=await api("/api/arch/gallery");}catch(e){window.GAL={packs:[],agents:[],error:e.message};}galDraw();},0);
   return [h("div",{class:"card"},h("h2",{class:"m0"},"Gallery"),
@@ -7421,7 +7469,7 @@ function openPalette(){
 }
 function closePalette(){ if(PAL){PAL.remove();PAL=null;const b=openPalette.back;openPalette.back=null;
   if(b&&b.isConnected&&b.focus)try{b.focus();}catch(_){}
-  else{const t=$("#pageTitle");if(t){t.tabIndex=-1;t.focus({preventScroll:true});}}} }
+  else focusPageHeading();} }
 $("#paletteBtn").addEventListener("click",openPalette);
 $("#presetBtn").addEventListener("click",rpTop);
 $("#keysBtn").addEventListener("click",()=>openKeys());
@@ -7430,6 +7478,12 @@ $("#keysBtn").addEventListener("click",()=>openKeys());
 let ESC_AT=0,G_AT=0;
 /* "g" then a letter (bare digits used to fire while you read a page) */
 const typing=e=>{const t=e.target,n=t&&t.tagName;return n==="INPUT"||n==="TEXTAREA"||n==="SELECT"||(t&&t.isContentEditable);};
+/* WCAG 2.1.4: shortcuts made of one character (?, /, j, k, g then a letter, a/u/r on Review, typing straight into Home's box) can be
+   turned off, for speech input and for people who press keys by accident. Ctrl+K, Ctrl+Enter, Ctrl+. and Esc stay. */
+function singleKeys(){return store.get("keys.single","1")!=="0";}
+function singleKeysSwitch(){return h("label",{class:"sw"},h("input",{type:"checkbox",id:"keysSingle",checked:singleKeys(),
+  onchange:e=>{store.set("keys.single",e.target.checked?"1":"0");announce(e.target.checked?"Single-key shortcuts on":"Single-key shortcuts off");}}),
+  h("span",null,"Single-key shortcuts (?, /, j and k, g then a letter, typing on Home)"));}
 /* nothing focused: the key lands on the page itself (body / html), not on a field, button or dialog */
 const nothingFocused=()=>{const a=document.activeElement;return !a||a===document.body||a===document.documentElement;};
 document.addEventListener("keydown",e=>{
@@ -7445,8 +7499,10 @@ document.addEventListener("keydown",e=>{
       else{ESC_AT=now;toast("Press Esc again within 2 s to stop the run",2000);}return;}
   }
   if(typing(e)){G_AT=0;return;}
-  /* Home: a printable key with nothing focused goes into the goal box (focus it, insert the character) instead of a shortcut */
-  if(page==="overview"&&nothingFocused()&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.length===1&&e.key!=="?"){
+  if(!singleKeys()&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.length===1){G_AT=0;return;}   /* turned off: the key does what the browser does */
+  /* Home: a printable key with nothing focused goes into the goal box (focus it, insert the character) instead of a shortcut.
+     Not Space: with nothing focused it scrolls the page, as everywhere else. */
+  if(page==="overview"&&nothingFocused()&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.length===1&&e.key!=="?"&&e.key!==" "){
     const g=$("#spGoal"); if(g){e.preventDefault();G_AT=0;g.focus();const a=g.selectionStart??g.value.length,b=g.selectionEnd??a;
       g.setRangeText(e.key,a,b,"end");g.dispatchEvent(new Event("input",{bubbles:true}));return;}
   }
@@ -7869,7 +7925,8 @@ function mdView(t){
   for(const line of String(t||"").replace(/\r/g,"").split("\n")){
     if(code!==null){if(/^```/.test(line)){out.append(h("pre",{},code.join("\n")));code=null;}else code.push(line);continue;}
     if(/^```/.test(line)){code=[];list=null;continue;}
-    const m=line.match(/^(#{1,3})\s+(.*)/); if(m){list=null;out.append(h("h"+m[1].length,{},inline(m[2])));continue;}
+    /* a page already has its h1 and the card its h2: the document's own "#" becomes h3 (the look keeps md-h1/2/3) */
+    const m=line.match(/^(#{1,3})\s+(.*)/); if(m){list=null;out.append(h("h"+(m[1].length+2),{class:"md-h"+m[1].length},inline(m[2])));continue;}
     const li=line.match(/^\s*[-*]\s+(.*)/)||line.match(/^\s*\d+[.)]\s+(.*)/);
     if(li){if(!list){list=h("ul");out.append(list);}list.append(h("li",{},inline(li[1])));continue;}
     list=null; if(line.trim())out.append(h("p",{},inline(line)));
@@ -8237,7 +8294,7 @@ function logbookPage(){
       h("p",{class:"sub"},"Everything your models and Claude did."),learnMore("Your models' runs, Claude Code runs and fleets, read into one logbook on this machine. A result that could not be judged counts neither as a success nor as a failure."),
       h("div",{id:"lbStats"},h("div",{class:"skeleton",style:"height:80px"}))),
     h("div",{class:"card"},h("h2",{},"Have we done this before?"),h("p",{class:"sub"},"Describe a task: the logbook finds the past tasks most like it, the ones that worked first."),
-      h("div",{class:"row"},h("input",{type:"search",id:"lbQ",placeholder:"e.g. add throttling to the API client","aria-label":"Describe a task",style:"min-width:0;flex:1 1 220px",onkeydown:e=>{if(e.key==="Enter")lbSearch();}}),
+      h("div",{class:"row"},h("input",{type:"search",id:"lbQ","data-vlabel":"Describe a task",placeholder:"e.g. add throttling to the API client","aria-label":"Describe a task",style:"min-width:0;flex:1 1 220px",onkeydown:e=>{if(e.key==="Enter")lbSearch();}}),
         h("button",{class:"btn",onclick:lbSearch},"Search")),h("div",{class:"mt-3",id:"lbHits"})),
     h("div",{class:"card"},h("h2",{},"Playbooks"),h("p",{class:"sub"},"Per kind of task, what usually worked. Rebuilt after each ingest."),h("div",{id:"lbBook"}))];
 }
