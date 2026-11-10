@@ -2454,8 +2454,8 @@ def bgjobs_stop(b):
     """POST /api/arch/bgjobs/stop {id}: hub job -> stop the process; waiting queue task -> cancel; running queue task -> .arch/STOP in its project."""
     jid = str(b.get("id") or "")
     if jid == "hub":
-        mh.JOB.stop()
-        return {"ok": True, "how": "stopped"}
+        r = mh.JOB.stop()
+        return {"ok": True, "how": "stopping after the current model call" if r.get("graceful") else "stopped"}
     m = re.fullmatch(r"q(\d+)", jid)
     if not m:
         raise ValueError("that is not a job")

@@ -2837,7 +2837,7 @@ function renderStrip(){
       h("span",{class:"num"},kfmt(EV.tokens)),"tokens"));
   if(EV.cached) kids.push(h("span",{class:"sg",title:"answers reused from a reply already given to exactly the same question"},
       icon("check"),h("span",{class:"num"},EV.cached),"reused"));
-  kids.push(h("button",{class:"btn sm killbtn",disabled:!EV.running,title:"Stop the run now (Esc twice). Files it already changed stay until you undo them",onclick:cStop},icon("stop"),"Stop"));
+  kids.push(h("button",{class:"btn sm killbtn",disabled:!EV.running,title:"Stop the run (Esc twice): it ends after the model call in progress, at most 20 s; files it changed stay until you undo them",onclick:cStop},icon("stop"),"Stop"));
   el.innerHTML=""; put(el,...kids);
 }
 var GPU=null;            // /api/arch/gpu, polled every 5 s while the console is open
@@ -3151,8 +3151,11 @@ async function cNew(){
   catch(e){ toast.err(e.message); }
 }
 async function cStop(){
-  /* the hub ends the run's process at once (it does not wait for the step to finish); Undo puts back any file it had changed */
-  try{ await api("/api/stop",{}); toast("Stopped. Files it changed so far stay until you undo them."); }
+  /* a run ends before its next model call (the project's .arch/STOP), at most grace_s later its process is ended; any other job
+     ends at once. Undo puts back any file the run had changed. */
+  try{ const r=await api("/api/stop",{});
+    toast(r.graceful?"Stopping after the model call in progress (at most "+Math.round(r.grace_s)+" s). Files it changed stay until you undo them."
+                    :"Stopped. Files it changed so far stay until you undo them.",6000); }
   catch(e){ toast.err(e.message); }
 }
 
@@ -3372,7 +3375,8 @@ function agentsPage(){
 let CC={run:"",since:0,events:[],session:store.get("ccSession",""),timer:0};
 async function ccLoad(){
   const f=$("#ccForm"); if(!f)return; let st; try{st=await api("/api/arch/claudecode");}catch(e){f.textContent=e.message;return;}
-  const chip=$("#ccStatus"); chip.textContent=st.ready?"ready":"not ready"; chip.className="chip "+(st.ready?"good":"warn");
+  if(!f.isConnected)return;            /* the person moved on while it loaded: the form and its status chip are gone (an uncaught TypeError) */
+  const chip=$("#ccStatus"); if(chip){chip.textContent=st.ready?"ready":"not ready"; chip.className="chip "+(st.ready?"good":"warn");}
   f.innerHTML=""; if(!st.ready){f.append(h("div",{class:"note warn"},st.why));return;}
   const mode=h("select",{id:"ccMode"},...[["plan","Plan: reads and plans, changes nothing"],["acceptEdits","Accept edits: edits files, asks for nothing else"],["default","Manual: risky tools are refused"]].map(([v,l])=>h("option",{value:v,selected:store.get("ccMode","plan")===v},l)));
   const model=h("select",{id:"ccModel"},...[["","Default model"],["opus","Opus"],["sonnet","Sonnet"],["haiku","Haiku"],["fable","Fable"]].map(([v,l])=>h("option",{value:v,selected:store.get("ccModel","")===v},l)));
@@ -6890,7 +6894,7 @@ function openHelp(key){
 const G_CHORDS={h:["overview","Home"],r:["console","Watch a run"],n:["run","New run"],w:["flows","Workflows"],a:["agents","Agent teams"],
   m:["models","Models"],s:["costmap","Speed"],c:["doctor","Health"],t:["settings","Settings"],e:["components","Help"]};
 const KEYS=[["Ctrl","K","Go to any page, or do something"],["?","","This list"],["/","","Saved commands (/review, /fix ...) in the Console"],
-  ["Enter","","Send what you typed"],["Shift","Enter","A new line instead of sending"],["Esc","","Close a panel; pressed twice with nothing open, stop the run now"],
+  ["Enter","","Send what you typed"],["Shift","Enter","A new line instead of sending"],["Esc","","Close a panel; pressed twice with nothing open, stop the run (after the model call in progress)"],
   ["j","k","Walk the plan of the current run (Watch a run)"],["Ctrl","Enter","Start the job you typed on Home"],
   ...Object.entries(G_CHORDS).map(([k,[,l]])=>["g",k,l]),["Ctrl",".","Switch between your models and Claude (chat)"]];
 function openKeys(){
@@ -7333,7 +7337,7 @@ function commandList(){
       try{const rs=await api("/api/arch/runs?root="+encodeURIComponent(run.root||""));const r=rs&&rs[0];if(!r){toast("No runs in this project yet");return;}
         window.open("/api/arch/receipt?run="+encodeURIComponent(r.name)+"&root="+encodeURIComponent(run.root||""),"_blank");}catch(e){toast.err(e.message);}}},
     {ic:"search",label:"Keyboard shortcuts",sub:"Every key this hub answers to (or press ?)",go:()=>openKeys()},
-    {ic:"stop",label:"Stop the run",sub:"Ends it now; Undo puts back any file it changed",go:()=>cStop()},
+    {ic:"stop",label:"Stop the run",sub:"Ends after the model call in progress; Undo puts back any file it changed",go:()=>cStop()},
     {ic:THEME_ICON[store.get("theme","system")]||"palette",label:"Change appearance",sub:"Auto, Light, Dark, Midnight or Paper (next one)",go:cycleTheme},
     {ic:"palette",label:"Choose a theme",sub:"See all five looks side by side and pick one",go:()=>setTimeout(openThemePick,30)},
     {ic:"health",label:"Run the doctor",sub:"Real checks: Python, Ollama, disk, port, git",go:()=>{go("doctor");}},

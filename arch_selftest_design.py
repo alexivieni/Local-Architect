@@ -92,7 +92,7 @@ def run():
     lit += re.findall(r"font:\s*(?:[0-9]{3}\s+)?[0-9.]+r?em", open_html)
     check("every font size is a --t-* step (no literal rem/em sizes, ~280 before the sweep)", not lit, lit[:5])
     check("the type scale has no alias names left (label, xs, s, ms, m, l, card, xl, 2xl were second names for the same steps)",
-          not re.search(r"--t-(?:label|xs|s|ms|m|l|card|xl|2xl)", open_html))
+          not re.search(r"--t-(?:label|xs|s|ms|m|l|card|xl|2xl)\b", open_html))
     script = html[html.find("</style>"):]
     spacing_only = [x for x in re.findall(r'style:"([^"]*)"', script)
                     if re.fullmatch(r"(?:(?:margin|padding)(?:-(?:top|bottom|left|right))?:[^;]+;?)+", x.strip())]

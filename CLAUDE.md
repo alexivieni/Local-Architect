@@ -61,5 +61,5 @@ python architect_hub.py              # the hub (or START_HUB.bat)
 A comment in the code that cites "CLAUDE.md, <section>" means the section of that name in the page above.
 
 ## Open issues (known, not fixed)
-- The escalation fallback ignores `role_hosts`: when an escalated model gives no answer, `Engine.call` goes back to the role's own
-  model on THIS machine (`host=None`) even when that role normally runs on another machine (small-models.md).
+- None open. The last one (the escalation fallback ignored `role_hosts`) was fixed on 2026-11-09: see docs/claude/decisions.md,
+  "Tech-debt Phase 1 (second audit)".

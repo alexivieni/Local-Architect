@@ -13,24 +13,28 @@ import time
 
 import arch_core as core
 
-# Cloud API list prices per 1,000,000 tokens (USD), each with its source and date. The Claude rows are Anthropic's first-party API
-# prices as listed on 2026-11-03 (the Opus 4.6 row used to say $15/$75 and Haiku 4.5 $0.80/$4, older prices that tripled "saved vs
-# Opus"). The GPT-4o row is OpenAI's list price as entered by hand; Architect does not check it. arch_selftest_finops compares every
-# Claude row with arch_cloud.PRICES where both list the model.
-RATES_AS_OF = "2026-11-03"
+# Cloud API list prices per 1,000,000 tokens (USD), each with its source and date. The Claude rows come from arch_cloud.PRICES, the
+# app's ONE Claude price list (this file kept its own copy, and it drifted: Opus 4.6 at $15/$75 and Haiku 4.5 at $0.80/$4 tripled
+# "saved vs Opus"); a cache read is 0.1x the input price. The GPT-4o row is OpenAI's list price as entered by hand; Architect does
+# not check it.
+import arch_cloud as _cloud
+
+RATES_AS_OF = _cloud.PRICES_AS_OF
+
+
+def _claude(model_id, label, tier):
+    pin, pout = _cloud.PRICES[model_id]
+    return {"label": label, "vendor": "Anthropic", "tier": tier, "input": pin, "cached_input": round(pin * 0.1, 4), "output": pout,
+            "source": "Anthropic first-party API price list (arch_cloud.PRICES)", "as_of": RATES_AS_OF}
+
+
 CLOUD_RATES = {
-    "claude-opus-4-6": {"label": "Claude Opus 4.6", "vendor": "Anthropic", "tier": "Frontier heavy",
-                        "input": 5.00, "cached_input": 0.50, "output": 25.00,
-                        "source": "Anthropic first-party API price list", "as_of": RATES_AS_OF},
-    "claude-sonnet-4-6": {"label": "Claude Sonnet 4.6", "vendor": "Anthropic", "tier": "Standard coding",
-                          "input": 3.00, "cached_input": 0.30, "output": 15.00,
-                          "source": "Anthropic first-party API price list", "as_of": RATES_AS_OF},
+    "claude-opus-4-6": _claude("claude-opus-4-6", "Claude Opus 4.6", "Frontier heavy"),
+    "claude-sonnet-4-6": _claude("claude-sonnet-4-6", "Claude Sonnet 4.6", "Standard coding"),
     "gpt-4o": {"label": "GPT-4o", "vendor": "OpenAI", "tier": "Standard multimodal",
                "input": 2.50, "cached_input": 1.25, "output": 10.00,
                "source": "OpenAI list price, entered by hand (not checked by Architect)", "as_of": RATES_AS_OF},
-    "claude-haiku-4-5": {"label": "Claude Haiku 4.5", "vendor": "Anthropic", "tier": "Fast router / light",
-                         "input": 1.00, "cached_input": 0.10, "output": 5.00,
-                         "source": "Anthropic first-party API price list", "as_of": RATES_AS_OF},
+    "claude-haiku-4-5": _claude("claude-haiku-4-5", "Claude Haiku 4.5", "Fast router / light"),
 }
 
 SEAT_PLANS = {

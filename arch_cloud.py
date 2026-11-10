@@ -26,10 +26,16 @@ from arch_core import LLMError
 
 PREFIX = "claude:"
 DEFAULT_MODEL = "claude-opus-5-5"
-PRICES = {                       # USD per million tokens (input, output); first-party API rates, 2026-10
+# USD per million tokens (input, output): Anthropic's first-party API list prices as of 2026-11-03. THE one Claude price list: cost
+# estimates, the orchestration view and the FinOps report all read it (FinOps kept its own copy, which drifted to old prices). Cache
+# reads are 0.1x the input price and 5-minute cache writes 1.25x (arch_orchestration.CACHE_READ_X / CACHE_WRITE_X).
+PRICES = {
     "claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0), "claude-haiku-5-5": (0.10, 0.50),
-    "claude-fable-5-1": (10.0, 50.0), "claude-opus-5": (5.0, 25.0),
+    "claude-fable-5-2": (8.0, 40.0), "claude-fable-5-1": (10.0, 50.0), "claude-opus-5": (5.0, 25.0), "claude-sonnet-5": (2.0, 10.0),
+    "claude-opus-4-8": (5.0, 25.0), "claude-opus-4-7": (5.0, 25.0), "claude-opus-4-6": (5.0, 25.0),
+    "claude-sonnet-4-6": (3.0, 15.0), "claude-haiku-4-5": (1.0, 5.0),
 }
+PRICES_AS_OF = "2026-11-03"
 _SPENT = {"usd": 0.0, "calls": 0}
 import threading as _th
 _HERE = _th.local()          # set while ONE chat reply the person explicitly sent to Claude is being answered

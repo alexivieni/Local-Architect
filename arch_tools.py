@@ -295,9 +295,13 @@ def schema(names=None):
 
 # ---- within-run tool cache (behavior.tool_cache, default on): read-only tool results are kept for the life of one engine/run, keyed by
 # (tool, args, size+mtime of the files the answer depends on). A write through a tool (apply, edit_lines, memory_append) drops the
-# affected entries at once; an edit made any other way changes the files' size/mtime, so the key no longer matches. Never persisted.
+# affected entries at once; an edit made any other way (a hook, a test run, the person in an editor) changes the files' size/mtime, so
+# the key no longer matches. The tree fingerprint itself is reused for TREE_FP_TTL seconds only, and dropped after run_tests: it used
+# to be kept until Architect wrote a file, so an edit made outside the tools was never seen (ls/grep/search answered from the old tree).
+# Never persisted.
 CACHED = ("ls", "grep", "search", "outline")
 WRITERS = ("apply", "edit_lines", "memory_append", "delegate")
+TREE_FP_TTL = 1.0           # seconds: enough for a burst of tree tools in one step, short enough that an outside edit is seen
 
 
 def _tc(e):
@@ -329,14 +333,15 @@ def _fingerprint(e, name, args):
     if name == "outline":
         return _stat(_rel(e, args.get("path", "")))
     c = _tc(e)
-    if c.get("tree_fp"):
+    import time as _time
+    if c.get("tree_fp") and _time.monotonic() - c.get("tree_fp_t", 0.0) < TREE_FP_TTL:
         return c["tree_fp"]
     import hashlib
     h = hashlib.sha1()
     for f in core.list_files(e.root, e.cfg):
         h.update(f"{f}|{_stat(os.path.join(e.root, f))}\n".encode("utf-8", "replace"))
     fp = h.hexdigest()
-    c["tree_fp"] = fp
+    c["tree_fp"], c["tree_fp_t"] = fp, _time.monotonic()
     return fp
 
 
@@ -369,6 +374,8 @@ def call(e, name, args, allowed=None):
             invalidate(e, [str((args or {}).get("path"))] if isinstance(args, dict) and args.get("path") else None)
         except Exception:
             pass
+    if name == "run_tests":
+        _tc(e).pop("tree_fp", None)                    # tests may write files (fixtures, caches, outputs): the tree is read again
     return out, ok
 
 

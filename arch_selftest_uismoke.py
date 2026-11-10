@@ -133,6 +133,9 @@ def run():
         box = b.eval("(()=>{const p=document.querySelector('#spProgress');return p?p.innerText:''})()") or ""
         check("Home shows 'Working on it' while it runs", seen_working, box[:200])
         check("Home shows the verdict 'It worked'", finished and "It worked" in box, box[:300])
+        # the verdict arrives before the run's process has exited; the stream closes on the next frame (running: false), and the
+        # browser lists a stream request only once it is closed: counting at "Finished" failed about 1 time in 4
+        b.wait_for("typeof LIVE==='undefined'||!LIVE.es", 10)
         res = b.eval("performance.getEntriesByType('resource').map(e=>e.name.replace(location.origin,''))") or []
         polls = [r for r in res if r.startswith("/api/arch/events?")]
         streams = [r for r in res if r.startswith("/api/arch/events/stream")]

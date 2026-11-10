@@ -204,3 +204,25 @@ All items previously listed as open in `docs/ANTIGRAVITY_HANDOFF.md` §5 and the
   event the live board shows; `/api/arch/redirect` no longer writes STOP unless asked.
 - "Run this plan" is offered only when the run's flow is a YAML `DataFlow` (only it reads `plan_override.json`); otherwise the card
   says the workflow runs as built-in code and how to switch. Pinned by `arch_selftest_rules.py`.
+
+## Tech-debt Phase 1 (second audit, 2026-11-09)
+- Stop: a run is asked to end before its next model call (the hub writes the project's `.arch/STOP`, which the engine already
+  honoured); after `Job.STOP_GRACE_S` (20 s) its process is ended; the stop file the hub wrote is removed when the process is gone
+  (nothing removed it before, so a STOP file was a permanent kill switch). Jobs that are not runs, and the hub's own shutdown, end at
+  once. A stop file the person put there is never taken over or removed. `arch_selftest_debt`.
+- One Claude price list: `arch_cloud.PRICES` (now with the 4.x models and `PRICES_AS_OF`); FinOps builds its Claude rows from it
+  (its own copy had drifted to old prices). Orchestration already read it, and now prices 4.x sessions at their exact model.
+- Tool cache: the tree fingerprint is reused for `TREE_FP_TTL` (1 s) and dropped after `run_tests`; it was kept until Architect wrote
+  a file, so ls/grep/search answered from the old tree after a hook, a test run or an edit in the person's editor.
+- The escalation fallback keeps the role on its own machine (`role_hosts`): both the route and the retry call were hard-wired to this
+  computer. Open since 2026-11-03.
+- `arch_selftest_crawl` (a real browser, a throwaway install, every POST answered inside the page): every page opens with no uncaught
+  error and every button on the key pages is pressed; `ARCHITECT_CRAWL_ALL=1` presses all ~730. Its first run caught a race in
+  `ccLoad` (it wrote to a chip that a page change had removed: an uncaught TypeError), fixed.
+- A refused POST (no token, wrong host or origin, too large) was answered with its body unread, so Windows sometimes reset the
+  connection (WinError 10053) and the page got "connection aborted" instead of the reason; it made `arch_selftest_workspace` fail
+  intermittently in CI (1 in 30 refused requests measured on the old handler, 0 in 30 now). `Handler._refuse` reads up to 64 KB first.
+- Three regexes held a real backspace where a backslash-b (a regex word boundary) was meant (written through a shell heredoc): the design suite's "no type alias left"
+  check could never fail, `tools/ci_parallel.py` never named a crashed suite's error, and the crawl's client-gone filter matched
+  nothing. Fixed; `arch_selftest_debt` now fails on any control character in the source. The crawl ignores only a browser hanging
+  up mid-request (ConnectionAborted/Reset, BrokenPipe in Python's HTTP server); any other traceback fails it.

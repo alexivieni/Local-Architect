@@ -682,8 +682,11 @@ def _split_events(s):
 
 
 class Job:
+    STOP_GRACE_S = 20.0      # how long a run gets to finish its current model call after Stop, before its process is ended
+
     def __init__(self):
         self.proc, self.buf, self.title, self.started, self.ended, self.code = None, "", "", None, None, None
+        self.argv, self._stop_file = [], None
         self.lock = threading.Lock()
         # epochs start from the clock (milliseconds), so a number is never reused after the hub restarts: a watcher that kept an
         # epoch (the HUD, the guided tour, the Console) used to take the first run of a new hub for "its" run
@@ -698,6 +701,8 @@ class Job:
                 raise RuntimeError("A job is already running. Stop it first.")
             self.buf, self.title, self.started, self.ended, self.code = "", title, time.time(), None, None
             self.events, self.ev_dropped = [], 0
+            self.argv = list(argv)
+            self._clear_stop_file()                      # a stop file this hub left behind must not end the new run at its first call
             self.epoch += 1                              # a watcher that reconnects can tell "new run" from "more of the same run"
             env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8", ARCHITECT_EVENTS="1")
             self.proc = subprocess.Popen([sys.executable, "-u", *argv], cwd=HERE, stdin=subprocess.PIPE,
@@ -753,13 +758,62 @@ class Job:
         with self.lock:
             self.buf += f"{text}\n"
 
-    def stop(self):
-        if self.running():
-            self.proc.terminate()
+    def _run_root(self):
+        """The project folder of the current job when it is a run started with --root (else None)."""
+        a = self.argv
+        if "--root" in a and a.index("--root") + 1 < len(a):
+            r = a[a.index("--root") + 1]
+            return r if os.path.isdir(r) else None
+        return None
+
+    def _clear_stop_file(self):
+        p, self._stop_file = self._stop_file, None
+        if p:
             try:
-                self.proc.wait(5)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
+                os.remove(p)
+            except OSError:
+                pass                                     # intentional: already gone (removed by hand, or the project was deleted)
+
+    def stop(self, graceful=True):
+        """Stop the job. A run with a project folder is asked first: the project's .arch/STOP makes the engine end the run before its
+        next model call (the run records it as stopped, its undo is intact); if it is still going after STOP_GRACE_S, or the job is not a
+        run, the process is ended at once. The stop file this wrote is removed when the process is gone.
+        -> {"stopped", "graceful", "grace_s"}"""
+        if not self.running():
+            return {"stopped": False, "graceful": False, "grace_s": 0}
+        proc, root = self.proc, (self._run_root() if graceful else None)
+        if root:
+            p = os.path.join(root, ".arch", "STOP")
+            try:
+                if not os.path.exists(p):                # never take over (or later delete) a stop file the person put there
+                    os.makedirs(os.path.dirname(p), exist_ok=True)
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write("stopped from the hub\n")
+                    self._stop_file = p
+            except OSError:
+                root = None
+        if root:
+            def insist():
+                try:
+                    proc.wait(self.STOP_GRACE_S)
+                except subprocess.TimeoutExpired:
+                    self._end(proc)
+                finally:
+                    if self.proc is proc:
+                        self._clear_stop_file()
+            threading.Thread(target=insist, daemon=True).start()
+            return {"stopped": True, "graceful": True, "grace_s": self.STOP_GRACE_S}
+        self._end(proc)
+        self._clear_stop_file()
+        return {"stopped": True, "graceful": False, "grace_s": 0}
+
+    @staticmethod
+    def _end(proc):
+        proc.terminate()
+        try:
+            proc.wait(5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
     def snapshot(self, since=0):
         with self.lock:
@@ -1005,18 +1059,35 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._send(500, {"error": f"{type(e).__name__}: {e}"})
 
+    def _refuse(self, code, msg):
+        """Refuse a POST, but read its body first (up to 64 KB). Answering and closing with the body still unread makes Windows reset
+        the connection, so the page got 'connection aborted' (WinError 10053) instead of the reason; it was intermittent, depending on
+        whether the body had arrived yet. A larger body is not read: the connection is closed after the answer."""
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if 0 < n <= 65536:
+            try:
+                self.rfile.read(n)
+            except OSError:
+                pass                                    # intentional: the peer went away; the answer below fails quietly too
+        else:
+            self.close_connection = True
+        return self._send(code, {"error": msg})
+
     def do_POST(self):
         if not self._host_ok():
-            return self._send(403, {"error": "bad host"})
+            return self._refuse(403, "bad host")
         origin = self.headers.get("Origin")
         if origin and origin.split("://", 1)[-1].split(":")[0] not in ("127.0.0.1", "localhost"):
-            return self._send(403, {"error": "bad origin"})
+            return self._refuse(403, "bad origin")
         if not secrets.compare_digest(self.headers.get("X-Hub-Token") or "", Hub.token):
-            return self._send(403, {"error": "bad token: reload the page"})
+            return self._refuse(403, "bad token: reload the page")
         try:
             n = int(self.headers.get("Content-Length") or 0)
             if n < 0 or n > 2_000_000:                  # a negative length would read until the peer hangs up
-                return self._send(413, {"error": "too large"})
+                return self._refuse(413, "too large")
             body = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
             self._responded = False
             if self.path.split("?", 1)[0] in CONFIG_ROUTES:
@@ -1092,8 +1163,7 @@ class Handler(BaseHTTPRequestHandler):
             JOB.send(str(b.get("text") or ""))
             return {"ok": True}
         if path == "/api/stop":
-            JOB.stop()
-            return {"ok": True}
+            return dict({"ok": True}, **JOB.stop())
         if path == "/api/notes":
             with open(NOTES_FILE, "w", encoding="utf-8") as f:
                 f.write(str(b.get("text") or ""))
@@ -1121,7 +1191,7 @@ def serve(port=8765, open_browser=True, host="127.0.0.1"):
     except KeyboardInterrupt:
         print("\nStopping.")
     finally:
-        JOB.stop()
+        JOB.stop(graceful=False)                         # the hub is closing: nothing is left to wait for the run
         srv.server_close()
     return 0
 

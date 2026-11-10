@@ -106,9 +106,9 @@ def run():
 
         # ---- the page
         ui = open(os.path.join(HERE, "hub_ui.html"), encoding="utf-8").read()
-        check("Stop says what it does: it ends the run now (it said 'between steps' and 'nothing is half-applied')",
-              "Stops between steps" not in ui and "Stopping between steps" not in ui and "nothing is half-applied" not in ui
-              and "Ends it now; Undo puts back any file it changed" in ui)
+        check("Stop says what it does: the run ends after the model call in progress, then is ended (no 'nothing is half-applied')",
+              "Stopping between steps" not in ui and "nothing is half-applied" not in ui
+              and "Ends after the model call in progress; Undo puts back any file it changed" in ui and "r.graceful?" in ui)
         check("Free memory unloads Architect's own models and reports what was unloaded (it looped over other apps' models)",
               "O.models.filter(m=>m.ours)" in ui and "O.models.filter(m=>!m.ours)" not in ui and 'toast("Graphics memory freed")' not in ui)
         check("a step that only started is in progress (or has no result once the run ended), never 'done'",

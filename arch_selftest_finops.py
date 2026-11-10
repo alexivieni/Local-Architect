@@ -45,6 +45,11 @@ def run():
         check("Claude list prices are right (Opus 4.6 $5/$25, Sonnet 4.6 $3/$15, Haiku 4.5 $1/$5; cache reads 0.1x) and every row says its source and date",
               all((R_[k]["input"], R_[k]["cached_input"], R_[k]["output"]) == v for k, v in want.items())
               and all(r.get("source") and r.get("as_of") for r in R_.values()), {k: (R_[k]["input"], R_[k]["output"]) for k in R_})
+        import arch_cloud
+        check("the Claude rows come from arch_cloud.PRICES, the app's one Claude price list (a second copy drifted to old prices)",
+              all((R_[k]["input"], R_[k]["output"]) == arch_cloud.PRICES[k] for k in want)
+              and "CLOUD_RATES" in open(os.path.join(HERE, "arch_finops.py"), encoding="utf-8").read()
+              and '"input": 5.00' not in open(os.path.join(HERE, "arch_finops.py"), encoding="utf-8").read())
 
         # 3. Measured usage is really read (it called arch_usage.summary, which does not exist, so it was always 0)
         import json as _json

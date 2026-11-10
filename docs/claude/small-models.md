@@ -111,9 +111,9 @@ Measured live on this laptop; read before touching flows, the engine, servers or
   `.wslconfig` memory limit (default half the RAM); detect() puts it in `hw["vm"]`, live() in `vm_gb`/`vm_limit_gb`. `plan()` keeps
   the VM's room to grow free and says so; the status strip shows "Docker/WSL x GB" while it runs. Never change the person's WSL/Docker
   settings to make room: plan around them.
-- Known, not fixed yet (review 2026-11-03, re-checked 2026-11-08): the escalation fallback sends the worker to the local server even
-  when its role normally runs on another machine (`role_hosts`): `Engine.call` resets `cur` to `host=None`. Fixed since: `arch_server.plan`
-  plans the KV cache as f16 unless the cache-type flags and flash attention are really in the args (2026-11-07).
+- Fixed (both found in the 2026-11-03 review): after a failed escalation the role goes back to its own model on its OWN machine
+  (`role_hosts`; `Engine.call` used to reset to `host=None`, fixed 2026-11-09, `arch_selftest_win`), and `arch_server.plan` plans the
+  KV cache as f16 unless the cache-type flags and flash attention are really in the args (2026-11-07).
 - An escalated role whose larger model gives no answer goes back to its own model for the rest of the step (`Engine.call`), instead
   of ending the run on a machine problem. llama-server's `-c` is the TOTAL KV memory shared by its slots, and a build left to choose
   opens 4: `arch_server.plan` always passes `--parallel N` and `-c ctx*N`. A "Context size has been exceeded" error mid-reply comes back

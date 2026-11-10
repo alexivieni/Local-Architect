@@ -1992,11 +1992,17 @@ class Engine:
                     self.pins.pop(role, None)
                     own = self.model_for(role)
                     if own and own != big:
-                        self.say(f"[!] {big} did not answer ({str(ex)[:90]}); {role} goes back to {own} for the rest of this step")
-                        self.report(f"- Escalation to `{big}` failed ({str(ex)[:140]}): `{role}` stayed on `{own}`.")
-                        cur.update(model=own, host=None)
-                        with self._lock:                   # the worker may have stepped aside for the bigger model: back first
-                            self._bring_back(own, allow=1)
+                        # back on its own model AND its own machine: a role routed to another computer (role_hosts) used to come back
+                        # to THIS one, where its model may not even be installed (open issue since 2026-11-03)
+                        rt2 = None if role in self.down_roles else arch_hosts.route_of(self.cfg, role)
+                        away = bool(rt2 and rt2[0] not in self.down_hosts)
+                        where = f" on {rt2[0]}" if away else ""
+                        self.say(f"[!] {big} did not answer ({str(ex)[:90]}); {role} goes back to {own}{where} for the rest of this step")
+                        self.report(f"- Escalation to `{big}` failed ({str(ex)[:140]}): `{role}` stayed on `{own}`{where}.")
+                        cur.update(model=own, host=rt2[1] if away else None, name=rt2[0] if away else None)
+                        if not away:
+                            with self._lock:               # the worker may have stepped aside for the bigger model: back first
+                                self._bring_back(own, allow=1)
                         # the request was sized for the bigger model: size it again for this one (its window, its hardware knobs)
                         mo2 = self._model_override(own)
                         opts = {k: v for k, v in options.items() if k not in ("num_batch", "num_thread")}
@@ -2008,8 +2014,8 @@ class Engine:
                         opts["num_predict"] = arch_tune.clamp_num_predict(opts["num_ctx"], est2, options["num_predict"])[0]
                         options.clear()
                         options.update(opts)
-                        self._note_ollama(own, None)
-                        return stream_chat(own, msgs, options, th, self._ka(), timeouts(), fmt, host=None, on_token=tok)
+                        self._note_ollama(own, cur["host"])
+                        return stream_chat(own, msgs, options, th, self._ka(), timeouts(), fmt, host=cur["host"], on_token=tok)
                     self.pins[role] = big                  # nothing else to step back to (a step that pins a tier): the normal recovery below
                 if not cur["host"] and "not reachable" in str(ex) and self._restart_local(ex):
                     return stream_chat(cur["model"], msgs, options, th, self._ka(), timeouts(), fmt, host=None, on_token=tok)

@@ -285,6 +285,27 @@ def run():
             core.stream_chat = real_chat
         check("a larger model that cannot answer hands the step back to the role's own model instead of ending the run",
               r_esc.get("model") == "fake:7b" and "generator" not in e_esc.pins and r_esc.get("text"), r_esc)
+        # ...and back to its own MACHINE: a role routed to another computer came back to this one (open since 2026-11-03)
+        desk = "http://" + os.environ["OLLAMA_HOST"]          # the stand-in server, named as another machine (no network leaves the loop)
+        e_rh = engine(proj_esc, "build", "g")
+        e_rh.cfg["hosts"], e_rh.cfg["role_hosts"] = {"desk": desk}, {"generator": "desk"}
+        seen_hosts = []
+
+        def flaky2(model, *a, **k):
+            seen_hosts.append((model, k.get("host")))
+            if model == "big:14b":
+                raise core.LLMError("No first token from big:14b for 81s, so the call was stopped")
+            return real_chat(model, *a, **k)
+        core.stream_chat = flaky2
+        try:
+            e_rh.pins["generator"] = "big:14b"
+            r_rh = e_rh.call("generator", "say ok", label="esc")
+        except core.LLMError as ex:
+            r_rh = {"error": str(ex)}
+        finally:
+            core.stream_chat = real_chat
+        check("after a failed escalation a role on another machine goes back to THAT machine, not this one",
+              r_rh.get("model") == "fake:7b" and seen_hosts[:1] == [("big:14b", None)] and ("fake:7b", desk) in seen_hosts, (r_rh, seen_hosts))
 
         # ---- an empty role uses its OWN tier before a related role's model (seen live: with the planner on a 14B, an empty router
         # borrowed the planner's model through FALLBACK, so every task was routed at 2.5 tokens/s)
