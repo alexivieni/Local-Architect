@@ -134,6 +134,12 @@ def run():
           and 'role:"region","aria-label":"Lessons table",tabindex:"0"' in ui)
     check("Settings: Advanced is a native details/summary (keyboard and screen reader operable) at least 44 px tall",
           'h("summary",{class:"more-sum"},"Advanced:' in ui and "details.adv>summary{min-height:44px" in ui)
+    # 1.1.1 / 1.3.1: a status glyph (✓ ? – ! ·) is hidden from screen readers and a word says what it means (2026-11-13)
+    calls = "\n".join(l_ for l_ in ui.splitlines() if "function tickMark(" not in l_)     # the helper's own body is not a call site
+    marks = re.findall(r'h\("span",\{class:"tick[^}]*\},([^,)]+)', calls)
+    check("status marks say their meaning in words: tickMark hides the glyph (aria-hidden) and adds a screen-reader word",
+          'function tickMark(' in ui and 'h("span",{"aria-hidden":"true"},glyph),word?h("span",{class:"sr-only"},word)' in ui
+          and 'Could not be checked: ' in ui and '"Blocking: ":"Note: "' in ui and all(m_.strip() == "n" for m_ in marks))
     n = sum(results)
     print(f"\n  {'ALL ' + str(n) + ' A11Y CHECKS PASSED' if n == len(results) else str(len(results) - n) + ' of ' + str(len(results)) + ' A11Y CHECKS FAILED'}")
     return n == len(results)

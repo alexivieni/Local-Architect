@@ -295,6 +295,16 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
 - Left for later phases (with the owner): the two flow engines (YAML twins miss gates the Python flows enforce, prompts exist twice),
   `core.update_json`, one test runner and kit, the timers, formatters, CSS layers and the hub router.
 
+## Accessibility follow-up: status marks in words (2026-11-13)
+- Audit of what changed since Phase C (read from the code, no browser run: the owner was running another app). One gap, older
+  than the debug audit but widened by its "could not be checked" mark: status was a glyph (✓ ? – ! ·), a colour and a hover title.
+  Screen readers read "question mark" / "exclamation mark", most do not read a title, and a keyboard user cannot hover; the
+  fake-code findings told a blocking finding from a note by "!" vs "·" alone (WCAG 1.1.1, 1.3.1).
+- `tickMark(cls, glyph, word, title)`: the glyph is aria-hidden, a visually hidden word leads ("Passed: ", "Could not be checked: ",
+  "Needs fixing: ", "Blocking: ", "Note: ", "Done: ", "Step 2: "). Six call sites: the machine checks on the first visit, Get ready
+  steps, plan warnings, both fake-code finding lists, Get started. The one numbered list left reads its number as the step.
+  `arch_selftest_a11y` fails on a glyph-only status mark. Not yet seen in a browser's accessibility tree (next full audit).
+
 ## Accessibility Phase A (2026-11-09; WCAG 2.1 AA, measured in headless Edge on every page, light and dark)
 - **Fields have their own edge** (`--field-line`, 3:1 or more in every theme; 1.4.11): `--line` measured 1.33:1, so a text box had no
   visible edge. Hairlines between cards keep `--line`.

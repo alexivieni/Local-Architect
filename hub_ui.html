@@ -1773,6 +1773,9 @@ const TOKEN="__HUB_TOKEN__";
 const $=(s,r=document)=>r.querySelector(s);
 /* One sprite, referenced by name. Nothing is fetched, the colour is inherited, and it stays crisp at any zoom. */
 function icon(name,cls){const e=document.createElementNS('http://www.w3.org/2000/svg','svg');e.setAttribute('class','ic'+(cls?' '+cls:''));e.setAttribute('aria-hidden','true');e.setAttribute('focusable','false');const u=document.createElementNS('http://www.w3.org/2000/svg','use');u.setAttribute('href','#i-'+name);e.append(u);return e;}
+/* a status mark: the glyph is for the eye (aria-hidden), the word is for a screen reader ("Passed: ...") -- a lone "?" or "!" was
+   read as "question mark" / "exclamation mark", and a title is not read by most screen readers nor reachable by keyboard */
+function tickMark(cls,glyph,word,title){return h("span",{class:"tick"+(cls?" "+cls:""),title:title||null},h("span",{"aria-hidden":"true"},glyph),word?h("span",{class:"sr-only"},word):null);}
 function h(tag,attrs,...kids){
   const e=document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -4239,7 +4242,7 @@ function readyCard(){
         st?h("span",{class:"chip "+(st.needs_tune?"warn":"good"),title:st.reason},st.needs_tune?"not tuned yet":"tuned"):null,
         p?h("span",{class:"chip info"},`${p.tier_label} · ${({solo:'one model',duo:'two models',crew:'full team'})[p.crew]||p.crew}`):null,
         p&&p.builder?h("span",{class:"chip"},"builder: "+p.builder):null),
-      steps.length?h("div",null,...steps.map(x=>h("div",{class:"check"},h("span",{class:"tick "+(x.ok?"ok":"")},x.ok?"✓":"!"),h("div",{class:"grow"},h("b",null,x.name),x.detail?h("div",{class:"mute small"},x.detail):null)))):h("p",{class:"mute small"},"Not run yet on this machine."),
+      steps.length?h("div",null,...steps.map(x=>h("div",{class:"check"},tickMark(x.ok?"ok":"",x.ok?"✓":"!",x.ok?"Passed: ":"Failed: "),h("div",{class:"grow"},h("b",null,x.name),x.detail?h("div",{class:"mute small"},x.detail):null)))):h("p",{class:"mute small"},"Not run yet on this machine."),
       (r.needs||[]).map(x=>h("div",{class:"mute small"},"Next: "+x)),
       h("div",{class:"row mt-3"},h("div",{class:"grow"},h("b",null,"Test with my models"),
         h("div",{class:"mute small"},t&&t.livetest?`Last live test: ${t.livetest.passed} of ${t.livetest.total} passed. `+t.livetest.results.map(x=>(x.ok?"✓ ":"✗ ")+x.id+(x.ok?"":" ("+x.detail.slice(0,70)+")")).join(" · "):"Runs real tasks (routing, structured output, build, bug fix, adding code, CI) with your own models and judges them by code. Takes a few minutes.")),
@@ -4432,7 +4435,7 @@ async function loadTune(){
       kvBox("Hardware",`${hw.gpu||"no GPU"} · ${fmt(hw.vram_gb)} GB VRAM · ${fmt(hw.ram_gb)} GB RAM`),
       kvBox("Context / speed",`${b.ctx||"?"} tokens`+(m.gen_tok_s?` · ${m.gen_tok_s} tok/s`:""))));
     if(p.tier_why)put(box,h("p",{class:"mute small"},p.tier_why));
-    for(const w of p.warnings||[])put(box,h("div",{class:"check"},h("span",{class:"tick"},"!"),h("div",{class:"grow small"},w)));
+    for(const w of p.warnings||[])put(box,h("div",{class:"check"},tickMark("","!","Warning: "),h("div",{class:"grow small"},w)));
     if((p.changes||[]).length)put(box,h("details",null,h("summary",null,`${p.changes.length} setting(s) changed by the last tune`),h("pre",{class:"term",style:"height:auto;max-height:240px"},p.changes.join("\n"))));
   }
   renderFit(t.fit);renderIndex(t.index);renderOpt(t);renderMachines(t.machines);renderHistory(t.history||[]);
@@ -4461,7 +4464,7 @@ async function loadCodeHealth(){
     h("button",{class:"btn p",disabled:!d.fake.total,onclick:()=>startJob("/api/arch/run",{goal:"Remove the fake code and placeholder stubs",flow:"purge",review:"ask",root})},"Remove fake code")),
     h("div",{class:"row"},h("span",{class:"chip "+(d.fake.gate?"bad":"good")},`${d.fake.gate} must fix`),h("span",{class:"chip"},`${d.fake.total} total`),
       ...Object.entries(d.fake.by_rule||{}).map(([k,v])=>h("span",{class:"chip info"},`${k}: ${v}`))),
-    ...d.findings.slice(0,20).map(f=>h("div",{class:"check"},h("span",{class:"tick"},f.gate?"!":"·"),h("div",{class:"grow small"},h("b",null,`${f.file}:${f.line}`),"  "+f.msg))),
+    ...d.findings.slice(0,20).map(f=>h("div",{class:"check"},tickMark("",f.gate?"!":"·",f.gate?"Blocking: ":"Note: "),h("div",{class:"grow small"},h("b",null,`${f.file}:${f.line}`),"  "+f.msg))),
     d.findings.length>20?h("div",{class:"mute small"},`…and ${d.findings.length-20} more (python architect.py fakecode lists them all)`):null);
   const cb=$("#ciBox");
   if(cb){cb.innerHTML="";const c=d.ci,cs=c.summary,rz=d.resumable;
@@ -4469,7 +4472,7 @@ async function loadCodeHealth(){
       h("button",{class:"btn",onclick:()=>startJob("/api/arch/ci",{root})},cs.pipelines?"Verify and run locally":"Write a baseline and verify"),
       h("button",{class:"btn p",disabled:!cs.blocking,onclick:()=>startJob("/api/arch/run",{goal:"Fix the CI pipeline",flow:"cicd",review:"ask",root})},"Fix with the CI/CD engineer")),
       cs.pipelines?h("div",{class:"row"},h("span",{class:"chip "+(cs.blocking?"bad":"good")},`${cs.blocking} blocking`),h("span",{class:"chip"},`${cs.advisory} advisory`),h("span",{class:"chip info"},`${cs.pipelines} pipeline file(s)`)):h("div",{class:"mute"},"No pipeline files found (.github/workflows, .gitlab-ci.yml)."),
-      ...c.findings.map(f=>h("div",{class:"check"},h("span",{class:"tick"},f.gate?"!":"·"),h("div",{class:"grow small"},h("b",null,`${f.file}:${f.line||"?"}`),"  "+f.msg))),
+      ...c.findings.map(f=>h("div",{class:"check"},tickMark("",f.gate?"!":"·",f.gate?"Blocking: ":"Note: "),h("div",{class:"grow small"},h("b",null,`${f.file}:${f.line||"?"}`),"  "+f.msg))),
       rz?h("div",{class:"check mt-3"},h("span",{class:"chip warn"},rz.status),h("div",{class:"grow small"},h("b",null,"Interrupted run: "+rz.flow),h("div",{class:"mute"},rz.goal.slice(0,120))),h("button",{class:"btn sm",onclick:()=>startJob("/api/arch/resume",{root})},"Resume")):null);}
   const v=own.self.verify,hist=own.self.history||[];sb.innerHTML="";
   const goal=h("input",{type:"text",class:"grow",placeholder:"What should the Architect improve about itself? e.g. make the doctor report disk space per model"});
@@ -4631,14 +4634,14 @@ function getStarted(){
      a:["Open the Workspace",()=>{go("console");setTimeout(()=>{const i=$("#cIn");if(i&&!i.value){i.value="Explain how this project is organised, then suggest three improvements";i.focus();}},300);}]},
   ];
   const n=steps.filter(s=>s.done).length, cur=steps.findIndex(s=>!s.done);
-  if(n===steps.length) return h("div",{class:"card"},h("div",{class:"row"},h("span",{class:"tick ok"},"✓"),
+  if(n===steps.length) return h("div",{class:"card"},h("div",{class:"row"},tickMark("ok","✓","Done: "),
     h("div",{class:"grow"},h("b",null,"You are set up"),h("div",{class:"mute small"},"Machine prepared, models chosen, a project, and a first task done.")),
     fvEntry(),h("button",{class:"btn p",onclick:()=>go("console")},"Open the Workspace")));
   return h("div",{class:"card"},
     h("div",{class:"row"},art("journey","gs-art"),h("h2",{class:"grow m0"},"Get started"),h("span",{class:"mute small num"},`${n} of ${steps.length} done`),fvEntry()),
     h("div",{class:"gs-bar"},h("i",{style:`width:${Math.round(100*n/steps.length)}%`})),
     h("div",{class:"gs"},...steps.map((s,i)=>h("div",{class:"gs-step"+(s.done?" done":i===cur?" now":"")},
-      h("span",{class:"tick"+(s.done?" ok":"")},s.done?"✓":String(i+1)),
+      tickMark(s.done?"ok":"",s.done?"✓":String(i+1),s.done?"Done: ":"Step "+(i+1)+": "),
       h("div",{style:"min-width:0"},h("b",null,s.t),i===cur?h("p",null,s.d):null),
       i===cur&&s.a?h("button",{class:"btn p",onclick:s.a[1]},s.a[0]):(!s.done&&s.a?h("button",{class:"btn sm",onclick:s.a[1]},s.a[0]):null)))));
 }
@@ -7587,7 +7590,7 @@ function fvMachine(){
     kids.push(h("p",{},m.blocking.length?`${m.passed} of ${m.total} checks pass.${unTxt} ${m.blocking.length===1?"One needs":m.blocking.length+" need"} fixing before work can run:`
       :`${m.passed} of ${m.total} checks pass.`+unTxt+(m.passed+un<m.total?" The rest are advice, not blockers.":un?"":" Nothing is in the way.")));
     kids.push(h("ul",{class:"fv-list"},...rows.map(c=>h("li",{class:c.ok?"":c.ok==null||c.advisory?"adv":"bad"},
-      h("span",{class:"tick"+(c.ok?" ok":""),title:c.ok?"passed":c.ok==null?"could not be checked":c.advisory?"advice":"needs fixing"},c.ok?"✓":c.ok==null?"?":c.advisory?"–":"!"),
+      tickMark(c.ok?"ok":"",c.ok?"✓":c.ok==null?"?":c.advisory?"–":"!",c.ok?"Passed: ":c.ok==null?"Could not be checked: ":c.advisory?"Advice: ":"Needs fixing: ",c.ok?"passed":c.ok==null?"could not be checked":c.advisory?"advice":"needs fixing"),
       h("div",{},c.name,c.ok||!c.detail?null:h("small",{},c.detail))))));
     if(m.total>rows.length)kids.push(h("p",{class:"small mute"},`${m.total-rows.length} more: Settings > Checkup lists them all.`));
   }
