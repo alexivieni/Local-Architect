@@ -31,6 +31,13 @@ def run():
     sys.path.insert(0, HERE)
     passed, failed = [], []
 
+    def _err(fn):
+        try:
+            fn()
+        except ValueError as ex:
+            return str(ex)
+        return ""
+
     def check(name, ok, extra=""):
         (passed if ok else failed).append(name)
         print(("  ok    " if ok else "  FAIL  ") + name + (f"  ({extra})" if extra and not ok else ""))
@@ -74,6 +81,14 @@ def run():
             check("repro: the project's command runs everything and names another test -> could not tell (None)", ok is None and "could not check" in why, why)
             scripted("fail", "FAIL: test_x (test_bug.T.test_x)\nAssertionError")
             check("repro: ... and naming this file -> True", core.repro_check(proj, ccfg, "tests/test_bug.py")[0] is True)
+            scripted("fail", "tests/test_bug.py .                [ 50%]\ntests/test_other.py F             [100%]\n"
+                             "FAILED tests/test_other.py::test_y - assert 0\n1 failed, 1 passed")
+            check("repro: pytest's progress line naming a PASSING reproduction is not a proof (only failure lines count)",
+                  core.repro_check(proj, ccfg, "tests/test_bug.py")[0] is None)
+            scripted("fail", "tests/test_bug.py F\nFAILED tests/test_bug.py::test_x - assert 1 == 2\n1 failed")
+            check("repro: pytest's FAILED summary line for this file -> True", core.repro_check(proj, ccfg, "tests/test_bug.py")[0] is True)
+            scripted("fail", "tests/test_bugfix_more.py F\nFAILED tests/test_bugfix_more.py::test_z - assert 0")
+            check("repro: a file whose name only starts the same is another file", core.repro_check(proj, ccfg, "tests/test_bug.py")[0] is None)
             core.has_module = lambda name: False if name == "pytest" else real_has(name)
             scripted("fail", "FAIL: test_other (test_other.T.test_other)\nAssertionError")
             check("repro: unittest discover (no pytest) is held to the same rule", core.repro_check(proj, cfg, "tests/test_bug.py")[0] is None)
@@ -222,6 +237,7 @@ def run():
         import arch_hosts as H
         check("hosts: an OpenAI-style address keeps its path (http://x:8080/v1 became http://x:8080/v1:11434)",
               H.normalize("http://x:8080/v1") == "http://x:8080/v1" and H.normalize("http://x/v1") == "http://x:8080/v1"
+              and "port number" in _err(lambda: H.normalize("desk:99999"))
               and H.normalize("192.168.1.20") == "http://192.168.1.20:11434" and H.normalize("http://desk:11434/") == "http://desk:11434")
         H._store("health", "box", {"name": "box", "url": "http://10.0.0.9:8080", "ok": True, "kind": "llama", "ts": 1.0})
         H._KIND_CACHE["ts"] = 0.0

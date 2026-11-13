@@ -72,7 +72,11 @@ def normalize(addr):
     if not a.startswith("http"):
         a = "http://" + a
     p = urllib.parse.urlsplit(a)
-    if p.port is None:                      # no port: Ollama's, or llama-server's for an OpenAI-style /v1 address
+    try:
+        port = p.port
+    except ValueError:
+        raise ValueError(f"'{addr}' does not end in a port number from 1 to 65535 (for example 192.168.1.20:11434)") from None
+    if port is None:                      # no port: Ollama's, or llama-server's for an OpenAI-style /v1 address
         # (it appended ":11434" to the END, so http://x:8080/v1 became http://x:8080/v1:11434 and could never answer)
         p = p._replace(netloc=p.netloc + (":8080" if p.path.rstrip("/").endswith("/v1") else ":11434"))
     return urllib.parse.urlunsplit(p).rstrip("/")

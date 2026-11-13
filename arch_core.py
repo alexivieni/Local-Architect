@@ -1163,11 +1163,19 @@ def repro_check(root, cfg, rel):
     if _WRONG_REASON.search(log):
         return False, "it fails for the wrong reason:\n" + log[-500:], log
     targeted = not cfg["tests"].get("command") and has_module("pytest")      # only pytest is handed the one file
-    stem = os.path.splitext(os.path.basename(rel))[0]
-    if not targeted and stem not in log:
-        return None, (f"the test command runs every test and its output does not name {rel}, so the failure may be another test's "
+    if not targeted and not _names_failure(log, rel):
+        return None, (f"the test command runs every test and its output shows no failure in {rel}, so the failure may be another test's "
                       "(could not check)"), log
     return True, "", log
+
+
+def _names_failure(log, rel):
+    """Does the output say that a test in `rel` FAILED? Only failure lines count: pytest's summary (FAILED/ERROR path::test),
+    its traceback location (path.py:12:), unittest's "FAIL: test (module.Class.test)". A bare mention is not enough: pytest's
+    progress lines name every file it ran, a passing one too."""
+    stem = re.escape(os.path.splitext(os.path.basename(rel))[0])
+    pats = (rf"^(?:FAILED|ERROR)\s+\S*\b{stem}\.py::", rf"\b{stem}\.py:\d+:", rf"^(?:FAIL|ERROR): \S+ \((?:\S+\.)?{stem}\.")
+    return any(re.search(p, log or "", re.M) for p in pats)
 
 
 _FAILED_NODE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+?)(?:\s+-\s.*)?\s*$", re.M)
