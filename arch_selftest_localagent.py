@@ -228,7 +228,7 @@ def run():
               and la.who_runs("code_audit")["tier"] == "heavy" and la.who_runs("builder")["runner"] == "claude"
               and "does not say" in la.who_runs("builder")["why"])
         sources = " ".join(lib.load(n)["source"] for n in names)
-        briefs = sorted(os.path.basename(p) for p in glob.glob(os.path.join(HERE, "hub_data", "learning", "briefs", "brief_*.md")))
+        briefs = sorted(os.path.basename(p) for p in glob.glob(os.path.join(__import__("arch_core").data_dir(), "learning", "briefs", "brief_*.md")))
         env_check("every brief given to an agent today (the person's own hub_data/learning/briefs) is the source of some template", all(b in sources for b in briefs),
               [b for b in briefs if b not in sources])
         own = os.path.join(tmp, "tpl")

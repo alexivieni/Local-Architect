@@ -271,6 +271,30 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
 - Left as they are, on purpose: the GPT-4o price and the $20 / $200 seats in FinOps are labelled as entered by hand; the recommended
   `limits.cloud_usd_per_day` of $5 is a suggestion the person applies or not, never written by itself.
 
+## Tech-debt review, Phase 1 (2026-11-13; three read-only reviewers, top claims checked in the code)
+- **A YAML flow's not_sure was recorded as "fail".** `DataFlow.run` returned `verdict: "not_sure"` with no `unsure` key, and
+  `run_flow` reads only `unsure`, so it wrote a second verdict record "fail", finished the run as a failure and confirmed memory
+  as failed (the 11 YAML-only flows and every customised flow; the ship pipeline read the same key). It now returns `unsure`, and
+  `run_flow` takes a flow's stated not_sure at its word. `arch_selftest_outcomes` drives a real Engine through `run_flow` with a gate
+  that cannot run and requires every verdict record to say not_sure.
+- **`architect.py selftest` exit codes.** `rc |= run()` turned a suite's True into 1 and its False into 0, so a green tree could exit
+  1 and a failing scout/tokens suite exit 0 (self-improve's gate reads this code). One rule now (`_suite_rc`: True/None/0 pass,
+  anything else fails), the lists are data (`CORE_SUITES`, `ALL_SUITES`, `FULL_ONLY`, identical to the old ones), and any
+  `arch_selftest_*.py` no list names runs under `all` as its own process in a throwaway home, judged by its exit code (the new
+  outcomes suite was in no list). crew returns 0, not its check count. `tools/ci_parallel.py` was already right.
+- **The outer `../CLAUDE.md`** (outside the repo, 48 KB, loaded into every session and imported by `../GEMINI.md`) was a 2026-11-07
+  copy saying 23 roles / 19 flows and listing fixed issues as open. With the owner's go-ahead it is a short pointer that imports
+  `architect/CLAUDE.md`; the old text is kept as `../CLAUDE.md.bak-20261113`.
+- **Hub:** 46 lines of JS nothing called (greeting, simpleMode, RECIPES, the quick-launch options dialog, quickCard, teamSummary,
+  RV_WORD) and 42 CSS rules naming classes nothing produces (3.2 KB) are gone; the hub check that pinned the dead dialog now checks
+  that the settings it offered still exist. Bars and meters keep their colour in Windows contrast themes (7 more fills exempted
+  from forced colours). Both guarded slices were checked byte-identical; the page's scripts pass `node --check`.
+- **Suites and the real install:** agentlib, localagent and modelknow read the isolated data folder instead of `<repo>/hub_data`.
+  replay and redact still read the real install on purpose (read-only "is your saved data sound" checks; pointing replay at the
+  isolated folder made it judge its own fixtures). They belong in `doctor` one day.
+- Left for later phases (with the owner): the two flow engines (YAML twins miss gates the Python flows enforce, prompts exist twice),
+  `core.update_json`, one test runner and kit, the timers, formatters, CSS layers and the hub router.
+
 ## Accessibility Phase A (2026-11-09; WCAG 2.1 AA, measured in headless Edge on every page, light and dark)
 - **Fields have their own edge** (`--field-line`, 3:1 or more in every theme; 1.4.11): `--line` measured 1.33:1, so a text box had no
   visible edge. Hairlines between cards keep `--line`.

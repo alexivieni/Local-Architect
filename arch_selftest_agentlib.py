@@ -87,7 +87,7 @@ def run():
         # ---- the common footer is the launcher's own text
         common = lib.fill("common")
         check("common fills with nothing and has every shared rule", all(s in common for s in COMMON_LINES), common[:200])
-        launch_py = os.path.join(HERE, "hub_data", "learning", "briefs", "launch.py")
+        launch_py = os.path.join(__import__("arch_core").data_dir(), "learning", "briefs", "launch.py")
         if os.path.isfile(launch_py):
             src = open(launch_py, encoding="utf-8").read()
             body = src.split('COMMON = r"""', 1)[1].split('"""', 1)[0].strip()

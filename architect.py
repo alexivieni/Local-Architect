@@ -1468,108 +1468,105 @@ def _selftest_suites(args):
         _sh.rmtree(_tmp, ignore_errors=True)
 
 
+# The suites the CLI runs, in order. A suite's run() (or main()) answers in one of several ways that grew over time: 0/1,
+# True/False, None, or SystemExit -- `_suite_rc` reads them all the same way. Every arch_selftest_*.py on disk that no list names
+# still runs under `all` (as its own process, judged by its exit code), so a new suite is never silently left out.
+CORE_SUITES = ("", "tune", "opt", "ci", "loop", "hosts", "live", "server", "fake", "ready", "index", "chain", "eval", "offline",
+               "llama", "dataflow", "speed", "learn", "agentic", "supervisor", "dist", "flows_more", "win")
+ALL_SUITES = ("pro", "sec", "agentlib", "cloud", "costs", "crew", "data2", "fastlane", "fleet", "hubcalm", "hubui", "localfleet",
+              "logbook", "overseer", "scout", "tokens", "tune2",
+              "augment", "broker", "design", "firstvisit", "harness", "hubperf", "iterate", "localagent", "mesh", "placement", "redact",
+              "routelearn", "templates_extra", "why", "workspace",
+              "a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard",
+              "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance",
+              "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "swap", "orchestration", "squad", "select",
+              "plugins", "telemetry", "retrieval", "modelknow", "verifymachine", "selfimprove", "roleprofile", "eta", "notify",
+              "effective", "playbook", "cacheplus", "overlap", "contracts", "curriculum", "harness2", "ourtasks", "reqcache",
+              "cpuworker", "overlay", "mcpclient", "bundle", "gitflow", "onboard", "harness3", "replay", "finops", "review1", "review2",
+              "review3", "review4", "custom", "docs", "uismoke", "swallow", "localintel", "cachestats", "honesty", "debt", "crawl",
+              "rules")
+FULL_ONLY = ("self",)       # the self-improvement pipeline runs nested self-tests, so it is not part of `all`
+
+
+def _suite_module(name):
+    return "arch_selftest" + ("_" + name if name else "")
+
+
+def _suite_rc(res):
+    """One suite's answer -> 0 (passed) or 1. True, None and 0 are a pass; False, any other number and anything else a failure.
+    (`rc |= run()` turned a suite's True into 1 and its False into 0: a green tree could exit 1 and a failure exit 0.)"""
+    return 0 if (res is None or res is True or (type(res) is int and res == 0)) else 1
+
+
+def _run_one(name):
+    import importlib
+    mod_name = _suite_module(name)
+    try:
+        mod = importlib.import_module(mod_name)
+    except ImportError as ex:
+        if name == "sec" and getattr(ex, "name", "") == mod_name:
+            print("[i] arch_selftest_sec not present yet -- skipped")
+            return 0
+        print(f"[x] {mod_name} could not be imported: {ex}")
+        return 1
+    try:
+        if name == "hubperf":                                   # no run(): its checks are backend() + ui()
+            mod.backend()
+            mod.ui()
+            print(f"ALL {mod.N[0]} HUBPERF CHECKS PASSED")
+            return 0
+        fn = getattr(mod, "main", None) if name == "routelearn" else (getattr(mod, "run", None) or getattr(mod, "main"))
+        return _suite_rc(fn())
+    except SystemExit as ex:                                    # some suites stop on the first failed check
+        bad = ex.code not in (None, 0)
+        if bad:
+            print(f"[x] {mod_name}: {ex.code}")
+        return 1 if bad else 0
+    except Exception as ex:                                     # one broken suite is a failure, and the rest still run
+        print(f"[x] {mod_name} failed: {type(ex).__name__}: {ex}")
+        return 1
+
+
+def unlisted_suites():
+    """arch_selftest_*.py files no list above names (they still run under `all`)."""
+    import glob
+    here = os.path.dirname(os.path.abspath(__file__))
+    named = {_suite_module(n) for n in CORE_SUITES + ALL_SUITES + FULL_ONLY}
+    found = sorted(os.path.basename(f)[:-3] for f in glob.glob(os.path.join(here, "arch_selftest*.py")))
+    return [m for m in found if m not in named]
+
+
 def _run_suites(suite):
     rc = 0
-    import arch_selftest
-    rc |= arch_selftest.run()
-    import arch_selftest_tune
-    rc |= arch_selftest_tune.run()
-    import arch_selftest_opt
-    rc |= arch_selftest_opt.run()
-    import arch_selftest_ci
-    rc |= arch_selftest_ci.run()
-    import arch_selftest_loop
-    rc |= arch_selftest_loop.run()
-    import arch_selftest_hosts
-    rc |= arch_selftest_hosts.run()
-    import arch_selftest_live
-    rc |= arch_selftest_live.run()
-    import arch_selftest_server
-    rc |= arch_selftest_server.run()
-    import arch_selftest_fake
-    rc |= arch_selftest_fake.run()
-    import arch_selftest_ready
-    rc |= arch_selftest_ready.run()
-    import arch_selftest_index
-    rc |= arch_selftest_index.run()
-    import arch_selftest_chain
-    rc |= arch_selftest_chain.run()
-    import arch_selftest_eval
-    rc |= arch_selftest_eval.run()
-    import arch_selftest_offline
-    rc |= arch_selftest_offline.run()
-    import arch_selftest_llama
-    rc |= arch_selftest_llama.run()
-    import arch_selftest_dataflow
-    rc |= arch_selftest_dataflow.run()
-    import arch_selftest_speed
-    rc |= arch_selftest_speed.run()
-    import arch_selftest_learn
-    rc |= arch_selftest_learn.run()
-    import arch_selftest_agentic
-    rc |= arch_selftest_agentic.run()
-    import arch_selftest_supervisor
-    rc |= arch_selftest_supervisor.run()
-    import arch_selftest_dist
-    rc |= arch_selftest_dist.run()
-    import arch_selftest_flows_more
-    rc |= arch_selftest_flows_more.run()
-    import arch_selftest_win
-    rc |= arch_selftest_win.run()
+    for name in CORE_SUITES:
+        rc |= _run_one(name)
     if suite in ("all", "full"):
-        import arch_selftest_pro
-        rc |= arch_selftest_pro.run()
-        try:
-            import arch_selftest_sec
-            rc |= arch_selftest_sec.run()
-        except ImportError:
-            print("[i] arch_selftest_sec not present yet -- skipped")
-        import importlib
-        for _name in ("agentlib", "cloud", "costs", "crew", "data2", "fastlane", "fleet", "hubcalm", "hubui",
-                      "localfleet", "logbook", "overseer", "scout", "tokens", "tune2"):
-            _mod = importlib.import_module("arch_selftest_" + _name)
-            _fn = getattr(_mod, "run", None) or getattr(_mod, "main")     # logbook and overseer expose main()
-            rc |= (_fn() or 0)
-        # The suites added on 2026-11-04 (docs/release_20261104.md). Some stop with SystemExit/AssertionError on the first failed check
-        # instead of returning 1, so each is guarded: one failing suite is counted as a failure and the rest still run.
-        for _name in ("augment", "broker", "design", "firstvisit", "harness", "hubperf", "iterate", "localagent", "mesh",
-                      "placement", "redact", "routelearn", "templates_extra", "why", "workspace"):
+        for name in ALL_SUITES:
+            rc |= _run_one(name)
+        import subprocess
+        here = os.path.dirname(os.path.abspath(__file__))
+        for mod_name in unlisted_suites():                      # its own process: whatever its run() returns, its exit code is what counts
+            print(f"[i] {mod_name}: not in the CLI's lists, run as its own process")
+            import tempfile as _tf
+            box = _tf.mkdtemp(prefix="cli_" + mod_name[-20:] + "_")   # its own throwaway home and data, never the real ones
+            env = dict(os.environ, ARCHITECT_HOME=box, ARCHITECT_DATA_DIR=os.path.join(box, "data"), ARCHITECT_NO_CACHE="1",
+                       ARCHITECT_SELFTEST="1")
             try:
-                _mod = importlib.import_module("arch_selftest_" + _name)
-                if _name == "hubperf":                                      # no run(): its checks are backend() + ui()
-                    _mod.backend()
-                    _mod.ui()
-                    print(f"ALL {_mod.N[0]} HUBPERF CHECKS PASSED")
-                    continue
-                # routelearn's run() is a fixture helper that takes arguments; its entry point is main()
-                _fn = getattr(_mod, "main", None) if _name == "routelearn" else (getattr(_mod, "run", None) or getattr(_mod, "main"))
-                rc |= (_fn() or 0)
-            except SystemExit as _e:
-                if _e.code not in (None, 0):
-                    print(f"[x] arch_selftest_{_name}: {_e.code}")
-                    rc |= 1
-            except Exception as _e:
-                print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
-                rc |= 1
-        # suites whose run() returns True when every check passed (art returns 0 like the older ones)
-        for _name in ("a11y", "art", "bestofn", "cleanup", "costmodel", "graceful", "idle", "memplan", "cachehygiene", "cachespage", "offcard", "ollamaidle", "promptprefix", "prefixreuse", "replybudget", "testname", "triage", "placement_wired", "provenance", "refusal", "smoke", "wiring", "brokerwired", "testfirst", "templates_catalog", "swap", "orchestration", "squad", "select", "plugins", "telemetry", "retrieval", "modelknow", "verifymachine", "selfimprove", "roleprofile", "eta", "notify", "effective", "playbook", "cacheplus", "overlap", "contracts", "curriculum", "harness2", "ourtasks", "reqcache", "cpuworker", "overlay", "mcpclient", "bundle", "gitflow", "onboard", "harness3", "replay", "finops", "review1", "review2", "review3", "review4", "custom", "docs", "uismoke", "swallow", "localintel", "cachestats", "honesty", "debt", "crawl", "rules"):
-            try:
-                _mod = importlib.import_module("arch_selftest_" + _name)
-                _res = (getattr(_mod, "run", None) or _mod.main)()       # retrieval has only main() -> 0/1
-                rc |= (0 if (_res is True or (type(_res) is int and _res == 0)) else 1)     # False == 0, so check the type
-            except SystemExit as _e:
-                rc |= 0 if _e.code in (None, 0) else 1
-            except Exception as _e:
-                print(f"[x] arch_selftest_{_name} failed: {type(_e).__name__}: {_e}")
+                r = subprocess.run([sys.executable, os.path.join(here, mod_name + ".py")], cwd=here, env=env)
+            finally:
+                import shutil as _sh
+                _sh.rmtree(box, ignore_errors=True)
+            if r.returncode != 0:
+                print(f"[x] {mod_name}: exit {r.returncode}")
                 rc |= 1
         try:
             import arch_hub_check
-            rc |= arch_hub_check.run()
+            rc |= _suite_rc(arch_hub_check.run())
         except ImportError:
             print("[i] arch_hub_check not present yet -- skipped")
-    if suite == "full":                      # the self-improvement pipeline itself (it runs nested self-tests, so it is not part of `all`)
-        import arch_selftest_self
-        rc |= arch_selftest_self.run()
+    if suite == "full":
+        for name in FULL_ONLY:
+            rc |= _run_one(name)
     return rc
 
 

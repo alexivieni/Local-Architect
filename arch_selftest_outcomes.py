@@ -226,6 +226,44 @@ def run():
               and '"draft_used": rec.get("draft") or None' in src["arch_server.py"])
         check("modelmath: the label comes from arch_hw.bandwidth (per figure)", "arch_hw.bandwidth(" in src["arch_modelmath.py"])
 
+        # ==== a YAML flow's not_sure reaches the run's record (tech-debt 2026-11-13: it was recorded as "fail") ====
+        import json as _json
+        import arch_dataflow as df
+        import arch_roles as _roles
+        G.GATES["_outcomes_cannot_run"] = lambda e_, ctx_, step_, changed_: G.R(None, "could not run here")
+        G.GATES["_outcomes_passes"] = lambda e_, ctx_, step_, changed_: G.R(True, "")
+        nsproj = os.path.join(tmp, "nsproj")
+        os.makedirs(nsproj, exist_ok=True)
+        ncfg = core.deep_merge(core.load_config(nsproj), {"roles": {r_: "fake:7b" for r_ in _roles.ROLES}})
+        saved_flows = dict(fl.FLOWS)
+        try:
+            for fid, gname, want in (("_ns_flow", "_outcomes_cannot_run", "not_sure"), ("_ok_flow", "_outcomes_passes", "pass")):
+                fl.FLOWS[fid] = df.DataFlow({"id": fid, "title": "t", "steps": [{"id": "s", "kind": "code", "gate": gname}],
+                                             "verdict": {"pass_if": "s.ok"}})
+                en = core.Engine(nsproj, fid, "g", ncfg, review="auto", say=lambda *a, **k: None)
+                out = fl.run_flow(en, fid)
+                recs = [_json.loads(x) for x in open(os.path.join(en.run_dir, "trace.jsonl"), encoding="utf-8") if x.strip()]
+                vs = [r_.get("verdict") for r_ in recs if r_.get("type") == "verdict"]
+                check(f"YAML flow ending {want}: every verdict record says {want} (run_flow wrote 'fail' after the flow's not_sure)",
+                      vs and all(v_ == want for v_ in vs) and bool(out.get("unsure")) == (want == "not_sure"), str(vs))
+        finally:
+            fl.FLOWS.clear()
+            fl.FLOWS.update(saved_flows)
+            G.GATES.pop("_outcomes_cannot_run", None)
+            G.GATES.pop("_outcomes_passes", None)
+
+        # ==== the selftest CLI reads every suite's answer the same way, and runs every suite on disk ====
+        import glob as _glob
+        import architect as A
+        check("selftest CLI: True / None / 0 pass, False / 1 / a count fail (rc |= True made a green run exit 1)",
+              [A._suite_rc(x) for x in (True, None, 0, False, 1, 5)] == [0, 0, 0, 1, 1, 1])
+        on_disk = {os.path.basename(f_)[:-3] for f_ in _glob.glob(os.path.join(HERE, "arch_selftest*.py"))}
+        listed = {A._suite_module(n_) for n_ in A.CORE_SUITES + A.ALL_SUITES + A.FULL_ONLY}
+        check("selftest CLI: every suite on disk is either listed or run as its own process under `all`",
+              on_disk == listed | set(A.unlisted_suites()) and not (listed - on_disk - {"arch_selftest_sec"}), str(listed - on_disk))
+        check("crew's suite returns 0 when it passes (it returned its check count)",
+              "return 0" in open(os.path.join(HERE, "arch_selftest_crew.py"), encoding="utf-8").read().split("CREW CHECKS PASSED")[1][:200])
+
         # ==== Phase 3: features that never did anything ====
         import arch_roles as roles
         role = next(r for r in roles.ROLES if roles.ROLES[r]["latency"] != "must be fast")

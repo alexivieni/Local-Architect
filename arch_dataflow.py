@@ -1123,7 +1123,8 @@ class DataFlow:
         e.say(f"\n[verdict] {verdict}" + (f": {stop_reason}" if stop_reason else ""))
         e.report("", f"- Verdict: **{verdict}**" + (f" ({stop_reason})" if stop_reason else ""))
         outputs = {k: v for k, v in ctx.items() if k in (doc.get("outputs") or [])}
-        return {"ok": verdict == "pass", "verdict": verdict, "why": stop_reason, "files": e.changed_files, "steps": {k: {kk: vv for kk, vv in v.items() if kk in ("ok", "skipped", "verdict", "tries", "unsure", "sampled", "passed", "winner")} for k, v in ctx["steps"].items() if isinstance(v, dict)}, **outputs}
+        # "unsure" is what run_flow, the ship pipeline and the supervisor read: without it a not_sure run was recorded as "fail"
+        return {"ok": verdict == "pass", "unsure": verdict == "not_sure", "verdict": verdict, "why": stop_reason, "files": e.changed_files, "steps": {k: {kk: vv for kk, vv in v.items() if kk in ("ok", "skipped", "verdict", "tries", "unsure", "sampled", "passed", "winner")} for k, v in ctx["steps"].items() if isinstance(v, dict)}, **outputs}
 
     def _dispatch(self, e, ctx, step):
         k = step.get("kind", "generate")

@@ -2486,6 +2486,8 @@ def run_flow(e, flow_id, params=None):
     for it in e.state.get("todo") or []:
         if it.get("status") in ("pending", "doing"):
             it["status"] = "done" if out.get("ok") else "failed"
+    if out.get("verdict") == "not_sure" and not out.get("unsure"):    # a flow that states its verdict is taken at its word
+        out = dict(out, unsure=True)
     cnr = list(getattr(e, "unsure_checks", None) or []) if out.get("ok") and not out.get("unsure") else []
     if cnr:                                               # it passed every check that RAN; one could not run, so it is not proven
         out = dict(out, unsure=True, why=out.get("why") or ("could not run: " + "; ".join(cnr))[:400])

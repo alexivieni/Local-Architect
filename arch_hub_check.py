@@ -531,7 +531,7 @@ def run():
         check("the page polls the version, shows the restart banner and treats a 404 from /api/arch/ as a reason to check",
               all(k in html for k in ("function staleCheck(", "The app was updated - restart the hub", "/api/arch/restart", "r.status===404&&/^\\/api\\/arch\\/")) and "setInterval(()=>{if(document.visibilityState===\"visible\")staleCheck();},60000)" in html)
         check("the page has one verdict mapping and uses it for Recent runs, Review and the run bar",
-              "function verd(" in html and html.count("verd(r.verdict)") >= 2 and "const RV_WORD=VERD" in html and "verd(v)[1].toLowerCase()" in html)
+              "function verd(" in html and html.count("verd(r.verdict)") >= 2 and "verd(v)[1].toLowerCase()" in html)
         check("Home: 'Review my code' chip, 'Review this run' row buttons, Recent runs above Last night, chip hidden after 10 minutes",
               '["Review my code",' in html and html.count('"Review this run') >= 2 and html.index('h("h2",{class:"hsec"},"Recent runs")') < html.index('h("div",{id:"homeNight"})')
               and "Date.now()/1000-j.ended<=600" in html)
@@ -625,7 +625,10 @@ def run():
         check("select apply, undo and screen need the token", all(call(p_, {"job": "coding", "model": "m"}, token=False).get("HTTP") in (401, 403)
               for p_ in ("/api/arch/select/apply", "/api/arch/select/undo", "/api/arch/select/screen")))
         check("select screen refuses a bad model name", call("/api/arch/select/screen", {"fake": True, "models": ["a b;c"]}).get("HTTP") == 400)
-        check("Home quick-launch options write only settings that exist", "function qlOptions(" in html and all(
+        # the quick-launch options dialog was never called from anywhere and was removed (tech-debt 2026-11-13); the settings it
+        # edited still exist, so the Settings page keeps offering them
+        check("the run settings the old quick-launch dialog offered are still in the settings schema, and the dead dialog is gone",
+              "function qlOptions(" not in html and all(
             any(r[0] == k for rows in (st.get("settings_schema") or {}).values() for r in rows) for k in
             ("behavior.review_mode", "behavior.thinking", "behavior.test_first", "behavior.best_of_n", "flows.budget_scale")))
         check("Home leads with a Get started checklist: four steps, each with one action, the current one highlighted",

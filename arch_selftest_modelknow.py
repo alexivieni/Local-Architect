@@ -29,7 +29,7 @@ def run():
             if not (0 <= v[0] <= 1):
                 check(f"prior in 0-1 ({f['id']}/{j})", False, v)
 
-    pdir = os.path.join(HERE, "hub_data", "passports")
+    pdir = os.path.join(__import__("arch_core").data_dir(), "passports")
     unknown = []
     rows = []
     for fn in sorted(glob.glob(os.path.join(pdir, "*.json"))):

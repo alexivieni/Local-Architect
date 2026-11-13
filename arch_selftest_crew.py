@@ -128,8 +128,8 @@ def run():
     ok(first is True and ag.start_scheduler() is False, "second start_scheduler does nothing")
 
     print(f"ALL {n[0]} CREW CHECKS PASSED")
-    return n[0]
+    return 0                      # 0 = passed (a failed check raises AssertionError); it returned the count, which read as a failure
 
 
 if __name__ == "__main__":
-    run()
+    sys.exit(run())

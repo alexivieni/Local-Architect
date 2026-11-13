@@ -164,7 +164,7 @@ aside{background:var(--panel);border-right:1px solid var(--line);padding:16px 10
 .brand span:last-child{color:var(--ink);font-weight:600}
 .brand>span:nth-child(2){font:650 var(--t-head)/1 var(--font-head);letter-spacing:-.01em}
 .brand .sub{display:block;font:500 var(--t-caption)/1 var(--font);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-top:5px}
-.logo{width:28px;height:28px;border-radius:6px;background:var(--bp);display:grid;place-items:center;color:var(--bpink);font:600 var(--t-sm) var(--font-head);flex:none;position:relative;overflow:hidden}.logo::after{content:"";position:absolute;inset:0;background:linear-gradient(var(--bpline) 1px,transparent 1px),linear-gradient(90deg,var(--bpline) 1px,transparent 1px);background-size:7px 7px;opacity:.5}
+
 .subtabs,.tfilter{display:flex;position:relative;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scroll-snap-type:x proximity;
   gap:6px;padding:2px 2px 6px;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
 .subtabs{margin:0 -2px 16px}.tfilter{margin:0 -2px 14px}.subtabs:empty{display:none}
@@ -177,8 +177,8 @@ aside{background:var(--panel);border-right:1px solid var(--line);padding:16px 10
 .tfilter .n{font-variant-numeric:tabular-nums}
 .chip{max-width:100%;overflow-wrap:anywhere}.f{min-width:0;max-width:100%}.f select,.f input{max-width:100%}
 .tplbtn{text-align:left;padding:12px;display:block;white-space:normal}.tplbtn.on{border-color:var(--acc);background:var(--acc2)}
-.navgroup{margin:12px 0 2px;padding:0 12px;font-size:var(--t-caption);font-weight:600;color:var(--faint)}
-.navgroup:first-of-type{margin-top:0}
+
+
 .nav::before{content:"";position:absolute;left:3px;top:50%;width:3px;height:0;border-radius:3px;background:var(--grad);transform:translateY(-50%);transition:height .15s ease}
 .nav .g{width:20px;text-align:center;font-size:var(--t-body);opacity:.85;flex:none}
 .nav:hover{background:var(--soft);color:var(--ink)}
@@ -193,7 +193,7 @@ main{padding:24px clamp(16px,3vw,40px) 60px;max-width:1240px;width:100%}
 .section-head{display:flex;align-items:baseline;gap:8px;margin:26px 0 10px}.section-head:first-child{margin-top:4px}
 .section-head b{font-size:var(--t-mono);color:var(--mute);font-weight:650}.section-head i{flex:1;height:1px;background:var(--line)}
 .row{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center}.grow{flex:1 1 auto}
-.grid{display:grid;gap:16px}.g2{grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr))}.g3{grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr))}.g4{grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))}
+.grid{display:grid;gap:16px}.g2{grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr))}.g4{grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))}
 .mono{font-family:var(--mono)}.mute{color:var(--mute)}.small{font-size:var(--t-mono)}
 .card[role=button]{cursor:pointer;transition:border-color .12s,box-shadow .12s,transform .1s}
 .card[role=button]:hover{border-color:var(--acc);transform:translateY(-1px)}
@@ -276,16 +276,16 @@ details>summary{cursor:pointer;color:var(--mute);padding:4px 0}
 .sheet::before{content:"";position:absolute;inset:0;background:linear-gradient(var(--bpline) 1px,transparent 1px),linear-gradient(90deg,var(--bpline) 1px,transparent 1px);background-size:28px 28px;opacity:.22;pointer-events:none}
 .sheet::after{content:"";position:absolute;inset:0;background:linear-gradient(var(--bpline) 1px,transparent 1px),linear-gradient(90deg,var(--bpline) 1px,transparent 1px);background-size:140px 140px;opacity:.35;pointer-events:none}
 .sheet>*{position:relative;z-index:1}
-.sheet .frame{position:absolute;inset:12px;border:1px solid var(--bp-rule);border-radius:6px;pointer-events:none;z-index:0}
+
 .sheet h1{margin:0 0 10px;font:600 clamp(1.875rem,4.4vw,3.25rem)/1.02 var(--font-head);letter-spacing:-.9px;max-width:14ch;color:var(--on-bp)}
 .sheet .lede{margin:0 0 22px;max-width:52ch;color:var(--bpmute);font-size:var(--t-md);line-height:1.55}
 .sheet .cols{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:28px;align-items:start}
 @media (max-width:900px){.sheet .cols{grid-template-columns:1fr}}
-.pins{display:grid;gap:8px;margin:0 0 22px;padding:0;list-style:none}
-.pins li{display:grid;grid-template-columns:14px 1fr;gap:12px;align-items:baseline;font-size:var(--t-ui);color:var(--on-bp)}
-.pins li i{display:block;width:10px;height:10px;border-radius:50%;border:1.5px solid var(--bpmute);transform:translateY(1px)}
-.pins li.ok i{background:var(--bp-yes);border-color:var(--bp-yes)}.pins li.no i{background:var(--bp-no);border-color:var(--bp-no)}
-.pins li span{color:var(--bpmute)}
+
+
+
+
+
 .sheet .acts{display:flex;gap:10px;flex-wrap:wrap}
 .sheet .btn{background:transparent;color:var(--on-bp);border-color:var(--bpline)}.sheet .btn:hover:not(:disabled){border-color:var(--on-bp);background:var(--bp-wash)}
 .sheet .btn.p{background:var(--on-bp);color:var(--bp);border-color:var(--on-bp)}.sheet .btn.p:hover:not(:disabled){background:var(--bpink)}
@@ -295,8 +295,8 @@ details>summary{cursor:pointer;color:var(--mute);padding:4px 0}
 .crew svg{width:100%;height:auto;display:block;border-radius:8px;background:color-mix(in srgb,var(--on-bp) 4%,transparent)}
 .crew figcaption{font-size:var(--t-caption);line-height:1.3;margin-top:6px;color:var(--on-bp)}.crew figcaption span{display:block;color:var(--bpmute);font:var(--t-2xs) var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .crew .more{display:grid;place-items:center;font-size:var(--t-sm);color:var(--bpmute);border:1px dashed var(--bp-rule);border-radius:8px;aspect-ratio:1;cursor:pointer;align-self:start}.crew .more:hover{border-color:var(--on-bp);color:var(--on-bp)}
-.tblock{display:grid;grid-template-columns:repeat(3,auto);gap:0;border:1px solid var(--bp-rule);border-radius:6px;margin-top:24px;font-size:var(--t-caption);width:max-content;max-width:100%;overflow:hidden}
-.tblock div{padding:7px 12px;border-right:1px solid var(--bp-rule);color:var(--bpmute)}.tblock div:last-child{border-right:0}.tblock b{display:block;color:var(--on-bp);font-weight:500;font-family:var(--mono);font-size:var(--t-mono)}
+
+
 .sheet-wrap .top,body.oneScreen .top{position:absolute;width:1px;height:1px;margin:0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .ferr{display:block;color:var(--bad);font-size:var(--t-sm);margin-top:4px}
 .vfield{display:flex;flex-direction:column;gap:4px;min-width:0}.vfield>input,.vfield>select,.vfield>textarea{width:100%}
@@ -492,12 +492,11 @@ body.oneScreen .subtabs{margin-bottom:12px}
 .qlist .goal{font-size:var(--t-sm);color:var(--ink)}
 .qlist .meta{font-size:var(--t-caption);color:var(--faint);margin-top:2px;font-variant-numeric:tabular-nums}
 .qlist .note{font-size:var(--t-caption);color:var(--mute);margin-top:4px}
-.setupcard{border:1px solid var(--acc);background:linear-gradient(135deg,var(--acc2),transparent 70%);border-radius:var(--r);padding:16px 18px;
-  display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:center;margin:0 0 14px;text-align:left}
-.setupcard .ic{width:26px;height:26px;color:var(--acc)}
-.setupcard b{display:block;font:650 var(--t-lead)/1.3 var(--font-head);margin-bottom:2px}
-.setupcard p{margin:0;color:var(--mute);font-size:var(--t-sm)}
-@media (max-width:700px){.qadd{grid-template-columns:1fr}.setupcard{grid-template-columns:1fr}}
+
+
+
+
+@media (max-width:700px){.qadd{grid-template-columns:1fr}}
 
 /* =====================================================================================================
    IDENTITY. Architect draws plans before it builds, so the interface looks like a drafting table:
@@ -671,7 +670,7 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 
 .mpick{align-self:center;max-width:230px;font:inherit;font-size:var(--t-mono);padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
 
-.knobs{display:inline-flex;gap:6px;align-self:center;flex-wrap:wrap}.mpick.knob{max-width:150px;font-size:var(--t-caption);padding:5px 9px}
+
 
 /* model menu (Claude-style) */
 .mmbtn{align-self:center;display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:var(--t-mono);padding:6px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap}
@@ -698,7 +697,7 @@ ul.plan .iters li{display:block;padding:2px 0;border:0;background:none;font-weig
 .swtext{white-space:pre-wrap;font-size:var(--t-caption);line-height:1.45;max-height:220px;overflow:auto;margin-top:4px;padding:6px 8px;border-radius:8px;background:var(--bg);color:var(--ink)}
 
 .agev{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.agico{flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:var(--t-caption);background:var(--acc2);color:var(--acc)}
-.agev.agent-message .agico{background:var(--claude-bg);color:var(--claude);font-weight:700}.agtxt{font-family:var(--mono);font-size:var(--t-mono);white-space:pre-wrap;word-break:break-word}
+.agtxt{font-family:var(--mono);font-size:var(--t-mono);white-space:pre-wrap;word-break:break-word}
 /* Claude Code transcript: tool calls as folded cards, thinking folded, the final answer highlighted */
 .cclog{display:flex;flex-direction:column;gap:6px;margin-top:10px}.cclog .ccsub{margin-left:22px;border-left:2px solid var(--line);padding-left:10px}
 .ccyou{align-self:flex-end;max-width:85%;background:var(--soft);border-radius:12px;padding:8px 12px;white-space:pre-wrap}
@@ -822,7 +821,7 @@ body{overflow-x:clip}
 .card h2,.mm-top h2,.teamhead h2{font:650 var(--t-head)/1.3 var(--font-head);letter-spacing:-.1px}
 .bp-ed h3,.tcard h3,.sstep-h h3,.rcard h3{font:650 var(--t-lead)/1.3 var(--font-head)}
 .card>h3,.sdetail h4,.section-head b{font:650 var(--t-mono)/1.3 var(--font);color:var(--mute);letter-spacing:.02em;text-transform:none}
-.sub,.tc-what,.setupcard p{color:var(--mute);font-size:var(--t-sm);line-height:1.55}
+.sub,.tc-what{color:var(--mute);font-size:var(--t-sm);line-height:1.55}
 .small,.qlist .meta,.msg .meta,label.f{font-size:var(--t-mono)}
 label.f .hint,.composer .hint{font-size:var(--t-caption)}
 /* figures line up */
@@ -864,7 +863,7 @@ label.f.grow>input,label.f.grow>select,label.f.grow>textarea,.fgrid label.f>inpu
 .lane-b.router{background:var(--faint)}.lane-b.heavy{background:var(--llm)}.lane-b.cloud{background:var(--claude)}
 .crew-bar .bar>i{background:var(--claude)}
 .usebtn.on:last-child,.cbadge{background:var(--claude-bg);color:var(--claude-ink)}
-.msg.claude .who,.agev.agent-message .agico{background:var(--claude-bg);color:var(--claude-ink)}
+.msg.claude .who{background:var(--claude-bg);color:var(--claude-ink)}
 .ccmsg .ccbul{color:var(--claude-ink)}
 .mpick.cl{border-color:var(--claude);color:var(--claude-ink);background:var(--claude-bg)}
 .mmbtn.cl{border-color:color-mix(in srgb,var(--claude) 60%,transparent);color:var(--claude-ink)}.mmbtn.cl .mmdot{background:var(--claude)}
@@ -1019,14 +1018,14 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:1
    ===================================================================================================== */
 
 /* ---- faces and weights ---- */
-.top h1,.card h2,.card>h3,.sheet h1,.fv h2,.xdlg-t,.mm-top h2,.teamhead h2,.tc-head b,.setupcard b,.idle.hero .lead,
+.top h1,.card h2,.card>h3,.sheet h1,.fv h2,.xdlg-t,.mm-top h2,.teamhead h2,.tc-head b,.idle.hero .lead,
 .tcard h3,.bp-ed h3,.sstep-h h3,.rcard h3,.ws-md h1,.ws-md h2,.ws-md h3,.ws-stat b,.btile b{font-family:var(--font-head)}
 .nav,.subtabs button,.tfilter button,.strip,.strip b,.num,.meter+span,.qstats b,.k b,.vram .legend,.msg .meta,
 .doing h3,.doing .doing-h,.lbl,.doing .lbl,.tcard .plate .cat,.tcard .plate .no,.rv-tog b,.gs-step .tick,.msg .who,.brand .sub,.blueprint-art text{font-family:var(--font)}
 .top h1{font-weight:650;letter-spacing:-.01em}
 .card h2,.mm-top h2,.teamhead h2,.fv h2,.xdlg-t{font-weight:650;letter-spacing:-.01em}
 .btile b,.ws-stat b{font-weight:650;letter-spacing:-.01em}
-.ava,.sstep-n,.bp-n,.stl-n,.tick,.msg.claude .who,.agev.agent-message .agico,.mhead .name,.helpq,.ccmsg .ccbul{font-weight:650}
+.ava,.sstep-n,.bp-n,.stl-n,.tick,.msg.claude .who,.mhead .name,.helpq,.ccmsg .ccbul{font-weight:650}
 th{font-weight:600}
 /* the wordmark reads as a name, not a shout */
 .brand>span:nth-child(2){font:650 var(--t-head)/1 var(--font-head);letter-spacing:-.01em;text-transform:none}
@@ -1057,7 +1056,7 @@ label.f{font-weight:500;color:var(--mute);min-width:0}
 label.f>input:not([type=checkbox]):not([type=radio]):not([type=number]),label.f>select,label.f>textarea{width:100%}
 label.f>.hint,.formsec .hint{font-weight:400;color:var(--faint);font-size:var(--t-caption);margin:0}
 .fgrid{grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:12px 16px;align-items:start}
-.fgrid>.span-all,.fgrid>.span-2{grid-column:1/-1}
+.fgrid>.span-all{grid-column:1/-1}
 .fgrid>.span-wide{grid-column:span 2}
 @media (max-width:700px){.fgrid>.span-wide{grid-column:1/-1}}
 ::placeholder{color:var(--faint);opacity:1}
@@ -1102,7 +1101,7 @@ div.st-err::before,p.st-err::before{background:color-mix(in srgb,var(--bad) 18%,
 
 /* ---- one accent: the colours that looked like Claude's orange elsewhere move away from it ---- */
 /* (--judge moved off Claude's orange: the token block holds it) */
-.pins li.no i{background:var(--bp-no);border-color:var(--bp-no)}
+
 .tcard .sel,.starts button .ic{color:var(--acc)}
 
 /* ---- small screens (375 px): the side bar becomes one scrolling row of tabs, nothing wraps into a second toolbar ---- */
@@ -1138,9 +1137,9 @@ label.f.hasrec>input,label.f.hasrec>select{border-color:var(--acc)}
 .sp-recipe{min-height:40px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;font-size:var(--t-lead);cursor:pointer}
 .sp-recipe:hover{border-color:var(--acc)}
 .sp-goal{width:100%;font:inherit;font-size:var(--t-head);line-height:1.5;padding:14px 16px;border-radius:var(--rs);border:1px solid var(--field-line);background:var(--bg);color:var(--ink)}
-.sp-more{margin:12px 0}.sp-more summary{cursor:pointer;min-height:36px;display:flex;align-items:center;gap:6px}.sp-folder{color:var(--mute);font-family:var(--mono);font-size:var(--t-body)}
+
 .sp-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}.sp-go{min-height:46px;padding:0 28px;font-size:var(--t-head)}
-.sp-progress{padding:22px 28px}.sp-idle{color:var(--mute);margin:0}.sp-h{margin:0 0 10px}
+.sp-progress{padding:22px 28px}.sp-h{margin:0 0 10px}
 .sp-steps{list-style:none;margin:0;padding:0;display:grid;gap:10px}
 .sp-step{display:flex;align-items:center;gap:12px;font-size:var(--t-head)}
 .sp-ico{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;border:2px solid var(--line);flex:none}
@@ -1176,7 +1175,7 @@ button,select,input,textarea,summary{min-height:36px}
 .gal-q{width:100%;margin-top:6px;min-height:42px;font:inherit;font-size:var(--t-md);padding:8px 14px;border-radius:999px;border:1px solid var(--field-line);background:var(--bg);color:var(--ink)}
 .gal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
 .gal-card{border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px;background:var(--panel)}
-.gal-card h3{margin:0;font-size:var(--t-md)}.gal-card p{margin:0;flex:1}.gal-tag{font-size:var(--t-caption);text-transform:uppercase;letter-spacing:.06em;color:var(--acc)}
+.gal-card h3{margin:0;font-size:var(--t-md)}.gal-card p{margin:0;flex:1}
 .gal-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 /* ===== art direction (docs/art_direction.md): section hues, page glyphs, illustrations, signs of life, the theme picker. Tokens only ===== */
 /* section hue: one colour per place, used for an icon tint and the active marker, nothing else */
@@ -1203,7 +1202,7 @@ svg.art{display:block;color:var(--faint);overflow:visible}
 .art .a-ln{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .art .a-hi{fill:none;stroke:var(--hue);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .art .a-fl{fill:var(--panel);stroke:currentColor;stroke-width:1.5;stroke-linejoin:round}
-.art .a-sf{fill:var(--soft);stroke:none}
+
 .art .a-tn{fill:color-mix(in srgb,var(--hue) 18%,var(--panel));stroke:var(--hue);stroke-width:1.5;stroke-linejoin:round}
 .art .a-dt{fill:var(--hue);stroke:none}
 tr.rowlink{cursor:pointer}tr.rowlink:hover>td,tr.rowlink[aria-current=true]>td{background:var(--soft)}tr.rowlink:focus-visible{outline-offset:-3px}
@@ -1271,7 +1270,7 @@ body.is-busy #pageGlyph{animation:artBeat 2.4s var(--ease) infinite}
 .mp-n.ok-null rect.mp-box{stroke-dasharray:5 3}.mp-n.ok-false rect.mp-box{stroke-width:2.5}     /* could not run = dashed */
 .rv-n.gate.unsure polygon{stroke-dasharray:5 3}.rv-n.gate.fail polygon{stroke-width:2.5}
 .dot.off{background:transparent;box-shadow:inset 0 0 0 1.5px var(--bad)}
-@media (forced-colors:active){.dot,.mm-dot,.ccdot,.lane-b,.meter i,.bar>i{forced-color-adjust:none}.chip,.btn,.subtabs button,.tfilter button{border:1px solid CanvasText}}
+@media (forced-colors:active){.dot,.mm-dot,.ccdot,.lane-b,.meter i,.bar>i,.gs-bar i,.mm-bar span,.tl-bar>i,.ca-bar>span,.ctxseg,.ses-dot,.ca-sw{forced-color-adjust:none}.chip,.btn,.subtabs button,.tfilter button{border:1px solid CanvasText}}
 
 
 /* the bundled interface font: Inter (variable weight, Latin), served by the hub itself (SIL OFL 1.1, static/fonts/LICENSE-Inter.txt) */
@@ -1293,7 +1292,7 @@ p,li,dd,td{font-size:inherit}
 .small,.mute.small,small{font-size:var(--t-ui)}
 .chip,.subtabs button,td,th,label.f,.meta{font-size:var(--t-ui)}
 .num,td.n,.btile b,.k b{font-variant-numeric:tabular-nums}
-.lbl,.mmhead,.gal-tag,.tlabel{text-transform:none!important;letter-spacing:normal!important;font-size:var(--t-sm);font-weight:600;color:var(--mute)}
+.lbl,.mmhead{text-transform:none!important;letter-spacing:normal!important;font-size:var(--t-sm);font-weight:600;color:var(--mute)}
 /* space, not borders: a card is a soft surface; a card inside a card is just a section */
 /* THE card (it was seven rules in five layers; each property keeps the value that already won). The border is drawn transparent
    so a hover or a status can colour it; phones get --s4 padding (the media block further down) */
@@ -1343,7 +1342,7 @@ button.chip{font-family:inherit;line-height:inherit;min-height:0;text-align:left
 .hero .sp-goal{width:100%;margin:10px 0}
 .hero-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
 .hero-row .grow{flex:1 1 220px;min-width:0}
-.hero-chat{display:flex;align-items:center;gap:6px;white-space:nowrap}
+
 .statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:14px 0}
 .statcard{display:grid;gap:4px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
 .statcard b{font-size:var(--t-big);line-height:1.1}
@@ -1353,7 +1352,7 @@ button.chip{font-family:inherit;line-height:inherit;min-height:0;text-align:left
 .qcard{display:grid;gap:4px;justify-items:start;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);font:inherit;cursor:pointer}
 .qcard:hover{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
 .qcard .ic{color:var(--acc)}
-.qwrap{position:relative;display:grid}.qwrap .qcard{padding-bottom:40px}.qwrap .qopt{position:absolute;right:10px;bottom:10px}
+
 .cb-card{cursor:default}.cb-card .btn{margin-top:6px}.cb-ovrow{flex-wrap:wrap;gap:6px;margin:6px 0}.cb-ovrow input{min-width:0;flex:1 1 120px}
 .st-errline{color:var(--bad)}.st-errline:empty{display:none}
 /* ===== DIALOG (modal()): one window. The padding sits on the inner box, so a click that lands on the dialog itself is the backdrop. */
@@ -1408,7 +1407,7 @@ h1,#pageTitle{font:650 var(--t-title)/1.25 var(--font-head);letter-spacing:-.015
 .card h2{font:600 var(--t-head)/1.3 var(--font-head)}
 .sub{max-width:62ch}
 .brand .sub{font:500 var(--t-caption)/1.3 var(--font);text-transform:none;letter-spacing:0}
-.gal-tag{font-size:var(--t-caption)}
+
 .navsec{font-size:var(--t-caption);font-weight:600;letter-spacing:.04em}
 .num,.statcard b{font-variant-numeric:tabular-nums}
 .brandmark{background:var(--grad-hero);color:var(--on-grad)}
@@ -2066,7 +2065,6 @@ function buildNav(){
 /* audit 30: deeper pages leave the sub-tabs until Settings > "Show advanced pages" is on; Ctrl+K still finds every page */
 const ADVANCED=new Set(["score","bench","library","map","monitor","orchestra","components","train"]);
 function showAdvanced(){return store.get("showAdvanced","0")==="1";}
-function greeting(){const hr=new Date().getHours();return (hr<5?"Working late":hr<12?"Good morning":hr<18?"Good afternoon":"Good evening")+". What should we build?";}
 function go(id){id=LEGACY[id]||id;if(!PAGES.some(x=>x[0]===id))id="overview";if(id==="review"){if(typeof RV!=="undefined"){if(RV.pinned)RV.pinned=false;else{RV.run="";RV.note=null;}}}page=id;buildNav();document.body.classList.toggle("sheet-wrap",id==="overview");document.body.classList.toggle("oneScreen",id==="console");const p=PAGES.find(x=>x[0]===id);$("#pageTitle").textContent=id==="overview"?"Home":(SUBNAME[id]||p[2]);$("#pageSub").textContent=p[3];$("#pageActions").innerHTML="";if(tabOf(id)[0]==="runs")$("#pageActions").append(h("button",{class:"btn",type:"button",title:"Start or stop your project for real",onclick:()=>go("launch")},icon("rocket"),"Start my project"));built={};render();const v=$("#view");v.style.animation="none";void v.offsetWidth;v.style.animation="";if(id==="run")pollJob();pageHint(id);window.scrollTo(0,0);}
 let built={};
 /* One look for "working on it", "that failed" and "nothing here yet" on every page. Pages write these as plain sentences
@@ -2121,14 +2119,12 @@ function side(){
   const ld=S.loaded||[]; $("#sLoaded").textContent=ld.length?"loaded: "+ld.map(m=>m.name).join(", "):"";
 }
 /* ===== Simple mode: one box, plain progress, a clear result. The default for people new to the app; Advanced = the full hub. ===== */
-const RECIPES=[["Fix a bug","Fix this bug: "],["Add a feature","Add this feature, with tests: "],["Review my code","Review this project and list the three most important problems, with file and line."],["Explain this project","Explain in plain words what this project does and how its parts fit together."]];
 const PLAIN_STEP=s=>{const t=String(s||"").toLowerCase();
   if(/route|pick/.test(t))return"Understanding what you asked";if(/plan|design|contract/.test(t))return"Making a plan";
   if(/locate|explore|read|scout|context/.test(t))return"Reading your code";if(/repro/.test(t))return"Reproducing the problem";
   if(/test/.test(t))return"Running the checks";if(/judge|review|verify|evaluat/.test(t))return"Double-checking the work";
   if(/sprint|fix|generat|write|build|edit|apply/.test(t))return"Writing the change";if(/save|handoff|report/.test(t))return"Saving the result";return"Working";};
 /* Simple mode is no longer a separate page: Home is the simple experience and every page stays reachable. */
-function simpleMode(){return false;}
 function setMode(m){go(m==="simple"?"overview":"console");}
 function rootError(msg){const i=$("#spRoot"),n=$("#spRootErr");if(i){i.setAttribute("aria-invalid",msg?"true":"false");if(msg)i.focus();}if(n){n.textContent=msg||"";n.hidden=!msg;}if(msg)srAlert(msg);}
 async function simpleStart(){
@@ -2525,26 +2521,6 @@ async function applyJob(job,model){
     loadByJob();}catch(e){toast.err(e.message,7000);}
 }
 /* ---- Home quick-launch "options": only run settings that exist in arch_params.SETTINGS, written through /api/arch/settings ---- */
-const QL_OPTS=["behavior.review_mode","behavior.thinking","behavior.test_first","behavior.best_of_n","flows.budget_scale"];
-function qlSchema(){const all=[];const sch=(S&&S.settings_schema)||{};
-  for(const rows of Object.values(sch))for(const r of (Array.isArray(rows)?rows:[]))if(Array.isArray(r)&&QL_OPTS.includes(r[0]))all.push(r);
-  return QL_OPTS.map(k=>all.find(r=>r[0]===k)).filter(Boolean);}
-function cfgGet(p){return p.split(".").reduce((d,k)=>d&&typeof d==="object"?d[k]:undefined,(S&&S.config)||{});}
-function qlOptions(flowName){
-  const rows=qlSchema();
-  if(!rows.length){toast("No run options in this install");return;}
-  const els={};
-  const body=rows.map(([k,t,lbl,hint,rng])=>{const cur=cfgGet(k);let el;
-    if(String(t).startsWith("choice:"))el=h("select",null,h("option",{value:""},"default"),...String(t).slice(7).split(",").map(c=>h("option",{value:c,selected:String(cur)===c},c)));
-    else el=h("input",{type:"number",step:t==="float"?"0.1":"1",min:rng?rng[0]:null,max:rng?rng[1]:null,value:cur==null?"":String(cur),placeholder:"default"});
-    els[k]=el;return h("label",{class:"f",title:hint||""},lbl,el);});
-  const err=h("p",{class:"small st-errline",role:"alert"});
-  let d;
-  const save=async()=>{const settings={};for(const [k,el] of Object.entries(els))settings[k]=el.value===""?null:el.value;
-    try{await api("/api/arch/settings",{settings});toast("Options saved");d.close();refresh(true);}catch(e){err.textContent="Not saved: "+e.message;}};
-  d=modal("Options: "+flowName,h("p",{class:"small mute"},"These are your saved settings, so they apply to every run, not only this one."),h("div",{class:"fgrid"},...body),err,
-    h("div",{class:"row"},h("button",{class:"btn p",type:"button",onclick:save},"Save"),h("button",{class:"btn",type:"button",onclick:()=>d.close()},"Cancel")));
-}
 
 /* ===== Home: the one goal box (the old Simple page), four stat cards, quick launch and recent activity. ===== */
 const QUICK=[["Fix a bug","Fix this bug: "],["Add a feature","Add this feature, with tests: "],["Review my code","Review this project and list the three most important problems, with file and line."],["Explain","Explain in plain words what this project does and how its parts fit together."]];
@@ -4509,19 +4485,6 @@ async function loadCodeHealth(){
 }
 
 /* ---------- Overview ---------- */
-function quickCard(){
-  const go2=(flow)=>()=>{run.flow=flow;built={};go("run");};
-  /* one icon set: the inline sprite, never a mix of text glyphs */
-  const tile=([g,t,d,fn,cls])=>h("button",{class:"btn atile",onclick:fn},h("span",{class:cls||"ava"},icon(g)),h("span",null,h("b",null,t),h("span",{class:"mute small"},d)));
-  return h("div",{class:"card"},h("h2",null,"What do you want to do?"),h("p",{class:"sub"},"Pick a starting point. You can always change the flow on the New task page."),
-    h("div",{class:"grid g4"},...[["spark","Start a new project","From an empty folder, a working base with tests",()=>go("start")],["play","Build or change something","Describe it; the router picks the flow",go2("auto")],
-      ["check","Strengthen my tests","Mutation-tested: broken code must make a test fail",go2("test")],["bolt","Make it faster","Benchmarked: kept only if measurably quicker",go2("optimize")],
-      ["bug","Hunt for bugs","Every suspicion proven by a failing test",go2("hunt")],["layers","Add a full-stack feature","Data, API, UI and an end-to-end test",go2("feature")]].map(tile)),
-    h("div",{class:"section-head m0 mt-4 mb-3"},h("b",null,"Security & infra"),h("i")),
-    h("div",{class:"grid g4"},...[["shield","Fix security findings","Scanned, fixed, re-scanned to prove it",go2("secure"),"ava sec"],["box","Harden config","Dockerfile, CI and compose files",go2("config"),"ava infra"],
-      ["globe","Fix a network plan","Real CIDR and firewall-rule math",go2("network"),"ava infra"],["target","Pentest write-up","Scope-checked attack paths from findings you supply",go2("pentest"),"ava sec"],
-      ["flask","Build an ML pipeline","Determinism proven by running tests twice",go2("ml"),"ava infra"]].map(tile)));
-}
 
 function oneShotCard(){
   const act=(label,ic,desc,fn,cls)=>h("button",{class:"btn atile",onclick:fn},h("span",{class:cls||"ava"},icon(ic)),h("span",null,h("b",null,label),h("span",{class:"mute small"},desc)));
@@ -4684,15 +4647,6 @@ function fvEntry(){
   const s=(typeof fvState==="function")?fvState():{}, mid=(s.status==="later"||s.status==="open")&&(s.step||0)>0;
   return h("button",{class:"btn sm",title:"A short guided path: this computer, a safe practice task, and the result",
     onclick:()=>mid?fvOpen(s.step):fvOpen(0,true)},icon("spark"),mid?`Resume the tour (${FV_SHOW[s.step||0]+1} of ${FV_STEPS.length})`:"Guided tour");
-}
-function teamSummary(){
-  const ms=installed(), distinct=new Set(S.roles.filter(r=>r.assigned).map(r=>r.assigned)).size, gaps=(S.gaps||[]).length;
-  return h("div",{class:"card"},h("div",{class:"row"},
-    h("div",{class:"grow"},h("h2",{class:"m0"},"Your team"),
-      h("p",{class:"sub m0 mt-1"},`${distinct||0} model${distinct===1?"":"s"} doing ${S.roles.length} jobs, from ${ms.length} installed.`+
-        (gaps?` ${gaps} job${gaps===1?" has":"s have"} no suitable model yet.`:""))),
-    gaps?h("button",{class:"btn",onclick:async()=>{try{await api("/api/arch/apply_recommended",{});toast("Recommended models saved");await refresh(true);}catch(e){toast.err(e.message,6000);}}},"Use the recommended models"):null,
-    h("button",{class:"btn p",onclick:()=>go("tiers")},"See your models")));
 }
 function overview(){
   /* item 1: Home is the goal box and recent runs; the first-run steps only until they are done. The rest lives in Help. */
@@ -5432,7 +5386,6 @@ function caDraw(){
 /* ===== Review after a run: changed files as diff cards, the tests, the verdict, what it cost; Accept / Undo / Retry (keys A / U / R, J / K between files).
    Beside it: the editable plan and the session panel. Everything comes from /api/arch/review, /plan and /session, which read the run's own trace. ===== */
 const RV={run:"",data:null,idx:0,armed:0,plan:null,plan_edit:null,session:null,pinned:false,note:null};
-const RV_WORD=VERD;
 function rvQuery(){return "root="+encodeURIComponent(run.root||"")+"&run="+encodeURIComponent(RV.run||"");}
 function costLine(c){c=c||{};const usd=Number(c.usd||0);
   return "$"+(usd?usd.toFixed(2):"0")+" · "+(c.local?"local":"billed")+" · "+(c.calls||0)+" calls · "+Math.round(c.secs||0)+" s";}

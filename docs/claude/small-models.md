@@ -57,7 +57,7 @@ Measured live on this laptop; read before touching flows, the engine, servers or
   the lookup cache (measured here: edits 56 -> 306-343 tok/s), or `draft-simple` with a draft. qwen3:0.6b as a draft measured 66-78
   tok/s on new code and 125 on edits, so n-gram stays the default and the draft stays opt-in (`server.draft = try`).
 - Hub navigation: see `TABS` in hub_ui.html (the tab set changed several times; do not trust older lists). Page ids are unchanged, so `go("run")`
-  etc. still work. Home = hero + `getStarted()` (4 steps, one action each) + starters + `teamSummary()`; the old 29-role grid lives in
+  etc. still work. Home = hero + `getStarted()` (4 steps, one action each) + starters; the old 29-role grid lives in
   Models. Next design steps agreed with the user: the Plan card before a run, a Review screen after it, Settings by presets, plain words.
 - **Role resolution** (`Engine.model_for`): a model assigned to the role wins; else the role's OWN tier; only with no tiers set up is a
   related role's model borrowed (`FALLBACK`). The old order let an empty router borrow a 14B planner's model.
