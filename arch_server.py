@@ -1286,8 +1286,12 @@ _CTRL_C_HELPER = (
 
 
 def _ask_exit(pid):
-    """Ask a process to shut down cleanly (Ctrl+C on its console / SIGINT). -> True when the request was delivered. Never raises."""
+    """Ask a process to shut down cleanly (Ctrl+C on its console / SIGINT). -> True when the request was delivered. Never raises.
+    Never for this process or its parent: on Windows the event goes to EVERY process on that console, which is the person's own
+    window (a test that recorded its own pid as a server Ctrl+C'd the whole CI run, 2026-11-13). The caller then kills it instead."""
     try:
+        if int(pid) in (os.getpid(), os.getppid()):
+            return False
         if sys.platform.startswith("win"):
             r = subprocess.run([sys.executable, "-I", "-c", _CTRL_C_HELPER, str(int(pid))], capture_output=True, timeout=5,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))

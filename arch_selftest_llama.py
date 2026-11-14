@@ -509,9 +509,11 @@ def run():
         real_kill = S._kill
         S._kill = lambda pid: killed_while_listed.append("worker" in (S.load_state().get("processes") or {}))
         try:
-            S.stop(["worker"], say=lambda m: None)
+            S.stop(["worker"], say=lambda m: None)     # the record's pid is this suite's own: _ask_exit refuses it (no Ctrl+C on our console)
         finally:
             S._kill = real_kill
+        check("a clean-exit request is never raised for this process or its parent (on Windows it reaches everything on that console)",
+              S._ask_exit(os.getpid()) is False and S._ask_exit(os.getppid()) is False)
         check("stop(): the tier leaves the state file before its process is killed, so a watchdog never takes a stopped tier for a crashed "
               "one and starts it again", killed_while_listed == [False] and "router" in (S.load_state().get("processes") or {}), killed_while_listed)
 

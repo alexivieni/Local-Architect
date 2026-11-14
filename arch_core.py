@@ -312,7 +312,11 @@ def read_text(path, limit=None):
     st = os.stat(path)  # raises OSError exactly where open() would have, same as before
     key = os.path.abspath(path)
     hit = _READ_CACHE.get(key)
-    if hit is not None and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
+    # a file changed in the last 2 s is always read again (git's "racy timestamp" rule): a writer that does not go through write_text
+    # (arch_memory's counters) can change it within one timestamp tick and keep its size -- "(used 1)" -> "(used 2)" -- and the cache
+    # then handed back the old text, so the count was lost (seen on GitHub's runner, 2026-11-13)
+    fresh = time.time_ns() - st.st_mtime_ns < 2_000_000_000
+    if hit is not None and not fresh and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
         raw_full = hit[2]
     else:
         with open(path, "rb") as f:

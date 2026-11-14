@@ -312,6 +312,21 @@ def run():
         check("CI workflow: one check per step (in a multi-line PowerShell step only the last exit code counts)",
               not re.search(r"run: \|\n(?:\s+python [^\n]+\n){2,}", wf))
 
+        # ==== the read cache never hands back an old copy of a file just written (GitHub's runner lost memory counts) ====
+        fp = os.path.join(tmp, "cache_probe.md")
+        with open(fp, "w", encoding="utf-8") as f_:
+            f_.write("- a line (used 1, confirmed 0)\n")
+        first = core.read_text(fp)[0]
+        ns = os.stat(fp).st_mtime_ns
+        with open(fp, "w", encoding="utf-8") as f_:                  # same size, written by plain open() (not write_text)
+            f_.write("- a line (used 2, confirmed 0)\n")
+        os.utime(fp, ns=(ns, ns))                                    # and the same timestamp: one tick on a fast disk
+        check("read cache: a same-size rewrite within one timestamp tick is read again (it returned the old text)",
+              "used 1" in first and "used 2" in core.read_text(fp)[0])
+        import arch_server as _S
+        check("a clean-exit request (Ctrl+C on a console) is never raised for this process or its parent",
+              _S._ask_exit(os.getpid()) is False and _S._ask_exit(os.getppid()) is False)
+
         # ==== Phase 3: features that never did anything ====
         import arch_roles as roles
         role = next(r for r in roles.ROLES if roles.ROLES[r]["latency"] != "must be fast")

@@ -168,7 +168,8 @@ def run():
                         check(f"{t}: its dependency-free tests pass ({last})", True)
                     check(f"{t}: full suite (needs {', '.join(T.TEMPLATES[t]['needs'])}, not installed here)", None)
                 else:
-                    check(f"{t}: its own tests pass" + (f" ({last})" if passed else ""), passed, tail)
+                    why = " / ".join([l_.strip() for l_ in (r.stdout + r.stderr).splitlines() if l_.strip()][-3:])[:400]   # one line: CI keeps only that
+                    check(f"{t}: its own tests pass" + (f" ({last})" if passed else f" (rc {r.returncode}: {why})"), passed, tail)
     finally:
         for k, v in old_env.items():
             if v is None:
