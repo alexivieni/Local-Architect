@@ -12,4 +12,6 @@ architect_config.json
 architect_config.json.bak*
 portfolio.json
 *.log
+# ...except the sample logs a project starter ships with (its own tests read them: a clone without it failed them)
+!static/templates/src/*/samples/*.log
 .env

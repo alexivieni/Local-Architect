@@ -309,6 +309,11 @@ def run():
         many = [{"suite": f"s{i_}", "status": "FAIL", "summary": "x", "fails": []} for i_ in range(14)]
         check("CI report: at most 10 error annotations (GitHub's per-step limit), the rest counted in one",
               sum(1 for a_ in an.lines_for(many)[0] if a_[0] == "error") == 10)
+        ign = _sp.run(["git", "ls-files", "--others", "--ignored", "--exclude-standard", "static/templates/src"], cwd=HERE,
+                      capture_output=True, text=True)
+        shipped_ignored = [p_ for p_ in ign.stdout.splitlines() if "__pycache__" not in p_ and not p_.endswith(".pyc")]
+        check("no file a project starter ships with is git-ignored (samples/access.log was: every clone failed the starter's own tests)",
+              ign.returncode == 0 and not shipped_ignored, shipped_ignored)
         check("CI workflow: one check per step (in a multi-line PowerShell step only the last exit code counts)",
               not re.search(r"run: \|\n(?:\s+python [^\n]+\n){2,}", wf))
 
