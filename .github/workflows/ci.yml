@@ -29,9 +29,9 @@ jobs:
       - name: Keep line endings as committed
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -61,11 +61,22 @@ jobs:
         run: python tools/ci_manifest_check.py
 
       - name: Every suite (tools/ci_parallel.py)
-        run: python tools/ci_parallel.py --jobs 4 --timeout 1200
+        shell: cmd
+        run: |
+          python tools/ci_parallel.py --jobs 4 --timeout 1200 > "%RUNNER_TEMP%\ci_out.txt" 2>&1
+          set rc=%ERRORLEVEL%
+          type "%RUNNER_TEMP%\ci_out.txt"
+          exit /b %rc%
+
+      # the log is visible only to signed-in users; annotations and the job summary are public on a public repository
+      - name: Report failing suites as annotations
+        if: always()
+        shell: cmd
+        run: python tools/ci_annotate.py "%RUNNER_TEMP%\ci_out.txt"
 
       - name: Keep the suite table
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ci-report
           path: ${{ env.ARCHITECT_DATA_DIR }}/ci/*.json

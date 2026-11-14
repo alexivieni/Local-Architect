@@ -293,6 +293,22 @@ def run():
         check("CI workflow: Windows runner, line endings kept before checkout, every handoff check, a throwaway home and data folder",
               "runs-on: windows-latest" in wf and wf.index("core.autocrlf false") < wf.index("actions/checkout") and steps_ok
               and "ARCHITECT_HOME=" in wf and "ARCHITECT_DATA_DIR=" in wf)
+        spec2 = _ilu.spec_from_file_location("ci_annotate_t", os.path.join(HERE, "tools", "ci_annotate.py"))
+        an = _ilu.module_from_spec(spec2)
+        spec2.loader.exec_module(an)
+        rows = [{"suite": "arch_selftest_a", "status": "FAIL", "secs": 3, "summary": "1 of 9 FAILED", "fails": ["FAIL  x"],
+                 "alone": {"summary": "1 of 9 FAILED"}},
+                {"suite": "arch_selftest_b", "status": "NOT_SURE", "secs": 2, "summary": "0 of 5 FAILED, 1 COULD NOT RUN"},
+                {"suite": "arch_selftest_c", "status": "PASS", "secs": 1, "summary": "ALL 4 PASSED"}]
+        ann_, md_ = an.lines_for(rows)
+        check("CI report: a failing suite is a public error annotation with its failing lines, NOT_SURE a warning, PASS nothing",
+              [a_[0] for a_ in ann_] == ["error", "warning"] and "FAIL  x" in ann_[0][2] and "2/3 suites green" in md_
+              and md_.index("arch_selftest_a") < md_.index("arch_selftest_c"), str(ann_))
+        check("CI report: annotation text escapes newlines and percent signs (GitHub's command syntax)",
+              an.esc("50%\nx") == "50%25%0Ax")
+        many = [{"suite": f"s{i_}", "status": "FAIL", "summary": "x", "fails": []} for i_ in range(14)]
+        check("CI report: at most 10 error annotations (GitHub's per-step limit), the rest counted in one",
+              sum(1 for a_ in an.lines_for(many)[0] if a_[0] == "error") == 10)
         check("CI workflow: one check per step (in a multi-line PowerShell step only the last exit code counts)",
               not re.search(r"run: \|\n(?:\s+python [^\n]+\n){2,}", wf))
 
