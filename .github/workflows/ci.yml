@@ -1,0 +1,72 @@
+# Architect's full self-test run on GitHub's Windows machines, so it never needs the owner's laptop.
+# The same commands the handoff checklist names (CLAUDE.md, "Before handing off"), each in a throwaway home and data folder.
+# Nothing here calls a model or Claude: the suites use their scripted stand-ins (ARCHITECT_SELFTEST, arch_cloud.allowed()).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:                      # a newer push to the same branch replaces a run still going
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selftest:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      PYTHONUTF8: "1"
+      ARCHITECT_NO_CACHE: "1"
+    steps:
+      # Windows runners convert line endings on checkout by default; the manifest and the byte-exact guarded-slice checks need the
+      # files exactly as committed (.gitattributes says `* -text` too; this is the backstop).
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest (the only package the suites use)
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Throwaway home and data folder
+        shell: pwsh
+        run: |
+          $h = Join-Path $env:RUNNER_TEMP "arch_home"; $d = Join-Path $env:RUNNER_TEMP "arch_data"
+          New-Item -ItemType Directory -Force $h, $d | Out-Null
+          "ARCHITECT_HOME=$h" >> $env:GITHUB_ENV
+          "ARCHITECT_DATA_DIR=$d" >> $env:GITHUB_ENV
+
+      # one step per check: in a multi-line PowerShell step only the LAST command's exit code would count
+      - name: Flow files are valid
+        run: python architect.py flows --validate
+      - name: Stated counts match the code
+        run: python tools/doc_counts.py
+      - name: No new do-nothing error handlers
+        run: python tools/swallow_audit.py
+      - name: Lessons still enforced
+        run: python arch_lessons.py
+      - name: No fake code
+        run: python architect.py fakecode
+      - name: Manifest matches the tracked files
+        run: python tools/ci_manifest_check.py
+
+      - name: Every suite (tools/ci_parallel.py)
+        run: python tools/ci_parallel.py --jobs 4 --timeout 1200
+
+      - name: Keep the suite table
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report
+          path: ${{ env.ARCHITECT_DATA_DIR }}/ci/*.json
+          if-no-files-found: ignore

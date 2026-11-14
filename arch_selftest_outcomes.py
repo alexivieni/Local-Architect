@@ -12,6 +12,7 @@ What is proven here, without a model, a GPU or the network (throwaway ARCHITECT_
 Run: python arch_selftest_outcomes.py   ->   ALL N OUTCOME CHECKS PASSED
 """
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -263,6 +264,37 @@ def run():
               on_disk == listed | set(A.unlisted_suites()) and not (listed - on_disk - {"arch_selftest_sec"}), str(listed - on_disk))
         check("crew's suite returns 0 when it passes (it returned its check count)",
               "return 0" in open(os.path.join(HERE, "arch_selftest_crew.py"), encoding="utf-8").read().split("CREW CHECKS PASSED")[1][:200])
+
+        # ==== CI on GitHub's Windows machines (.github/workflows/ci.yml, tools/ci_manifest_check.py; 2026-11-13) ====
+        import importlib.util as _ilu
+        import subprocess as _sp
+        spec = _ilu.spec_from_file_location("ci_manifest_check_t", os.path.join(HERE, "tools", "ci_manifest_check.py"))
+        mc = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mc)
+        import arch_selfimprove as _si
+        real_verify, real_run = _si.verify, _sp.run
+
+        class _Out:
+            def __init__(self, text):
+                self.returncode, self.stdout, self.stderr = 0, text, ""
+        try:
+            _sp.run = lambda *a, **k: _Out("a.py\0b.py\0")
+            _si.verify = lambda base: {"has_manifest": True, "modified": [], "missing": ["docs/my_paper.tex"], "unlisted": []}
+            check("CI manifest: a manifest file git does not track (the owner's own) is not a failure in a clone", mc.main() == 0)
+            _si.verify = lambda base: {"has_manifest": True, "modified": [], "missing": ["b.py"], "unlisted": []}
+            check("CI manifest: a tracked file that is missing fails", mc.main() == 1)
+            _si.verify = lambda base: {"has_manifest": True, "modified": ["a.py"], "missing": [], "unlisted": []}
+            check("CI manifest: a file that differs from the manifest fails", mc.main() == 1)
+        finally:
+            _si.verify, _sp.run = real_verify, real_run
+        wf = open(os.path.join(HERE, ".github", "workflows", "ci.yml"), encoding="utf-8").read()
+        steps_ok = all(c in wf for c in ("architect.py flows --validate", "tools/doc_counts.py", "tools/swallow_audit.py", "arch_lessons.py",
+                                         "architect.py fakecode", "tools/ci_manifest_check.py", "tools/ci_parallel.py"))
+        check("CI workflow: Windows runner, line endings kept before checkout, every handoff check, a throwaway home and data folder",
+              "runs-on: windows-latest" in wf and wf.index("core.autocrlf false") < wf.index("actions/checkout") and steps_ok
+              and "ARCHITECT_HOME=" in wf and "ARCHITECT_DATA_DIR=" in wf)
+        check("CI workflow: one check per step (in a multi-line PowerShell step only the last exit code counts)",
+              not re.search(r"run: \|\n(?:\s+python [^\n]+\n){2,}", wf))
 
         # ==== Phase 3: features that never did anything ====
         import arch_roles as roles
