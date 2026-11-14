@@ -461,8 +461,12 @@ def run():
             out5 = F.FLOWS["bugfix"].run(e5, {})
             check("bugfix: an unusable reproduction test (it passes on the broken code) is removed again",
                   not os.path.exists(os.path.join(proj5, "tests", "test_repro_divide.py")), os.listdir(os.path.join(proj5, "tests")))
-            check("bugfix: so the correct fix passes on the first try instead of failing on the harness's own leftover test",
-                  out5.get("ok") is True and script["fix"] == 1, (out5, script["fix"]))
+            # the fix passes its checks on the first try; with the only reproduction rejected nothing showed the bug, so the run is
+            # not_sure, not a pass (2026-11-14: no proof, no pass)
+            check("bugfix: so the correct fix passes its checks on the first try instead of failing on the harness's own leftover test "
+                  "(and, with no reproduction left, the verdict is not sure, not pass)",
+                  script["fix"] == 1 and out5.get("unsure") is True and "never reproduced" in (out5.get("why") or "")
+                  and "calc.py" in (out5.get("files") or []), (out5, script["fix"]))
             script["mode"], script["fix"] = "calc_def", 0
             proj6 = os.path.join(home, "calc-def")
             os.makedirs(os.path.join(proj6, "tests"))
@@ -483,8 +487,9 @@ def run():
             before = open(os.path.join(proj6b, "tests", "test_calc.py"), "rb").read()
             out6b = F.FLOWS["bugfix"].run(engine(proj6b, "bugfix", CALC_GOAL), {})
             check("bugfix: the existing tests cannot be edited, neither to hold the repro nor by the fix (nor switched off by a new "
-                  "conftest.py); the code fix alone passes",
-                  open(os.path.join(proj6b, "tests", "test_calc.py"), "rb").read() == before and out6b.get("ok") is True
+                  "conftest.py); the code fix alone lands (not sure: no reproduction showed the bug)",
+                  open(os.path.join(proj6b, "tests", "test_calc.py"), "rb").read() == before
+                  and out6b.get("unsure") is True and "never reproduced" in (out6b.get("why") or "")
                   and not os.path.exists(os.path.join(proj6b, "conftest.py"))
                   and "return a / b\n" in open(os.path.join(proj6b, "calc.py"), encoding="utf-8").read(), out6b)
             # ---- the test flow keeps the good tests of a half-right file written under a bare path line
