@@ -2043,12 +2043,17 @@ class BugfixFlow(Flow):
         e.say(f"[locate] suspect files: {', '.join(focus[:5]) or '(none found)'}")
         e.report(f"- Suspect files: {', '.join(focus[:6])}", "")
         repro_rel, failure = "", ""
+        # proven: a reproduction test failed on today's code, so the fix passing it shows the bug is gone. Without one, a fix that
+        # passes the other tests is not proven: the run ends not_sure (the YAML twin's not_sure_if says the same)
+        can_test = bool(core.has_module("pytest") or e.cfg["tests"].get("command"))
+        proven = False
         if params.get("repro") and os.path.isfile(os.path.join(e.root, params["repro"])):        # the hunt flow already proved the bug with this test
             repro_rel = params["repro"]
             st, log = core.run_tests(e.root, e.cfg, [repro_rel])
             failure = log[-1500:] if st == "fail" else ""
+            proven = st == "fail"
             e.say(f"[repro] using {repro_rel}: {'fails as expected' if st == 'fail' else st}")
-        elif core.has_module("pytest") or e.cfg["tests"].get("command"):
+        elif can_test:
             ctx = e.context(goal, 12000)
             r = e.call("generator", BUG_REPRO.format(goal=goal, slug=slug, context=ctx), label="repro")
             # the reproduction is a NEW file: an edit to the existing tests (easy with a DEF block) would make the suite itself the repro
@@ -2061,13 +2066,16 @@ class BugfixFlow(Flow):
             if new:
                 repro_rel = new[0]
                 rok, why, log = core.repro_check(e.root, e.cfg, repro_rel)
-                if rok is not False:              # None: it fails, but the test command cannot say it is this file: kept, marked not sure
+                if rok is True:
                     failure = log[-1500:]
-                    e.mark(r["id"], rok, "fails for the right reason" if rok else why)
-                    e.say("[+] reproduction test fails as it should" if rok else f"[?] reproduction test fails; {why[:120]}")
+                    proven = True
+                    e.mark(r["id"], True, "fails for the right reason")
+                    e.say("[+] reproduction test fails as it should")
                 else:
-                    e.mark(r["id"], False, why)
-                    e.say(f"[!] reproduction test is not usable: {why[:100]}")
+                    # False: not a proof. None: it fails, but the test command cannot say it is THIS file -- an unclear proof is not
+                    # kept either (a bogus one could fail every correct fix), and it is marked None, never False (three outcomes)
+                    e.mark(r["id"], rok, why)
+                    e.say(f"[{'?' if rok is None else '!'}] reproduction test is not usable: {why[:100]}")
                     e.report(f"- Reproduction test not usable: {why[:200]}")
                     # A rejected repro must not stay in the suite: one that asserts the bug itself later fails every correct fix. Every
                     # file the step changed goes back -- a new test file is removed, an existing one (a FILE rewrite or a DEF appended into
@@ -2157,6 +2165,11 @@ class BugfixFlow(Flow):
         if fixed and unproven:
             e.report("", "- A change was made, but NO test ran, so whether the bug is fixed could not be checked (verdict: not sure)")
             return {"ok": False, "unsure": True, "why": "no test ran", "files": e.changed_files}
+        if fixed and can_test and not proven:
+            # the tests pass, but no test ever showed the bug, so nothing shows it is gone (it said "repro and tests pass" here)
+            e.report("", "- The tests pass, but the bug was never reproduced by a failing test, so whether it is fixed could not be "
+                         "checked (verdict: not sure)")
+            return {"ok": False, "unsure": True, "why": "the bug was never reproduced by a failing test", "files": e.changed_files}
         e.report("", f"- Bug {'fixed: repro and tests pass' if fixed else 'NOT fixed after the allowed attempts'}")
         return {"ok": fixed, "files": e.changed_files}
 

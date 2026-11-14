@@ -132,6 +132,21 @@ class _Env(dict):
         return NOTHING
 
 
+class _NoneIs(ast.NodeTransformer):
+    """`x is None` / `x is not None` -> `x == None` / `x != None`. An absent value is NOTHING, which EQUALS None but is not None, so
+    `params.repro is None` was False when no repro was given: bugfix.yaml's reproduction step never ran (2026-11-14)."""
+
+    def visit_Compare(self, node):
+        self.generic_visit(node)
+        seq = [node.left] + list(node.comparators)
+        ops = []
+        for i, op in enumerate(node.ops):
+            none_side = any(isinstance(x, ast.Constant) and x.value is None for x in (seq[i], seq[i + 1]))
+            ops.append(ast.Eq() if none_side and isinstance(op, ast.Is) else ast.NotEq() if none_side and isinstance(op, ast.IsNot) else op)
+        node.ops = ops
+        return node
+
+
 def evaluate(expr, ctx):
     """A boolean/scalar expression over ctx, with no function calls beyond len/bool/any/all/min/max/int/str. Raises ValueError on anything else."""
     if expr in (None, "", True):
@@ -146,6 +161,7 @@ def evaluate(expr, ctx):
             raise ValueError(f"only {', '.join(_FUNCS)} may be called in a flow expression: {expr!r}")
         if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
             raise ValueError(f"private attribute in a flow expression: {expr!r}")
+    tree = ast.fix_missing_locations(_NoneIs().visit(tree))
     env = _Env(_FUNCS)
     env.update({k: _wrap(v) for k, v in ctx.items()})
     env["__builtins__"] = {}

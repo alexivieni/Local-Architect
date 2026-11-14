@@ -227,20 +227,59 @@ def run():
         legacy = {k: v for k, v in arch_flows.FLOWS.items()}
         data = df.load_all(say=quiet)
         same, diff = 0, []
-        for fid in ("bugfix", "secure"):
-            root_l, root_d = os.path.join(tmp, "l_" + fid), os.path.join(tmp, "d_" + fid)
+
+        def verdict_of(out):                      # the run's verdict as run_flow records it: three outcomes, not bool(ok)
+            return "not_sure" if out.get("unsure") or out.get("verdict") == "not_sure" else ("pass" if out.get("ok") else "fail")
+
+        # paginate: the scripted model writes a failing reproduction and then the one-line fix (arch_selftest.Fake), and an unrelated
+        # existing test passes before and after, so "the tests pass" can happen with or without a proof of the bug
+        PAG = "def paginate(items, page, size):\n    start = page * size\n    return items[start:start + size]\n"
+        PAG_T = ("import sys, os\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\nfrom app import paginate\n\n\n"
+                 "def test_returns_a_list():\n    assert isinstance(paginate([1, 2, 3], 1, 1), list)\n")
+
+        def both(fid, tag, mod=MOD, test=TEST, goal="fix the bug in app.py"):
+            root_l, root_d = os.path.join(tmp, f"l_{fid}_{tag}"), os.path.join(tmp, f"d_{fid}_{tag}")
             for root in (root_l, root_d):
                 os.makedirs(os.path.join(root, "tests"), exist_ok=True)
-                open(os.path.join(root, "app.py"), "w", encoding="utf-8").write(MOD)
-                open(os.path.join(root, "tests", "test_app.py"), "w", encoding="utf-8").write(TEST)
+                open(os.path.join(root, "app.py"), "w", encoding="utf-8").write(mod)
+                open(os.path.join(root, "tests", "test_app.py"), "w", encoding="utf-8").write(test)
             cfg_l = core.deep_merge(core.load_config(root_l), {"roles": {r_: "fake:7b" for r_ in arch_roles.ROLES}, "behavior": {"playwright": "off"}})
-            a = legacy[fid].run(core.Engine(root_l, fid, "fix the bug in app.py", cfg_l, review="auto", say=quiet), {})
-            b = data[fid].run(core.Engine(root_d, fid, "fix the bug in app.py", core.deep_merge(cfg_l, {}), review="auto", say=quiet), {})
-            if bool(a.get("ok")) == bool(b.get("ok")):
+            a = legacy[fid].run(core.Engine(root_l, fid, goal, cfg_l, review="auto", say=quiet), {})
+            b = data[fid].run(core.Engine(root_d, fid, goal, core.deep_merge(cfg_l, {}), review="auto", say=quiet), {})
+            return verdict_of(a), verdict_of(b), a, b, root_l, root_d
+
+        PAG_GOAL = "paginate returns the wrong items: page 1 should be the first items"
+        for fid, tag, kw in (("bugfix", "unfixable", {}), ("secure", "plain", {}), ("bugfix", "fixed", {"mod": PAG, "test": PAG_T, "goal": PAG_GOAL})):
+            va, vb, a, b, _, root_d_ = both(fid, tag, **kw)
+            if tag == "fixed":
+                fixed_repro = (b.get("steps") or {}).get("repro") or {}
+                fixed_files = sorted(os.listdir(os.path.join(root_d_, "tests")))
+            if va == vb:
                 same += 1
             else:
-                diff.append((fid, a.get("ok"), b.get("ok")))
-        check("a data flow reaches the same outcome as the Python class it replaces (bugfix, secure)", same == 2, diff)
+                diff.append((fid, tag, va, vb))
+        check("a data flow reaches the same verdict (pass / fail / not_sure) as the Python class it replaces (bugfix fixed and unfixable, "
+              "secure; a fix that never passes its tests is a fail in both, not 'not sure')", same == 3 and va == "pass", (diff, va, vb))
+        check("the YAML bugfix really writes its reproduction test (`params.repro is None` was False for a missing value, so it "
+              "never ran) and keeps it as the proof", fixed_repro.get("ok") is True and not fixed_repro.get("skipped")
+              and "test_repro_pages.py" in fixed_files, (fixed_repro, fixed_files))
+        check("flow expressions: `is None` / `is not None` see a missing value as None (it EQUALS None but is not None)",
+              df.evaluate("params.repro is None", {"params": {}}) is True and df.evaluate("params.repro is not None", {"params": {}}) is False
+              and df.evaluate("params.repro is None", {"params": {"repro": "t.py"}}) is False and df.evaluate("x is None", {"x": 0}) is False)
+        # bugfix with a reproduction that is not a proof: rejected (False) or unclear (None). Both engines ask core.repro_check, so one
+        # stand-in drives both. A fix that then passes the other tests is not proven: not_sure in both (legacy said "pass"), and the
+        # unusable test file is gone in both (legacy kept an unclear one).
+        real_rc = core.repro_check
+        try:
+            for tag, answer in (("rejected", (False, "it passes already (cannot reproduce)", "1 passed")),
+                                ("unclear", (None, "the output shows no failure in it (could not check)", "1 failed"))):
+                core.repro_check = lambda root_, cfg_, rel_, _a=answer: _a
+                va, vb, a, b, rl, rd = both("bugfix", tag, mod=PAG, test=PAG_T, goal=PAG_GOAL)
+                left = [r_ for r_ in (rl, rd) for f_ in os.listdir(os.path.join(r_, "tests")) if f_ != "test_app.py" and f_.endswith(".py")]
+                check(f"bugfix, {tag} reproduction: both engines end not_sure (a fix with no failing test behind it is not proven), "
+                      "and neither keeps the unusable test", va == vb == "not_sure" and not left, (va, vb, left, a.get("why"), b.get("why")))
+        finally:
+            core.repro_check = real_rc
         check("the data flow also reports a verdict the legacy class never had", "verdict" in b, b)
 
         # ---- tools and memory (phase 4)

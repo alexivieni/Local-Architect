@@ -46,7 +46,7 @@ steps:
     apply: {deny: ["{repro_path}"], deny_ctx: kept_tests}
     verify: {gate: verify_files, run_tests: true, require_tests: true}
     loop: {max: 3, coach: true, escalate: [heavy]}
-    on_fail: not_sure
+    on_fail: stop             # tests that ran and failed are a fail (a check that could not run still ends not_sure)
     budget: {tokens: 90000, seconds: 900}
 
   - id: review

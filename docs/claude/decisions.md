@@ -295,6 +295,20 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
 - Left for later phases (with the owner): the two flow engines (YAML twins miss gates the Python flows enforce, prompts exist twice),
   `core.update_json`, one test runner and kit, the timers, formatters, CSS layers and the hub router.
 
+## The bugfix flow: both engines agree (2026-11-14)
+- **The YAML bugfix never wrote a reproduction test.** Its step's `when: "env.can_test and params.repro is None"` was always False: a
+  missing value is NOTHING, which equals None but is not None. `evaluate()` now reads `is None` / `is not None` as `== None` /
+  `!= None` (`_NoneIs`), so every flow, the shipped ones (bugfix, council_fix) and anyone's own, gets the meaning it wrote.
+- **No proof, no pass.** A fix that passes the tests while no reproduction test ever failed is not_sure in both engines, as rule 2
+  and bugfix.yaml's `not_sure_if` already said; the Python flow called it a pass and even reported "repro and tests pass".
+  A reproduction handed over by the bug hunt counts only if it fails today. An unclear reproduction (`repro_check` None) is removed
+  like a rejected one in both engines (a bogus test could fail every correct fix) and is marked None, never False.
+- **A fix whose tests ran and failed is a fail**, not not_sure: bugfix.yaml's fix step said `on_fail: not_sure`, which turned a
+  known failure into "not sure" (and kept it out of training as a negative). It is `on_fail: stop`; a check that could not run still
+  ends not_sure. refactor.yaml, test.yaml and ml.yaml have the same `on_fail: not_sure` on their main step: left for the owner.
+- `arch_selftest_dataflow` compares the two engines' verdict STRINGS (it compared `bool(ok)`, which hid not_sure) on a bug the
+  scripted model fixes, one it cannot fix, a rejected and an unclear reproduction, and secure; and requires the YAML repro to run.
+
 ## CI on GitHub's Windows machines (2026-11-13)
 - `.github/workflows/ci.yml` runs on every push to main, every pull request and by hand: windows-latest, Python 3.12 + pytest, line
   endings kept as committed, a throwaway ARCHITECT_HOME/ARCHITECT_DATA_DIR, the handoff checks one per step (a multi-line
