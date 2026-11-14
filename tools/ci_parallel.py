@@ -42,7 +42,10 @@ def run(name, timeout):
     home = tempfile.mkdtemp(prefix="ci_" + name[:20] + "_")
     env = dict(os.environ, ARCHITECT_DATA_DIR=os.path.join(home, "data"), ARCHITECT_HOME=home, ARCHITECT_NO_CACHE="1",
                PYTHONDONTWRITEBYTECODE="1", ARCHITECT_SELFTEST="1")
-    flags = 0x00004000 if os.name == "nt" else 0          # BELOW_NORMAL_PRIORITY_CLASS
+    # BELOW_NORMAL_PRIORITY_CLASS, and on Windows a console of its own (CREATE_NO_WINDOW): a Ctrl+C a suite raises on its console then
+    # reaches that suite only. Sharing this console, one such event ended the whole run on GitHub's runner (2026-11-13; on the
+    # laptop every process inherits "ignore Ctrl+C" from the shell, so it went unseen). Output still comes back through the pipe.
+    flags = (0x00004000 | 0x08000000) if os.name == "nt" else 0
     t = time.time()
     sys.path.insert(0, APP)
     import arch_sandbox
