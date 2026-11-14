@@ -295,6 +295,27 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
 - Left for later phases (with the owner): the two flow engines (YAML twins miss gates the Python flows enforce, prompts exist twice),
   `core.update_json`, one test runner and kit, the timers, formatters, CSS layers and the hub router.
 
+## CI on GitHub's Windows machines (2026-11-13)
+- `.github/workflows/ci.yml` runs on every push to main, every pull request and by hand: windows-latest, Python 3.12 + pytest, line
+  endings kept as committed, a throwaway ARCHITECT_HOME/ARCHITECT_DATA_DIR, the handoff checks one per step (a multi-line
+  PowerShell step counts only its last exit code), then `tools/ci_parallel.py --jobs 4`. No model and no Claude are called. The
+  owner's laptop is not used: run it there only when a change needs the real GPU or models.
+- The log is visible only to signed-in users; `tools/ci_annotate.py` turns the report into public annotations (one error per failing
+  suite with its failing lines, warnings for NOT_SURE/LOAD) and a job-summary table, so a session can read the result from the
+  public API (`/repos/alexivieni/Local-Architect/check-runs/<job id>/annotations`) without signing in. `tools/ci_manifest_check.py`:
+  in a clone, a manifest entry git does not track (the owner's own files) is reported, not failed.
+- What the first five runs found that the laptop hid (all fixed, each with a check in `arch_selftest_outcomes`):
+  1. A console-wide Ctrl+C: the llama suite recorded its own pid as a server and `stop()` asked it to exit cleanly, i.e. raised
+     Ctrl+C on its own console, which ended the whole run. The laptop never saw it because every process there inherits "ignore
+     Ctrl+C" from the shell. `_ask_exit` now refuses this process and its parent (their console is the person's window), and
+     `ci_parallel` gives each suite a console of its own.
+  2. `core.read_text`'s cache returned an old copy of a file rewritten in the same timestamp tick at the same size (memory
+     counters: "(used 1)" -> "(used 2)"), so use counts were lost. A file changed in the last 2 s is always read again.
+  3. The log_analyzer starter's `samples/access.log` was never committed (`*.log` in .gitignore): every clone failed its tests.
+- Expected on the runner: NOT_SURE for templates_catalog (flask/fastapi are not installed) and redact (the owner's keeper.py is not
+  in git); a timing-sensitive suite now and then LOAD (4 suites at once on 4 cores). `actions/upload-artifact@v5` still warns about
+  Node 20.
+
 ## Accessibility follow-up: status marks in words (2026-11-13)
 - Audit of what changed since Phase C (read from the code, no browser run: the owner was running another app). One gap, older
   than the debug audit but widened by its "could not be checked" mark: status was a glyph (✓ ? – ! ·), a colour and a hover title.
