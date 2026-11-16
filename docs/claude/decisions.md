@@ -329,6 +329,10 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
   2. `core.read_text`'s cache returned an old copy of a file rewritten in the same timestamp tick at the same size (memory
      counters: "(used 1)" -> "(used 2)"), so use counts were lost. A file changed in the last 2 s is always read again.
   3. The log_analyzer starter's `samples/access.log` was never committed (`*.log` in .gitignore): every clone failed its tests.
+  4. (2026-11-15) The rest_api and fullstack starters' own tests now and then crashed Python at exit on Windows (0xC0000409, "at
+     interpreter shutdown, possibly due to daemon threads"): ThreadingHTTPServer left HTTP/1.1 keep-alive request threads running
+     as daemons, and one test never closed its connection. The starter's server now joins its request threads on close
+     (`daemon_threads = False`), an idle connection times out after 10 s, and the test closes what it opens (6/6 clean runs each).
 - Expected on the runner: NOT_SURE for templates_catalog (flask/fastapi are not installed) and redact (the owner's keeper.py is not
   in git); a timing-sensitive suite now and then LOAD (4 suites at once on 4 cores). `actions/upload-artifact@v5` still warns about
   Node 20.

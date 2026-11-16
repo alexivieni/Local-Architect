@@ -1354,6 +1354,7 @@ def validate(body, partial_ok=False):
 class Handler(BaseHTTPRequestHandler):
     store = None
     protocol_version = "HTTP/1.1"
+    timeout = 10                     # an idle keep-alive connection is closed after 10 s instead of holding a thread forever
 
     def log_message(self, *a):
         pass
@@ -1427,9 +1428,15 @@ class Handler(BaseHTTPRequestHandler):
     do_GET = do_POST = do_PUT = do_DELETE = handle_any
 
 
+class Server(ThreadingHTTPServer):
+    # request threads are joined by server_close() (block_on_close), so shutting down never leaves one mid-reply: a daemon thread
+    # still running when Python exits can crash the interpreter on Windows ("at interpreter shutdown, possibly due to daemon threads")
+    daemon_threads = False
+
+
 def make_server(host="127.0.0.1", port=8000, db_path=":memory:"):
     handler = type("BoundHandler", (Handler,), {"store": Store(db_path)})
-    return ThreadingHTTPServer((host, port), handler)
+    return Server((host, port), handler)
 
 
 if __name__ == "__main__":
@@ -1653,8 +1660,11 @@ def test_static_path_cannot_escape():
     try:
         import http.client
         c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1])
-        c.request("GET", "/../app/server.py")
-        assert c.getresponse().status == 404
+        try:
+            c.request("GET", "/../app/server.py")
+            assert c.getresponse().status == 404
+        finally:
+            c.close()                # an open keep-alive connection would keep its request thread waiting
     finally:
         srv.shutdown()
         srv.server_close()
