@@ -305,7 +305,10 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
   like a rejected one in both engines (a bogus test could fail every correct fix) and is marked None, never False.
 - **A fix whose tests ran and failed is a fail**, not not_sure: bugfix.yaml's fix step said `on_fail: not_sure`, which turned a
   known failure into "not sure" (and kept it out of training as a negative). It is `on_fail: stop`; a check that could not run still
-  ends not_sure. refactor.yaml, test.yaml and ml.yaml have the same `on_fail: not_sure` on their main step: left for the owner.
+  ends not_sure. refactor.yaml (`change`), test.yaml (`write`) and ml.yaml (`deterministic`) had the same `on_fail: not_sure`;
+  with the owner's yes (2026-11-15) they are `on_fail: stop` too, and no shipped flow may use `not_sure` (dataflow suite). The
+  determinism gate answers None when no test ran (it was "not deterministic"), and the Python ml flow now fails a pipeline whose
+  two test runs differ: it reported "differ" and returned the build's pass, against its own "proven, not assumed".
 - `arch_selftest_dataflow` compares the two engines' verdict STRINGS (it compared `bool(ok)`, which hid not_sure) on a bug the
   scripted model fixes, one it cannot fix, a rejected and an unclear reproduction, and secure; and requires the YAML repro to run.
 

@@ -46,7 +46,7 @@ steps:
     title: "The same suite twice, compared"
     gate: determinism
     when: "sprints.ok"
-    on_fail: not_sure
+    on_fail: stop             # two runs that differ are a fail; tests that could not run end not_sure
 
 verdict:
   pass_if: "sprints.ok and deterministic.ok"

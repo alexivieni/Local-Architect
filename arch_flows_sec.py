@@ -321,6 +321,8 @@ class MlFlow(base.BuildFlow):
         e.say(f"[determinism] two runs {'match' if deterministic else 'DIFFER'}")
         e.report("", f"- Determinism: two test runs {'match' if deterministic else 'differ -- check for unseeded randomness or unordered iteration'}")
         out["deterministic"] = deterministic
+        if not deterministic:          # "determinism is PROVEN, not assumed": two runs that differ fail the run, as ml.yaml does
+            out = dict(out, ok=False, why="two identical test runs gave different results: the pipeline is not deterministic")
         return out
 
 

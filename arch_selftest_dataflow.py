@@ -263,6 +263,42 @@ def run():
         check("the YAML bugfix really writes its reproduction test (`params.repro is None` was False for a missing value, so it "
               "never ran) and keeps it as the proof", fixed_repro.get("ok") is True and not fixed_repro.get("skipped")
               and "test_repro_pages.py" in fixed_files, (fixed_repro, fixed_files))
+        # ---- a step whose checks ran and failed is a FAIL; one whose checks could not run is not_sure (three outcomes, 2026-11-15)
+        bad_steps = [(fid, s_.get("id")) for fid, fl_ in data.items() if hasattr(fl_, "doc")
+                     for s_ in (fl_.doc.get("steps") or []) if s_.get("on_fail") == "not_sure"]
+        check("no shipped flow turns a step that ran and failed into 'not sure' (on_fail: not_sure did, in bugfix, refactor, test, ml)",
+              not bad_steps, bad_steps)
+        arch_gates.GATES["_t_fails"] = lambda e_, c_, s_, ch_: arch_gates.R(False, "it ran and failed")
+        arch_gates.GATES["_t_cannot"] = lambda e_, c_, s_, ch_: arch_gates.R(None, "it could not run")
+        try:
+            got = {}
+            for g_ in ("_t_fails", "_t_cannot"):
+                f_ = df.DataFlow({"id": "t_of", "title": "t", "steps": [{"id": "s", "kind": "code", "gate": g_, "on_fail": "stop"}],
+                                  "verdict": {"pass_if": "s.ok"}})
+                got[g_] = f_.run(eng(), {})["verdict"]
+        finally:
+            arch_gates.GATES.pop("_t_fails", None)
+            arch_gates.GATES.pop("_t_cannot", None)
+        check("on_fail: stop -> a step that ran and failed ends the run as fail, one that could not run as not_sure",
+              got == {"_t_fails": "fail", "_t_cannot": "not_sure"}, got)
+        real_rt = core.run_tests
+        try:
+            seq = []
+            core.run_tests = lambda root_, cfg_, targets=None: seq.pop(0)
+            det = arch_gates.GATES["determinism"]
+            seq[:] = [("pass", "3 passed in 0.10s"), ("pass", "3 passed in 0.27s")]
+            d_same = det(eng(), {}, {}, [])["ok"]
+            seq[:] = [("pass", "value 0.41\n3 passed"), ("pass", "value 0.77\n3 passed")]
+            d_diff = det(eng(), {}, {}, [])["ok"]
+            seq[:] = [("none", "no tests ran"), ("none", "no tests ran")]
+            d_none = det(eng(), {}, {}, [])["ok"]
+        finally:
+            core.run_tests = real_rt
+        check("determinism: two matching runs pass (timings aside), two that differ fail, and no test at all is could-not-check (it was a fail)",
+              (d_same, d_diff, d_none) == (True, False, None), (d_same, d_diff, d_none))
+        import arch_flows_sec as sec_
+        check("the Python ml flow fails a pipeline whose two runs differ (it reported it and passed anyway), like ml.yaml",
+              'out = dict(out, ok=False, why="two identical test runs gave different results' in open(sec_.__file__, encoding="utf-8").read())
         check("flow expressions: `is None` / `is not None` see a missing value as None (it EQUALS None but is not None)",
               df.evaluate("params.repro is None", {"params": {}}) is True and df.evaluate("params.repro is not None", {"params": {}}) is False
               and df.evaluate("params.repro is None", {"params": {"repro": "t.py"}}) is False and df.evaluate("x is None", {"x": 0}) is False)

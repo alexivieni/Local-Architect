@@ -702,6 +702,8 @@ def g_domain_files(e, ctx, step, changed):
 def g_determinism(e, ctx, step, changed):
     a = core.run_tests(e.root, e.cfg)
     b = core.run_tests(e.root, e.cfg)
+    if "none" in (a[0], b[0]):                          # no test ran: whether it repeats could not be checked (not "it differs")
+        return R(None, "no test ran, so whether two runs give the same result could not be checked", {"tests": a[0]})
     same = a[0] == b[0] and re.sub(r"\d+\.\d+s", "", a[1]) == re.sub(r"\d+\.\d+s", "", b[1])
     return R(same and a[0] == "pass", "" if same else "two identical test runs gave different results: the pipeline is not deterministic", {"tests": a[0]})
 

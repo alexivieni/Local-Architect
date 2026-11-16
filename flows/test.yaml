@@ -31,7 +31,7 @@ steps:
     apply: {expect_new_under: "tests/", deny_ctx: existing_tests}
     verify: {gate: new_tests_pass}
     loop: {max: 3, coach: true}
-    on_fail: not_sure
+    on_fail: stop  # tests that ran and failed are a fail (a check that could not run still ends not_sure)
     budget: {tokens: 110000, seconds: 1200}
 
   - id: mutate_after

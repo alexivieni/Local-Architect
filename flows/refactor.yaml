@@ -50,7 +50,7 @@ steps:
     apply: {deny: ["tests/characterization/"]}
     verify: {gate: verify_files, run_tests: true, require_tests: true}
     loop: {max: 3, coach: true, escalate: [heavy]}
-    on_fail: not_sure
+    on_fail: stop  # tests that ran and failed are a fail (a check that could not run still ends not_sure)
     budget: {tokens: 110000, seconds: 1500}
 
   - id: after
