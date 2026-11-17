@@ -60,10 +60,20 @@ jobs:
       - name: Manifest matches the tracked files
         run: python tools/ci_manifest_check.py
 
+      # which suites failed only under load in the last runs: a suite that does it twice in ten runs is counted as a failure
+      - name: Restore the load history
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci_history
+          key: ci-load-history-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ci-load-history-
+
+      # --must-run: this runner has Edge, so the two browser suites (the only real-browser checks of the hub's JavaScript) must run in
+      # full; "could not run" is a failure here, not a quiet NOT_SURE
       - name: Every suite (tools/ci_parallel.py)
         shell: cmd
         run: |
-          python tools/ci_parallel.py --jobs 4 --timeout 1200 > "%RUNNER_TEMP%\ci_out.txt" 2>&1
+          python tools/ci_parallel.py --jobs 4 --timeout 1200 --must-run uismoke,crawl --history .ci_history\load.json > "%RUNNER_TEMP%\ci_out.txt" 2>&1
           set rc=%ERRORLEVEL%
           type "%RUNNER_TEMP%\ci_out.txt"
           exit /b %rc%
@@ -73,6 +83,13 @@ jobs:
         if: always()
         shell: cmd
         run: python tools/ci_annotate.py "%RUNNER_TEMP%\ci_out.txt"
+
+      - name: Save the load history
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .ci_history
+          key: ci-load-history-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Keep the suite table
         if: always()

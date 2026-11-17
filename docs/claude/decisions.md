@@ -364,6 +364,25 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
   Review folds the same check with the same result and reason into one row with a count.
 - Checks: `arch_selftest_outcomes` (now 81), including a `review_view` fixture with a removed file.
 
+## Review 2026-11-17, Phase G (first part): CI tells the truth
+- **The browser suites must run on the runner.** uismoke and crawl are the only checks of the hub's JavaScript in a real browser; if
+  Edge broke on the runner they went quietly NOT_SURE and CI stayed green. `ci_parallel --must-run uismoke,crawl` (in ci.yml) turns
+  "could not run" into a failure for the named suites; elsewhere (this laptop) they stay NOT_SURE.
+- **A suite that fails only under load twice is a bug.** A suite that failed in parallel and passed alone was LOAD and never red,
+  with no memory between runs (the workspace port bug hid this way). `ci_parallel --history PATH` keeps the LOAD suites of the last
+  ten runs; one that does it again within that window is counted as a failure, naming the earlier run. ci.yml carries the file
+  between runs with `actions/cache/restore` + `save` (`.ci_history/`, git-ignored).
+- **A check that could not decide is not a pass, nor a fail.** Without node, hub_check's "the script parses" fell back to counting
+  brackets and passed; balanced brackets now report NOT_SURE (unbalanced ones still fail). Three wall-clock checks (honesty: a
+  stopped Ollama costs no 2 s wait, < 1.5 s; hubperf: reported down in < 1 s; debt: Stop ends a run in < 5 s) failed outright on a
+  busy machine: under the limit passes, up to twice it is NOT_SURE, beyond it fails. honesty, debt and hub_check report
+  "0 of N FAILED, k COULD NOT RUN" with exit 2 like the other suites.
+- **`architect.py selftest` has three results too.** `_suite_rc` read exit 2 as a failure and `rc |= ...` made 1 and 2 into 3; a
+  suite's 2 is now not sure and `_worst` combines results (a failure beats not sure, which beats a pass).
+- **Not done: redact and replay still read the real install** (the reviewer's G6). Both are read-only, and redact runs the owner's
+  own `hub_data/learning/keeper.py`, which is not the app's to copy into the repo as a fixture; they stay as decided on 2026-11-13.
+- Checks: `arch_selftest_outcomes` (now 85).
+
 ## CI on GitHub's Windows machines (2026-11-13)
 - `.github/workflows/ci.yml` runs on every push to main, every pull request and by hand: windows-latest, Python 3.12 + pytest, line
   endings kept as committed, a throwaway ARCHITECT_HOME/ARCHITECT_DATA_DIR, the handoff checks one per step (a multi-line

@@ -15,3 +15,6 @@ portfolio.json
 # ...except the sample logs a project starter ships with (its own tests read them: a clone without it failed them)
 !static/templates/src/*/samples/*.log
 .env
+
+# CI: the load history the workflow caches between runs (tools/ci_parallel.py --history)
+.ci_history/

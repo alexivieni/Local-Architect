@@ -31,8 +31,9 @@ def run():
     results = []
 
     def check(name, ok, extra=""):
-        results.append(bool(ok))
-        print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
+        """ok True / False / None: None = could not be decided here (a timing on a loaded machine), never a pass."""
+        results.append(None if ok is None else bool(ok))
+        print(f"  {'PASS' if ok else 'NOT_SURE' if ok is None else 'FAIL'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
 
     tmp = tempfile.mkdtemp(prefix="arch_debt_")
     old = {k: os.environ.get(k) for k in ("ARCHITECT_HOME", "ARCHITECT_DATA_DIR", "ARCHITECT_SELFTEST")}
@@ -60,7 +61,9 @@ def run():
         took = time.time() - t0
         time.sleep(0.3)                                  # the helper thread removes the file once the process is gone
         check("Stop asks a run to end before its next model call (the project's .arch/STOP) instead of killing it",
-              r.get("graceful") is True and not job.running() and took < 5 and job.proc.returncode == 0, (r, round(took, 2), job.proc.returncode))
+              # it must end gracefully; under 5 s passes, 5-10 s on a busy machine is not sure, not a failure
+              (False if not (r.get("graceful") is True and not job.running() and job.proc.returncode == 0)
+               else True if took < 5 else None), (r, round(took, 2), job.proc.returncode))
         check("the stop file Stop wrote is removed once the run has ended (a leftover one ends every later run at once)",
               not os.path.exists(stop_file))
 
@@ -165,9 +168,10 @@ def run():
             else:
                 os.environ[k] = v
         shutil.rmtree(tmp, ignore_errors=True)
-    n = sum(results)
-    print(f"\n  {'ALL ' + str(n) + ' TECH-DEBT CHECKS PASSED' if n == len(results) else str(len(results) - n) + ' of ' + str(len(results)) + ' TECH-DEBT CHECKS FAILED'}")
-    return 0 if n == len(results) else 1
+    n_ok, n_bad, n_none = results.count(True), results.count(False), results.count(None)
+    tail = (f", {n_none} COULD NOT RUN" + ("" if n_bad else " (not a pass)")) if n_none else ""
+    print(f"\n  {'ALL ' + str(n_ok) + ' TECH-DEBT CHECKS PASSED' if n_ok == len(results) else str(n_bad) + ' of ' + str(len(results)) + ' TECH-DEBT CHECKS FAILED' + tail}")
+    return 0 if n_ok == len(results) else 1 if n_bad else 2
 
 
 if __name__ == "__main__":

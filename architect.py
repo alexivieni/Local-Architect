@@ -1502,9 +1502,17 @@ def _suite_module(name):
 
 
 def _suite_rc(res):
-    """One suite's answer -> 0 (passed) or 1. True, None and 0 are a pass; False, any other number and anything else a failure.
+    """One suite's answer -> 0 (passed), 2 (not sure: "0 of N FAILED, k COULD NOT RUN", exit 2) or 1. True, None and 0 are a pass;
+    2 is not sure; False, any other number and anything else a failure.
     (`rc |= run()` turned a suite's True into 1 and its False into 0: a green tree could exit 1 and a failure exit 0.)"""
-    return 0 if (res is None or res is True or (type(res) is int and res == 0)) else 1
+    if res is None or res is True or (type(res) is int and res == 0):
+        return 0
+    return 2 if (type(res) is int and res == 2) else 1
+
+
+def _worst(a, b):
+    """Two results -> the worse: a failure (1) beats not sure (2), which beats a pass (0). (`|` made 1 and 2 into 3.)"""
+    return 1 if 1 in (a, b) else 2 if 2 in (a, b) else 0
 
 
 def _run_one(name):
@@ -1530,7 +1538,7 @@ def _run_one(name):
         bad = ex.code not in (None, 0)
         if bad:
             print(f"[x] {mod_name}: {ex.code}")
-        return 1 if bad else 0
+        return (2 if ex.code == 2 else 1) if bad else 0         # exit 2 = not sure (some checks could not run)
     except Exception as ex:                                     # one broken suite is a failure, and the rest still run
         print(f"[x] {mod_name} failed: {type(ex).__name__}: {ex}")
         return 1
@@ -1548,10 +1556,10 @@ def unlisted_suites():
 def _run_suites(suite):
     rc = 0
     for name in CORE_SUITES:
-        rc |= _run_one(name)
+        rc = _worst(rc, _run_one(name))
     if suite in ("all", "full"):
         for name in ALL_SUITES:
-            rc |= _run_one(name)
+            rc = _worst(rc, _run_one(name))
         import subprocess
         here = os.path.dirname(os.path.abspath(__file__))
         for mod_name in unlisted_suites():                      # its own process: whatever its run() returns, its exit code is what counts
@@ -1566,16 +1574,16 @@ def _run_suites(suite):
                 import shutil as _sh
                 _sh.rmtree(box, ignore_errors=True)
             if r.returncode != 0:
-                print(f"[x] {mod_name}: exit {r.returncode}")
-                rc |= 1
+                print(f"[x] {mod_name}: exit {r.returncode}" + (" (not sure: some checks could not run)" if r.returncode == 2 else ""))
+                rc = _worst(rc, 2 if r.returncode == 2 else 1)
         try:
             import arch_hub_check
-            rc |= _suite_rc(arch_hub_check.run())
+            rc = _worst(rc, _suite_rc(arch_hub_check.run()))
         except ImportError:
             print("[i] arch_hub_check not present yet -- skipped")
     if suite == "full":
         for name in FULL_ONLY:
-            rc |= _run_one(name)
+            rc = _worst(rc, _run_one(name))
     return rc
 
 

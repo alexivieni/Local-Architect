@@ -260,6 +260,8 @@ def run():
         import architect as A
         check("selftest CLI: True / None / 0 pass, False / 1 / a count fail (rc |= True made a green run exit 1)",
               [A._suite_rc(x) for x in (True, None, 0, False, 1, 5)] == [0, 0, 0, 1, 1, 1])
+        check("selftest CLI: a suite's exit 2 ('0 of N FAILED, k COULD NOT RUN') is not sure, and a failure outranks it (1|2 made 3)",
+              A._suite_rc(2) == 2 and A._worst(0, 2) == 2 and A._worst(2, 1) == 1 and A._worst(1, 2) == 1 and A._worst(0, 0) == 0)
         on_disk = {os.path.basename(f_)[:-3] for f_ in _glob.glob(os.path.join(HERE, "arch_selftest*.py"))}
         listed = {A._suite_module(n_) for n_ in A.CORE_SUITES + A.ALL_SUITES + A.FULL_ONLY}
         check("selftest CLI: every suite on disk is either listed or run as its own process under `all`",
@@ -500,6 +502,26 @@ def run():
         gone_ = {f["file"]: bool(f.get("gone")) for f in rv.get("files") or []}
         check("Review: a file the run made and removed again (a rejected reproduction) is not shown as a change; one still there is",
               gone_ == {"tests/test_repro.py": True, "kept.py": False}, gone_)
+
+        # ---- Phase G (2026-11-17): CI tells the truth
+        sp_ci = importlib.util.spec_from_file_location("_ci_par", os.path.join(HERE, "tools", "ci_parallel.py"))
+        cip = importlib.util.module_from_spec(sp_ci)
+        sp_ci.loader.exec_module(cip)
+        hist = os.path.join(tmp, "ci_hist", "load.json")
+        first = cip.load_history(hist, [{"suite": "arch_selftest_supervisor", "status": "LOAD"}, {"suite": "arch_selftest_x", "status": "PASS"}])
+        second = cip.load_history(hist, [{"suite": "arch_selftest_supervisor", "status": "LOAD"}])
+        third = cip.load_history(hist, [{"suite": "arch_selftest_other", "status": "LOAD"}])
+        check("CI: a suite that fails only under load twice within ten runs is reported (counted red), a first time is not",
+              first == {} and list(second) == ["arch_selftest_supervisor"] and third == {} and cip.load_history("", []) == {}, (first, second, third))
+        src_cip = open(os.path.join(HERE, "tools", "ci_parallel.py"), encoding="utf-8").read()
+        ci_yml = open(os.path.join(HERE, ".github", "workflows", "ci.yml"), encoding="utf-8").read()
+        check("CI: the browser suites must run in full on the runner ('could not run' is red there), and the load history is cached",
+              cip._named("arch_selftest_uismoke", ["uismoke", "crawl"]) and not cip._named("arch_selftest_ui", ["uismoke"])
+              and 'if mark == "NOT_SURE" and _named(r["suite"], must):' in src_cip
+              and "--must-run uismoke,crawl" in ci_yml and "--history .ci_history" in ci_yml and "actions/cache/save@v4" in ci_yml)
+        src_hc = open(os.path.join(HERE, "arch_hub_check.py"), encoding="utf-8").read()
+        check("hub check without node: balanced brackets are not sure (they were a pass), unbalanced ones a failure",
+              'None if js.count("(") == js.count(")")' in src_hc and "COULD NOT RUN" in src_hc)
     finally:
         sys.path.remove(HERE) if HERE in sys.path else None
         for k, v in old_env.items():

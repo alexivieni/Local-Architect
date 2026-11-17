@@ -29,8 +29,9 @@ def run():
     results = []
 
     def check(name, ok, extra=""):
-        results.append(bool(ok))
-        print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
+        """ok True / False / None: None = could not be decided here (a timing on a loaded machine, a missing tool), never a pass."""
+        results.append(None if ok is None else bool(ok))
+        print(f"  {'PASS' if ok else 'NOT_SURE' if ok is None else 'FAIL'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
 
     tmp = tempfile.mkdtemp(prefix="arch_honesty_")
     old = {k: os.environ.get(k) for k in ("ARCHITECT_HOME", "ARCHITECT_DATA_DIR", "ARCHITECT_SELFTEST", "OLLAMA_HOST")}
@@ -97,7 +98,8 @@ def run():
         st2 = mh.build_state({"part": ["live"], "gpu_bw": ["300"]})
         check("a typed value is used and labelled 'you'", (st2.get("speed_inputs") or {}).get("gpu_bw") == 300.0
               and (st2.get("speed_inputs") or {}).get("gpu_bw_src") == "you", st2.get("speed_inputs"))
-        check("the state build does not wait 2 s for a stopped local Ollama", took < 1.5, f"{took:.2f} s")
+        # under 1.5 s passes; 1.5-3 s on a busy machine cannot tell load from a regression (not sure); beyond that fails
+        check("the state build does not wait 2 s for a stopped local Ollama", True if took < 1.5 else None if took < 3.0 else False, f"{took:.2f} s")
 
         # ---- By job: the prior reaches the page
         hub_src = open(os.path.join(HERE, "architect_hub.py"), encoding="utf-8").read()
@@ -149,9 +151,10 @@ def run():
             else:
                 os.environ[k] = v
         shutil.rmtree(tmp, ignore_errors=True)
-    n = sum(results)
-    print(f"\n  {'ALL ' + str(n) + ' HONESTY CHECKS PASSED' if n == len(results) else str(len(results) - n) + ' of ' + str(len(results)) + ' HONESTY CHECKS FAILED'}")
-    return 0 if n == len(results) else 1
+    n_ok, n_bad, n_none = results.count(True), results.count(False), results.count(None)
+    tail = (f", {n_none} COULD NOT RUN" + ("" if n_bad else " (not a pass)")) if n_none else ""
+    print(f"\n  {'ALL ' + str(n_ok) + ' HONESTY CHECKS PASSED' if n_ok == len(results) else str(n_bad) + ' of ' + str(len(results)) + ' HONESTY CHECKS FAILED' + tail}")
+    return 0 if n_ok == len(results) else 1 if n_bad else 2
 
 
 if __name__ == "__main__":

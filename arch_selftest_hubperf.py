@@ -14,6 +14,16 @@ os.environ.setdefault("ARCHITECT_NO_CACHE", "1")
 sys.path.insert(0, HERE)
 
 N = [0]
+UNSURE = []            # timings slow enough to doubt, not slow enough to prove a regression (a busy machine): not a pass
+
+
+def timed_check(cond, took, limit, what):
+    """`cond` must hold; then under `limit` s passes, up to twice that is not sure, beyond it fails."""
+    if cond and limit <= took < 2 * limit:
+        UNSURE.append(what)
+        print("  NOT_SURE  " + what)
+        return
+    check(cond and took < limit, what)
 
 
 def check(cond, what):
@@ -89,7 +99,7 @@ def ollama_down_fast():
         t = time.time()
         down = mh._loopback_down()
         took = time.time() - t
-        check(down and took < 1.0, f"a stopped local Ollama is reported in under a second (took {took:.2f} s)")
+        timed_check(down, took, 1.0, f"a stopped local Ollama is reported in under a second (took {took:.2f} s)")
         try:
             mh.model_list({"vram_gb": 0, "ram_gb": 8}, "f16", 100, 20)
             check(False, "model_list reports a stopped Ollama")
@@ -114,4 +124,7 @@ if __name__ == "__main__":
     backend()
     ui()
     ollama_down_fast()
+    if UNSURE:
+        print(f"0 of {N[0] + len(UNSURE)} HUBPERF CHECKS FAILED, {len(UNSURE)} COULD NOT RUN (not a pass)")
+        sys.exit(2)
     print(f"ALL {N[0]} HUBPERF CHECKS PASSED")

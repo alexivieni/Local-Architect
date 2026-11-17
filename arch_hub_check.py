@@ -22,8 +22,9 @@ def run():
     results = []
 
     def check(name, ok, extra=""):
-        results.append(bool(ok))
-        print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
+        """ok True / False / None: None = could not be decided here (node not installed), never a pass."""
+        results.append(None if ok is None else bool(ok))
+        print(f"  {'PASS' if ok else 'NOT_SURE' if ok is None else 'FAIL'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
 
     fake = ThreadingHTTPServer(("127.0.0.1", 0), t.Pro)
     threading.Thread(target=fake.serve_forever, daemon=True).start()
@@ -731,7 +732,9 @@ def run():
                     bad.append(f"block {i + 1}: {r.stderr[-200:]}")
             check("every script block on the hub page parses (a syntax error would mean a blank page)", not bad, "; ".join(bad))
         else:
-            check("the hub page's script parses (node not installed here: brackets balanced instead)", js.count("(") == js.count(")") and js.count("{") == js.count("}") and js.count("[") == js.count("]"))
+            # without node, unbalanced brackets prove a broken page; balanced ones prove nothing: not sure, never a pass
+            check("the hub page's script parses (node not installed here: brackets are balanced, which does not prove it parses)",
+                  None if js.count("(") == js.count(")") and js.count("{") == js.count("}") and js.count("[") == js.count("]") else False)
         tdz = tdz_scan(js)
         check("no top-level const/let is read at load time before its declaration (a TDZ error blanks the whole hub)", not tdz, tdz[:5])
         check("the TDZ scan itself catches the G_CHORDS shape and ignores reads inside functions",
@@ -800,9 +803,10 @@ def run():
         fake.shutdown()
         shutil.rmtree(work, ignore_errors=True)
     print()
-    ok = all(results)
-    print(f"  {'ALL ' + str(len(results)) + ' HUB CHECKS PASSED' if ok else str(results.count(False)) + ' of ' + str(len(results)) + ' HUB CHECKS FAILED'}")
-    return 0 if ok else 1
+    n_ok, n_bad, n_none = results.count(True), results.count(False), results.count(None)
+    tail = (f", {n_none} COULD NOT RUN" + ("" if n_bad else " (not a pass)")) if n_none else ""
+    print(f"  {'ALL ' + str(n_ok) + ' HUB CHECKS PASSED' if n_ok == len(results) else str(n_bad) + ' of ' + str(len(results)) + ' HUB CHECKS FAILED' + tail}")
+    return 0 if n_ok == len(results) else 1 if n_bad else 2
 
 
 _ID = re.compile(r"[A-Za-z_$][\w$]*")

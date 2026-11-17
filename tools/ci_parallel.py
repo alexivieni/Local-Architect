@@ -31,11 +31,41 @@ def arg(name, default):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
 
 
+def _named(n, wanted):
+    return any(n == o or n == "arch_selftest_" + o or (o not in ("arch_selftest", "arch") and o in n) for o in wanted)
+
+
 def suites():
     only = [s.strip() for s in arg("--only", "").split(",") if s.strip()]
     names = sorted(os.path.basename(p)[:-3] for p in glob.glob(os.path.join(APP, "arch_selftest*.py")))
     names.append("arch_hub_check")
-    return [n for n in names if not only or any(n == o or n == "arch_selftest_" + o or (o not in ("arch_selftest", "arch") and o in n) for o in only)]
+    return [n for n in names if not only or _named(n, only)]
+
+
+def load_history(path, res, keep=10):
+    """--history PATH: the suites that failed only under load in each of the last `keep` runs (a file a CI cache carries over).
+    A suite that does it again within that window is a real intermittent bug, not load: it turns red instead of hiding as LOAD
+    forever (the 2026-11 workspace port bug was one). -> {suite: run time of the earlier LOAD} for this run's repeats."""
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            runs = (json.load(f) or {}).get("runs") or []
+    except (OSError, ValueError):
+        runs = []
+    now = [r["suite"] for r in res if r["status"] == "LOAD"]
+    seen = {}
+    for past in runs[-(keep - 1):]:
+        for s in past.get("load") or []:
+            seen[s] = past.get("when", "")
+    runs = (runs + [{"when": time.strftime("%Y-%m-%d %H:%M"), "load": now}])[-keep:]
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"runs": runs}, f, indent=1)
+    except OSError:
+        pass
+    return {s: seen[s] for s in now if s in seen}
 
 
 def run(name, timeout):
@@ -80,6 +110,9 @@ def run(name, timeout):
 
 def main():
     jobs, timeout = int(arg("--jobs", max(2, (os.cpu_count() or 4) // 2))), int(arg("--timeout", 900))
+    # --must-run a,b: suites that must run in full on this machine (CI has Edge): "could not run" is a failure for them, not a quiet
+    # NOT_SURE. uismoke and crawl are the only checks of the hub's JavaScript in a real browser; a broken browser kept CI green.
+    must = [s.strip() for s in arg("--must-run", "").split(",") if s.strip()]
     names = suites()
     # The person's own settings and data must survive a test run untouched. A suite (or a tool "cleaning up") that removes them is a
     # bug worth a red line, not something to notice days later (2026-11-07: hub_data/ and architect_config.json were deleted by a
@@ -93,6 +126,8 @@ def main():
     with cf.ThreadPoolExecutor(jobs) as ex:
         for r in ex.map(lambda n: run(n, SLOW.get(n, timeout)), names):
             mark = "PASS" if r["rc"] == 0 else ("NOT_SURE" if "COULD NOT RUN" in r["summary"] and re.search(r"(^|\s)0 of ", r["summary"], re.I) else None) or ("FLAKY" if r["suite"] in KNOWN_FLAKY else "FAIL" if r["rc"] is not None else "TIMEOUT")
+            if mark == "NOT_SURE" and _named(r["suite"], must):
+                mark, r["summary"] = "FAIL", ("must run in full here, but: " + r["summary"])[:140]
             r["status"] = mark
             print(f"  {mark:7} {r['suite']:38} {r['secs']:6.1f}s  {r['summary']}", flush=True)
             res.append(r)
@@ -110,6 +145,11 @@ def main():
             if r2["rc"] == 0:
                 r["status"] = "LOAD"
             print(f"  {r['status']:7} {r['suite']:38} {r2['secs']:6.1f}s  alone: {r2['summary']}", flush=True)
+    for s, when in load_history(arg("--history", ""), res).items():
+        r = next(x for x in res if x["suite"] == s)
+        r["status"], r["load_repeat"] = "FAIL", when
+        r["summary"] = (f"failed under load again (also on {when}): an intermittent bug, not load. " + r["summary"])[:140]
+        print(f"  FAIL    {s:38} failed only under load in an earlier run too ({when}): counted as a failure", flush=True)
     bad = [r for r in res if r["status"] in ("FAIL", "TIMEOUT")]
     load = [r for r in res if r["status"] == "LOAD"]
     unsure = [r for r in res if r["status"] == "NOT_SURE"]
