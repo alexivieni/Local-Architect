@@ -404,6 +404,16 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
   `trace.jsonl`, each with its own idea of a "run"); the telemetry endpoint's full-file parse; log rotation for `server/*.log`.
 - Checks: `arch_selftest_outcomes` (now 93).
 
+## Review 2026-11-17, Phase F: the phone (375 px, measured in the browser, light and dark: no sideways scroll)
+- **Home's suggestion chips** ("Fix a bug", "Add a feature", "Review my code", "Explain") were a sideways-scrolling strip with a fade
+  that cut the labels off at the edge; on a phone they now wrap onto a second line, all four visible (`.sp-try`, `max-width:767px`).
+- **The Console's message box is on the first screen.** The thread claimed 380 px minimum and its example cards pushed the box to
+  y=1275 on an 812 px phone (with the "How your request moves" diagram open, which a stored `rvOpen=1` keeps open); at 600 px and
+  below the thread has no minimum and its message list takes at most a third of the screen and scrolls inside, so the box is at
+  y=641 (Do it is just below the fold). Desktop is unchanged (media queries only).
+- Not done: the Console's onboarding note and status strip still sit above the thread on a phone.
+- Checks: `arch_selftest_outcomes` (now 94).
+
 ## CI on GitHub's Windows machines (2026-11-13)
 - `.github/workflows/ci.yml` runs on every push to main, every pull request and by hand: windows-latest, Python 3.12 + pytest, line
   endings kept as committed, a throwaway ARCHITECT_HOME/ARCHITECT_DATA_DIR, the handoff checks one per step (a multi-line

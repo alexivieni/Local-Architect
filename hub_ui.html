@@ -932,6 +932,10 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:1
   .top h1{font-size:var(--t-title)}
   .strip{gap:6px 12px}.strip .sep{display:none}
   .composer{grid-template-columns:minmax(0,1fr)}.composer>.btn,.composer>.mmbtn{justify-self:stretch}
+  /* the message box must be reachable without scrolling past the examples: the thread no longer claims 380 px minimum, and its
+     message list (the empty state's example cards, the conversation) takes at most a third of the screen and scrolls inside */
+  .thread{min-height:0;height:auto;max-height:none}
+  .thread .msgs{flex:none;max-height:32vh}
   .runlay .row[style*="nowrap"]{flex-wrap:wrap!important;margin-left:0!important}
   .mmside{width:min(300px,92vw)}
   .keylist{grid-template-columns:minmax(0,1fr)}.keylist dd{margin-bottom:6px}
@@ -1573,7 +1577,9 @@ body.sheet-wrap #subtabs,body.sheet-wrap #pageHint{display:none}
 @media (max-width:767px){
   .hero.home .sp-goal{padding-bottom:14px}
   .sp-go{position:static;width:100%;margin-top:var(--s2);min-height:48px}
-  .sp-try .sp-recipes{overflow-x:auto;scrollbar-width:none;-webkit-mask-image:linear-gradient(to right,var(--mask) 85%,transparent);mask-image:linear-gradient(to right,var(--mask) 85%,transparent);padding-right:var(--s5)}
+  /* the suggestions wrap onto a second line: all of them visible, none cut off at the edge behind a fade (a sideways strip hid "Explain") */
+  .sp-try{flex-wrap:wrap;align-items:flex-start;row-gap:var(--s2)}
+  .sp-try .sp-recipes{flex-wrap:wrap;flex:1 1 12rem;overflow:visible}
   .sp-try .sp-recipe,.rc-opt,.rc-tog,.sp-help,.hero.home .btn,.feedrow .btn{min-height:44px;min-width:44px}
   #liveChip.livechip{max-width:50vw}
 }

@@ -616,6 +616,13 @@ def run():
               and "Date.now()-(loadBgJobs._at||0)>1500" in html)
         check("the console strip's 'which servers are up' is kept 4 s (a process-list call and a /health per tier every 5 s)",
               '_ttl("servers_up", 4,' in src_hub)
+
+        # ---- Phase F of the 2026-11-17 review: the phone (375 px, measured in the browser in light and dark: no sideways scroll)
+        check("phone: Home's suggestion chips wrap (all four visible; a fading sideways strip hid 'Explain'), and the Console's message list "
+              "is capped so the message box is on the first screen",
+              ".sp-try .sp-recipes{flex-wrap:wrap;flex:1 1 12rem;overflow:visible}" in html
+              and "mask-image:linear-gradient(to right,var(--mask) 85%" not in html.split("@media (max-width:767px){", 1)[1].split("}", 1)[0]
+              and ".thread .msgs{flex:none;max-height:32vh}" in html and ".thread{min-height:0;height:auto;max-height:none}" in html)
     finally:
         sys.path.remove(HERE) if HERE in sys.path else None
         for k, v in old_env.items():
