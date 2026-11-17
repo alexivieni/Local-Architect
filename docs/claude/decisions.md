@@ -312,6 +312,58 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
 - `arch_selftest_dataflow` compares the two engines' verdict STRINGS (it compared `bool(ok)`, which hid not_sure) on a bug the
   scripted model fixes, one it cannot fix, a rejected and an unclear reproduction, and secure; and requires the YAML repro to run.
 
+## Review 2026-11-17, Phase A: wrong numbers and wrong results (three read-only reviewers, every claim checked in the code)
+- **Three outcomes where they were still lost.** Get ready's smoke test said "OK" for a run whose checks could not run
+  (`bool(out["ok"])` with `unsure` set); its steps and its overall answer are now True / False / None (`arch_ready.overall`:
+  "READY: not sure" when nothing failed but something could not be checked), and a proof category with no judged task is not sure,
+  not "0/100". The live test turns a scenario that crashed in our own code into "not judged" (it was a fail); a model that gave up
+  still fails, and "no tests" there is still the model's fail (it was told to write them). The Scoreboard left a task Ollama could
+  not answer (not reachable) or our checker could not judge in the denominator as 0, which pulled the model's score and the
+  role recommendations down; such tasks now leave the score and `n`, and a category with none judged is not stored at all.
+  A timeout still scores 0: a model that does not answer in 10 minutes has failed the task.
+- **A read never writes the person's data.** `GET /api/arch/usage` saved every `?root=` it was given into `recent_roots.json`.
+  Found: four throwaway folders from an earlier Claude session's end-to-end check (run against the real data folder) in the
+  project list, and its four bugfix runs in `ledger.json`, whose examples are shown to models as worked examples. The code no
+  longer writes on a GET; cleaning those entries out of `hub_data` waits for the owner's yes (rule 3).
+- **Offline is calm, and nothing personal ships.** The Agents page pre-filled the owner's GitHub repo for everyone, and with online
+  features off (the default) showed "Could not list your agents: Error: Claude is off...". It now says cloud agents are off and
+  points at the local crew; the Agent teams place opens on the local Crew builder, the cloud page third.
+- **An impossible bandwidth was "measured".** `bandwidth.json` held RAM 626.5 GB/s (laptop DDR5 tops out near 90), derived by the
+  split formula `ram_gb / (1/tok_s - gpu_gb/gpu_bw)`, which divides by a small difference when a model is mostly on the card or is
+  an MoE. `arch_hw.BW_PLAUSIBLE` (GPU 5-4000, RAM 2-400 GB/s): `bandwidth_from` returns None outside it and `load_bandwidth`
+  drops such a saved figure (named in `rejected`, file untouched), so every reader falls back to the labelled estimate.
+- **Home and Console "Do it" apply changes as they go, by design**, and New run asks first: a run started from those boxes cannot
+  stop for y/n (only the New run terminal answers prompts), and Review shows and undoes every change. Unchanged; the Console's
+  Do it now says so, as Home already did.
+- **Dead code:** model_hub's `/api/run`, `/api/runs`, `/api/clear_results`, `/api/notes`, `list_runs` and seven actions started
+  `autonomous_agent_optimized.py`, which does not exist (the 2026-11-04 cleanup report listed them); removed. `start.py` item 4 ran
+  the `arch_training.py` shim (it is now `dataset`); `swap` had an unreachable second dispatch; the hub's `advisor` page branch
+  could not run (LEGACY sends advisor to doctor). `fit` assumed an f16 KV cache while `explain`, Ollama as Architect starts it and
+  llama-server use q8_0; it now follows `OLLAMA_KV_CACHE_TYPE`, else q8_0.
+- Checks: `arch_selftest_outcomes` (now 73).
+
+## Review 2026-11-17, Phase E: one run, one story (a practice run watched end to end against the scripted model)
+- **One set of words.** One failed run was "It did not work this time" (Home), "did not pass its checks" (Console), "Did not pass"
+  (Review), "NOT COMPLETE" (CLI) and "stopped" in red (the sidebar badge). Home, the Console's route line and the badge now take
+  `VERD` (Passed / Did not pass / Could not check). `architect.py run` and `resume` end `[done] PASSED | DID NOT PASS | NOT SURE`
+  with exit 0 / 1 / 2: a not-sure run had `ok` True and printed "OK" with exit 0 (rule 2). The supervisor reads exit 2 as not
+  sure when a run left no verdict record; the badge maps 0/1/2 of an `Architect:` job to the same words.
+- **Only what is true.** Home's card said "Nothing is kept unless you say so" above "Undo this change" (review=auto applies as it
+  goes). It now says how many files changed (or none) and offers Undo only when files may have changed. Review listed a rejected
+  reproduction test as a new file and then "the file is not there any more"; `review_view` marks a new file that is gone (`gone`),
+  and the page lists it apart ("made and removed again"), out of the count and the Keep/Drop parts.
+- **It looks alive.** Home showed one "Reproducing the problem" line for a whole run (12 calls, 5 tries), then shrank to "Working ?".
+  A live line under the steps (elapsed, model calls, failed checks so far) updates in place each tick; the plain steps seen during
+  the run stay afterwards, the last one taking the run's result; a step with no result of its own reads "no result" after the run (never "done", nor "could not check"),
+  and the explanation step after a failure says "No clear explanation this time" rather than a check word. The goal box empties when
+  the run starts (a second click ran it twice).
+- **No terminal colour codes.** `report.md` and the failure text handed back to the model carried pytest's ANSI codes (a terminal
+  with FORCE_COLOR / PY_COLORS). `core.run_cmd` strips them from every command's output and pytest runs with `--color=no`.
+- **Review's checks say why.** A best-of attempt recorded only "best of 3: attempt N  Failed", nine rows for one run; each record now
+  carries its reason (`_bon_why`: the edit could not be applied and why, how many checks passed, or the error) and its step, and
+  Review folds the same check with the same result and reason into one row with a count.
+- Checks: `arch_selftest_outcomes` (now 81), including a `review_view` fixture with a removed file.
+
 ## CI on GitHub's Windows machines (2026-11-13)
 - `.github/workflows/ci.yml` runs on every push to main, every pull request and by hand: windows-latest, Python 3.12 + pytest, line
   endings kept as committed, a throwaway ARCHITECT_HOME/ARCHITECT_DATA_DIR, the handoff checks one per step (a multi-line

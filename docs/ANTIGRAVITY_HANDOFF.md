@@ -88,7 +88,7 @@ windows without stopping a run, Review > Undo needs two presses and undoes the r
 py -3.12 tools/verify_machine.py          # expect 12/12 on the owner's machine; lower numbers = a model or server is missing
 py -3.12 architect.py run "Add a function word_count(text) that returns the number of words, with tests." --root <fresh folder> --review auto
 ```
-Use a fresh practice project (the hub's Guided tour creates one). Expect `[done] OK` in a few minutes and the report in
+Use a fresh practice project (the hub's Guided tour creates one). Expect `[done] PASSED` in a few minutes and the report in
 `<project>/.arch/runs/<id>/report.md`. Record: wall time, number of tries, which model answered, any `[wire]`/`[i]` lines.
 
 **Tier 4: try to break it (highest value from a second opinion)**

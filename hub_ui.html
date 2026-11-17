@@ -1861,6 +1861,11 @@ async function _api(path,body){
    verdict record; a missing value is "No result yet", never a guess. */
 const VERD={pass:["good","Passed","It worked"],fail:["bad","Did not pass","It did not work"],not_sure:["warn","Could not check","Done, but it could not be checked"],
   stopped:["info","Stopped","It was stopped"],"":["","No result yet","No result yet"]};
+/* A finished hub job in the same words as its run: architect.py run exits 0 passed, 1 did not pass, 2 could not be checked. Any
+   other job: done, or ended with an error. (It said "stopped" in red for every run that did not pass.) */
+function jobWord(job){const isRun=String(job.title||"").startsWith("Architect:");
+  if(isRun&&(job.code===0||job.code===1||job.code===2)){const t=verd(["pass","fail","not_sure"][job.code]);return [t[0],t[1].toLowerCase()];}
+  return job.code===0?["good","done"]:["bad","ended with an error"];}
 function verd(v){v=String(v==null?"":v).toLowerCase().replace(/[\s-]+/g,"_");if(v==="passed")v="pass";if(v==="failed")v="fail";return VERD[v]||(v?VERD.not_sure:VERD[""]);}
 /* A plan row is {id,title,role,kind,status}; a row that still arrives as the text of a dict is read for its title and role. */
 function planNorm(x,i){
@@ -1966,7 +1971,7 @@ const SIDEBAR=[
   ["Work",[["home","home","Home",["overview","studio","start","portfolio","launch"]],
            ["runs","play","Runs",["console","review","run","logbook","queue"]],
            ["workflows","flow","Workflows",["flows","blueprints","gallery","library","plugins"]],
-           ["agentsp","crew","Agent teams",["agents","crewbuild","fleet","monitor","map"]]]],
+           ["agentsp","crew","Agent teams",["crewbuild","fleet","agents","monitor","map"]]]],
   ["Models",[["team","chip","Models",["models","tiers","roles","bench","score"]],
              ["cachesp","db","Caches",["caches"]],
              ["cost","target","Speed",["costmap","byjob","telemetry","finops","hud"]]]],
@@ -2123,6 +2128,7 @@ function side(){
 }
 /* ===== Simple mode: one box, plain progress, a clear result. The default for people new to the app; Advanced = the full hub. ===== */
 const PLAIN_STEP=s=>{const t=String(s||"").toLowerCase();
+  if(/postmortem/.test(t))return"Explaining what went wrong";
   if(/route|pick/.test(t))return"Understanding what you asked";if(/plan|design|contract/.test(t))return"Making a plan";
   if(/locate|explore|read|scout|context/.test(t))return"Reading your code";if(/repro/.test(t))return"Reproducing the problem";
   if(/test/.test(t))return"Running the checks";if(/judge|review|verify|evaluat/.test(t))return"Double-checking the work";
@@ -2134,7 +2140,8 @@ async function simpleStart(){
   const g=(run.goal||"").trim(); if(!g){goalError("Type what you want done");$("#spGoal")&&$("#spGoal").focus();return;}
   if(!run.root){goalError("Choose a project first");rootError("Choose the project folder first, or use the practice project.");return;}
   rootError("");goalError("");goLoading(true);
-  try{await api("/api/arch/run",{goal:g,flow:run.homeFlow||"auto",review:"auto",root:run.root});run.homeFlow="";rememberRoot(run.root);EV.verdict=null;run._kept=false;RUNBAR.goal=g;toast("Started");homeEvents._idle=false;simpleDraw();}
+  try{await api("/api/arch/run",{goal:g,flow:run.homeFlow||"auto",review:"auto",root:run.root});run.homeFlow="";run.goal="";{const gi=$("#spGoal");if(gi)gi.value="";}   /* started: an empty box, so a second click does not run it twice */
+    rememberRoot(run.root);EV.verdict=null;run._kept=false;RUNBAR.goal=g;toast("Started");homeEvents._idle=false;simpleDraw();}
   catch(e){goalError("Could not start: "+e.message+". Check the folder, then try again.");toast.err("Could not start: "+e.message);}
   finally{goLoading(false);}
 }
@@ -2155,35 +2162,53 @@ function simpleDraw(){
      read only when Home was built or the folder changed, and showed the new run only if that read happened to be slow) */
   if(EV.verdict&&page==="overview"&&simpleDraw._fed!==EV.epoch&&$("#homeFeed")){simpleDraw._fed=EV.epoch;loadHome();}
   const box=$("#spProgress"); if(!box)return;
-  const steps=(EV.steps||[]).map(x=>[PLAIN_STEP(x.step),x.ok===false?"fail":x.unsure||(x.ok==null&&EV.verdict)?"unsure":x.ok==null?"now":"done"]);
-  if(EV.now&&!EV.verdict)steps.push([PLAIN_STEP(EV.now),"now"]);
+  /* a step with no result of its own is "in progress" while the run goes and "no result" after it, never "done" (honesty suite);
+     only a step that SAYS it could not check is "could not check" (every unmarked step turned into "?" when the verdict came) */
+  const steps=(EV.steps||[]).map(x=>[PLAIN_STEP(x.step),x.step==="postmortem"&&x.unsure?"noexp":   /* an explanation, not a check */
+    x.ok===false?"fail":x.unsure?"unsure":x.ok==null?(EV.verdict?"none":"now"):"done"]);
+  /* what the person watched go by stays on the list after the run: the plain words of each "now" are remembered for this run, done
+     once it moved on, and the last one takes the run's result (the list used to shrink to one "Working" line at the end) */
+  {const sn=simpleDraw._seenRun===EV.epoch?simpleDraw._seen:(simpleDraw._seenRun=EV.epoch,simpleDraw._seen=[]);
+   const cur=EV.now?PLAIN_STEP(EV.now):null; if(cur&&sn[sn.length-1]!==cur)sn.push(cur);
+   const fin=EV.verdict&&EV.verdict.verdict, endSt=fin==="fail"?"fail":fin==="not_sure"?"unsure":"done";
+   const have=new Set(steps.map(([t])=>t));
+   sn.forEach((t,i)=>{if(have.has(t))return;const last=i===sn.length-1;steps.splice(i,0,[t,!last?"done":fin?endSt:"now"]);});}
   const seen=new Set(),list=steps.filter(([t,st])=>{const k=t+st;if(seen.has(k))return false;seen.add(k);return true;});
   /* change-checked: the 1.5 s timer calls this whether or not anything moved. Rebuilding anyway restarted the shimmer, dropped
      keyboard focus from Keep/Undo, wiped "See the details" a moment after it opened, and made screen readers re-read this live
      region. The signature lives on the box, so a freshly built Home (a new box) always draws. */
+  /* the run is moving: time, model calls and failed checks so far, updated in place every tick (Home showed one line for a whole
+     run while a dozen model calls and five tries went by). Outside the redraw below, so it never restarts the shimmer. */
+  {let lv=$("#spLive"); if(!lv&&box.parentNode){lv=h("p",{id:"spLive",class:"sub small sp-live"});box.after(lv);}
+   if(lv){lv.hidden=!EV.running||!!EV.verdict||!EV.t0;
+     if(!lv.hidden){const s=Math.max(0,Math.round(Date.now()/1000-EV.t0)),bad=EV.gates.filter(g=>g.ok===false).length;
+       lv.textContent=(s<90?s+" s":Math.round(s/60)+" min")+" · "+EV.calls+" model call"+(EV.calls===1?"":"s")+
+         (bad?" · "+bad+" check"+(bad===1?"":"s")+" failed so far, trying again":"")+(EV.liveRole&&EV.live?" · "+EV.liveRole+" is writing":"");}}}
   const vd=EV.verdict, sig=JSON.stringify([list,vd?[vd.verdict,vd.why||"",Array.isArray(vd.files)?vd.files.length:-1,vd.run||""]:0,!!run._kept]);
   if(box._sig===sig)return; box._sig=sig; box.innerHTML="";
   box.hidden=!list.length&&!EV.verdict;
   if(box.hidden)return;
-  const label={done:"Done",now:"In progress",fail:"Did not work, trying again",unsure:"Could not check"};
-  const ICO={done:"check",now:"spark",fail:"bolt",unsure:"question"};
+  const label={done:"Done",now:"In progress",fail:EV.verdict?"Did not work":"Did not work, trying again",unsure:"Could not check",noexp:"No clear explanation this time",none:"No result of its own"};
+  const ICO={done:"check",now:"spark",fail:"bolt",unsure:"question",noexp:"question",none:"dot"};
   {const cur=list.filter(([,st])=>st==="now").pop(), v=EV.verdict&&EV.verdict.verdict;   /* spoken once per change, not per redraw */
-   const say=v?(v==="pass"?"It worked. Every check passed.":v==="fail"?"It did not work this time.":"Finished, but it could not be checked."):cur?"Now: "+cur[0]:"";
+   const say=v?(v==="pass"?"It worked. Every check passed.":verd(v)[2]+"."):cur?"Now: "+cur[0]:"";
    if(say&&simpleDraw._said!==EV.epoch+"|"+say){simpleDraw._said=EV.epoch+"|"+say;announce(say);}}
   box.append(h("h3",{class:"sp-h"},EV.verdict?"Finished":"Working on it"),
     h("ol",{class:"sp-steps"},...list.map(([t,st])=>h("li",{class:"sp-step "+st},h("span",{class:"sp-ico"+(st==="now"?" shimmer":""),"aria-hidden":"true"},icon(ICO[st])),h("span",null,t),h("span",{class:"sr-only"}," — "+label[st])))));
   if(EV.verdict&&!run._kept){const v=EV.verdict.verdict,files=EV.verdict.files;
-    const head=v==="pass"?"It worked":v==="fail"?"It did not work this time":verd(v)[2];
-    const sub=v==="pass"?"Every check passed.":v==="fail"?"Nothing is kept unless you say so.":"Look at the details before keeping it.";
+    /* one set of words (VERD) and only what is true: a failed run's card used to promise that nothing was kept, above an Undo button */
+    const head=verd(v)[2], nf=Array.isArray(files)?files.length:null;
+    const sub=(v==="pass"?"Every check passed.":v==="fail"?"":"Some checks could not run: look at the details before keeping it.")+
+      (nf===null?"":nf?` ${nf} file${nf===1?"":"s"} changed: Review shows each change, and Undo puts them back.`:" No file was changed.");
     box.append(h("div",{class:"sp-result "+v},
       h("div",{class:"res-head"},h("span",{class:"res-ico "+v,"aria-hidden":"true"},icon(v==="pass"?"check":v==="fail"?"bolt":"question")),
-        h("div",null,h("strong",{class:"res-title"},head),h("p",{class:"sub"},sub+(Array.isArray(files)&&files.length?` ${files.length} file${files.length===1?"":"s"} changed.`:"")))),
+        h("div",null,h("strong",{class:"res-title"},head),sub.trim()?h("p",{class:"sub"},sub.trim()):null)),
       EV.verdict.why?h("p",{class:"sub"},EV.verdict.why):null,
       h("div",{class:"sp-actions"},
         h("button",{class:"btn p",type:"button",onclick:()=>{run._kept=true;store.set("lastKept",String(Date.now()));toast("Kept");simpleDraw();}},v==="pass"?"Keep it":"Start another"),
         h("button",{class:"btn",type:"button",onclick:async()=>{const b=$("#spWhy");b.innerHTML="";try{const r=await api("/api/arch/why?root="+encodeURIComponent(run.root||""));b.append(h("ol",null,...(r.sentences||[]).map(t=>h("li",null,t))));}catch(e){b.textContent="Could not read the steps: "+e.message;}}},"See the details"),
         Array.isArray(files)&&files.length?h("button",{class:"btn link",type:"button",onclick:()=>go("logbook")},"Show changes"):null,
-        h("button",{class:"btn ghost-danger",type:"button",onclick:async()=>{
+        nf===0?null:h("button",{class:"btn ghost-danger",type:"button",onclick:async()=>{
           if(!await confirmBox("Undo this change?","Every file this run changed goes back to how it was, and files it created are removed.","Undo"))return;
           try{await api("/api/arch/undo",{root:run.root});toast("Undone");run._kept=true;simpleDraw();}catch(e){toast.err("Could not undo: "+e.message);}}},"Undo this change")),
       h("div",{id:"spWhy"})));}
@@ -2743,7 +2768,6 @@ function render(){
   if(page==="plugins"){ if(!built.plugins){v.innerHTML="";put(v,...pluginsPage());built.plugins=1;} loadPlugins(); return; }
   if(page==="telemetry"){ if(!built.telemetry){v.innerHTML="";put(v,...telemetryPage());built.telemetry=1;} loadTelemetry(); return; }
   if(page==="squadruns"){ if(!built.squadruns){v.innerHTML="";put(v,...squadRunsPage());built.squadruns=1;} loadSquadRuns(); return; }
-  if(page==="advisor"){ if(!built.advisor){v.innerHTML="";put(v,...advisorPage());built.advisor=1;runAdvise();} return; }
   if(page==="bench"){ if(!built.bench){v.innerHTML="";put(v,...benchPage());built.bench=1;} loadBench(); return; }
   if(page==="review"){ if(!built.review){v.innerHTML="";put(v,...reviewPage());built.review=1;loadReview();} return; }
   if(page==="morning"){ v.innerHTML="";put(v,...morningPage());loadMorning(); return; }
@@ -2792,7 +2816,7 @@ function consolePage(){
         onclick:e=>{store.set("chatUse",v);[...e.target.parentNode.children].forEach(b=>{b.classList.toggle("on",b===e.target);b.setAttribute("aria-checked",String(b===e.target));});
           const ta=$("#cIn");if(ta)ta.placeholder=v==="claude"?"Ask Claude about this project (uses your API key)":"Say what you want done and press Do it (Ctrl+Enter); Enter asks a question; / for a saved command.";}},l))),
       h("button",{class:"btn",id:"cSend",title:"Ask a question about the project (talks only, changes nothing)",onclick:cSend},"Ask"),
-      h("button",{class:"btn pri",id:"cDo",title:"Start a run that does it (Ctrl+Enter)",onclick:cDoIt},"Do it",icon("arrow")),
+      h("button",{class:"btn pri",id:"cDo",title:"Start a run that does it (Ctrl+Enter). It changes the files as it goes, like Do it on Home; Review shows every change and can undo it",onclick:cDoIt},"Do it",icon("arrow")),
       h("div",{class:"hint"},
         h("span",{class:"pair"},h("kbd",{},"Enter"),"send"),
         h("span",{class:"pair"},h("kbd",{},"Shift"),h("kbd",{},"Enter"),"new line"),
@@ -3029,10 +3053,12 @@ function applyEvents(feed){
   if(feed.epoch!==EV.epoch){                        // a new run: start the panel over rather than appending to the last one
     EV.epoch=feed.epoch;EV.since=0;EV.lanes=[];EV.live="";EV.steps=[];EV.tools=[];EV.gates=[];EV.esc=[];EV.todo=[];
     EV.calls=0;EV.tokens=0;EV.tok_s=null;EV.guidance=null;EV.now=null;EV.nowModel=null;EV.nowRole=null;EV.nowTier=null;EV.verdict=null;EV.post=null;EV.flow=null;EV.cached=0;EV.sel=-1;EV.lastType=null;
+    EV.t0=0;
   }
   EV.running=!!feed.running;
   for(const ev of feed.events||[]){
     const t=ev.type; if(t!=="token")EV.lastType=t;      // the request diagram lights the gate while a check is the newest thing
+    if(ev.t&&!EV.t0)EV.t0=ev.t;                          // when this run's first event came: Home's "moving" line counts from it
     if(ev.flow)EV.flow=ev.flow; if(ev.run)EV.run=ev.run;
     if(t==="call"){
       EV.calls++; EV.tokens+=(ev.gen_tokens||0);
@@ -3496,10 +3522,11 @@ async function agentsLoad(){
   let r; try{ r=await api("/api/arch/agents"); }catch(e){ box.textContent=e.message; return; }
   AG.list=r; if(CREW.sched)crewSchedDraw(CREW.sched);   // the schedule form offers the same agents and environments
   box.innerHTML="";
+  if(r.off){ box.append(h("div",{class:"note"},"Cloud agents are off: "+r.off+". Your local agent teams (Crew builder) work without them.")); return; }
   if(r.error&&!r.agents.length){ box.append(h("div",{class:"note warn"},"Could not list your agents: "+r.error)); }
   const ag=h("select",{id:"agSel"},...(r.agents||[]).map(a=>h("option",{value:a.id,selected:store.get("agAgent","")===a.id},a.name+" · "+a.model)));
   const env=h("select",{id:"agEnv"},h("option",{value:""},"(default environment)"),...(r.environments||[]).map(e=>h("option",{value:e.id,selected:store.get("agEnv","")===e.id},e.name)));
-  const repo=h("input",{type:"text",id:"agRepo",placeholder:"https://github.com/you/repo (optional: lets the agent read and change your code)",value:store.get("agRepo","https://github.com/alexivieni/Local-Architect")});
+  const repo=h("input",{type:"text",id:"agRepo",placeholder:"https://github.com/you/repo (optional: lets the agent read and change your code)",value:store.get("agRepo","")});
   const msg=h("textarea",{id:"agMsg","data-vlabel":"Message to the agent",rows:3,placeholder:"e.g. Look through the hub UI code and propose three low-risk speed or clarity improvements, with the exact edits.",style:"width:100%;font:inherit"});
   const desc=h("p",{class:"small mute",id:"agDesc"});
   const showDesc=()=>{const a=(r.agents||[]).find(x=>x.id===ag.value);desc.textContent=a?a.description:"";};
@@ -4242,10 +4269,10 @@ function readyCard(){
         st?h("span",{class:"chip "+(st.needs_tune?"warn":"good"),title:st.reason},st.needs_tune?"not tuned yet":"tuned"):null,
         p?h("span",{class:"chip info"},`${p.tier_label} · ${({solo:'one model',duo:'two models',crew:'full team'})[p.crew]||p.crew}`):null,
         p&&p.builder?h("span",{class:"chip"},"builder: "+p.builder):null),
-      steps.length?h("div",null,...steps.map(x=>h("div",{class:"check"},tickMark(x.ok?"ok":"",x.ok?"✓":"!",x.ok?"Passed: ":"Failed: "),h("div",{class:"grow"},h("b",null,x.name),x.detail?h("div",{class:"mute small"},x.detail):null)))):h("p",{class:"mute small"},"Not run yet on this machine."),
+      steps.length?h("div",null,...steps.map(x=>h("div",{class:"check"},tickMark(x.ok?"ok":"",x.ok?"✓":x.ok==null?"?":"!",x.ok?"Passed: ":x.ok==null?"Could not be checked: ":"Failed: "),h("div",{class:"grow"},h("b",null,x.name),x.detail?h("div",{class:"mute small"},x.detail):null)))):h("p",{class:"mute small"},"Not run yet on this machine."),
       (r.needs||[]).map(x=>h("div",{class:"mute small"},"Next: "+x)),
       h("div",{class:"row mt-3"},h("div",{class:"grow"},h("b",null,"Test with my models"),
-        h("div",{class:"mute small"},t&&t.livetest?`Last live test: ${t.livetest.passed} of ${t.livetest.total} passed. `+t.livetest.results.map(x=>(x.ok?"✓ ":"✗ ")+x.id+(x.ok?"":" ("+x.detail.slice(0,70)+")")).join(" · "):"Runs real tasks (routing, structured output, build, bug fix, adding code, CI) with your own models and judges them by code. Takes a few minutes.")),
+        h("div",{class:"mute small"},t&&t.livetest?`Last live test: ${t.livetest.passed} of ${t.livetest.total} passed. `+t.livetest.results.map(x=>(x.ok?"✓ ":x.ok==null?"? ":"✗ ")+x.id+(x.ok?"":" ("+x.detail.slice(0,70)+")")).join(" · "):"Runs real tasks (routing, structured output, build, bug fix, adding code, CI) with your own models and judges them by code. Takes a few minutes.")),
         h("button",{class:"btn",title:"Routing, structured output and one build",onclick:()=>startJob("/api/arch/livetest",{quick:true})},"Quick test"),
         h("button",{class:"btn p",onclick:()=>startJob("/api/arch/livetest",{})},"Full test")));
   };
@@ -4791,7 +4818,7 @@ async function jobBadge(){
     const j=await api("/api/job?since=1000000000");
     if(j.running){b.hidden=false;b.className="chip info live";b.textContent=j.title||"working";
       if(!EV.running&&homeEvents._idle!==false){homeEvents._idle=false;liveEnsure();}}   /* a run began (here, in another tab, from the CLI): follow it */
-    else if(j.ended&&j.ended>badgeSeen&&Date.now()/1000-j.ended<=600){b.hidden=false;b.className="chip "+(j.code===0?"good":"bad");b.textContent=(j.code===0?"done: ":"stopped: ")+(j.title||"job");}
+    else if(j.ended&&j.ended>badgeSeen&&Date.now()/1000-j.ended<=600){b.hidden=false;const jw=jobWord(j);b.className="chip "+jw[0];b.textContent=jw[1]+": "+(j.title||"job");}
     else b.hidden=true;
     b.onclick=()=>{badgeSeen=j.ended||badgeSeen;b.hidden=true;jobSince=0;go("run");};
   }catch(_){}
@@ -5436,20 +5463,22 @@ function rvDraw(){
     h("p",{class:"sub",id:"rvCost",title:(d.cost.models||[]).join(", ")},costLine(d.cost))));
   rvPlan(pl);
   /* files */
-  const files=d.files||[];
+  const files=(d.files||[]).filter(f=>!f.gone), gone=(d.files||[]).filter(f=>f.gone);
   const box=h("div",{class:"card"},h("h3",null,"Files changed ("+files.length+")"));
   if(!files.length)box.append(h("p",{class:"sub"},"This run did not change any files."));
   files.forEach((f,i)=>box.append(rvFile(f,i)));
+  if(gone.length)box.append(h("p",{class:"sub"},"Made and removed again during the run (nothing left on disk): "+gone.map(f=>f.file).join(", ")));
   put(fl,box);
   /* tests */
   const tests=d.tests||[], tt=tests.filter(x=>x.test), other=tests.filter(x=>!x.test);
   const tb=h("div",{class:"card"},h("h3",null,"Tests"+(tt.length?" ("+tt.filter(x=>x.ok===true).length+" of "+tt.length+" passed"+(tt.some(x=>x.ok==null)?", "+tt.filter(x=>x.ok==null).length+" could not run":"")+")":"")));
   if(!tests.length)tb.append(h("p",{class:"sub"},"No tests or checks ran in this run."));
   else if(!tt.length)tb.append(h("p",{class:"sub"},"No test ran; these checks did:"));
-  const li=x=>h("li",{class:"rv-test"},h("span",{class:"chip "+(x.ok===true?"good":x.ok===false?"bad":"warn")},x.ok===true?"Passed":x.ok===false?"Failed":"Could not check"),h("span",{class:"grow"},x.name),
-    x.text?h("span",{class:"mute rv-tx",title:x.text},x.text):null);
-  if(tt.length)tb.append(h("ul",{class:"rv-tests"},...tt.map(li)));
-  if(other.length)tb.append(tt.length?h("details",{class:"more"},h("summary",null,"Other checks ("+other.length+")"),h("ul",{class:"rv-tests"},...other.map(li))):h("ul",{class:"rv-tests"},...other.map(li)));
+  const li=x=>h("li",{class:"rv-test"},h("span",{class:"chip "+(x.ok===true?"good":x.ok===false?"bad":"warn")},x.ok===true?"Passed":x.ok===false?"Failed":"Could not check"),h("span",{class:"grow"},x.name),x.n>1?h("span",{class:"chip",title:x.n+" times"},"×"+x.n):null,x.text?h("span",{class:"mute rv-tx",title:x.text},x.text):null);
+  /* the same check with the same result and reason, repeated over retries, is one row with a count (nine "Failed · best of 3: attempt 1/2/3") */
+  const fold=a=>{const m=new Map();for(const x of a){const nm=String(x.name).replace(/: attempt \d+$/,"");const k=[nm,x.ok,x.text||""].join("\u0001");const y=m.get(k);if(y)y.n++;else m.set(k,Object.assign({},x,{name:nm,n:1}));}return [...m.values()];};
+  if(tt.length)tb.append(h("ul",{class:"rv-tests"},...fold(tt).map(li)));
+  if(other.length)tb.append(tt.length?h("details",{class:"more"},h("summary",null,"Other checks ("+other.length+")"),h("ul",{class:"rv-tests"},...fold(other).map(li))):h("ul",{class:"rv-tests"},...fold(other).map(li)));
   put(ts,tb);
   /* actions */
   const note=h("textarea",{id:"rvNote",rows:2,"data-vlabel":"Note for the retry",placeholder:"For a retry: what should it do differently?",
@@ -6926,7 +6955,7 @@ function renderRoute(){
   svg+="</svg>";
   if(svg!==body._svg||!body.firstChild){body.innerHTML=svg;body._svg=svg;}     // unchanged: keep the DOM, so the animations run on smoothly
   if(now)now.textContent=act==="you"?(EV.calls?"":" · waiting for you"):act==="kept"?" · the last run passed and was kept":
-    act==="checks"&&v?" · the last run did not pass its checks":" · now: "+NODES[act][0]+(EV.nowModel&&act!=="checks"?" · "+short(EV.nowModel):"");
+    act==="checks"&&v?" · the last run: "+verd(v)[1].toLowerCase():" · now: "+NODES[act][0]+(EV.nowModel&&act!=="checks"?" · "+short(EV.nowModel):"");
 }
 window.addEventListener("resize",()=>{clearTimeout(renderRoute._t);renderRoute._t=setTimeout(()=>{if(page==="console")renderRoute();if(page==="blueprints")bpWire();},150);});
 

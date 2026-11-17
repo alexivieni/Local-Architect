@@ -193,7 +193,7 @@ def run():
         r2 = subprocess.run([py, os.path.join(HERE, "architect.py"), "run", "A tiny library that can slugify titles and strip punctuation, with tests", "--flow", "new", "--review", "auto",
                              "--root", os.path.join(tmp, "from_nothing", "built"), "--template", "python_lib"], capture_output=True, text=True, env=dict(os.environ, OLLAMA_HOST=host), timeout=240)
         check("new flow builds the goal on top of the template (plan, code, failing check, fix, judge)",
-              r2.returncode == 0 and os.path.isfile(os.path.join(tmp, "from_nothing", "built", "slugify.py")) and "[done] OK" in r2.stdout, r2.stdout[-600:] + r2.stderr[-300:])
+              r2.returncode == 0 and os.path.isfile(os.path.join(tmp, "from_nothing", "built", "slugify.py")) and "[done] PASSED" in r2.stdout, r2.stdout[-600:] + r2.stderr[-300:])
         r3 = subprocess.run([py, os.path.join(HERE, "architect.py"), "run", "A tiny library that can slugify titles and strip punctuation, with tests", "--flow", "new", "--review", "auto",
                              "--root", os.path.join(tmp, "from_nothing", "nomodel"), "--template", "python_lib"], capture_output=True, text=True, env=env, timeout=120)
         check("with no model the template is still created and the build step explains what it needs",

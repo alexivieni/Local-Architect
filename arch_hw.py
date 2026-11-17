@@ -586,6 +586,20 @@ def measure_drive(path, mb=64):
             pass
 
 
+# What memory can physically move, GB/s. A derived figure outside these is a broken derivation, not a fast machine: the split formula
+# below divides by a small difference, so a mostly-on-card or MoE run (fewer bytes read per token than its size) gave RAM 626.5 GB/s
+# on a laptop whose DDR5 tops out near 90. Rejected figures are dropped (the labelled estimate is used instead), never clamped.
+BW_PLAUSIBLE = {"gpu_bw": (5.0, 4000.0), "ram_bw": (2.0, 400.0)}
+
+
+def plausible_bw(kind, v):
+    lo, hi = BW_PLAUSIBLE[kind]
+    try:
+        return v is not None and lo <= float(v) <= hi
+    except (TypeError, ValueError):
+        return False
+
+
 def bandwidth_from(full_tok_s, full_gb, split_tok_s=None, split_gpu_gb=None, split_ram_gb=None):
     """Effective memory bandwidth from real runs. Writing one token reads every weight once, so a model fully on the card that writes
     `full_tok_s` tokens a second while holding `full_gb` gives the card's bandwidth; a model split between card and RAM gives RAM's:
@@ -596,7 +610,7 @@ def bandwidth_from(full_tok_s, full_gb, split_tok_s=None, split_gpu_gb=None, spl
         left = 1.0 / split_tok_s - (split_gpu_gb or 0) / gpu
         if left > 0:
             ram = round(split_ram_gb / left, 1)
-    return {"gpu_bw": gpu, "ram_bw": ram}
+    return {"gpu_bw": gpu if plausible_bw("gpu_bw", gpu) else None, "ram_bw": ram if plausible_bw("ram_bw", ram) else None}
 
 
 def _bw_path():
@@ -614,13 +628,20 @@ def save_bandwidth(bw, source):
 
 
 def load_bandwidth():
-    """-> {"gpu_bw", "ram_bw", "source"} measured on this machine, or {} (then bandwidth() uses the estimates BW_ESTIMATE, and says so)."""
+    """-> {"gpu_bw", "ram_bw", "source"} measured on this machine, or {} (then bandwidth() uses the estimates BW_ESTIMATE, and says so).
+    A saved figure no memory can reach (BW_PLAUSIBLE) comes back as None and is named in "rejected"; the file itself is left alone."""
     import json
     try:
         with open(_bw_path(), encoding="utf-8") as f:
-            return json.load(f)
+            m = json.load(f)
     except (OSError, ValueError):
         return {}
+    if not isinstance(m, dict):
+        return {}
+    bad = [k for k in ("gpu_bw", "ram_bw") if m.get(k) is not None and not plausible_bw(k, m.get(k))]
+    if bad:
+        m = dict(m, rejected={k: m[k] for k in bad}, **{k: None for k in bad})
+    return m
 
 
 BW_ESTIMATE = {"gpu_bw": 192.0, "ram_bw": 50.0}       # GB/s, used ONLY when nothing was measured here, and always called an estimate
@@ -632,6 +653,7 @@ def bandwidth(bw=None):
     figures (158 / 19.5 GB/s) for another machine, and no label says "measured" for a figure that was not."""
     m = load_bandwidth() if bw is None else (bw or {})
     g, r = m.get("gpu_bw"), m.get("ram_bw")
+    g, r = (g if plausible_bw("gpu_bw", g) else None), (r if plausible_bw("ram_bw", r) else None)
     out = {"gpu_bw": float(g or BW_ESTIMATE["gpu_bw"]), "ram_bw": float(r or BW_ESTIMATE["ram_bw"]),
            "gpu_measured": bool(g), "ram_measured": bool(r)}
     out["label"] = ("measured here" if g and r else "estimate" if not (g or r) else

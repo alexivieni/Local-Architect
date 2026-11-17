@@ -113,7 +113,7 @@ def run():
               "O.models.filter(m=>m.ours)" in ui and "O.models.filter(m=>!m.ours)" not in ui and 'toast("Graphics memory freed")' not in ui)
         check("a step that only started is in progress (or has no result once the run ended), never 'done'",
               'st.ok===false?"fail":EV.verdict?"unsure":"now"' in ui and 'st.ok===false?"fail":"done"' not in ui
-              and 'x.ok==null?"now":"done"' in ui)
+              and 'x.ok==null?(EV.verdict?"none":"now"):"done"' in ui)
         check("the Models page speed inputs are not fixed guesses (192 / 50 GB/s and f16 overrode the measurement)",
               'const opts={kv:"",gpu_bw:"",ram_bw:"",vram:"",ram:""};' in ui and "opts.gpu_bw=+e.target.value||192" not in ui)
         check("Home's tiles say what they are: a benchmark pass rate, and a measured tokens/s from the usage meter",

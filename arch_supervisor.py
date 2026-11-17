@@ -400,8 +400,8 @@ def _subprocess_runner(job, say):
         return {"verdict": "fail", "why": f"could not start: {ex}", "run_id": "", "flow": job.get("flow") or "", "code": -1}
     run_dir = _newest_run(job["root"], t0)
     v, why, flow = verdict_of(run_dir)
-    if not v:
-        v = "pass" if code == 0 else "fail"
+    if not v:                                     # no verdict record: architect.py run's exit code (2 = could not be checked)
+        v = "pass" if code == 0 else "not_sure" if code == 2 else "fail"
         why = why or (tail.strip().splitlines()[-1][:300] if tail.strip() else f"exit code {code}")
     return {"verdict": v, "why": why, "run_id": os.path.basename(run_dir) if run_dir else "", "flow": flow or job.get("flow") or "",
             "code": code}

@@ -193,7 +193,6 @@ mh.UI_FILE = os.path.join(HERE, "hub_ui.html")
 mh.ollama_host = core.ollama_host            # one host setting for the hub and the agent (env OLLAMA_HOST or architect_config.json)
 mh.DATA_DIR = core.data_dir()
 mh.RESULTS_FILE = os.path.join(mh.DATA_DIR, "results.json")
-mh.NOTES_FILE = os.path.join(core.HOME, "NOTES.md")
 mh.CATEGORIES[:] = roles.CATEGORIES
 mh.DEFAULT_WEIGHTS.clear()
 mh.DEFAULT_WEIGHTS.update({"backend_fix": 12, "backend_feature": 12, "ui": 14, "reasoning": 10, "security": 4, "format": 8, "toolcall": 0,
@@ -820,8 +819,10 @@ def first_visit_info(root=None, hub_port=8766, doctor_run=None, team_plan=None):
         import arch_ready
         r = arch_ready.load_ready() or {}
         steps = r.get("steps") or []
-        out["ready"] = {"ran": bool(steps), "ok": bool(r.get("ok")) if steps else None,
-                        "passed": sum(1 for s in steps if s.get("ok")), "total": len(steps)}
+        rok = r.get("ok")
+        out["ready"] = {"ran": bool(steps), "ok": (None if rok is None else bool(rok)) if steps else None,
+                        "passed": sum(1 for s in steps if s.get("ok") is True), "total": len(steps),
+                        "unsure": sum(1 for s in steps if s.get("ok") is None)}
     except Exception as ex:
         out["ready"] = {"ran": False, "ok": None, "error": f"{type(ex).__name__}: {str(ex)[:200]}"}
     try:
@@ -2121,7 +2122,10 @@ def review_view(root, run):
     usd = sum(float(c.get("usd") or 0) for c in calls)
     todo = next((r.get("items") for r in reversed(recs) if r.get("type") == "todo"), None) or st.get("todo") or []
     accepted = _read_json(os.path.join(d, "accepted.json"))
-    _attach_hunks(root, d, [files[f] for f in order][:60])
+    for f in order:                    # a new file the run removed again (a rejected reproduction test) is not a change to review
+        if files[f]["new_file"] and not os.path.exists(os.path.join(root, f)):
+            files[f]["gone"] = True
+    _attach_hunks(root, d, [files[f] for f in order if not files[f].get("gone")][:60])
     return {"run": run, "goal": st.get("goal") or "", "flow": st.get("flow") or "", "status": st.get("status") or "", "verdict": verdict,
             "files": [files[f] for f in order][:60], "tests": tests[:80],
             "cost": {"usd": round(usd, 4), "calls": len(calls), "secs": round(sum(float(c.get("secs") or 0) for c in calls), 1),
@@ -3572,6 +3576,10 @@ class AHandler(mh.Handler):
             q = parse_qs(u.query)
             if q.get("session"):
                 return self._send(200, arch_agents.snapshot(q["session"][0], int((q.get("since") or ["0"])[0])))
+            import arch_cloud
+            ok_, why_ = arch_cloud.allowed(core.load_config())
+            if not ok_:                                  # offline by default: say so calmly, never as an error
+                return self._send(200, {"off": why_, "agents": [], "environments": [], "sessions": arch_agents.sessions()})
             try:
                 return self._send(200, dict(arch_agents.listing(), sessions=arch_agents.sessions()))
             except Exception as ex:
@@ -3691,7 +3699,7 @@ class AHandler(mh.Handler):
                 "gpu": {"name": hw.get("gpu"), "vram_gb": hw.get("vram_gb"), "used_gb": lv.get("vram_used_gb"), "busy_pct": lv.get("gpu_pct"),
                         "bw": bw.get("gpu_bw")},
                 "ram": {"gb": hw.get("ram_gb"), "free_gb": lv.get("ram_free_gb") or hw.get("ram_free_gb"), "bw": bw.get("ram_bw"),
-                        "bw_source": bw.get("source") or "estimate"},
+                        "bw_source": (bw.get("source") or "estimate") if bw.get("ram_bw") else "estimate"},
                 "drives": drs,
                 "models": [{"tier": p["tier"], "name": p["name"], "gpu_gb": p.get("est_gpu_gb") or 0, "ram_gb": p.get("ram_gb") or 0,
                             "cpu_only": p.get("ngl") == 0, "resident": p.get("resident"), "why": p.get("why"),
@@ -3757,9 +3765,10 @@ class AHandler(mh.Handler):
             import arch_usage
             q = parse_qs(u.query)
             w = (q.get("window") or ["day"])[0]
-            extra = [x for x in (q.get("root") or [])[:12] if x and os.path.isdir(os.path.abspath(os.path.expanduser(x)))]
-            for x in extra:
-                arch_usage.remember_root(os.path.abspath(os.path.expanduser(x)))
+            # read-only: the folders asked about are counted for this answer but NOT saved to recent_roots.json (a GET that wrote
+            # put throwaway test folders into the person's project list; a run that finishes in a folder remembers it, arch_core)
+            extra = [os.path.abspath(os.path.expanduser(x)) for x in (q.get("root") or [])[:12]
+                     if x and os.path.isdir(os.path.abspath(os.path.expanduser(x)))]
             return self._send(200, arch_usage.usage(w if w in ("day", "week") else "day", roots=arch_usage.known_roots(extra)))
         if u.path == "/api/arch/ui/registry":
             return self._send(200, ui_registry())

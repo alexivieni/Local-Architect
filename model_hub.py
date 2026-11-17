@@ -43,7 +43,6 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-AGENT = os.path.join(HERE, "autonomous_agent_optimized.py")
 DATA_DIR = os.path.join(HERE, "hub_data")
 RESULTS_FILE = os.path.join(DATA_DIR, "results.json")
 CONFIG_FILE = os.path.join(HERE, "hub_config.json")
@@ -52,7 +51,6 @@ if "arch_core" in sys.modules:                # inside the Architect there is ON
     DATA_DIR = sys.modules["arch_core"].data_dir()       # and one data folder: imported late (after the last set_home), results.json
     RESULTS_FILE = os.path.join(DATA_DIR, "results.json")   # used to land in the install's own hub_data, even under a test's data dir
 UI_FILE = os.path.join(HERE, "hub_ui.html")
-NOTES_FILE = os.path.join(HERE, "AGENT_NOTES.md")
 
 GB = 1024 ** 3
 LOCK = threading.RLock()
@@ -537,8 +535,15 @@ def probe_model(model):
     return out
 
 
+def _unjudged(e):
+    """Ollama could not be reached (not a slow model: a timeout is the model's fail): the task says nothing about the model."""
+    return getattr(e, "code", None) == 0 and "timed out" not in str(getattr(e, "msg", e)).lower()
+
+
 def run_tests(model, cats, think_allowed=False, progress=None, probe=None, sampling=None):
-    """-> {cat: {"score": 0-100, "n": tasks, "detail": [...]}} (never raises for a single bad reply)."""
+    """-> {cat: {"score": 0-100, "n": tasks judged, "detail": [...]}} (never raises for a single bad reply).
+    Three outcomes: a task that could not be judged (Ollama unreachable, our own checker broke) is left out of the score and of n,
+    never scored 0; a category with no task judged is left out of the result, so it never lands in results.json as a 0."""
     res = {}
     fmt_hits = fmt_total = 0
     opts = dict(sampling or {"temperature": 0.2})
@@ -551,7 +556,7 @@ def run_tests(model, cats, think_allowed=False, progress=None, probe=None, sampl
             progress(m)
     for cat in cats:
         if cat in TASKS:
-            detail, total = [], 0.0
+            detail, total, judged = [], 0.0, 0
             for t in TASKS[cat]:
                 log(f"{model}: {cat} - {t['title']}")
                 try:
@@ -562,21 +567,30 @@ def run_tests(model, cats, think_allowed=False, progress=None, probe=None, sampl
                         try:
                             r = chat(model, t["prompt"], options=opts, timeout=600)
                         except OllamaError as e2:
-                            detail.append({"task": t["title"], "score": 0, "note": e2.msg[:120]})
+                            unj = _unjudged(e2)
+                            judged += 0 if unj else 1
+                            detail.append({"task": t["title"], "score": None if unj else 0, "note": e2.msg[:120]})
                             continue
                     else:
-                        detail.append({"task": t["title"], "score": 0, "note": e.msg[:120]})
+                        unj = _unjudged(e)
+                        judged += 0 if unj else 1
+                        detail.append({"task": t["title"], "score": None if unj else 0, "note": e.msg[:120]})
                         continue
                 reply = strip_think(chat_text(r))
                 try:
                     s, note, formatted = t["check"](reply)
-                except Exception as e:
-                    s, note, formatted = 0.0, f"checker error {type(e).__name__}", False
+                except Exception as e:                        # our checker broke: the reply was not judged
+                    detail.append({"task": t["title"], "score": None, "note": f"not judged: checker error {type(e).__name__}"})
+                    continue
+                judged += 1
                 fmt_total += 1
                 fmt_hits += 1 if formatted else 0
                 total += s
                 detail.append({"task": t["title"], "score": round(s * 100), "note": note, "tok_s": speed_of(r)})
-            res[cat] = {"score": round(100 * total / len(TASKS[cat]), 1), "n": len(TASKS[cat]), "detail": detail}
+            if judged:
+                res[cat] = {"score": round(100 * total / judged, 1), "n": judged, "detail": detail}
+            else:
+                log(f"{model}: {cat} not scored: no task could be judged ({(detail[-1]['note'] if detail else '')[:80]})")
         elif cat == "toolcall":
             log(f"{model}: toolcall")
             tools, ask = tool_task()
@@ -587,7 +601,10 @@ def run_tests(model, cats, think_allowed=False, progress=None, probe=None, sampl
                     "path" in (calls[0].get("function", {}).get("arguments") or {})
                 res[cat] = {"score": 100.0 if ok else 0.0, "n": 1, "detail": [{"task": "call run_tests(path)", "score": 100 if ok else 0, "note": "called correctly" if ok else "no valid tool call"}]}
             except OllamaError as e:
-                res[cat] = {"score": 0.0, "n": 1, "detail": [{"task": "tools", "score": 0, "note": e.msg[:120]}]}
+                if _unjudged(e):
+                    log(f"{model}: toolcall not scored: {e.msg[:80]}")
+                else:
+                    res[cat] = {"score": 0.0, "n": 1, "detail": [{"task": "tools", "score": 0, "note": e.msg[:120]}]}
         elif cat == "speed":
             log(f"{model}: speed")
             try:
@@ -606,7 +623,10 @@ def run_tests(model, cats, think_allowed=False, progress=None, probe=None, sampl
                 res[cat] = {"score": round(score, 1), "n": 1, "tok_s": tps, "gpu_pct": fit,
                             "detail": [{"task": "tokens/s", "score": round(score), "note": f"{tps} tok/s, {fit}% on GPU"}]}
             except OllamaError as e:
-                res[cat] = {"score": 0.0, "n": 1, "detail": [{"task": "speed", "score": 0, "note": e.msg[:120]}]}
+                if _unjudged(e):
+                    log(f"{model}: speed not scored: {e.msg[:80]}")
+                else:
+                    res[cat] = {"score": 0.0, "n": 1, "detail": [{"task": "speed", "score": 0, "note": e.msg[:120]}]}
     if fmt_total and "format" in cats:
         res["format"] = {"score": round(100 * fmt_hits / fmt_total, 1), "n": fmt_total,
                          "detail": [{"task": "replies in the requested format", "score": round(100 * fmt_hits / fmt_total), "note": f"{fmt_hits}/{fmt_total}"}]}
@@ -824,13 +844,7 @@ class Job:
 
 JOB = Job()
 TEST_STATE = {"running": False, "log": [], "models": []}
-ACTIONS = {
-    "probe": ["autonomous_agent_optimized.py", "--probe"], "selftest": ["autonomous_agent_optimized.py", "--selftest"],
-    "map": ["autonomous_agent_optimized.py", "--map"], "ui_check": ["autonomous_agent_optimized.py", "--ui-check"],
-    "undo": ["autonomous_agent_optimized.py", "--undo"], "diff_parent": ["autonomous_agent_optimized.py", "--diff-parent"],
-    "show_config": ["autonomous_agent_optimized.py", "--show-config"],
-    "add_tests": ["autonomous_agent_optimized.py", "--add-tests", "--review", "ask"],
-    "selfbench": ["autonomous_agent_optimized.py", "--selfbench", "--tasks", "6", "--variants", "baseline,smart"],
+ACTIONS = {                                  # architect_hub replaces these with the Architect's own commands
     "export": ["architect.py", "dataset"], "export_stats": ["architect.py", "dataset", "--json"],
     "train_check": ["train_lora.py", "--check"],
 }
@@ -919,20 +933,6 @@ def build_state(q=None):
     st["results"] = {m["name"]: m["agg"] for m in st["models"]}
     st["probes"] = {k: v.get("probe") for k, v in load_results().items() if isinstance(v, dict) and v.get("probe")}
     return st
-
-
-def list_runs():
-    d = os.path.join(HERE, ".agent_runs")
-    out = []
-    if os.path.isdir(d):
-        for n in sorted(os.listdir(d), reverse=True)[:30]:
-            rp = os.path.join(d, n, "report.md")
-            if os.path.exists(rp):
-                try:
-                    out.append({"name": n, "report": open(rp, encoding="utf-8", errors="replace").read()[:6000]})
-                except OSError:
-                    pass
-    return out
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1046,14 +1046,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_etag(build_state(q))
             if u.path == "/api/job":
                 return self._send(200, JOB.snapshot(int(q.get("since", ["0"])[0])))
-            if u.path == "/api/runs":
-                return self._send(200, list_runs())
-            if u.path == "/api/notes":
-                try:
-                    txt = open(NOTES_FILE, encoding="utf-8").read()
-                except OSError:
-                    txt = ""
-                return self._send(200, {"text": txt})
             if u.path == "/api/results":
                 return self._send(200, load_results())
             return self._send(404, {"error": "not found"})
@@ -1130,30 +1122,6 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Pick at least one model and one category.")
             start_tests(models, cats, bool(b.get("think")))
             return {"ok": True}
-        if path == "/api/clear_results":
-            with LOCK:
-                res = load_results()
-                m = b.get("model")
-                if m in res:
-                    res[m].pop("scores", None)
-                    save_results(res)
-            return {"ok": True}
-        if path == "/api/run":
-            goal = str(b.get("goal") or "").strip()
-            if not goal:
-                raise ValueError("Type a goal first.")
-            review = b.get("review") if b.get("review") in ("ask", "auto", "dry") else "ask"
-            argv = ["autonomous_agent_optimized.py", "--goal", goal, "--review", review]
-            if b.get("model"):
-                argv += ["--model", str(b["model"])]
-            if b.get("plan_model"):
-                argv += ["--plan-model", str(b["plan_model"])]
-            if b.get("best_of"):
-                argv += ["--best-of", str(int(b["best_of"]))]
-            if b.get("reproduce_first"):
-                argv += ["--reproduce-first"]
-            JOB.start("Agent: " + goal[:60], argv)
-            return {"ok": True}
         if path == "/api/action":
             name = b.get("name")
             if name not in ACTIONS:
@@ -1165,10 +1133,6 @@ class Handler(BaseHTTPRequestHandler):
             return {"ok": True}
         if path == "/api/stop":
             return dict({"ok": True}, **JOB.stop())
-        if path == "/api/notes":
-            with open(NOTES_FILE, "w", encoding="utf-8") as f:
-                f.write(str(b.get("text") or ""))
-            return {"ok": True}
         raise ValueError("unknown request")
 
 

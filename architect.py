@@ -143,8 +143,7 @@ def cmd_run(args):
     if getattr(args, "stages", None):
         params["stages"] = args.stages
     out = flows.run_flow(e, flow_id, params)
-    print(f"\n[done] {'OK' if out.get('ok') else 'NOT COMPLETE'}   report: {os.path.join(e.run_dir, 'report.md')}")
-    return 0 if out.get("ok") else 1
+    return _done_line(out, e)
 
 
 def cmd_self_improve(args):
@@ -492,8 +491,7 @@ def cmd_resume(args):
     e = build_engine(args, st.get("goal", ""), st["flow"])
     arch_resume.mark_resumed(st, e.run_id)
     out = flows.run_flow(e, st["flow"], arch_resume.resume_params(st))
-    print(f"\n[done] {'OK' if out.get('ok') else 'NOT COMPLETE'}   report: {os.path.join(e.run_dir, 'report.md')}")
-    return 0 if out.get("ok") else 1
+    return _done_line(out, e)
 
 
 def cmd_ci(args):
@@ -1075,11 +1073,22 @@ def cmd_promote_model(args):
     return 0
 
 
+def _done_line(out, e):
+    """The run's last line and exit code, in the hub's words: 0 passed, 1 did not pass, 2 could not be checked (it said "OK" and exited
+    0 for a run whose checks could not run: ok is True there, `unsure` says otherwise)."""
+    v = "not_sure" if out.get("unsure") else ("pass" if out.get("ok") else "fail")
+    word = {"pass": "PASSED", "fail": "DID NOT PASS", "not_sure": "NOT SURE (a check could not run)"}[v]
+    print(f"\n[done] {word}   report: {os.path.join(e.run_dir, 'report.md')}")
+    return {"pass": 0, "fail": 1, "not_sure": 2}[v]
+
+
 def cmd_fit(args):
     import arch_chain
     import model_hub as mh
     try:
-        sheet = fit_sheet(os.path.abspath(args.root) if args.root else None, kv=args.kv)
+        env_kv = os.environ.get("OLLAMA_KV_CACHE_TYPE", "")
+        kv = args.kv or (env_kv if env_kv in ("f16", "q8_0") else "q8_0")   # `explain` and the servers assume q8_0 too (was f16 here)
+        sheet = fit_sheet(os.path.abspath(args.root) if args.root else None, kv=kv)
     except mh.OllamaError as e:
         print(f"Ollama is not reachable: {e.msg}")
         return 2
@@ -1789,7 +1798,8 @@ def main(argv=None):
     pm.add_argument("--dry-run", action="store_true", help="say what would change and change nothing")
     ft = sub.add_parser("fit", help="the team's memory fit sheet: weights + KV cache per model against this GPU, what is resident, what a swap costs")
     ft.add_argument("--root", help="project folder (its run history gives the measured swaps per run)")
-    ft.add_argument("--kv", choices=["f16", "q8_0"], default="f16", help="KV cache type to assume (server setting OLLAMA_KV_CACHE_TYPE)")
+    ft.add_argument("--kv", choices=["f16", "q8_0"], default=None,
+                    help="KV cache type to assume (default: OLLAMA_KV_CACHE_TYPE when set, else q8_0, what Architect starts Ollama and llama-server with)")
     ft.add_argument("--json", action="store_true")
     oc = sub.add_parser("orchestration", help="who delegated what to whom: Claude Code agents, local runs, tokens, caching, training data")
     oc.add_argument("--json", action="store_true")
@@ -1838,7 +1848,8 @@ def main(argv=None):
     mp_.add_argument("--json", action="store_true")
     cl_ = sub.add_parser("cleanup", help="close what the app started: model servers, Ollama models, Launch runs, leftover eval folders")
     cl_.add_argument("--yes", action="store_true")
-    sw_ = sub.add_parser("swap", help="swap models per tier or job from placement math, measurements and the playbook: --plan/--lint/--trial/--apply/--undo")
+    sw_ = sub.add_parser("swap", help=      # listed for --help only: `swap` is dispatched before argparse (see the top of main)
+                         "swap models per tier or job from placement math, measurements and the playbook: --plan/--lint/--trial/--apply/--undo")
     sw_.add_argument("rest", nargs=argparse.REMAINDER, help="passed to arch_swap (e.g. --plan --job code, --lint, --trial worker MODEL --fake, --apply worker MODEL --yes, --undo)")
     se_ = sub.add_parser("select", help="choose a model PER JOB by measurement (C = seconds per passed task); --plan/--screen/--measure/--why/--apply/--undo")
     se_.add_argument("--plan", action="store_true", help="what a screen would run and its estimated GPU minutes (default)")
@@ -1884,7 +1895,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     fn = {"run": cmd_run, "flows": cmd_flows, "templates": cmd_templates, "route": cmd_route, "undo": cmd_undo,
           "portfolio": cmd_portfolio, "show-config": cmd_show, "serve": cmd_serve, "doctor": cmd_doctor, "assess": cmd_assess, "advise": cmd_advise,
-          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "preset": cmd_preset, "tune-role": cmd_tune_role, "recommend": cmd_recommend, "swap": lambda a: __import__("arch_swap").main(list(a.rest or [])), "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "plugins": cmd_plugins, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
+          "self-improve": cmd_self_improve, "selftest": cmd_selftest, "ready": cmd_ready, "scan": cmd_scan, "index": cmd_index, "fit": cmd_fit, "dataset": cmd_dataset, "backlog": cmd_backlog, "autopilot": cmd_autopilot, "tasks": cmd_tasks, "self-verify": cmd_self_verify, "self-rollback": cmd_self_rollback, "self-history": cmd_self_history, "fakecode": cmd_fakecode, "tune": cmd_tune, "optimize": cmd_optimize, "ci": cmd_ci, "resume": cmd_resume, "hosts": cmd_hosts, "livetest": cmd_livetest, "shortcut": cmd_shortcut, "status": cmd_status, "catalog": cmd_catalog, "pull": cmd_pull, "eval": cmd_eval, "server": cmd_server, "passport": cmd_passport, "start": cmd_start, "explain": cmd_explain, "cost": cmd_cost, "select": cmd_select, "preset": cmd_preset, "tune-role": cmd_tune_role, "recommend": cmd_recommend, "cleanup": cmd_cleanup, "memplan": cmd_memplan, "promote-model": cmd_promote_model, "commands": cmd_commands, "hooks": cmd_hooks, "plugins": cmd_plugins, "port": cmd_port, "receipt": cmd_receipt, "queue": cmd_queue, "supervise": cmd_supervise, "dist": cmd_dist, "caches": cmd_caches, "orchestration": lambda a: __import__("arch_orchestration").main((["--json"] if a.json else []) + ["--limit", str(a.limit)])}.get(a.cmd)
     if not fn:
         ap.print_help()
         return 0

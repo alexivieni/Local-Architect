@@ -68,7 +68,6 @@ def set_home(path):
         mh.CONFIG_FILE = CONFIG_FILE
         mh.DATA_DIR = data_dir()
         mh.RESULTS_FILE = os.path.join(mh.DATA_DIR, "results.json")
-        mh.NOTES_FILE = os.path.join(HOME, "NOTES.md")
     return HOME
 
 DEFAULTS = {
@@ -1055,14 +1054,24 @@ def guard_env(offline=True):
     return env
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")
+
+
+def strip_ansi(text):
+    """Terminal colour codes out: a terminal that sets FORCE_COLOR / PY_COLORS made pytest colour its output, and the codes landed in
+    report.md and in the failure text handed back to the model (tokens spent on escape sequences, a reason it cannot read)."""
+    return _ANSI.sub("", text or "")
+
+
 def run_cmd(cmd, cwd, timeout=300, offline=True):
-    """cmd: list or string. -> (returncode, combined output tail). Never raises for a normal failure."""
+    """cmd: list or string. -> (returncode, combined output tail, no colour codes). Never raises for a normal failure."""
     argv = cmd if isinstance(cmd, (list, tuple)) else shlex.split(str(cmd), posix=(os.name != "nt"))
     argv = [str(a).replace("{python}", sys.executable) for a in argv]
     try:
         rc, out = run_bounded(argv, cwd, timeout, guard_env(offline))
     except OSError as e:
         return 127, f"could not start: {e}"
+    out = strip_ansi(out)
     if rc is None:
         return 124, (f"timed out after {timeout}s (the whole process tree was stopped; a test that starts a server must stop it, "
                      f"or run it in a thread with a timeout)\n" + out[-3000:])
@@ -1139,7 +1148,7 @@ def run_tests(root, cfg, targets=None):
         rc, out = run_cmd(custom, root, t, off)
         return ("pass" if rc == 0 else "fail"), out
     if has_module("pytest"):
-        cmd = [sys.executable, "-m", "pytest", "-x", "-q", "--tb=short", "-p", "no:cacheprovider"] + list(targets or [])
+        cmd = [sys.executable, "-m", "pytest", "-x", "-q", "--tb=short", "--color=no", "-p", "no:cacheprovider"] + list(targets or [])
         rc, out = run_cmd(cmd, root, t, off)
         if rc == 5:
             return "none", out

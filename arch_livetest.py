@@ -247,24 +247,25 @@ def run(only=None, quick=False, say=print, scenarios=None):
         except (core.LLMError, core.BudgetExceeded, core.LoopDetected) as ex:
             ok, detail = False, f"stopped: {str(ex)[:140]}"
         except Exception as ex:                                               # a scenario bug must not hide the other results
-            ok, detail = False, f"the test itself failed: {type(ex).__name__}: {str(ex)[:120]}"
+            ok, detail = None, f"the test itself failed, so this was not judged: {type(ex).__name__}: {str(ex)[:120]}"   # not the team's fault: not sure
         for x in _OPEN:                                   # a scenario that never finished a run (json, route) still puts the servers back
             try:
                 x._bring_back()
             except Exception:
                 pass
         _OPEN.clear()
-        r = {"id": sid, "name": title, "ok": bool(ok), "secs": round(time.time() - t0), "calls": getattr(e, "calls", None), "models": sorted(getattr(e, "models_used", {}) or []), "detail": detail}
+        r = {"id": sid, "name": title, "ok": None if ok is None else bool(ok), "secs": round(time.time() - t0), "calls": getattr(e, "calls", None), "models": sorted(getattr(e, "models_used", {}) or []), "detail": detail}
         results.append(r)
-        say(f"      {'PASS' if ok else 'FAIL'}  {r['secs']}s, {r['calls']} model calls" + ("" if ok else f"  - {detail}"))
+        say(f"      {'PASS' if ok else 'NOT SURE' if ok is None else 'FAIL'}  {r['secs']}s, {r['calls']} model calls" + ("" if ok else f"  - {detail}"))
         shutil.rmtree(proj, ignore_errors=True)
     out = {"ts": time.time(), "roles": {r: m for r, m in (cfg.get("roles") or {}).items() if m}, "default_model": cfg.get("default_model"),
-           "results": results, "passed": sum(1 for r in results if r["ok"]), "total": len(results)}
+           "results": results, "passed": sum(1 for r in results if r["ok"]), "total": len(results),
+           "unsure": sum(1 for r in results if r["ok"] is None)}
     try:
         os.makedirs(core.data_dir(), exist_ok=True)
         with open(path(), "w", encoding="utf-8") as f:
             json.dump(out, f, indent=1)
     except OSError:
         pass
-    say(f"Live test: {out['passed']} of {out['total']} passed." + ("" if out["passed"] == out["total"] else " The lines above say what failed and why; a failure is information about the model/team, not a crash."))
+    say(f"Live test: {out['passed']} of {out['total']} passed" + (f", {out['unsure']} not judged" if out["unsure"] else "") + "." + ("" if out["passed"] == out["total"] else " The lines above say what failed and why; a failure is information about the model/team, not a crash."))
     return out

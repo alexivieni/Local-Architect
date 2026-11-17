@@ -5,7 +5,7 @@ MENU = [("H", "Start Architect: Ollama if needed, the model servers, and the hub
         ("1", "Self-test (fake model, no Ollama needed)", ["architect.py", "selftest"]),
         ("2", "List the flows", ["architect.py", "flows"]),
         ("3", "Show settings in effect", ["architect.py", "show-config"]),
-        ("4", "Count training examples", ["arch_training.py", "--stats"]),
+        ("4", "Export training data from your verified runs (hub_data/datasets)", ["architect.py", "dataset"]),
         ("5", "Test the harness with YOUR models (quick live test)", ["architect.py", "livetest", "--quick"]),
         ("6", "Put an Architect shortcut on the Desktop", ["architect.py", "shortcut"]),
         ("7", "Status (Ollama, models, power, other machines)", ["architect.py", "status"]),

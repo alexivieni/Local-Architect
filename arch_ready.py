@@ -57,8 +57,9 @@ def ready(root=None, yes=False, say=print, probe=True, proof=True, ask=None, hw=
     summary = {"ts": time.time(), "steps": [], "ok": False, "needs": []}
 
     def step(name, ok, detail="", advisory=False):
-        summary["steps"].append({"name": name, "ok": bool(ok), "detail": detail, "advisory": advisory})
-        say(f"  {'OK  ' if ok else 'NEXT'}  {name}" + (f": {detail}" if detail else ""))
+        ok = None if ok is None else bool(ok)        # three outcomes: None = it could not be checked, never a pass or a fail
+        summary["steps"].append({"name": name, "ok": ok, "detail": detail, "advisory": advisory})
+        say(f"  {_mark(ok)}  {name}" + (f": {detail}" if detail else ""))
 
     say("[1/5] checking the machine and repairing what is safe to repair")
     fx = arch_doctor.fix(root)
@@ -119,10 +120,10 @@ def ready(root=None, yes=False, say=print, probe=True, proof=True, ask=None, hw=
         out = mh.run_tests(prof["builder"], list(PROOF_CATS), progress=lambda m: None)
         _store_proof(mh, prof["builder"], out)
         for cat in PROOF_CATS:
-            sc = (out.get(cat) or {}).get("score", 0.0)
-            ok = sc >= PROOF_PASS
-            step(f"{cat} ({prof['builder']})", ok, f"{sc:.0f}/100")
-            if not ok:
+            sc = (out.get(cat) or {}).get("score")           # missing = no task could be judged (Ollama unreachable): not sure
+            ok = None if sc is None else sc >= PROOF_PASS
+            step(f"{cat} ({prof['builder']})", ok, "not judged: Ollama could not be reached" if sc is None else f"{sc:.0f}/100")
+            if ok is False:
                 summary["needs"].append(f"{prof['builder']} scored {sc:.0f} on {cat}: the harness will still work, but a larger or newer model would be more reliable.")
         summary["proof"] = {c: (out.get(c) or {}).get("score") for c in PROOF_CATS}
         _edit_format(prof, mh, summary, step, say, ask_model)
@@ -197,10 +198,14 @@ def _smoke(prof, summary, step, say):
         cfg["behavior"]["postmortem"] = "off"
         e = core.Engine(proj, "build", SMOKE_GOAL, cfg, review="auto", say=lambda m: None, persist=False)
         out = arch_flows.run_flow(e, "build", {"domains": ["api"]})
-        ok = bool(out.get("ok"))
-        step("smoke test", ok, f"{round(time.time() - t0)}s, {e.calls} model calls" + ("" if ok else ": the harness could not finish a tiny task; see the Scoreboard and try a larger model"))
+        ok = None if out.get("unsure") else bool(out.get("ok"))   # a run whose checks could not run is not sure, not "OK"
+        why = ("" if ok else ": its checks could not run, so whether the harness finished the task is not known" if ok is None
+               else ": the harness could not finish a tiny task; see the Scoreboard and try a larger model")
+        step("smoke test", ok, f"{round(time.time() - t0)}s, {e.calls} model calls" + why)
         summary["smoke"] = {"ok": ok, "secs": round(time.time() - t0), "calls": e.calls}
-        if not ok:
+        if ok is None:
+            summary["needs"].append("The smoke test could not run its own tests (is pytest installed for this Python?). Run `architect.py doctor`.")
+        elif not ok:
             summary["needs"].append("The smoke test (a tiny build with tests) did not pass with this team. Run `architect.py run --flow build` on a small task to see where it stops.")
     except (core.LLMError, core.BudgetExceeded, core.LoopDetected) as ex:
         step("smoke test", False, str(ex)[:160])
@@ -215,7 +220,7 @@ def machine_card(summary, prof, hw):
     for name, m in (prof.get("models") or {}).items():
         me = m.get("measured") or {}
         L.append(f"- {name}: window {m.get('ctx')}" + (f", {me.get('gen_tok_s')} tok/s" if me.get("gen_tok_s") else "") + (f", {me.get('gpu_pct')}% on GPU" if me.get("gpu_pct") is not None else ""))
-    L += ["", "## Checks", ""] + [f"- {'OK  ' if s['ok'] else 'NEXT'} {s['name']}: {s['detail']}" for s in summary["steps"]]
+    L += ["", "## Checks", ""] + [f"- {_mark(s['ok'])} {s['name']}: {s['detail']}" for s in summary["steps"]]
     if summary.get("needs"):
         L += ["", "## Next", ""] + [f"- {n}" for n in summary["needs"]]
     try:
@@ -229,8 +234,20 @@ def machine_card(summary, prof, hw):
     return "\n".join(L) + "\n"
 
 
+def _mark(ok):
+    return "OK  " if ok else ("NOT SURE" if ok is None else "NEXT")
+
+
+def overall(steps):
+    """True when every required step passed, False when one failed, None when none failed but one could not be checked."""
+    req = [s.get("ok") for s in steps if not s.get("advisory")]
+    if not steps or False in req:
+        return False
+    return None if None in req else True
+
+
 def _finish(summary, say, hw=None, prof=None):
-    summary["ok"] = bool(summary["steps"]) and all(s["ok"] or s.get("advisory") for s in summary["steps"])
+    summary["ok"] = overall(summary["steps"])
     if hw and prof:
         try:
             with open(os.path.join(core.data_dir(), "machine.md"), "w", encoding="utf-8") as f:
@@ -245,7 +262,7 @@ def _finish(summary, say, hw=None, prof=None):
     except OSError:
         pass
     say("")
-    say("READY: yes" if summary["ok"] else "READY: not yet")
+    say("READY: yes" if summary["ok"] else ("READY: not sure (a check could not run)" if summary["ok"] is None else "READY: not yet"))
     for n in summary["needs"]:
         say(f"  next: {n}")
     return summary

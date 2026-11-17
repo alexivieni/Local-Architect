@@ -165,16 +165,19 @@ def _best_of_n_loop(e, role, prompt, label, k, changed, pro, best, best_score, t
         except core.LoopDetected:
             break                                                # nothing new to ask: keep the best attempt so far
         cap = pro.capture(e)
+        res, applied, v, why = [], [], {}, ""
         try:
             res = e.apply(r["text"], f"{label} sample {i + 1}")
             applied = [x["rel"] for x in res if x["status"] in ("applied", "identical")]
             v = verify(e, sorted(set(changed) | set(applied))) if applied else {"ok": False, "passed": 0}
             score = 1000 if v.get("ok") else int(v.get("passed") or 0)
-        except Exception:
-            score = -1
+            why = _bon_why(res, applied, v)
+        except Exception as ex:
+            score, why = -1, _bon_why(res, applied, v, ex)
         finally:
             pro.restore(e, cap)
-        e._trace({"type": "check", "t": time.time(), "gate": f"best of {k}: attempt {i + 1}", "ok": score >= 1000, "metrics": {"score": score}})
+        e._trace({"type": "check", "t": time.time(), "gate": f"best of {k}: attempt {i + 1}", "ok": score >= 1000, "metrics": {"score": score},
+                  "step": label, "text": why})
         if score > best_score:
             best, best_score = r, score
         if score >= 1000:
@@ -270,6 +273,16 @@ def _bon_replies(e, role, ask, label, k, slots, made=None):
         i += n
 
 
+def _bon_why(res, applied, v, err=None):
+    """One line on why a best-of attempt scored what it did, for Review (each attempt's check record said only "Failed")."""
+    if err is not None:
+        return f"the attempt broke: {type(err).__name__}: {str(err)[:120]}"
+    if not applied:
+        bad = next((x for x in res or [] if x.get("status") == "error"), None)
+        return ("its edit could not be applied" + (f": {bad.get('rel') or ''} {bad.get('msg') or ''}".rstrip() if bad else ""))[:200]
+    return "every check passed" if v.get("ok") else f"{int(v.get('passed') or 0)} check(s) passed, the rest failed"
+
+
 def _best_of_n_batched(e, role, ask, label, k, changed, pro, best, best_score, slots):
     """_best_of_n_loop on a server with several slots (report Eq. 21: the shared prompt is read once, so k candidates cost little more
     than one). Each candidate is still applied and verified on its own, on the real files, which are put back after each; the first
@@ -280,16 +293,19 @@ def _best_of_n_batched(e, role, ask, label, k, changed, pro, best, best_score, s
     try:
         for i, r in _bon_replies(e, role, ask, label, k, slots, made):
             cap = pro.capture(e)
+            res, applied, v, why = [], [], {}, ""
             try:
                 res = e.apply(r["text"], f"{label} sample {i + 1}")
                 applied = [x["rel"] for x in res if x["status"] in ("applied", "identical")]
                 v = verify(e, sorted(set(changed) | set(applied))) if applied else {"ok": False, "passed": 0}
                 score = 1000 if v.get("ok") else int(v.get("passed") or 0)
-            except Exception:
-                score = -1
+                why = _bon_why(res, applied, v)
+            except Exception as ex:
+                score, why = -1, _bon_why(res, applied, v, ex)
             finally:
                 pro.restore(e, cap)
-            e._trace({"type": "check", "t": time.time(), "gate": f"best of {k}: attempt {i + 1}", "ok": score >= 1000, "metrics": {"score": score}})
+            e._trace({"type": "check", "t": time.time(), "gate": f"best of {k}: attempt {i + 1}", "ok": score >= 1000, "metrics": {"score": score},
+                      "step": label, "text": why})
             seen.append((r, score))
             if score > best_score:
                 best, best_score = r, score

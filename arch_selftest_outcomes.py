@@ -8,6 +8,8 @@ What is proven here, without a model, a GPU or the network (throwaway ARCHITECT_
   - the ship pipeline: a stage whose checks could not run makes the pipeline not_sure (not "pass"), a real failure still fails;
   - log_checks lists a check that could not run apart from the failing ones;
   - arch_costs.summary: no finished task / no call is None, not $0.00 / 0%.
+  - (review 2026-11-17) Get ready, its smoke test and proof, the live test and the Scoreboard keep "could not be checked" apart;
+    a GET never writes recent_roots.json; no personal default ships; an impossible bandwidth is dropped; dead routes are gone.
 
 Run: python arch_selftest_outcomes.py   ->   ALL N OUTCOME CHECKS PASSED
 """
@@ -354,6 +356,150 @@ def run():
               not hasattr(arch_cloud, "_add_spend") and not hasattr(arch_compact, "should_compact") and not hasattr(arch_compact, "router_from_engine"))
         src_pm = open(os.path.join(HERE, "arch_postmortem.py"), encoding="utf-8").read()
         check("the postmortem step that set_step opens is closed with end_step", src_pm.count("e.end_step(\"postmortem\"") == 2)
+
+        # ---- Phase A of the 2026-11-17 review: three outcomes in Get ready, the live test and the Scoreboard
+        import arch_ready, arch_flows, arch_core as core_
+        ov = arch_ready.overall
+        check("ready: one required check that could not run makes the whole 'not sure', a failed one 'not yet', an advisory one neither",
+              ov([{"ok": True}, {"ok": None}]) is None and ov([{"ok": None}, {"ok": False}]) is False
+              and ov([{"ok": True}, {"ok": None, "advisory": True}]) is True and ov([]) is False)
+        steps_ = {"steps": [], "needs": []}
+
+        def step_(name, ok, detail="", advisory=False):
+            steps_["steps"].append({"name": name, "ok": None if ok is None else bool(ok)})
+
+        class _E:
+            calls = 0
+
+            def __init__(self, *a, **k):
+                pass
+        real_eng, real_rf = core_.Engine, arch_flows.run_flow
+        try:
+            core_.Engine = _E
+            arch_flows.run_flow = lambda e, f, p: {"ok": True, "unsure": True}
+            arch_ready._smoke({}, steps_, step_, lambda m: None)
+            arch_flows.run_flow = lambda e, f, p: {"ok": True}
+            arch_ready._smoke({}, steps_, step_, lambda m: None)
+        finally:
+            core_.Engine, arch_flows.run_flow = real_eng, real_rf
+        check("ready smoke test: a run whose checks could not run is not sure (it said OK), a real pass is OK",
+              [s["ok"] for s in steps_["steps"]] == [None, True] and any("could not run" in n for n in steps_["needs"]), steps_)
+        import arch_livetest as lt
+
+        def sc_bug(p):
+            raise KeyError("fixture")
+
+        def sc_model(p):
+            raise core_.LLMError("the model gave up")
+        lt_out = lt.run(scenarios=[("a", "A", sc_bug), ("b", "B", sc_model), ("c", "C", lambda p: (True, [], None))], say=lambda m: None)
+        check("live test: a broken scenario is not judged (None, it was a fail), a model that gave up fails, a pass passes",
+              [r["ok"] for r in lt_out["results"]] == [None, False, True] and lt_out["passed"] == 1 and lt_out["unsure"] == 1,
+              [r["ok"] for r in lt_out["results"]])
+        import model_hub as mh_
+        cat_ = next(iter(mh_.TASKS))
+        real_chat = mh_.chat
+        try:
+            mh_.chat = lambda *a, **k: (_ for _ in ()).throw(mh_.OllamaError(0, "Ollama is not reachable at http://127.0.0.1:11434"))
+            down = mh_.run_tests("m", [cat_, "toolcall", "speed"])
+            mh_.chat = lambda *a, **k: (_ for _ in ()).throw(mh_.OllamaError(0, "Ollama is not reachable (timed out)"))
+            slow = mh_.run_tests("m", [cat_])
+        finally:
+            mh_.chat = real_chat
+        check("Scoreboard: Ollama unreachable leaves the categories out (they scored 0 and pulled the model down); a timeout is the model's 0",
+              down == {} and slow.get(cat_, {}).get("score") == 0.0 and slow[cat_]["n"] == len(mh_.TASKS[cat_]), (down, slow.get(cat_)))
+        src_rd = open(os.path.join(HERE, "arch_ready.py"), encoding="utf-8").read()
+        check("ready proof: a category with no judged task is not sure, not a 0/100 failure",
+              'ok = None if sc is None else sc >= PROOF_PASS' in src_rd)
+
+        # ---- the person's data: a read never writes it; no personal value ships as a default
+        src_hub = open(os.path.join(HERE, "architect_hub.py"), encoding="utf-8").read()
+        usage_branch = src_hub.split('if u.path == "/api/arch/usage":', 1)[1].split("if u.path ==", 1)[0]
+        check("GET /api/arch/usage reads the folders it is asked about but no longer saves them to recent_roots.json",
+              "remember_root" not in usage_branch and "known_roots(extra)" in usage_branch)
+        html = open(os.path.join(HERE, "hub_ui.html"), encoding="utf-8").read()
+        check("no personal GitHub repo is pre-filled on the Agents page", "github.com/alexivieni" not in html)
+        check("cloud agents off (the default) is a calm note on the Agents page, not an error; local agent teams open first",
+              "if(r.off){" in html and '"off": why_' in src_hub and '["agentsp","crew","Agent teams",["crewbuild",' in html)
+
+        # ---- memory bandwidth: a figure no memory can reach is dropped, never used or called measured
+        import json as _json, arch_hw
+        with open(os.path.join(os.environ["ARCHITECT_DATA_DIR"], "bandwidth.json"), "w", encoding="utf-8") as f_:
+            _json.dump({"gpu_bw": 188.1, "ram_bw": 626.5, "source": "test"}, f_)
+        lb, B = arch_hw.load_bandwidth(), arch_hw.bandwidth()
+        check("bandwidth: a saved RAM figure of 626.5 GB/s is rejected (laptop DDR5 ~90), the GPU figure kept, RAM labelled an estimate",
+              lb.get("ram_bw") is None and lb.get("rejected") == {"ram_bw": 626.5} and lb.get("gpu_bw") == 188.1
+              and B["ram_bw"] == arch_hw.BW_ESTIMATE["ram_bw"] and not B["ram_measured"] and B["gpu_measured"], (lb, B))
+        check("bandwidth_from: a split run that implies impossible RAM bandwidth gives None (it was saved as measured)",
+              arch_hw.bandwidth_from(30.0, 5.0, 28.0, 4.9, 2.0)["ram_bw"] is None        # 2 GB / (1/28 - 4.9/150) s = 656 GB/s
+              and arch_hw.bandwidth_from(30.0, 5.0, 5.0, 3.0, 2.0)["ram_bw"] == 11.1)    # 2 GB / (1/5 - 3/150) s
+        os.remove(os.path.join(os.environ["ARCHITECT_DATA_DIR"], "bandwidth.json"))
+
+        # ---- dead code: nothing points at a file that does not exist
+        src_mh = open(os.path.join(HERE, "model_hub.py"), encoding="utf-8").read()
+        check("model_hub: no route or action starts autonomous_agent_optimized.py (it does not exist); /api/run, /api/runs, /api/notes gone",
+              "autonomous_agent_optimized" not in src_mh and '"/api/runs"' not in src_mh and '"/api/notes"' not in src_mh
+              and '"/api/run"' not in src_mh and all(os.path.isfile(os.path.join(HERE, v[0])) for v in mh_.ACTIONS.values()))
+        import importlib.util
+        sp_ = importlib.util.spec_from_file_location("_start_menu", os.path.join(HERE, "start.py"))
+        st_ = importlib.util.module_from_spec(sp_)
+        sp_.loader.exec_module(st_)
+        check("start.py: every menu item runs a script that exists and is not a stub", all(os.path.isfile(os.path.join(HERE, c[0])) for _, _, c in st_.MENU)
+              and not any(c[0] == "arch_training.py" for _, _, c in st_.MENU))
+        src_cli = open(os.path.join(HERE, "architect.py"), encoding="utf-8").read()
+        check("fit assumes the KV cache Architect starts the servers with (q8_0, or OLLAMA_KV_CACHE_TYPE), like explain; swap is dispatched once",
+              'ft.add_argument("--kv", choices=["f16", "q8_0"], default=None' in src_cli and 'else "q8_0")' in src_cli
+              and '"swap": lambda' not in src_cli)
+        check("the hub's page router has no unreachable 'advisor' branch (LEGACY sends advisor to doctor)", 'page==="advisor"' not in html)
+
+        # ---- Phase E of the 2026-11-17 review: one run, one story
+        rc_, out_ = core_.run_cmd([sys.executable, "-c", "print('\x1b[1m\x1b[31mE   failed\x1b[0m here')"], tmp, 60)
+        src_core = open(os.path.join(HERE, "arch_core.py"), encoding="utf-8").read()
+        check("command output reaches reports and the model without terminal colour codes; pytest is asked for none",
+              rc_ == 0 and "\x1b" not in out_ and "E   failed here" in out_ and '"--color=no"' in src_core, repr(out_[-80:]))
+        import io, contextlib, architect as cli_
+
+        class _Run:
+            run_dir = tmp
+        codes, lines = [], []
+        for o_ in ({"ok": True}, {"ok": False}, {"ok": True, "unsure": True}):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                codes.append(cli_._done_line(o_, _Run()))
+            lines.append(buf.getvalue())
+        check("architect.py run ends PASSED / DID NOT PASS / NOT SURE with exit 0 / 1 / 2 (a not-sure run said OK and exited 0)",
+              codes == [0, 1, 2] and "PASSED" in lines[0] and "DID NOT PASS" in lines[1] and "NOT SURE" in lines[2], (codes, lines))
+        src_sv = open(os.path.join(HERE, "arch_supervisor.py"), encoding="utf-8").read()
+        check("the supervisor reads exit 2 as not sure when a run left no verdict record", '"not_sure" if code == 2 else "fail"' in src_sv)
+        check("the hub's words: the job badge uses the run's verdict words (it said 'stopped' in red for every run that did not pass), "
+              "Home's card and the Console's route line come from the one VERD table",
+              "function jobWord(job)" in html and "const jw=jobWord(j)" in html and "const head=verd(v)[2]" in html
+              and '"stopped: "' not in html and "did not pass its checks" not in html and "Nothing is kept unless you say so" not in html)
+        check("Home's card offers Undo only when the run may have changed files, and says how many (or none)",
+              'nf===0?null:h("button",{class:"btn ghost-danger"' in html and "No file was changed." in html)
+        check("Home keeps moving: a live line (time, model calls, failed checks) and the steps it showed stay after the run",
+              'id:"spLive"' in html and "simpleDraw._seen" in html and 'if(ev.t&&!EV.t0)EV.t0=ev.t' in html
+              and 'run.goal="";{const gi=$("#spGoal");if(gi)gi.value="";}' in html)
+        import arch_flows as fl_
+        check("a best-of attempt says why it scored what it did (Review showed nine bare 'Failed' rows)",
+              "could not be applied: app.py EDIT needs" in fl_._bon_why([{"status": "error", "rel": "app.py", "msg": "EDIT needs an existing file"}], [], {})
+              and fl_._bon_why([], ["a.py"], {"ok": False, "passed": 2}).startswith("2 check(s) passed")
+              and "ValueError" in fl_._bon_why([], [], {}, ValueError("x")) and "const fold=a=>" in html)
+        import architect_hub as hub_, json as _j2
+        proj = os.path.join(tmp, "rv_proj")
+        rd_ = os.path.join(proj, ".arch", "runs", "20261117_000000_bugfix")
+        os.makedirs(rd_, exist_ok=True)
+        with open(os.path.join(proj, "kept.py"), "w") as f_:
+            f_.write("x = 1\n")
+        with open(os.path.join(rd_, "run.json"), "w") as f_:
+            _j2.dump({"goal": "g", "flow": "bugfix", "status": "incomplete"}, f_)
+        with open(os.path.join(rd_, "trace.jsonl"), "w") as f_:
+            for rec in ({"type": "diff", "file": "tests/test_repro.py", "added": 6, "new_file": True, "diff": "+x"},
+                        {"type": "diff", "file": "kept.py", "added": 1, "new_file": True, "diff": "+x = 1"}):
+                f_.write(_j2.dumps(rec) + "\n")
+        rv = hub_.review_view(proj, "20261117_000000_bugfix")
+        gone_ = {f["file"]: bool(f.get("gone")) for f in rv.get("files") or []}
+        check("Review: a file the run made and removed again (a rejected reproduction) is not shown as a change; one still there is",
+              gone_ == {"tests/test_repro.py": True, "kept.py": False}, gone_)
     finally:
         sys.path.remove(HERE) if HERE in sys.path else None
         for k, v in old_env.items():
