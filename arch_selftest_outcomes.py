@@ -518,7 +518,7 @@ def run():
         check("CI: the browser suites must run in full on the runner ('could not run' is red there), and the load history is cached",
               cip._named("arch_selftest_uismoke", ["uismoke", "crawl"]) and not cip._named("arch_selftest_ui", ["uismoke"])
               and 'if mark == "NOT_SURE" and _named(r["suite"], must):' in src_cip
-              and "--must-run uismoke,crawl" in ci_yml and "--history .ci_history" in ci_yml and "actions/cache/save@v4" in ci_yml)
+              and "--must-run uismoke,crawl" in ci_yml and "--history .ci_history" in ci_yml and "actions/cache/save@v5" in ci_yml)
         src_hc = open(os.path.join(HERE, "arch_hub_check.py"), encoding="utf-8").read()
         check("hub check without node: balanced brackets are not sure (they were a pass), unbalanced ones a failure",
               'None if js.count("(") == js.count(")")' in src_hc and "COULD NOT RUN" in src_hc)
