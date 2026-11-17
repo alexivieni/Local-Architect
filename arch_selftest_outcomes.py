@@ -622,6 +622,20 @@ def run():
         check("the console strip's 'which servers are up' is kept 4 s (a process-list call and a /health per tier every 5 s)",
               '_ttl("servers_up", 4,' in src_hub)
 
+        import arch_server as srv_
+        lg = os.path.join(tmp, "srv", "worker.log")
+        os.makedirs(os.path.dirname(lg), exist_ok=True)
+        with open(lg, "wb") as f_:
+            f_.write(b"x" * 2000)
+        srv_._rotate_log(lg, limit=1000)
+        rotated = os.path.isfile(lg + ".1") and not os.path.exists(lg)
+        with open(lg, "wb") as f_:
+            f_.write(b"y" * 10)
+        srv_._rotate_log(lg, limit=1000)
+        srv_._rotate_log(os.path.join(tmp, "srv", "missing.log"), limit=1)
+        check("a model server's log is rotated to <name>.log.1 past its limit before the next start; a small or missing one is left alone",
+              rotated and os.path.getsize(lg) == 10 and os.path.getsize(lg + ".1") == 2000 and srv_.LOG_MAX_BYTES == 5 * 1024 * 1024)
+
         # ---- Phase C, first slice: pages that told you to type a command now have the button
         check("Benchmarks and the Overnight report have buttons (they said 'run architect.py eval ...' / 'python tools/morning_report.py'), "
               "and Train no longer names the retired arch_training.py",

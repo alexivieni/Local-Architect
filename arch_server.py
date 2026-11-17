@@ -1024,6 +1024,19 @@ class _CtrlCForChild:
         return False
 
 
+LOG_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _rotate_log(log_path, limit=LOG_MAX_BYTES):
+    """A server's log was opened for append at every start and never trimmed. Past `limit` it becomes <name>.log.1 (the older one is
+    replaced), once, just before the next start: nothing is running on it then. A file still held open is left alone."""
+    try:
+        if os.path.getsize(log_path) > limit:
+            os.replace(log_path, log_path + ".1")
+    except OSError:
+        pass                                              # missing, or held open by a server still shutting down: try again next start
+
+
 def _spawn(p, log_path):
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     log = open(log_path, "ab")
@@ -1166,6 +1179,7 @@ def _start_procs(cfg, want, st, say, wait):
                 _kill(orphan)
             time.sleep(1.0)
         log_path = os.path.join(server_dir(), f"{p['tier']}.log")
+        _rotate_log(log_path)
         off = _log_size(log_path)
         try:
             proc = _spawn(p, log_path)

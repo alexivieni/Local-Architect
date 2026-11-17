@@ -405,8 +405,10 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
   the memo while any file is under 2 s old (the "racy timestamp" rule of `read_text`). (2) A supervisor check failed on the runner:
   the overlap of the CPU and GPU lanes it proves had happened, but the run took 0.76 s against a 0.75 s limit; the timing is now
   pass under 0.75 s, not sure up to 1.5 s, fail beyond, and a missing overlap still fails.
+- `server/*.log` were opened for append at every start and never trimmed; a log over 5 MB becomes `<name>.log.1` (the older copy
+  replaced) just before the next start (`arch_server._rotate_log`; a file still held open is left alone).
 - Not done here: one shared per-run summary for usage, costs, cache stats and the run lists (B5: they still re-parse every
-  `trace.jsonl`, each with its own idea of a "run"); the telemetry endpoint's full-file parse; log rotation for `server/*.log`.
+  `trace.jsonl`, each with its own idea of a "run"); the telemetry endpoint's full-file parse.
 - Checks: `arch_selftest_outcomes` (now 93).
 
 ## Review 2026-11-17, Phase F: the phone (375 px, measured in the browser, light and dark: no sideways scroll)
