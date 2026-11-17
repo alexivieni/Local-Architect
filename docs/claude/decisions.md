@@ -383,6 +383,27 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
   own `hub_data/learning/keeper.py`, which is not the app's to copy into the repo as a fixture; they stay as decided on 2026-11-13.
 - Checks: `arch_selftest_outcomes` (now 85).
 
+## Review 2026-11-17, Phase B: speed (measured in the throwaway hub with Ollama stopped)
+- **Home's first-visit check: 9-10 s, now 3.5 s cold and 1.3 s warm.** Where it went (cProfile): about 5 s were refused connections to a
+  stopped Ollama (Windows takes 1-2 s to report one; the page asked five or six times), 2 s were GGUF headers re-read for every model
+  on every visit (a tokenizer's 150k strings walked per file, 24 models), 1.8 s were the code self-check recompiling every module.
+  `core.loopback_down` (a 0.3 s probe remembered for 1 s; loopback only, a remote host keeps its own timeout) answers a stopped local
+  Ollama at once in `model_hub.oll`, `arch_doctor.check_ollama` and `arch_ollama.port_open`; the message is still "Ollama is not
+  reachable at ... (nothing is listening there)". `arch_passport.gguf_meta` is kept in memory and on disk
+  (`<data>/passports/_headers/`, keyed by path, size, modified time and arguments; an error is never kept). `arch_deps.self_check`
+  remembers a healthy answer for the same files (anything unhealthy is checked again).
+- **Less background work.** The console strip's "which servers are up" is kept 4 s (`_ttl("servers_up")`: a process-list call and an
+  HTTP /health per tier every 5 s, plus the chip every 10 s); `model_hub.detect_hardware` (nvidia-smi on each `/api/state?part=live`)
+  is kept 5 s; both measure every time under ARCHITECT_NO_CACHE=1 (the tests). The chat, launch, run-output, queue and agent polls and
+  the 1.5 s tick now wait while the tab is hidden, like the others did; the queue page no longer asks for background jobs twice.
+- **A longer failure log no longer loses the cached prompt prefix.** When a prompt did not fit the window, the context was cut against
+  the whole user text, failure log included, and the log was trimmed only afterwards: try 3 with a longer traceback moved the cut, the
+  bytes before FEEDBACK changed, the server's prefix cache was lost (rule 7). The log is trimmed first; the cut is rounded down to 500
+  characters, so a retry whose log differs by a few lines gets the same context bytes.
+- Not done here: one shared per-run summary for usage, costs, cache stats and the run lists (B5: they still re-parse every
+  `trace.jsonl`, each with its own idea of a "run"); the telemetry endpoint's full-file parse; log rotation for `server/*.log`.
+- Checks: `arch_selftest_outcomes` (now 93).
+
 ## CI on GitHub's Windows machines (2026-11-13)
 - `.github/workflows/ci.yml` runs on every push to main, every pull request and by hand: windows-latest, Python 3.12 + pytest, line
   endings kept as committed, a throwaway ARCHITECT_HOME/ARCHITECT_DATA_DIR, the handoff checks one per step (a multi-line

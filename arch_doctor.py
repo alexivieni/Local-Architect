@@ -75,6 +75,9 @@ def check_ollama(host=None, timeout=3):
     host = (host or os.environ.get("OLLAMA_HOST", "127.0.0.1:11434")).strip()
     url = (host if "://" in host else "http://" + host).rstrip("/") + "/api/tags"
     t0 = time.time()
+    import arch_core as core
+    if core.loopback_down(host):                          # stopped locally: no 1-2 s wait for Windows to report the refusal
+        return _ok(f"Ollama reachable at {host}", False, "nothing is listening there -- start it with `ollama serve`, or set OLLAMA_HOST")
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:
             data = json.loads(r.read())

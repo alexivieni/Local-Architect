@@ -522,6 +522,100 @@ def run():
         src_hc = open(os.path.join(HERE, "arch_hub_check.py"), encoding="utf-8").read()
         check("hub check without node: balanced brackets are not sure (they were a pass), unbalanced ones a failure",
               'None if js.count("(") == js.count(")")' in src_hc and "COULD NOT RUN" in src_hc)
+
+        # ---- Phase B of the 2026-11-17 review: the hub answers fast (nothing recomputed that did not change)
+        import socket, time as _t, arch_passport as ap_, arch_deps as dp_, model_hub as mh2
+        fake_gguf = os.path.join(tmp, "m.gguf")
+        with open(fake_gguf, "wb") as f_:
+            f_.write(b"x" * 64)
+        reads, real_read = [], ap_.gguf_meta_read
+        try:
+            ap_.gguf_meta_read = lambda p, max_kv=400, stop=None: (reads.append(p) or {"general.architecture": "llama", "_n": len(reads)})
+            ap_._META_MEMO.clear()
+            m1, m2 = ap_.gguf_meta(fake_gguf), ap_.gguf_meta(fake_gguf)
+            ap_._META_MEMO.clear()                                   # a new process: the header comes back from disk
+            m3 = ap_.gguf_meta(fake_gguf)
+            n_same = len(reads)
+            os.utime(fake_gguf, (1_700_000_000, 1_700_000_000))      # the file changed: read again
+            ap_.gguf_meta(fake_gguf)
+            ap_.gguf_meta_read = lambda p, max_kv=400, stop=None: (reads.append(p) or {"error": "bad header"})
+            ap_._META_MEMO.clear()
+            os.utime(fake_gguf, (1_700_000_100, 1_700_000_100))
+            e1 = ap_.gguf_meta(fake_gguf)
+            e2 = ap_.gguf_meta(fake_gguf)
+        finally:
+            ap_.gguf_meta_read = real_read
+        check("a model file's header is read once (kept in memory and on disk), again when the file changes, and an error is never kept",
+              n_same == 1 and m1 == m2 == m3 and len(reads) == 4 and "error" in e1 and "error" in e2, (n_same, len(reads)))
+        lsock = socket.socket()
+        lsock.bind(("127.0.0.1", 0))
+        lsock.listen(1)
+        up_port = lsock.getsockname()[1]
+        dsock = socket.socket()
+        dsock.bind(("127.0.0.1", 0))
+        down_port = dsock.getsockname()[1]
+        dsock.close()                                                # a port nothing listens on
+        t0_ = _t.time()
+        down_ = core_.loopback_down(f"127.0.0.1:{down_port}", ttl=0)
+        took_ = _t.time() - t0_
+        check("a stopped local Ollama is recognised in well under a second; a listening one and a remote host are not 'down'",
+              down_ is True and core_.loopback_down(f"http://127.0.0.1:{up_port}", ttl=0) is False
+              and core_.loopback_down("192.0.2.1:11434") is False and (True if took_ < 1.0 else None), round(took_, 2))
+        lsock.close()
+        old_oh = os.environ.get("OLLAMA_HOST")
+        os.environ["OLLAMA_HOST"] = f"127.0.0.1:{down_port}"
+        core_._DOWN_MEMO.clear()
+        try:
+            try:
+                mh2.oll("/api/tags", timeout=30)
+                raised = None
+            except mh2.OllamaError as ex_:
+                raised = ex_
+        finally:
+            if old_oh is None:
+                os.environ.pop("OLLAMA_HOST", None)
+            else:
+                os.environ["OLLAMA_HOST"] = old_oh
+        check("model_hub.oll says 'Ollama is not reachable ... (nothing is listening there)' at once for a stopped local server",
+              raised is not None and raised.code == 0 and "not reachable" in raised.msg and "nothing is listening" in raised.msg)
+        d_chk = os.path.join(tmp, "selfcheck")
+        os.makedirs(d_chk, exist_ok=True)
+        with open(os.path.join(d_chk, "good_mod_b.py"), "w") as f_:
+            f_.write("X = 1\n")
+        r1 = dp_.self_check(d_chk)
+        remembered = dp_._SELF_OK.get(d_chk) is not None
+        with open(os.path.join(d_chk, "good_mod_b.py"), "w") as f_:
+            f_.write("X = (\n")
+        r2 = dp_.self_check(d_chk)
+        check("the code self-check is remembered while no file changes (it recompiled every module on each Home visit) and runs again when one does",
+              r1 == [] and remembered and r2 and "SyntaxError" in r2[0]["error"], (r1, r2))
+        calls_hw = []
+        real_dh, real_nc = mh2._detect_hardware, os.environ.pop("ARCHITECT_NO_CACHE", None)
+        try:
+            mh2._detect_hardware = lambda: (calls_hw.append(1) or {"gpu": "g", "notes": []})
+            mh2._HW_MEMO.update(t=0.0, v=None)
+            mh2.detect_hardware()
+            mh2.detect_hardware()
+            os.environ["ARCHITECT_NO_CACHE"] = "1"
+            mh2.detect_hardware()
+        finally:
+            mh2._detect_hardware = real_dh
+            mh2._HW_MEMO.update(t=0.0, v=None)
+            if real_nc is not None:
+                os.environ["ARCHITECT_NO_CACHE"] = real_nc
+        check("the hardware reading (nvidia-smi) is kept 5 s, and always measured when ARCHITECT_NO_CACHE=1", len(calls_hw) == 2, calls_hw)
+        b4 = open(os.path.join(HERE, "arch_core.py"), encoding="utf-8").read()
+        i_fb, i_cut = b4.index("# The failure log is trimmed FIRST"), b4.index("keep = max(1500, keep // 500 * 500)")
+        check("prompt fitting trims the failure text before cutting the context, and the context cut is rounded (a longer traceback moved the cut "
+              "and lost the cached prefix)", i_fb < b4.index("fb = user[fi:]") < i_cut)
+        guarded = all(f"if(document.hidden){{{t}=setTimeout({fn}" in html for t, fn in (
+            ("CC.timer", "ccPoll"), ("AG.timer", "()=>agentPoll(false)"), ("loadQueue._t", "loadQueue"), ("studioTimer", "pollStudio"),
+            ("launchTimer", "pollLaunch"), ("jobTimer", "pollJob")))
+        check("the polls that kept asking in a hidden tab (chat, launch, run output, queue, agents) wait; the 1.5 s tick too; bgjobs is not asked twice",
+              guarded and "setInterval(()=>{if(document.hidden)return;liveEnsure();" in html
+              and "Date.now()-(loadBgJobs._at||0)>1500" in html)
+        check("the console strip's 'which servers are up' is kept 4 s (a process-list call and a /health per tier every 5 s)",
+              '_ttl("servers_up", 4,' in src_hub)
     finally:
         sys.path.remove(HERE) if HERE in sys.path else None
         for k, v in old_env.items():

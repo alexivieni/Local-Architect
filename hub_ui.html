@@ -2265,7 +2265,7 @@ function liveEnsure(){  /* -> true while the stream carries the events (the call
 async function homeEvents(){ if(page!=="overview"||document.hidden||homeEvents._busy)return; if(liveEnsure())return; homeEvents._busy=true;
   try{ if(EV.running||!homeEvents._idle){ const f=await api("/api/arch/events?since="+EV.since+"&epoch="+EV.epoch); applyEvents(f); homeEvents._idle=!f.running; } }catch(_){}
   finally{ homeEvents._busy=false; } }
-setInterval(()=>{liveEnsure();if(page==="overview"){homeEvents().then(simpleDraw,simpleDraw);}if(typeof EV!=="undefined"&&EV.running)pollEta();else ETA.line="";runBar();if(typeof recipeReviewTick==="function")recipeReviewTick();},1500);
+setInterval(()=>{if(document.hidden)return;liveEnsure();if(page==="overview"){homeEvents().then(simpleDraw,simpleDraw);}if(typeof EV!=="undefined"&&EV.running)pollEta();else ETA.line="";runBar();if(typeof recipeReviewTick==="function")recipeReviewTick();},1500);
 
 /* ===== Crew builder (Agents place), By job (Models place) and the Home quick-launch options. Every call is defensive: when
    arch_squad / arch_select are not in this install yet the endpoint says {available:false, why} and the page says so. ===== */
@@ -3452,6 +3452,7 @@ async function ccSend(){
 }
 async function ccPoll(){
   clearTimeout(CC.timer); if(!CC.run||!$("#ccOut"))return;
+  if(document.hidden){CC.timer=setTimeout(ccPoll,4000);return;}          /* a hidden tab does not poll; the next tick after it is shown catches up */
   try{const r=await api("/api/arch/claudecode?run="+CC.run+"&since="+CC.since); CC.events.push(...r.events); CC.since=r.n;
     if(r.session){CC.session=r.session;store.set("ccSession",r.session);const se=$("#ccSess");if(se)se.textContent="Session: "+r.session;}
     const chip=$("#ccStatus"); if(chip){chip.textContent=r.status+(r.cost?` · $${Number(r.cost).toFixed(4)}`:"");chip.className="chip "+({running:"warn",done:"good",error:"bad"}[r.status]||"");}
@@ -3545,6 +3546,7 @@ async function agentSend(follow){
 }
 async function agentPoll(start){
   clearTimeout(AG.timer); if(!AG.sid||!$("#agOut"))return;
+  if(document.hidden){AG.timer=setTimeout(()=>agentPoll(false),4000);return;}
   try{ const r=await api("/api/arch/agents?session="+encodeURIComponent(AG.sid)+"&since="+AG.since);
     if(r.error&&!r.events){ $("#agOut").textContent=r.error; return; }
     AG.events.push(...r.events); AG.since=r.n; AG.status=r.status; const st=$("#agStatus"); if(st){st.textContent=r.status;st.className="chip "+({running:"warn",idle:"good",done:"good",error:"bad"}[r.status]||"");}
@@ -3760,7 +3762,8 @@ async function twStart(){
 function loadQueue(){return keepFocus($("#qBoard"),()=>_loadQueue());}        /* rebuilt on every refresh: a focused Cancel stays focused */
 async function _loadQueue(){
   clearTimeout(loadQueue._t); if(page!=="queue")return;
-  dnPoll(); loadBgJobs();
+  if(document.hidden){loadQueue._t=setTimeout(loadQueue,4000);return;}
+  dnPoll(); if(Date.now()-(loadBgJobs._at||0)>1500)loadBgJobs();      /* the 2 s timer below keeps the board fresh: not asked twice */
   let d; try{ d=await api("/api/arch/queue"); }catch(_){ loadQueue._t=setTimeout(loadQueue,5000); return; }
   const c=d.counts||{}, s=d.spent_today||{};
   const st=$("#qStats"); if(st){st.innerHTML=""; put(st,h("div",{class:"qstats"},
@@ -3801,7 +3804,7 @@ function bgAnnounce(jobs){
     if(msg.length) live.textContent=msg.join(". ");}
   BG.prev=now;
 }
-function loadBgJobs(){return keepFocus($("#bgList"),()=>_loadBgJobs());}     /* rebuilt every 2 s: a focused Stop button stays focused */
+function loadBgJobs(){return keepFocus($("#bgList"),()=>{loadBgJobs._at=Date.now();return _loadBgJobs();});}     /* rebuilt every 2 s: a focused Stop button stays focused */
 async function _loadBgJobs(){
   const box=$("#bgList"); if(!box)return;
   let d; try{d=await api("/api/arch/bgjobs");}catch(e){box.innerHTML="";put(box,h("p",{class:"note bad",role:"alert"},"Could not read the background jobs: "+e.message));return;}
@@ -4211,6 +4214,7 @@ function appendJobCard(goal){
 async function pollStudio(){
   if(page!=="studio")return;
   clearTimeout(studioTimer);
+  if(document.hidden){studioTimer=setTimeout(pollStudio,4000);return;}
   try{
     const t=$("#stThread");
     if(!run.root&&t&&!t.querySelector(".pickfirst")){
@@ -4939,6 +4943,7 @@ async function launchStop(){
 }
 async function pollLaunch(){
   clearTimeout(launchTimer);if(page!=="launch")return;
+  if(document.hidden){launchTimer=setTimeout(pollLaunch,4000);return;}
   const st=$("#lnStatus"),cr=$("#lnCmdRow"),log=$("#lnLog");if(!st)return;
   try{
     const h2=await api("/api/arch/serve?root="+encodeURIComponent(run.root||""));
@@ -6292,6 +6297,7 @@ async function sendIn(t){try{await api("/api/input",{text:t});pollJob();}catch(e
 function colorize(text){const f=document.createDocumentFragment();for(const ln of text.split("\n")){f.append(h("span",{class:ln.startsWith("  +")&&!ln.startsWith("  +++")?"dp":ln.startsWith("  -")&&!ln.startsWith("  ---")?"dm":ln.startsWith("[")||ln.startsWith("=== ")?"dh":""},ln+"\n"));}return f;}
 async function pollJob(){
   clearTimeout(jobTimer);if(page!=="run")return;
+  if(document.hidden){jobTimer=setTimeout(pollJob,4000);return;}
   try{
     const j=await api("/api/job?since="+jobSince);const t=$("#term");if(!t)return;
     if(j.size<jobSince){jobSince=0;t.textContent="";return pollJob();}

@@ -40,6 +40,9 @@ def port_of(host=None):
 
 
 def port_open(hostname, port, timeout=1.0):
+    import arch_core as core
+    if core.loopback_down(f"{hostname}:{port}"):          # a stopped local Ollama: answered at once, not after Windows' 1-2 s refusal
+        return False
     try:
         with socket.create_connection((hostname, port), timeout=timeout):
             return True

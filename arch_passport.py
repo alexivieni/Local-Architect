@@ -65,7 +65,46 @@ def _skip_strings(f, n, block=1 << 20):
         f.seek(pos - len(buf), 1)                   # give back what was read ahead
 
 
+_META_MEMO = {}
+
+
 def gguf_meta(path, max_kv=400, stop=None):
+    """gguf_meta_read, remembered. A model file's header does not change while the file does not (same path, size and modified time),
+    yet every visit to Home and Agent teams re-read all of them: a tokenizer's 150k strings walked per model, 11 s for 24 models.
+    Kept in this process and on disk (<data>/passports/_headers/), keyed by file identity and the arguments; an error is never kept."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return gguf_meta_read(path, max_kv, stop)
+    key = (os.path.abspath(path), st.st_size, st.st_mtime_ns, max_kv, stop)
+    hit = _META_MEMO.get(key)
+    if hit is not None:
+        return dict(hit)
+    import hashlib
+    disk = os.path.join(passports_dir(), "_headers", hashlib.sha1(repr(key).encode("utf-8")).hexdigest() + ".json")
+    try:
+        with open(disk, encoding="utf-8") as f:
+            cached = json.load(f)
+        if isinstance(cached, dict) and "error" not in cached:
+            _META_MEMO[key] = cached
+            return dict(cached)
+    except (OSError, ValueError):
+        pass
+    meta = gguf_meta_read(path, max_kv, stop)
+    if "error" not in meta:
+        _META_MEMO[key] = meta
+        try:
+            os.makedirs(os.path.dirname(disk), exist_ok=True)
+            tmp = disk + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(meta, f)
+            os.replace(tmp, disk)
+        except (OSError, TypeError, ValueError):
+            pass                                          # the header is read again next time: slower, never wrong
+    return dict(meta)
+
+
+def gguf_meta_read(path, max_kv=400, stop=None):
     """Read the key/value header of a GGUF file (v2/v3) without loading tensors. -> {key: value} for scalar/string keys (arrays summarised),
     or {"error"}. Only the metadata is read; the file is never mapped whole. `stop`: a key prefix (e.g. "tokenizer.") at which reading
     ends. Careful: llama-quantize writes general.file_type and general.quantization_version AFTER the tokenizer (most quantized files

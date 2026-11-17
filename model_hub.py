@@ -67,6 +67,10 @@ def ollama_host():
 
 
 def oll(path, body=None, timeout=30, method=None):
+    core_ = sys.modules.get("arch_core")
+    if core_ is not None and core_.loopback_down(ollama_host()):          # stopped locally: say so now, not after a 1-2 s refusal
+        raise OllamaError(0, f"Ollama is not reachable at {ollama_host()} (nothing is listening there). "
+                             "Start the Ollama app.")
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(ollama_host() + path, data=data, method=method or ("POST" if body is not None else "GET"),
                                  headers={"Content-Type": "application/json"})
@@ -93,7 +97,21 @@ class OllamaError(Exception):
 # ---------------------------------------------------------------------------------------------
 # Hardware
 # ---------------------------------------------------------------------------------------------
+_HW_MEMO = {"t": 0.0, "v": None}
+
+
 def detect_hardware():
+    """The machine's graphics card and memory, kept 5 s: /api/state?part=live asked every 9 s and each answer ran nvidia-smi.
+    ARCHITECT_NO_CACHE=1 (the tests) always measures."""
+    now = time.time()
+    if _HW_MEMO["v"] is not None and now - _HW_MEMO["t"] < 5 and os.environ.get("ARCHITECT_NO_CACHE") != "1":
+        return dict(_HW_MEMO["v"], notes=list(_HW_MEMO["v"].get("notes") or []))
+    hw = _detect_hardware()
+    _HW_MEMO.update(t=now, v=hw)
+    return dict(hw, notes=list(hw.get("notes") or []))
+
+
+def _detect_hardware():
     hw = {"gpu": None, "vram_gb": 0.0, "vram_free_gb": 0.0, "ram_gb": 0.0, "ram_free_gb": 0.0,
           "cpu": None, "os": sys.platform, "notes": []}
     try:

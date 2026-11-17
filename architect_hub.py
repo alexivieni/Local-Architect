@@ -3738,9 +3738,9 @@ class AHandler(mh.Handler):
                         for p in pl.get("processes") or []])
                 except Exception as ex:                       # the strip must never break on a machine without llama-server
                     _GPU_PLAN.update(t=now, notes=[f"server plan unavailable: {type(ex).__name__}"], tiers=[])
-            try:                                              # which servers are up is read every time: only the plan is kept
-                up = {p["tier"] for p in arch_server.status(core.load_config()).get("processes", []) if p.get("up")}
-            except Exception:
+            try:                                              # which servers are up: kept 4 s (a process-list call and an HTTP /health per tier,
+                up = _ttl("servers_up", 4, lambda: {p["tier"] for p in arch_server.status(core.load_config()).get("processes", []) if p.get("up")})
+            except Exception:                                 # asked every 5 s by the console strip and every 10 s by the chip on every page)
                 up = set()
             return self._send(200, dict(_live_sample(arch_hw), tiers=[dict(t, up=t["tier"] in up) for t in _GPU_PLAN.get("tiers", [])],
                                         notes=_GPU_PLAN.get("notes", [])))

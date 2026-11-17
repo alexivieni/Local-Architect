@@ -206,6 +206,38 @@ def ollama_host():
     return h.replace("0.0.0.0", "127.0.0.1").rstrip("/")
 
 
+_DOWN_MEMO = {}
+
+
+def loopback_down(host, ttl=1.0):
+    """True when `host` (host, host:port or a URL) is on THIS machine and nothing accepts there. Windows takes 1-2 s to report a
+    refused connection on loopback (it retries the SYN), and one page asks Ollama's address five or six times while Ollama is stopped
+    (Home took 9 s): a listener accepts in well under a millisecond, so a 0.3 s probe, remembered for `ttl` seconds, only cuts a
+    refusal short. A remote host is never judged here (False): it keeps the normal path and its own timeout."""
+    import socket
+    import urllib.parse
+    h = str(host or "")
+    u = urllib.parse.urlsplit(h if "://" in h else "http://" + h)
+    name = u.hostname or ""
+    if name not in ("127.0.0.1", "localhost", "::1"):
+        return False
+    try:
+        port = u.port or 11434
+    except ValueError:
+        return False
+    now = time.time()
+    hit = _DOWN_MEMO.get((name, port))
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    try:
+        socket.create_connection((name, port), timeout=0.3).close()
+        down = False
+    except OSError:
+        down = True
+    _DOWN_MEMO[(name, port)] = (now, down)
+    return down
+
+
 _OLLAMA_LOCK = threading.Lock()
 _OLLAMA_USERS = {}                 # model -> runs in this process that loaded it through Ollama and have not finished
 
@@ -1903,20 +1935,25 @@ class Engine:
             if user != base_user:
                 user = base_user
                 what.append("the format example was left out")
-            ctx_text = max((c for c in getattr(self, "_contexts", []) if c and c in user), key=len, default="")
-            if not fits(user) and ctx_text:
-                allowed = int((fit_ctx - room - 64) * max(cpt0, 1.0) / arch_tune.EST_MARGIN) - len(sys_text)
-                keep = max(1500, len(ctx_text) - (len(user) - allowed))
-                cut = arch_tune.cut_context(ctx_text, keep)
-                user = user.replace(ctx_text, cut, 1)
-                what.append(f"the project context was cut from {len(ctx_text)} to {len(cut)} characters (least relevant files first)")
+            # The failure log is trimmed FIRST, then the context is cut against what is left. The other way round, a longer traceback on
+            # try 3 moved the context cut, the bytes before FEEDBACK changed and the server's cached prefix was lost (prefix-stable
+            # prompts: the stable part first, the failure text last). The cut is also rounded down to 500 characters, so a retry whose
+            # failure text differs by a few lines gets the same context bytes.
             fi = user.find("FEEDBACK:")
             if not fits(user) and fi >= 0 and len(user) - fi > 4000:
-                # still too big: the failure log itself is huge (a long traceback). Keep its first lines and its last 2000 characters,
+                # the failure log itself is huge (a long traceback). Keep its first lines and its last 2000 characters,
                 # where the actual error is, and say what was cut.
                 fb = user[fi:]
                 user = user[:fi] + fb[:1200] + f"\n... [{len(fb) - 3200} characters of the failure log cut] ...\n" + fb[-2000:]
                 what.append("the middle of a long failure log was cut (its start and end kept)")
+            ctx_text = max((c for c in getattr(self, "_contexts", []) if c and c in user), key=len, default="")
+            if not fits(user) and ctx_text:
+                allowed = int((fit_ctx - room - 64) * max(cpt0, 1.0) / arch_tune.EST_MARGIN) - len(sys_text)
+                keep = max(1500, len(ctx_text) - (len(user) - allowed))
+                keep = max(1500, keep // 500 * 500)
+                cut = arch_tune.cut_context(ctx_text, keep)
+                user = user.replace(ctx_text, cut, 1)
+                what.append(f"the project context was cut from {len(ctx_text)} to {len(cut)} characters (least relevant files first)")
             if what:
                 self._ctx_note(f"[{role}] the prompt ({size0} characters) left too little room for the answer in the {options['num_ctx']}-token "
                                "window: " + "; ".join(what))

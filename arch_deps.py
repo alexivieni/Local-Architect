@@ -91,9 +91,21 @@ def feedback(found):
     return "\n".join(lines)
 
 
+_SELF_OK = {}
+
+
 def self_check(here=None):
-    """Architect's own faulty-code check: every arch module compiles and imports. -> [{"module", "error"}], empty when healthy."""
+    """Architect's own faulty-code check: every arch module compiles and imports. -> [{"module", "error"}], empty when healthy.
+    A healthy answer is remembered for the same set of files (name, size, modified time): the hub asked on every Home visit and
+    recompiled every module each time (1.8 s). Anything unhealthy is always checked again."""
     here = here or os.path.dirname(os.path.abspath(__file__))
+    try:
+        fp = tuple((fn, os.stat(os.path.join(here, fn)).st_size, os.stat(os.path.join(here, fn)).st_mtime_ns)
+                   for fn in sorted(os.listdir(here)) if fn.endswith(".py"))
+    except OSError:
+        fp = None
+    if fp is not None and _SELF_OK.get(here) == fp:
+        return []
     bad = []
     skip = {"train_lora.py", "localintel_arch.py", "apply_localintel_layer.py", "start.py"}
     for fn in sorted(os.listdir(here)):
@@ -113,4 +125,6 @@ def self_check(here=None):
             importlib.import_module(fn[:-3])                                   # by its real name, so modules that import each other still work
         except Exception as e:                                                 # any import-time failure is the point of this check
             bad.append({"module": fn, "error": f"{type(e).__name__}: {str(e)[:120]}"})
+    if not bad and fp is not None:
+        _SELF_OK[here] = fp
     return bad
