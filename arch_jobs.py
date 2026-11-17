@@ -20,11 +20,11 @@ import arch_core as core
 JOBS = {
     "route":    {"roles": ["router"], "families": ["route"], "prior_calls": 1},
     "plan":     {"roles": ["planner", "architect", "spec_writer", "interface_designer", "migration_planner"], "families": ["planjson", "design"], "prior_calls": 2},
-    "code":     {"roles": ["generator", "generator_ui", "generator_sql", "fullstack", "accessibility_engineer", "migration_engineer", "ui_builder", "data_engineer", "sql_author"],
+    "code":     {"roles": ["generator", "generator_ui", "generator_sql", "fullstack", "accessibility_engineer", "migration_engineer", "ui_builder", "data_engineer", "sql_author", "quant_dev", "market_data_engineer"],
                  "families": ["build", "feature", "e2e"], "prior_calls": 8},
     "test":     {"roles": ["tester", "test_author"], "families": ["test"], "prior_calls": 3},
     "fix":      {"roles": ["bug_hunter", "optimizer", "reliability_engineer", "type_engineer", "debugger", "refactorer", "perf_tuner"], "families": ["bugfix", "hunt", "refactor"], "prior_calls": 4},
-    "review":   {"roles": ["reviewer", "evaluator", "architect_dev", "ux_reviewer"], "families": ["review"], "prior_calls": 3},
+    "review":   {"roles": ["reviewer", "evaluator", "architect_dev", "ux_reviewer", "backtest_auditor"], "families": ["review"], "prior_calls": 3},
     "security": {"roles": ["security_engineer", "red_team", "blue_team", "pentester", "ioc_analyst"], "families": ["secure", "refusal"], "prior_calls": 2},
     "infra":    {"roles": ["network_engineer", "ml_engineer", "config_engineer", "ci_engineer", "protocol_engineer", "iot_dev", "dependency_engineer", "dependency_auditor", "release_manager", "incident_responder"],
                  "families": ["cicd", "config", "network", "distributed"], "prior_calls": 2},

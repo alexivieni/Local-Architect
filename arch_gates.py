@@ -709,3 +709,4 @@ def g_determinism(e, ctx, step, changed):
 
 
 import arch_gates_more  # noqa: E402,F401  (harden/types/a11y/docs/migrate scan pairs and deps_check)
+import markets_gates  # noqa: E402,F401  (Markets pack: bt_* gates for strategy audits)

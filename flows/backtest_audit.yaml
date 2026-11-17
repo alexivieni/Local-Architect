@@ -1,0 +1,48 @@
+id: backtest_audit
+title: Backtest audit
+kind: plan_execute_verify
+blurb: "Does this trading strategy's backtest mean anything? Code checks the price file, the signals(bars) contract, look-ahead (a signal must not change when later bars are removed), costs, the last 30% of the data, the number of variants tried, and parameter sensitivity. Read-only: nothing is changed. Not financial advice."
+produces: ["docs/backtest_audit.md"]
+uses_roles: [backtest_auditor]
+budget: {calls: 6, tokens: 40000, seconds: 900, heavy_calls: 0}
+steps:
+  - id: find
+    kind: code
+    title: "Audit the strategy, with code"
+    gate: bt_scan
+    on_fail: stop
+
+  - id: explain
+    kind: generate
+    title: "Say what it means, in plain words"
+    role: backtest_auditor
+    tier: worker
+    prompt: explain
+    when: "cfg.behavior.evaluator != 'off'"
+    vars: {findings: "{bt_findings}"}
+    store_text: explanation
+    budget: {tokens: 30000, seconds: 420}
+
+  - id: write
+    kind: report
+    title: "Write docs/backtest_audit.md"
+    path: docs/backtest_audit.md
+    label: backtest audit
+    template: |
+      # Backtest audit
+
+      Strategy: {find.files} file(s). Not financial advice: these checks say whether a backtest can be trusted, never that a strategy will make money.
+
+      | check | result | detail |
+      |---|---|---|
+      {bt_table}
+
+      Did not pass: {find.findings}. Could not check: {find.unknown}. Passed: {find.ok_count}.
+
+      ## What it means
+
+      {explanation}
+
+verdict:
+  pass_if: "find.findings == 0 and find.unknown == 0"
+  not_sure_if: "find.findings == 0 and find.unknown > 0"

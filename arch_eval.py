@@ -225,6 +225,33 @@ def j_scanner_zero(root, spec, task, ctx):
     return not finds, (f"{len(finds)} {kind} finding(s) remain: " + "; ".join(str(f.get("rule") or f.get("msg"))[:60] for f in finds[:3])) if finds else "", True
 
 
+@judge("bt_gate")
+def j_bt_gate(root, spec, task, ctx):
+    """A Markets gate's answer on the finished project. spec: {gate: "bt_leak", expect: true|false, goal: "audit strategy.py on prices.csv", min_trades: 20}.
+    min_trades (optional) also requires the strategy to still trade: a strategy that was switched off passes most gates and fixes nothing."""
+    try:
+        import arch_flows  # noqa: F401  (arch_flows_pro only imports cleanly after arch_flows)
+        import arch_gates as G
+        import markets_gates as M
+        goal = spec.get("goal", "audit strategy.py on prices.csv")
+        e = core.Engine(root, "backtest_audit", goal, core.load_config(root), review="auto", say=lambda *_a, **_k: None)
+        c = {"goal": goal, "params": {}}
+        r = G.GATES[spec["gate"]](e, c, {}, [])
+        if r["ok"] is None:
+            return False, f"{spec['gate']} could not run: {r['text'][:140]}", False
+        if bool(r["ok"]) != bool(spec.get("expect", True)):
+            return False, f"{spec['gate']} answered {r['ok']}: {r['text'][:140]}", True
+        need = int(spec.get("min_trades") or 0)
+        if need:
+            rel = M._strategy(e, c)
+            trades = M._activity(e, c, M._cfg(e, {}), rel) if rel else 0
+            if trades < need:
+                return False, f"the strategy makes only {trades} trade(s) (at least {need} expected): it was switched off, not fixed", True
+        return True, "", True
+    except Exception as ex:                                 # a crashing judge proves nothing
+        return False, f"bt_gate could not run: {type(ex).__name__}: {ex}", False
+
+
 @judge("ci_no_blocking")
 def j_ci_no_blocking(root, spec, task, ctx):
     try:

@@ -30,6 +30,8 @@ jobs:
         run: git config --global core.autocrlf false
 
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2          # the line-ending check compares the commit with its parent
 
       - uses: actions/setup-python@v6
         with:
@@ -57,12 +59,14 @@ jobs:
         run: python arch_lessons.py
       - name: No fake code
         run: python architect.py fakecode
+      - name: No file changed its line-ending style
+        run: python tools/eol_audit.py --base HEAD~1
       - name: Manifest matches the tracked files
         run: python tools/ci_manifest_check.py
 
       # which suites failed only under load in the last runs: a suite that does it twice in ten runs is counted as a failure
       - name: Restore the load history
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: .ci_history
           key: ci-load-history-${{ github.run_id }}-${{ github.run_attempt }}
@@ -86,14 +90,14 @@ jobs:
 
       - name: Save the load history
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: .ci_history
           key: ci-load-history-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Keep the suite table
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ci-report
           path: ${{ env.ARCHITECT_DATA_DIR }}/ci/*.json

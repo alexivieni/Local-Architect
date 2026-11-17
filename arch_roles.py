@@ -241,6 +241,34 @@ ROLES = {
         "system": "You make code fail safely and loudly. Catch the narrowest exception that can actually happen, never silence an error, validate "
                   "input where it enters, give every network call a timeout. Behaviour on valid input must not change, and the tests must still pass.",
     },
+    "quant_dev": {
+        "title": "Quant developer", "icon": "Q", "group": "Builders",
+        "blurb": "Writes and repairs trading-strategy code against the signals(bars) contract, so a backtest through the kernel is honest.",
+        "needs": {"backend_fix": 45, "reasoning": 35, "format": 20}, "think": False, "sampling": {"temperature": 0.15},
+        "uses": ["backtest_audit"], "latency": "fast",
+        "system": "You write trading-strategy code as one function, signals(bars), that returns one target position in [-1, 1] per bar. A signal for bar i may use "
+                  "bars 0..i and nothing after them: never shift a series backwards, never normalise with statistics of the whole series, never read the last bar to "
+                  "decide an earlier one. The kernel fills at the next open and charges costs, so do not model fills or fees yourself. Keep the strategy trading: "
+                  "removing the signal is not a fix. Declare tunable numbers in a module-level PARAMS dict.",
+    },
+    "backtest_auditor": {
+        "title": "Backtest auditor", "icon": "B", "group": "Quality",
+        "blurb": "Explains, in plain words, why a backtest result should or should not be believed; the numbers come from code, not from this role.",
+        "needs": {"reasoning": 55, "design_doc": 25, "format": 20}, "think": False, "sampling": {"temperature": 0.2},
+        "uses": ["backtest_audit"], "latency": "fast",
+        "system": "You explain backtest audit results to someone who trades. Use only the checks you are given: say what each one found, what it means for "
+                  "whether the result can be trusted, and what to do next. Never predict returns, never say a strategy will make money, never invent a number. "
+                  "A check that could not run is not a pass: say what is missing. This is not financial advice.",
+    },
+    "market_data_engineer": {
+        "title": "Market data engineer", "icon": "K", "group": "Builders",
+        "blurb": "Turns price files into clean bars: timestamps in order, no duplicates, no impossible candles, gaps reported not hidden.",
+        "needs": {"backend_fix": 40, "reasoning": 25, "format": 35}, "think": False, "sampling": {"temperature": 0.15},
+        "uses": ["backtest_audit"], "latency": "fast",
+        "system": "You prepare market data. Keep timestamps in UTC and strictly increasing, reject or report impossible bars (high below low, open or close outside "
+                  "the range, zero or negative prices) instead of repairing them silently, and report gaps instead of filling them. Never change a price to make a "
+                  "check pass.",
+    },
     "accessibility_engineer": {
         "title": "Accessibility engineer", "icon": "A", "group": "Builders",
         "blurb": "Makes pages usable with a keyboard and a screen reader: labels, alt text, focus, landmarks.",
@@ -422,7 +450,10 @@ FALLBACK = {"architect_dev": ["generator"], "docs_writer": ["reviewer", "generat
             "release_manager": ["ci_engineer", "docs_writer", "reviewer"],
             "incident_responder": ["blue_team", "reviewer", "generator"],
             "explainer": ["docs_writer", "reviewer", "generator"],
-            "summarizer": ["docs_writer", "explainer", "generator"]}
+            "summarizer": ["docs_writer", "explainer", "generator"],
+            "quant_dev": ["generator", "reliability_engineer"],
+            "backtest_auditor": ["reviewer", "evaluator", "generator"],
+            "market_data_engineer": ["data_engineer", "generator_sql", "generator"]}
 
 
 def system_prompt(role, extra=""):
@@ -431,7 +462,7 @@ def system_prompt(role, extra=""):
                                       ("fullstack", "tester", "optimizer", "bug_hunter",
                                        "security_engineer", "network_engineer", "ml_engineer", "config_engineer", "ci_engineer", "blue_team", "ioc_analyst",
                                        "protocol_engineer", "iot_dev", "docs_writer", "reliability_engineer", "accessibility_engineer",
-                                       "migration_engineer", "type_engineer")) else ""
+                                       "migration_engineer", "type_engineer", "quant_dev", "market_data_engineer")) else ""
     return f"{COMMON}\n\n{r['system']}{edit}{extra}\n\n[role:{role}]"
 
 
@@ -456,13 +487,13 @@ def params_b(name_or_text):
 _SPECIALIST_PRIOR = {
     "coder":     {"spec_writer": 46, "interface_designer": 48, "test_author": 58, "debugger": 56, "refactorer": 58, "perf_tuner": 54, "migration_planner": 46,
                   "dependency_auditor": 52, "ui_builder": 52, "ux_reviewer": 48, "data_engineer": 56, "sql_author": 58, "release_manager": 50,
-                  "incident_responder": 48, "explainer": 52, "summarizer": 52},
+                  "incident_responder": 48, "explainer": 52, "summarizer": 52, "quant_dev": 58, "backtest_auditor": 50, "market_data_engineer": 56},
     "reasoning": {"spec_writer": 64, "interface_designer": 62, "test_author": 52, "debugger": 64, "refactorer": 52, "perf_tuner": 62, "migration_planner": 64,
                   "dependency_auditor": 54, "ui_builder": 48, "ux_reviewer": 60, "data_engineer": 50, "sql_author": 50, "release_manager": 56,
-                  "incident_responder": 64, "explainer": 58, "summarizer": 56},
+                  "incident_responder": 64, "explainer": 58, "summarizer": 56, "quant_dev": 56, "backtest_auditor": 62, "market_data_engineer": 50},
     "general":   {"spec_writer": 55, "interface_designer": 52, "test_author": 50, "debugger": 50, "refactorer": 50, "perf_tuner": 50, "migration_planner": 54,
                   "dependency_auditor": 48, "ui_builder": 52, "ux_reviewer": 52, "data_engineer": 48, "sql_author": 48, "release_manager": 52,
-                  "incident_responder": 50, "explainer": 56, "summarizer": 56},
+                  "incident_responder": 50, "explainer": 56, "summarizer": 56, "quant_dev": 50, "backtest_auditor": 52, "market_data_engineer": 48},
 }
 
 

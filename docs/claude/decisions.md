@@ -541,3 +541,32 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
 - **Enter on a Cost map point threw** (`e.target.click is not a function`, found by the browser check): the page-wide "Enter/Space
   presses a role=button" handler called `.click()`, which SVG elements do not have. It now leaves alone a key the element's own
   handler already took (`defaultPrevented`) and sends an SVG element a real click event.
+
+## Markets pack, slice M1: the trust core (2026-11-17)
+Approved by the owner after a written proposal (pack inside Architect, `markets_` prefix so it can be lifted out later). Detail: `docs/claude/markets.md`.
+- **What was built:** `markets_data.py` (price CSV load + checks), `markets_kernel.py` (next-open fills, costs, statistics, deflated Sharpe, and the
+  worker that runs a strategy in its own process), `markets_gates.py` (`bt_data`, `bt_load`, `bt_leak`, `bt_costs`, `bt_oos`, `bt_trials`,
+  `bt_sensitivity`, `bt_scan`/`bt_fewer`), roles `quant_dev`, `backtest_auditor`, `market_data_engineer`, flows `backtest_audit` (read-only) and
+  `backtest_fix`, prompts, routing keywords, eval families + judge `bt_gate`, `arch_selftest_markets` (86 checks). Counts: 49 roles, 31 flows.
+- **Look-ahead is found by truncation invariance, not by reading code:** a signal for bar i must be the same with the bars after i removed. A strategy
+  that is random from run to run is refused as "not repeatable", because it cannot be told apart from a leak.
+- **A repair is judged only on code defects** (`load`, `leak`). Costs, out-of-sample and trials are verdicts about the idea; using them as the repair's
+  target would fit the audit. Found while designing the fix gate: removing a leak can raise the number of failing checks (the strategy had no edge), so
+  "fewer failures overall" would have rejected every correct repair. The fix must also still trade (a switched-off strategy passes most gates) and may
+  change only the strategy file (the data is evidence; `apply: deny_ctx` plus a check in `bt_fewer`).
+- **Three outcomes:** no price file, a missing library, too few trades, no strategy file are all None ("could not check"); an audit without data can
+  say not_sure at best. A parameter-free strategy gets a labelled "not applicable" for sensitivity, not a silent pass.
+- **Deliberately not built:** live orders, exchange keys, any network access, LLM-derived signals. The defaults (fee 5 bps + slippage 5 bps, 30% out of
+  sample, 20 trades, deflated probability 0.95) are placeholders with a documented override; Settings for them arrive with the hub place in M2.
+- **Not yet in the hub:** no UI in M1 (as approved). The three roles appear on the Roles page like any role until M2 adds the on/off switch.
+
+## Tech-debt Phase 0 after Markets M1 (2026-11-17)
+- **Line endings are checked.** `.gitattributes` is `* -text` and the tree is mixed (about 90 CRLF files, the rest LF), so a tool that rewrites a file
+  in text mode silently flips it: a 45-line edit showed as 1,400 lines. `tools/eol_audit.py` (suite `arch_selftest_eol`, CI step with `fetch-depth: 2`)
+  fails when a changed file changes style, a pure file becomes mixed, or a new source file is CRLF. Exit 2 = could not check (no git, no base).
+  Rule for edits: use the Edit tool (it keeps a file's style); never read and rewrite a file in text mode from a script.
+- **The Markets gates' edges:** a bad `markets` setting is refused by name; a damaged trial ledger no longer resets the trial count (it used to drop
+  every line when one line was bad, which would have flattered the result); a strategy that never finishes is stopped and is "could not check";
+  a repair that is another leak, or that adds look-ahead to a clean strategy, is refused. `sharpe` alone no longer routes to the audit.
+- **CI runtimes:** `actions/cache` v4 and `actions/upload-artifact` v5 still ran on Node 20 (the deprecation notice); moved to cache v5 and
+  upload-artifact v6, both Node 24 (checked in each release's action.yml). checkout v5 and setup-python v6 were already Node 24.

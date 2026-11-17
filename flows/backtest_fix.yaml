@@ -1,0 +1,49 @@
+id: backtest_fix
+title: Backtest fix
+kind: plan_execute_verify
+blurb: "Audit a trading strategy, then repair ONLY the strategy file. The same audit runs again; the fix counts only if fewer checks fail, no look-ahead is introduced, and the strategy still trades. The price data is never edited. Not financial advice."
+produces: ["the strategy file", "docs/backtest_fix.md"]
+uses_roles: [quant_dev]
+budget: {calls: 20, tokens: 150000, seconds: 1800, heavy_calls: 1}
+steps:
+  - id: find
+    kind: code
+    title: "Audit the strategy, with code (the same audit runs again afterwards)"
+    gate: bt_scan
+    on_fail: stop
+
+  - id: fix
+    kind: generate
+    title: "Repair the strategy (loop)"
+    role: quant_dev
+    tier: worker
+    prompt: fix
+    when: "find.defects > 0"
+    vars: {findings: "{findings_text}"}
+    context: {always: ["ctx:scope"], max_always: 2}
+    apply: {deny_ctx: bt_protect}
+    verify: {gate: bt_fewer}
+    loop: {max: 3, coach: true, escalate: [heavy]}
+    on_fail: continue
+    budget: {tokens: 110000, seconds: 1300}
+
+  - id: write
+    kind: report
+    title: "Write docs/backtest_fix.md"
+    path: docs/backtest_fix.md
+    label: backtest fix
+    template: |
+      # Backtest fix
+
+      Not financial advice: these checks say whether a backtest can be trusted, never that a strategy will make money.
+
+      Did not pass before the fix: {find.findings} ({find.defects} of them defects in the code). Still not passing after it: {fix.after}.
+      A fix removes defects in the code (the file loads, no look-ahead). Whether the idea itself survives costs and fresh data is reported below, never tuned for.
+
+      | check | result | detail |
+      |---|---|---|
+      {bt_table}
+
+verdict:
+  pass_if: "(find.findings == 0 and find.unknown == 0) or (fix.ok and fix.after == 0 and fix.unknown_after == 0)"
+  not_sure_if: "(find.findings == 0 and find.unknown > 0) or (fix.ok and fix.after == 0 and fix.unknown_after > 0) or fix.unsure"

@@ -2351,8 +2351,10 @@ KEYWORDS = {
     "harden": r"\b(error handling|bare except|swallow\w* (?:errors?|exceptions?)|fail (?:safely|loudly)|robust(?:ness)?|resilien\w*|add timeouts?|input validation)\b",
     "migrate": r"\b(migrate (?:from|off|away)|switch(?:ing)? from \S+ to|move (?:off|away from)|replace (?:every|all) (?:uses?|calls?) of|port (?:from|off))\b",
     "deps": r"\b(dependenc(?:y|ies) (?:audit|check|review)|audit (?:the )?dependenc\w+|unused (?:packages?|dependenc\w+)|requirements\.txt|unpinned)\b",
+    "backtest_audit": r"\b(back-?tests?|backtesting|trading strateg\w*|quant(?:itative)? strateg\w*|look-?ahead (?:bias|leak\w*)|walk-?forward)\b",
+    "backtest_fix": r"\b(?:fix|repair|remove|stop)\b[^.]{0,40}\b(?:look-?ahead|backtest leak\w*|leaking strateg\w*)\b",
 }
-PRIORITY = ["pentest", "secure", "network", "cicd", "config", "ml", "a11y", "types", "document", "harden", "migrate", "deps", "bugfix", "refactor", "design", "hunt", "optimize", "test", "review", "feature", "new", "build"]
+PRIORITY = ["backtest_fix", "backtest_audit", "pentest", "secure", "network", "cicd", "config", "ml", "a11y", "types", "document", "harden", "migrate", "deps", "bugfix", "refactor", "design", "hunt", "optimize", "test", "review", "feature", "new", "build"]
 
 
 class _RouteCache:
@@ -2451,7 +2453,7 @@ def route(e, goal, forced=None):
                                     "build = create new functionality; feature = one feature across data, API and UI; bugfix = something is broken; refactor = change structure without changing behaviour; "
                                     "test = write better tests; optimize = make it faster; hunt = look for hidden bugs; review = assess code quality; "
                                     "secure = fix security findings; config = harden Dockerfile/CI/config; network = fix a network/firewall plan; "
-                                    "ml = build/fix an ML pipeline; pentest = turn findings+scope you supply into a scope-checked attack-path write-up. "
+                                    "ml = build/fix an ML pipeline; backtest_audit = check a trading strategy's backtest for look-ahead, costs and overfitting without changing it; backtest_fix = repair a strategy file so that audit passes;pentest = turn findings+scope you supply into a scope-checked attack-path write-up. "
                                     'Answer ONLY JSON {"flow": "<one of: ' + "|".join(FLOWS) + '>", "why": "short"}.\n\nREQUEST: ' + goal + hint, schema=arch_schemas.router(FLOWS))
         if isinstance(j, dict) and j.get("flow") in FLOWS:
             pick = j["flow"]
