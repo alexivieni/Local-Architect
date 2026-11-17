@@ -104,7 +104,11 @@ def self_check(here=None):
                    for fn in sorted(os.listdir(here)) if fn.endswith(".py"))
     except OSError:
         fp = None
-    if fp is not None and _SELF_OK.get(here) == fp:
+    # "racy timestamp": a file written in the last 2 s can be rewritten with the same size inside one timestamp tick (Windows ticks
+    # are coarse), so a fresh file set is never trusted from, nor stored in, the memo
+    import time
+    fresh = fp is None or not fp or time.time_ns() - max(x[2] for x in fp) < 2_000_000_000
+    if not fresh and _SELF_OK.get(here) == fp:
         return []
     bad = []
     skip = {"train_lora.py", "localintel_arch.py", "apply_localintel_layer.py", "start.py"}
@@ -125,6 +129,6 @@ def self_check(here=None):
             importlib.import_module(fn[:-3])                                   # by its real name, so modules that import each other still work
         except Exception as e:                                                 # any import-time failure is the point of this check
             bad.append({"module": fn, "error": f"{type(e).__name__}: {str(e)[:120]}"})
-    if not bad and fp is not None:
+    if not bad and not fresh:
         _SELF_OK[here] = fp
     return bad

@@ -582,13 +582,18 @@ def run():
         os.makedirs(d_chk, exist_ok=True)
         with open(os.path.join(d_chk, "good_mod_b.py"), "w") as f_:
             f_.write("X = 1\n")
+        r0 = dp_.self_check(d_chk)
+        fresh_kept = dp_._SELF_OK.get(d_chk) is not None             # just written: never remembered (racy timestamp)
+        old_t = _t.time() - 30
+        os.utime(os.path.join(d_chk, "good_mod_b.py"), (old_t, old_t))
         r1 = dp_.self_check(d_chk)
         remembered = dp_._SELF_OK.get(d_chk) is not None
         with open(os.path.join(d_chk, "good_mod_b.py"), "w") as f_:
-            f_.write("X = (\n")
+            f_.write("X = (\n")                                      # the same size as "X = 1\n", written a moment ago
         r2 = dp_.self_check(d_chk)
-        check("the code self-check is remembered while no file changes (it recompiled every module on each Home visit) and runs again when one does",
-              r1 == [] and remembered and r2 and "SyntaxError" in r2[0]["error"], (r1, r2))
+        check("the code self-check is remembered for files that are not fresh, never for ones written in the last 2 s, and runs again "
+              "when one changes (a same-size rewrite inside one timestamp tick is caught)",
+              r0 == [] and not fresh_kept and r1 == [] and remembered and r2 and "SyntaxError" in r2[0]["error"], (r0, fresh_kept, r1, r2))
         calls_hw = []
         real_dh, real_nc = mh2._detect_hardware, os.environ.pop("ARCHITECT_NO_CACHE", None)
         try:

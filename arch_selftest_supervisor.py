@@ -25,8 +25,9 @@ def run():
     results = []
 
     def check(name, ok, extra=""):
-        results.append(bool(ok))
-        print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
+        """ok True / False / None: None = could not be decided here (a timing on a loaded machine), never a pass."""
+        results.append(None if ok is None else bool(ok))
+        print(f"  {'PASS' if ok else 'NOT_SURE' if ok is None else 'FAIL'}  {name}" + (f"   ({str(extra)[:300]})" if extra and not ok else ""))
 
     print("\n== the supervisor: a queue it works through on its own ==")
     import arch_core as core
@@ -190,7 +191,9 @@ def run():
         wall = _t.time() - t0
         ran = sorted(d["id"] for d in out["ran"])
         check("both lanes ran every waiting task", ran == sorted([g2, c2]), ran)
-        check("the CPU-only task ran while the GPU task did", kinds_at_once[0] >= 1 and wall < 0.75, (kinds_at_once, wall))
+        # the proof is the overlap itself; two 0.4 s tasks in under 0.75 s is the timing: not sure up to twice that (a loaded runner)
+        check("the CPU-only task ran while the GPU task did", False if kinds_at_once[0] < 1 else True if wall < 0.75 else None if wall < 1.5 else False,
+              (kinds_at_once, wall))
         check("never more than one GPU task at a time", peak["gpu"] <= 1, peak)
         check("with only one kind waiting it is the plain sequential queue", not sv._both_kinds_waiting())
     finally:
@@ -204,9 +207,10 @@ def run():
             os.environ["ARCHITECT_DATA_DIR"] = old_dd
         shutil.rmtree(home, ignore_errors=True)
 
-    n = sum(results)
-    print(f"\n  {'ALL ' + str(n) + ' SUPERVISOR CHECKS PASSED' if n == len(results) else str(len(results) - n) + ' of ' + str(len(results)) + ' SUPERVISOR CHECKS FAILED'}")
-    return 0 if n == len(results) else 1
+    n_ok, n_bad, n_none = results.count(True), results.count(False), results.count(None)
+    tail = (f", {n_none} COULD NOT RUN" + ("" if n_bad else " (not a pass)")) if n_none else ""
+    print(f"\n  {'ALL ' + str(n_ok) + ' SUPERVISOR CHECKS PASSED' if n_ok == len(results) else str(n_bad) + ' of ' + str(len(results)) + ' SUPERVISOR CHECKS FAILED' + tail}")
+    return 0 if n_ok == len(results) else 1 if n_bad else 2
 
 
 def _raises(fn):

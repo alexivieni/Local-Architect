@@ -400,6 +400,11 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
   the whole user text, failure log included, and the log was trimmed only afterwards: try 3 with a longer traceback moved the cut, the
   bytes before FEEDBACK changed, the server's prefix cache was lost (rule 7). The log is trimmed first; the cut is rounded down to 500
   characters, so a retry whose log differs by a few lines gets the same context bytes.
+- **CI caught two things after the push.** (1) The code self-check memo was keyed by size and modified time, and a file rewritten
+  with the same size inside one timestamp tick (Windows ticks are coarse) was not noticed: `self_check` now neither trusts nor stores
+  the memo while any file is under 2 s old (the "racy timestamp" rule of `read_text`). (2) A supervisor check failed on the runner:
+  the overlap of the CPU and GPU lanes it proves had happened, but the run took 0.76 s against a 0.75 s limit; the timing is now
+  pass under 0.75 s, not sure up to 1.5 s, fail beyond, and a missing overlap still fails.
 - Not done here: one shared per-run summary for usage, costs, cache stats and the run lists (B5: they still re-parse every
   `trace.jsonl`, each with its own idea of a "run"); the telemetry endpoint's full-file parse; log rotation for `server/*.log`.
 - Checks: `arch_selftest_outcomes` (now 93).
