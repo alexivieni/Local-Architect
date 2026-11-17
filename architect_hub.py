@@ -4018,6 +4018,20 @@ class AHandler(mh.Handler):
         if path == "/api/arch/livetest":
             mh.JOB.start("Test with my models", ["architect.py", "livetest"] + (["--quick"] if b.get("quick") else []))
             return {"ok": True}
+        if path == "/api/arch/eval":
+            # Benchmarks > the buttons that replace "run architect.py eval ...": the harness alone (scripted model, no GPU), a quick
+            # measure of the person's models, or the overnight representative set. A fixed list of modes; nothing else reaches argv.
+            mode = str(b.get("mode") or "")
+            argv = {"harness": ["--fake", "--quick"], "quick": ["--quick"], "representative": ["--set", "representative"]}.get(mode)
+            if argv is None:
+                raise ValueError("Pick one of: harness, quick, representative.")
+            title = {"harness": "Benchmark: the harness alone", "quick": "Benchmark: my models, quick",
+                     "representative": "Benchmark: my models, representative set"}[mode]
+            mh.JOB.start(title, ["architect.py", "eval"] + argv)
+            return {"ok": True}
+        if path == "/api/arch/morning":
+            mh.JOB.start("Overnight report", ["tools/morning_report.py"])        # read-only: writes <data>/morning_<date>.md
+            return {"ok": True}
         if path == "/api/arch/hosts":
             import arch_hosts as H
             cfg = mh.read_config(strict=True)

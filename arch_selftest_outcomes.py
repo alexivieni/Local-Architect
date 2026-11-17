@@ -622,6 +622,15 @@ def run():
         check("the console strip's 'which servers are up' is kept 4 s (a process-list call and a /health per tier every 5 s)",
               '_ttl("servers_up", 4,' in src_hub)
 
+        # ---- Phase C, first slice: pages that told you to type a command now have the button
+        check("Benchmarks and the Overnight report have buttons (they said 'run architect.py eval ...' / 'python tools/morning_report.py'), "
+              "and Train no longer names the retired arch_training.py",
+              "function benchButtons()" in html and 'api("/api/arch/eval",{mode})' in html and "Write the report now" in html
+              and 'api("/api/arch/morning",{})' in html and "architect.py eval --fake checks the harness" not in html
+              and "python tools/morning_report.py writes one" not in html and "python arch_training.py" not in html
+              and 'path == "/api/arch/eval"' in src_hub and '"harness": ["--fake", "--quick"]' in src_hub
+              and 'mh.JOB.start("Overnight report", ["tools/morning_report.py"])' in src_hub)
+
         # ---- Phase F of the 2026-11-17 review: the phone (375 px, measured in the browser in light and dark: no sideways scroll)
         check("phone: Home's suggestion chips wrap (all four visible; a fading sideways strip hid 'Explain'), and the Console's message list "
               "is capped so the message box is on the first screen",

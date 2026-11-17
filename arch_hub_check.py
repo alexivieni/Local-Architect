@@ -184,6 +184,9 @@ def run():
         check("hub: applying a preset over HTTP actually changes the saved config", pr.get("ok") and pr["config"]["behavior"]["evaluator"] == "off" and pr["config"]["behavior"]["network"] == "open", pr)
         badpr = call("/api/arch/preset", {"name": "nope"})
         check("hub: an unknown preset name is refused with a clear message", badpr.get("HTTP") == 400 and "nope" in badpr.get("body", ""), badpr)
+        bad_ev = call("/api/arch/eval", {"mode": "rm -rf /"})
+        check("hub: the Benchmarks buttons start only a fixed list of eval modes (anything else is refused, nothing reaches argv)",
+              bad_ev.get("HTTP") == 400 and "harness, quick, representative" in bad_ev.get("body", ""), bad_ev)
 
         asx = call("/api/arch/assess")
         check("hub: assess reports real hardware, a hardware-tuned settings patch, and per-workload coverage (coding/security/data)",

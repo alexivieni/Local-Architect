@@ -419,6 +419,22 @@ problems were subtler. Fixed, each proven in `arch_selftest_outcomes` (pass, fai
 - Not done: the Console's onboarding note and status strip still sit above the thread on a phone.
 - Checks: `arch_selftest_outcomes` (now 94).
 
+## Review 2026-11-17, Phase C, first slice: pages that told you to type a command
+- **Benchmarks** said "architect.py eval --fake checks the harness ...; architect.py eval --set representative ..."; it now has three
+  buttons (the harness alone with the scripted model and no GPU, a quick measure of your models, the overnight representative set),
+  on the empty page and above the results. `POST /api/arch/eval {mode}` takes only `harness | quick | representative` and builds
+  argv from a fixed table (anything else is a 400, checked over HTTP in hub_check). The page code is outside both guarded slices
+  (after `function benchPage(){`); the comment on the Caches slice's end marker ("Nothing here starts a run") is now out of date and
+  was left alone, being the boundary line.
+- **Overnight report** said "python tools/morning_report.py writes one"; "Write the report now" (and "Write a fresh report" beside an
+  existing one) runs the same read-only tool as a hub job (`POST /api/arch/morning`). Its Claude Code cache line reads the owner's own
+  Claude Code history on this machine, as before.
+- **Train** named `python arch_training.py` (a shim that only says "use dataset") and a "6 GB card"; it says `architect.py dataset`
+  and "a laptop card".
+- Not done in this slice: Costmap's CLI-only empty state (guarded: needs the owner's yes), moving Morning / Squad runs / Lessons out
+  of Help, and folding Studio and New run into the Console.
+- Checks: `arch_selftest_outcomes` (now 95), `arch_hub_check` (224).
+
 ## CI on GitHub's Windows machines (2026-11-13)
 - `.github/workflows/ci.yml` runs on every push to main, every pull request and by hand: windows-latest, Python 3.12 + pytest, line
   endings kept as committed, a throwaway ARCHITECT_HOME/ARCHITECT_DATA_DIR, the handoff checks one per step (a multi-line

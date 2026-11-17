@@ -5720,8 +5720,10 @@ async function loadMorning(){
   const out=$("#mrOut"); if(!out) return;
   let r; try{ r=await api("/api/arch/morning"); }catch(e){ out.innerHTML=""; out.append(h("p",{class:"note bad"},"Could not read the report: "+e.message)); return; }
   out.innerHTML="";
-  if(!r.text){ out.append(h("p",{class:"sub"},"No overnight report yet. python tools/morning_report.py writes one; the night queue runs it when it finishes.")); return; }
-  out.append(h("p",{class:"small mute m0"},"From "+(r.file||"the newest report")+", written "+when(r.t)+"."));
+  const writeBtn=h("button",{class:"btn"+(r.text?"":" p"),type:"button",onclick:async()=>{try{await api("/api/arch/morning",{});jobSince=0;go("run");}catch(e){toast.err(e.message,7000);}}},
+    r.text?"Write a fresh report":"Write the report now");
+  if(!r.text){ out.append(h("p",{class:"sub"},"No overnight report yet. It sums up the last night's runs, data and measurements; the night queue writes one when it finishes, or write one now."),writeBtn); return; }
+  out.append(h("div",{class:"row"},h("p",{class:"small mute m0 grow"},"From "+(r.file||"the newest report")+", written "+when(r.t)+"."),writeBtn));
   out.append(...mrRender(r.text));
 }
 /* ===== Lessons (Help): arch_lessons as a table. Enforced-by targets are green when the code or file exists, red when it does not ===== */
@@ -6182,13 +6184,22 @@ function benchChart(runs){
   return h("div",null,box,h("div",{class:"row small mute",style:"gap:14px;margin-top:4px"},
     h("span",null,h("b",{style:"color:var(--acc)"},"●")," live: your models"),h("span",null,h("b",{style:"color:var(--faint)"},"□")," scripted: the harness alone")));
 }
+/* the three ways to measure, as buttons (the empty page used to say "run architect.py eval ..." in a terminal) */
+function benchButtons(){
+  const go_=(mode)=>async()=>{try{await api("/api/arch/eval",{mode});jobSince=0;go("run");}catch(e){toast.err(e.message,7000);}};
+  return h("div",{class:"row",style:"gap:8px;flex-wrap:wrap"},
+    h("button",{class:"btn",type:"button",onclick:go_("harness"),title:"A scripted stand-in answers: no model, no graphics card. It checks that the harness itself works."},"Check the harness (no model, a few minutes)"),
+    h("button",{class:"btn p",type:"button",onclick:go_("quick"),title:"Ten tasks per workflow with your own models, judged by code"},"Measure my models (quick)"),
+    h("button",{class:"btn",type:"button",onclick:go_("representative"),title:"The same 17 tasks every time, compared with the last run. Takes long: run it overnight."},"Full set (overnight)"));
+}
 async function loadBench(){
   const out=$("#bnOut"); if(!out) return;
   let r;
   try{ r=await api("/api/arch/evals"); }catch(e){ out.innerHTML=""; out.append(h("p",{class:"note bad"},"Could not read the saved reports: "+e.message)); return; }
   out.innerHTML="";
   const runs=r.runs||[];
-  if(!runs.length){ out.append(h("p",{class:"sub"},"No benchmark has run yet. architect.py eval --fake checks the harness in about five minutes; architect.py eval --set representative measures your models.")); return; }
+  if(!runs.length){ out.append(h("p",{class:"sub"},"No benchmark has run yet. Pick one: the harness check needs no model; the others measure your models on fixed tasks judged by code."),benchButtons()); return; }
+  out.append(benchButtons());
   const lastL=[...runs].reverse().find(x=>!x.fake), lastF=[...runs].reverse().find(x=>x.fake);
   const tone=p=>p>=75?"good":p>=45?"warn":"bad";
   out.append(h("div",{class:"row",style:"gap:8px;flex-wrap:wrap"},
@@ -6832,8 +6843,8 @@ function train(){
       h("p",{class:"sub"},"Good work becomes training data."),learnMore("Every model call is traced and later labelled by the code checks (tests, validators, judge). Only accepted calls become examples, written to one file per role. A small model tuned on just one role, such as the evaluator's JSON, your SQL conventions or your UI style, is a realistic goal; one model that does everything is not."),
       h("div",{class:"row"},h("button",{class:"btn",onclick:()=>runAct("export_stats")},"Count examples"),h("button",{class:"btn p",onclick:()=>runAct("export")},"Export now"),h("button",{class:"btn",onclick:()=>runAct("train_check")},"Can this PC train?")),
       h("div",{class:"note warn"},"A few hundred accepted examples per role is a sensible minimum. Tuning on a model's own output can reinforce its mistakes, so only code-verified calls are kept. Compare before and after on the Scoreboard and keep the old model until the new one wins.")),
-    h("div",{class:"card"},h("h2",null,"Fine-tune a small model (QLoRA)"),h("p",{class:"sub"},"train_lora.py has not been run on real hardware by its author. Read it first. Reinforcement learning with test rewards (GRPO) needs more GPU memory than a 6 GB card: rent a 24 GB GPU for that."),
-      h("pre",{class:"cmd"},"python arch_training.py\npython train_lora.py --check\npython train_lora.py --data hub_data/train/evaluator.jsonl --base unsloth/Qwen3-4B-Instruct-2507 --gguf\ncd hub_data/lora_out && ollama create my-evaluator -f Modelfile")),
+    h("div",{class:"card"},h("h2",null,"Fine-tune a small model (QLoRA)"),h("p",{class:"sub"},"train_lora.py has not been run on real hardware by its author. Read it first. Reinforcement learning with test rewards (GRPO) needs far more GPU memory than a laptop card has: rent a 24 GB GPU for that."),
+      h("pre",{class:"cmd"},"python architect.py dataset\npython train_lora.py --check\npython train_lora.py --data hub_data/train/evaluator.jsonl --base unsloth/Qwen3-4B-Instruct-2507 --gguf\ncd hub_data/lora_out && ollama create my-evaluator -f Modelfile")),
   ];
 }
 async function runAct(name){go("run");await action(name);}
