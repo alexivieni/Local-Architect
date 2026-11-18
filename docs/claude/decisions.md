@@ -588,3 +588,36 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   `node_modules`, `.min.js` or `.d.ts`).
 - **The repair loop is tested, not assumed:** `arch_selftest_secrules` runs the real secure flow against a scripted model for a Python tar-slip and a JavaScript
   innerHTML case. A model that fixes it passes on the same scanner finding fewer; one that hands the file back does not pass and leaves the file as it was.
+
+## Eval families for the flows that had none (2026-11-17)
+16 flows had no family; all 16 now have one (three batches). Every task carries a reference solution and a plausible wrong answer
+(`arch_selftest_eval` proves the judges pass one and catch the other, and that an untouched fixture fails a judge that could run).
+- **Batch 1, flows with a scan gate (YAML-backed by default):** `harden`, `typehints` (the `types` flow; never `types.py`: the loader puts that folder on `sys.path`),
+  `document`, `a11y`, `migrate`, `deps`. `scanner_zero` gained the kinds `harden types docs a11y migrate`, which run the flows' own scanners; every task adds a check the
+  scanner does not share (tests, a runtime `inspect` check, a text check, the function list), so a judge is never only the gate it grades.
+- **Batch 2, flows with a measurable oracle (Python-class-backed by default):** `optimize` (a hidden timing check with a two-orders-of-magnitude margin; half the tasks make the
+  model write the benchmark), `ml` (leakage and reproducibility stated as behaviour: no shared row, the scaler unmoved by test values, ties resolved the same way, no row in the
+  fold that validates it), `new` (the template's files and tests, no model), `pentest` (the report's counts and sections; a refused host is never used).
+- **Found while writing them:**
+  1. `flows/pentest.yaml`'s gates were broken: `scope_checked` and `attackpath_valid` called `arch_pentest.in_scope(host, scope)` but the function is `in_scope(scope, host)`, so the
+     scope gate raised `AttributeError` on any finding; and the attack-path gate read the cited ids from `findings`/`evidence` while its own prompt asks for `finding_ids`, so a path
+     citing an invented finding was never refused. Both fixed in `arch_gates.py` (argument order; `finding_ids` also read), with a regression test in `arch_selftest_eval`. They only ran
+     under `flows.engine = data`: by default the Python `PentestFlow` runs and was fine.
+  2. **Open, not fixed:** `new` under the default settings silently drops template files the writer refuses: an empty `__init__.py` (rest_api, fullstack, data_sql, fastapi) and `.csv`/`.log`
+     samples ("file type is not enabled": etl_pipeline, data_cleaner, log_analyzer, ml_train, pdf_report, security_lab). `log_analyzer` then ships a failing test of its own. The `new`
+     family leaves those templates out (named in its source) rather than hide it. The choice (let the scaffold write its own files, or enable the types) is the person's.
+  3. By default `optimize`, `ml`, `new` and `pentest` run their Python classes; their YAML runs only with `flows.engine = data`. The families measure the default path.
+- **Batch 3, flows built from other flows or from a tool loop (YAML-backed, `ship` Python-backed):** `council_fix` (odd tasks make the scripted local fix fail, so the
+  council step is reached; the tests still decide), `plan_local_build`, `scout_then_build` (the `feature` tasks, so the scout has a project to read; the scout's own trace is
+  judged: it looked, and its brief names the module), `explore` (read-only questions about the bank's modules), `fanout_review` (planted bug; the report must name the file and a
+  proving test must exist), `ship` (two tasks tagged `slow`: the chain must deliver, its summary must list the stages and none may say `failed`). That is all 16 flows covered.
+  New judge `answer_mentions` reads the tool loop's FIRST final answer from the run's trace (the second loop, "remember one thing", also ends with a final) and requires the
+  model to have looked (`min_tools`); it is a trace judge, so `arch_selftest_eval` proves it on a synthetic trace. The oracle fake gained the tool-loop, lens, second-reader,
+  proof and failing-local-fix replies.
+- **Resilience, added after the first pass:** (a) `scanner_zero` fails on a file it cannot read or parse (the scanners skip those, which would read as "zero findings"); (b) the
+  optimize timing check compares the candidate with the ORIGINAL code in the same process (a ratio, not a fixed time: my first version had a 2x margin on a fast CPU, measured
+  and replaced); (c) text checks accept every fix the flow's own scanner accepts (a label, `aria-label` or `title`; `<button>` or `role="button"`; a from-import of the new
+  name), so a judge is never stricter than the gate it grades; (d) a goal that leaves a number to chance now says it (population standard deviation); (e) selftest guards: every
+  new family still generates for the right flow, ids are unique, a scan-backed goal names a file its fixture has, an untouched fixture fails a judge that could run.
+- **A weakness left alone in `build` (its baselines must not move):** the `cart` build task's hidden check never tests the accumulation its goal asks for and uses a 50% discount,
+  which is the same either way round, so both planted cart bugs pass it. `plan_local_build` and `ship` use `_scanbank.build_hidden`, which adds the two checks for `cart`.

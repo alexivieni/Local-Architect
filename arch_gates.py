@@ -606,7 +606,7 @@ def g_scope_checked(e, ctx, step, changed):
         return R(False, ferr)
     allowed, refused = [], []
     for f in findings:
-        (allowed if pt.in_scope(f.get("host"), scope) else refused).append(f)
+        (allowed if pt.in_scope(scope, f.get("host")) else refused).append(f)
     ctx.update(pt_scope=scope, findings=allowed, refused=refused, is_default_scope=is_default)
     ctx["hosts"] = ", ".join(scope.get("authorized_targets") or [])
     ctx["findings_text"] = "\n".join(f"- {f.get('id')}: {f.get('host')}: {f.get('desc')}" for f in allowed)
@@ -664,11 +664,11 @@ def g_attackpath(e, ctx, step, changed):
     ids = {str(f.get("id")) for f in (ctx.get("findings") or [])}
     bad = []
     for p in paths:
-        for cited in (p.get("findings") or p.get("evidence") or []):
+        for cited in (p.get("findings") or p.get("evidence") or p.get("finding_ids") or []):    # finding_ids: the key prompts/pentest/attackpath.md asks for
             if str(cited) not in ids:
                 bad.append(f"cites '{cited}', which is not one of the findings you supplied")
         for host in (p.get("hosts") or ([p.get("host")] if p.get("host") else [])):
-            if not pt.in_scope(host, ctx.get("pt_scope") or {}):
+            if not pt.in_scope(ctx.get("pt_scope") or {}, host):
                 bad.append(f"names '{host}', which is outside the authorized scope")
     ctx["attack_paths"] = paths
     return R(not bad, "; ".join(bad[:5]), {"paths": len(paths), "problems": len(bad)})

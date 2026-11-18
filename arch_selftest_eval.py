@@ -56,12 +56,99 @@ def run():
                 verdicts = [E.JUDGES[j["type"]](proj, j, t, ctx) for j in t["judge"] if (j["type"] not in ("file_exists", "docs_structure") or which == "solution")
                             and j["type"] not in getattr(E, "TRACE_JUDGES", ())]   # a trace judge needs a run; arch_selftest_refusal proves it
                 ok = all(v[0] for v in verdicts)
-                if which == "solution" and not ok and t["family"] not in ("review", "design", "network", "hunt", "test"):     # those need the flow's own output files
+                if which == "solution" and not ok and t["family"] not in ("review", "design", "network", "hunt", "test", "deps", "pentest"):     # those need the flow's own output files
                     right_bad.append((t["id"], [v for v in verdicts if not v[0]]))
                 if which == "wrong" and ok and files:
                     wrong_ok.append(t["id"])
         check("every family's reference solution satisfies its judges", not right_bad, right_bad[:3])
         check("every family's plausible wrong answer is caught by at least one judge", not wrong_ok, wrong_ok)
+
+        # ---- the families added for flows that had none (scan-backed ones, then optimize, ml, new, pentest): the UNTOUCHED fixture must fail a judge, for every task
+        # (a task whose starting state already passes proves nothing), and the scan judges must say "could run" about it
+        untouched_ok = []
+        for t in tasks:
+            if t["family"] not in ("harden", "typehints", "document", "a11y", "migrate", "deps", "optimize", "ml", "new", "pentest", "council_fix",
+                                   "plan_local_build", "scout_then_build", "fanout_review", "ship") or t["kind"] != "flow":       # (explore: only a trace judge says anything)
+                continue
+            proj = tempfile.mkdtemp(prefix="u_", dir=home)
+            E._write(proj, t["fixture"].get("files"))
+            ctx = {"before": {}, "lines_before": {}, "route": None, "json": None}
+            for j in t["judge"]:
+                for rel in (j.get("paths") or []) if j.get("type") == "files_unchanged" else []:
+                    ctx["before"][rel] = E._sha(E._read(proj, rel))
+                if j.get("type") == "no_shrink":
+                    ctx["lines_before"][j["path"]] = len((E._read(proj, j["path"]) or "").splitlines())
+            verdicts = [E.JUDGES[j["type"]](proj, j, t, ctx) for j in t["judge"] if j["type"] != "files_unchanged" and j["type"] not in E.TRACE_JUDGES]
+            if all(v[0] for v in verdicts) or not all(v[2] for v in verdicts if not v[0]):
+                untouched_ok.append((t["id"], [v for v in verdicts if v[0] or not v[2]][:2]))
+        check("the new flow families (harden, typehints, document, a11y, migrate, deps, optimize, ml, new, pentest): every task's untouched fixture fails a judge that could run",
+              not untouched_ok, untouched_ok[:3])
+
+        # ---- resilience of the new families: none may drop out unnoticed, ids stay unique, a goal names a file its fixture has, a scan cannot pass vacuously
+        want = {"harden": "harden", "typehints": "types", "document": "document", "a11y": "a11y", "migrate": "migrate", "deps": "deps",
+                "optimize": "optimize", "ml": "ml", "new": "new", "pentest": "pentest", "council_fix": "council_fix", "plan_local_build": "plan_local_build",
+                "scout_then_build": "scout_then_build", "explore": "explore", "fanout_review": "fanout_review", "ship": "ship"}
+        got = {}
+        for t in tasks:
+            got.setdefault(t["family"], set()).add(t["flow"])
+        check("every new family still generates tasks, for the flow it is meant for (a family that fails to import would vanish from the eval without a word)",
+              all(got.get(fam) == {flow} for fam, flow in want.items()), {fam: got.get(fam) for fam in want})
+        ids = [t["id"] for t in tasks]
+        check("task ids are unique across every family (a duplicate would hide a result)", len(ids) == len(set(ids)), sorted({i for i in ids if ids.count(i) > 1})[:3])
+        import re as _re
+        unnamed = [t["id"] for t in tasks if t["family"] in ("harden", "typehints", "document", "a11y")
+                   and not any(f in (t["fixture"].get("files") or {}) for f in _re.findall(r"[\w./-]+\.(?:py|html)\b", t["goal"]))]
+        check("a scan-backed task's goal names a file its fixture has (the flows scope themselves from the goal)", not unnamed, unnamed[:3])
+        vac = tempfile.mkdtemp(prefix="vac_", dir=home)
+        E._write(vac, {"gone_not_here.txt": "", "broken.py": "def f(:\n", "ok.py": '"""d."""\n'})
+        vs = [E.JUDGES["scanner_zero"](vac, {"kind": k, "files": f}, {}, {}) for k, f in
+              (("types", ["absent.py"]), ("docs", ["broken.py"]), ("harden", ["broken.py"]), ("a11y", ["absent.html"]), ("docs", ["ok.py"]))]
+        check("scanner_zero never passes on a file it could not read or parse (missing, or a syntax error), and still passes a clean one",
+              not any(v[0] for v in vs[:4]) and vs[4][0] and all(v[2] for v in vs), vs)
+
+        # ---- answer_mentions (explore, scout_then_build) reads the run's trace: a synthetic one, since the judge simulation above cannot run a trace judge
+        def _trace(name, calls, tools):
+            d = tempfile.mkdtemp(prefix="tr_", dir=home)
+            with open(os.path.join(d, "trace.jsonl"), "w", encoding="utf-8") as f:
+                for reply in calls:
+                    f.write(json.dumps({"type": "call", "model": "m", "role": "architect", "reply": reply}) + "\n")
+                for _ in range(tools):
+                    f.write(json.dumps({"type": "tool", "tool": "grep"}) + "\n")
+            return d
+        am = E.JUDGES["answer_mentions"]
+        looked = [json.dumps({"tool": "grep", "args": {"pattern": "x"}}), json.dumps({"final": "cart.py: apply_discount accepts 0 to 100"}),
+                  json.dumps({"final": "nothing worth remembering"})]
+        spec = {"needles": [r"apply_discount", r"0\s*to\s*100"], "forbid": [r"subtotal"], "min_tools": 1}
+        r_ok = am("", spec, {}, {"run_dir": _trace("ok", looked, 1)})
+        r_lack = am("", dict(spec, needles=spec["needles"] + [r"KeyError"]), {}, {"run_dir": _trace("lack", looked, 1)})
+        r_forbid = am("", dict(spec, forbid=[r"discount"]), {}, {"run_dir": _trace("forbid", looked, 1)})
+        r_blind = am("", spec, {}, {"run_dir": _trace("blind", looked, 0)})
+        r_none = am("", spec, {}, {"run_dir": _trace("none", [json.dumps({"tool": "ls", "args": {}})], 1)})
+        r_notrace = am("", spec, {}, {"run_dir": os.path.join(home, "no_such_run")})
+        check("answer_mentions: passes a looked-first answer holding the facts; fails a missing fact, a wrong one, no tool call, or no final answer; "
+              "the answer is the FIRST final (a later 'nothing worth remembering' is not it); no trace = could not run",
+              r_ok[0] and r_ok[2] and not r_lack[0] and not r_forbid[0] and not r_blind[0] and not r_none[0] and all(r[2] for r in (r_lack, r_forbid, r_blind, r_none))
+              and not r_notrace[0] and not r_notrace[2], (r_ok, r_lack, r_forbid, r_blind, r_none, r_notrace))
+
+        # ---- flows/pentest.yaml's gates (they only run with flows.engine = data): the scope check takes (scope, host), and the attack-path check
+        # holds the model to the `finding_ids` key its own prompt asks for
+        import arch_gates as G
+        from types import SimpleNamespace
+        pj = tempfile.mkdtemp(prefix="pt_", dir=home)
+        E._write(pj, {"scope.json": json.dumps({"authorized_targets": ["10.20.0.0/24"], "excluded": ["10.20.0.1"]}),
+                      "findings.json": json.dumps([{"id": "F1", "host": "10.20.0.7", "desc": "a"}, {"id": "F2", "host": "192.0.2.5", "desc": "b"},
+                                                   {"id": "F3", "host": "10.20.0.1", "desc": "c"}])})
+        pe = SimpleNamespace(root=pj, say=lambda *a, **k: None, report=lambda *a, **k: None)
+        pctx = {"params": {}, "goal": "g"}
+        sc = G.GATES["scope_checked"](pe, pctx, {}, [])
+        check("pentest.yaml scope_checked: one finding in scope, the out-of-scope and the excluded host refused (no crash)",
+              sc["ok"] is True and sc["metrics"] == {"in_scope": 1, "refused": 2}, sc)
+        ap = G.GATES["attackpath_valid"]
+        good = dict(pctx, reply='```json\n[{"finding_ids": ["F1"], "host": "10.20.0.7", "steps": "s", "impact": "i"}]\n```')
+        bad_id = dict(pctx, reply='```json\n[{"finding_ids": ["F9"], "host": "10.20.0.7", "steps": "s", "impact": "i"}]\n```')
+        bad_host = dict(pctx, reply='```json\n[{"finding_ids": ["F1"], "host": "192.0.2.5", "steps": "s", "impact": "i"}]\n```')
+        check("pentest.yaml attackpath_valid: a path citing a finding you did not supply (finding_ids) or a host outside the scope is refused; a clean one passes",
+              ap(pe, good, {}, [])["ok"] is True and ap(pe, bad_id, {}, [])["ok"] is False and ap(pe, bad_host, {}, [])["ok"] is False)
 
         # ---- the oracle fake drives the real flows
         lines = []

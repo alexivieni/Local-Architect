@@ -197,7 +197,9 @@ def j_file_lacks(root, spec, task, ctx):
 
 @judge("scanner_zero")
 def j_scanner_zero(root, spec, task, ctx):
-    """kind: sec | config | fakecode | cidr | firewall. Zero findings at or above `severity` (default: every finding counts)."""
+    """kind: sec | config | fakecode | cidr | firewall | harden | types | docs | a11y | migrate. Zero findings at or above `severity` (default: every
+    finding counts). The last five run the flows' own scanners (arch_gates_more) on the finished folder; `migrate` needs spec["pattern"]. A kind
+    that finds no file of its type to scan fails (the model deleted the work); a scanner that cannot run is "could not run", never a pass."""
     kind = spec["kind"]
     sev_rank = {"low": 0, "medium": 1, "high": 2}
     floor = sev_rank.get(spec.get("severity", "low"), 0)
@@ -218,6 +220,30 @@ def j_scanner_zero(root, spec, task, ctx):
             plan = _read(root, spec["path"]) or "{}"
             finds = (S.check_cidr_plan if kind == "cidr" else S.check_firewall)(plan)
             finds = [f for f in finds if sev_rank.get(f.get("severity", "low"), 0) >= floor]
+        elif kind in ("harden", "types", "docs", "a11y", "migrate"):
+            from types import SimpleNamespace
+            import arch_gates_more as M
+            exts = (".html", ".htm") if kind == "a11y" else (".py", ".js", ".ts", ".html") if kind == "migrate" else (".py",)
+            if kind == "migrate" and "files" not in spec:             # the flow's own scope: every source file, tests included
+                files = list(core.list_files(root, core.load_config(root)))
+            files = [f for f in files if f.endswith(exts)]
+            if not files:
+                return False, f"no {kind} files left to scan (the work was deleted?)", True
+            # The scanners skip a file they cannot read or parse, so a deleted, renamed or broken file would count as "zero findings". It is a failure.
+            gone = [f for f in files if _read(root, f) is None]
+            if gone:
+                return False, f"cannot scan {', '.join(gone[:3])}: the file is missing or unreadable (deleted or renamed?)", True
+            if kind in ("harden", "types", "docs"):
+                for f in files:
+                    try:
+                        ast.parse(_read(root, f))
+                    except (SyntaxError, ValueError) as ex:
+                        return False, f"{f} does not parse ({type(ex).__name__}: {str(ex)[:80]}), so nothing could be scanned", True
+            e = SimpleNamespace(root=root, cfg=core.load_config(root))
+            if kind == "migrate":
+                finds = M.scan_pattern(e, files, spec["pattern"])
+            else:
+                finds = {"harden": M.scan_robustness, "types": M.scan_typing, "docs": M.scan_docs, "a11y": M.scan_a11y}[kind](e, files)
         else:
             return False, f"unknown scanner kind {kind}", False
     except Exception as e:                                  # a crashing scanner proves nothing
@@ -319,7 +345,7 @@ def j_json_shape(root, spec, task, ctx):
 # (no FILE:/EDIT:/DEF: block, no code fence) AND one of its sentences declines in the first person. A run is refused when at least one
 # reply declined and no reply in the whole run carried code. Conservative on purpose: a model that declines once and then writes the
 # code is not counted (it is a "partial"), and a run whose trace cannot be read is "could not run", never a pass.
-TRACE_JUDGES = ("no_refusal",)      # judges that read the run's trace: they cannot run on files alone (no run, no replies)
+TRACE_JUDGES = ("no_refusal", "answer_mentions")      # judges that read the run's trace: they cannot run on files alone (no run, no replies)
 _WORK_HEAD = re.compile(r"^[ \t#*>-]*(?:FILE|EDIT|DEF)[ \t]*:[ \t]*\S", re.M)
 _NOT_CODE = {"json", "text", "txt", "markdown", "md", "plain", "plaintext"}
 _R_NEG = (r"(?:can't|cannot|can\s+not|won't|will\s+not|(?:'m|\s+am)\s+(?:not\s+able|unable)\s+to|"
@@ -435,6 +461,46 @@ def j_no_refusal(root, spec, task, ctx):
     if info["refused"]:
         return False, (f"the model declined the task: {info['refusals']} of {info['replies']} replies refused and none carried code "
                        f"(\"{info['example'][:120]}\")"), True
+    return True, "", True
+
+
+def final_answer(replies):
+    """The text of the FIRST reply that ends a tool loop ({"final": "..."} with no tool call), from [(model, role, reply)]; "" when none. The first,
+    not the last: explore's second loop (remember one thing) also ends with a "final", and it comes after the answer."""
+    for _model, _role, reply in replies or []:
+        m = re.search(r"\{.*\}", reply or "", re.S)
+        try:
+            j = json.loads(m.group(0)) if m else None
+        except ValueError:
+            continue
+        if isinstance(j, dict) and j.get("final") and not j.get("tool"):
+            return str(j["final"])
+    return ""
+
+
+@judge("answer_mentions")
+def j_answer_mentions(root, spec, task, ctx):
+    """The tool loop's final answer (explore) holds every regex in `needles` (case-insensitive) and none in `forbid`, and the model looked first:
+    at least `min_tools` tool calls in the trace. could_run=False when the run left no trace to read."""
+    run_dir = ctx.get("run_dir")
+    replies = trace_replies(run_dir)
+    if not replies:
+        return False, "no model replies to read in the run's trace", False
+    answer = final_answer(replies)
+    if not answer:
+        return False, "the run ended without a final answer", True
+    lost = [n for n in spec.get("needles", []) if not re.search(n, answer, re.I)]
+    hit = [n for n in spec.get("forbid", []) if re.search(n, answer, re.I)]
+    tools = 0
+    try:
+        with open(os.path.join(run_dir, "trace.jsonl"), encoding="utf-8") as f:
+            tools = sum(1 for line in f if '"type": "tool"' in line or '"type":"tool"' in line)
+    except OSError:
+        return False, "the run's trace could not be read", False
+    if tools < int(spec.get("min_tools", 0)):
+        return False, f"the answer was given after {tools} tool call(s); it must look first ({spec['min_tools']} needed)", True
+    if lost or hit:
+        return False, ("the answer lacks: " + ", ".join(lost) if lost else "") + ("; it wrongly says: " + ", ".join(hit) if hit else ""), True
     return True, "", True
 
 
@@ -725,8 +791,22 @@ def start_oracle(tasks, wrong=False):
             if role == "router":
                 want = (task or {}).get("want") or (task or {}).get("flow") or "build"
                 return json.dumps({"flow": want, "why": "oracle"})
+            if "You are one of several reviewers reading the same code" in user:                       # fanout_review: three lenses, then the second reader, then the proof
+                return orc.get("lens") or "- nothing under this lens"
+            if "You are the second reader" in user:
+                return orc.get("crosscheck") or "## Kept\n## Dropped\n- nothing\n"
+            if "PROVE the ones marked" in user:
+                return _file_blocks(orc.get("hunt") or {})
+            if "Fix this bug with the smallest correct change." in user and orc.get("bad_fix"):      # council_fix: a local try that fixes nothing, so the council is reached
+                return _file_blocks(orc["bad_fix"])
             if role == "evaluator":
                 return json.dumps({"scores": {"all": {"score": 5, "evidence": "reference solution"}}, "verdict": "pass", "issues": []})
+            if "Answer this question about the project by LOOKING" in user or "You are the scout." in user:      # the tool loop: look once, then answer
+                if orc.get("tool") and "WHAT YOU HAVE DONE SO FAR" not in user:
+                    return json.dumps({"tool": orc["tool"], "args": orc.get("tool_args") or {}})
+                return json.dumps({"final": orc.get("answer") or "nothing found"})
+            if "You just answered a question about this project" in user:
+                return json.dumps({"final": "nothing worth remembering"})
             if "Plan the work as small SPRINTS" in user or "Plan ONE feature" in user:
                 return json.dumps({"sprints": [{"name": "implementation", "kind": "backend", "goal": (task or {}).get("goal", "do it"), "files": sorted(files),
                                                 "acceptance": [{"id": "A1", "text": "the goal works and the tests pass"}]}]})

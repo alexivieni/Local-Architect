@@ -62,5 +62,6 @@ python architect_hub.py              # the hub (or START_HUB.bat)
 A comment in the code that cites "CLAUDE.md, <section>" means the section of that name in the page above.
 
 ## Open issues (known, not fixed)
-- None open. The last one (the escalation fallback ignored `role_hosts`) was fixed on 2026-11-09: see docs/claude/decisions.md,
-  "Tech-debt Phase 1 (second audit)".
+- `new` under the default settings drops template files the writer refuses (empty `__init__.py`; `.csv`/`.log` samples), so 10 of 46 templates come out incomplete and
+  `log_analyzer` ships a failing test: docs/claude/decisions.md, "Eval families for the flows that had none" (2026-11-17). Found by the `new` eval family; not fixed.
+- (The last earlier one, the escalation fallback ignoring `role_hosts`, was fixed on 2026-11-09: see docs/claude/decisions.md, "Tech-debt Phase 1 (second audit)".)
