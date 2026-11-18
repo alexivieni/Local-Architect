@@ -66,7 +66,7 @@ def run():
         check("stream_chat default sends the setting (not 30m)", sent[-1].get("keep_alive") == "45s", str(sent[-1]))
         src = open(core.__file__, encoding="utf-8").read()
         check("Engine chat calls pass the setting, not limits.keep_alive",
-              'lim["keep_alive"]' not in src and src.count("self._ka(), timeouts()") == 4)
+              'lim["keep_alive"]' not in src and src.count("self._ka(), timeouts()") == 5)      # 5: + the call that answers a refused Claude request locally
 
         # 2. end of run: unload only what THIS run loaded through Ollama, not while another job holds the lock
         unloaded = []

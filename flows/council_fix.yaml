@@ -42,7 +42,7 @@ steps:
     context: {always: ["ctx:scope"], max_always: 3, query: "{goal}"}
     apply: {deny: ["{repro_path}", "tests/", "conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml"]}
     verify: {gate: verify_files, run_tests: true}
-    loop: {max: 2, coach: true}
+    loop: {max: 2, coach: true, escalate: []}      # explicitly none: the council below is the escalation (and it needs all three heavy calls)
     rollback_on_fail: true
     on_fail: continue
     budget: {tokens: 80000, seconds: 900}

@@ -123,6 +123,8 @@ DEFAULTS = {
     "skills": {"enabled": True, "max": 2, "budget": 4000, "min_score": 1.5},
     "memory": {"prompt_chars": 1800, "top_lines": 12, "max_lines": 400, "prune_after": 5},   # arch_memory.py: what the app has learned about a project, and how much of it rides along in every prompt
     "eval": {"pass_rate_drop": 5.0, "tokens_p50_rise_pct": 25.0, "secs_p95_rise_pct": 40.0},   # arch_eval.py: what counts as a regression when one benchmark run is compared with another   # arch_skills.py: short Markdown notes on how this project does things, loaded only for the tasks they apply to
+    "markets": {"fee_bps": 5.0, "slippage_bps": 5.0, "oos_share": 0.3, "min_trades": 20, "dsr_min": 0.95, "periods_per_year": 252, "sens_pct": 0.2,
+                "sens_min_share": 0.75, "leak_tol": 1e-9, "timeout": 180, "synthetic_bars": 2000, "leak_tail": 3000, "max_variants": 12},   # markets_gates.py: the strategy-audit gates (must equal markets_gates.DEFAULTS; a selftest holds them equal)
     "online": {"enabled": False, "allow_pip": False, "cloud_tier": "off", "cloud_model": "claude:claude-opus-5-5",
                "cloud_cache": True, "cloud_cache_ttl": "5m", "cloud_fast": False,      # arch_cloud.py: local cache of Claude replies (30 days); Anthropic prompt-cache lifetime 5m | 1h
                "ultra_worker": "claude:claude-sonnet-5-5", "ultra_skeptic": "claude:claude-haiku-5-5"},   # ultracode helpers; the lead stays on the chosen model   # the ONE switch for anything that leaves this machine on the harness's own behalf (catalog verify, Hugging Face facts, pip repairs). Off = the app behaves identically with no network at all.
@@ -295,15 +297,17 @@ def stream_chat(model, messages, options=None, think=None, keep_alive=None, time
 # ----------------------------------------------------------------------------------------------
 # Safe files
 # ----------------------------------------------------------------------------------------------
-def safe_path(root, rel, cfg):
-    """-> absolute path inside root, or raises ValueError with a plain-language reason (an extension may refuse more: check_path)."""
-    full = _base_safe_path(root, rel, cfg)
+def safe_path(root, rel, cfg, trusted=False):
+    """-> absolute path inside root, or raises ValueError with a plain-language reason (an extension may refuse more: check_path).
+    trusted=True is for files the PRODUCT ships (a project template), never for model output: it skips only the enabled-file-types list; the
+    path, protected-folder, settings-file and symlink checks and the extensions' own check_path all still apply."""
+    full = _base_safe_path(root, rel, cfg, trusted)
     for h in ext_hooks("check_path"):
         h(root, full, cfg)
     return full
 
 
-def _base_safe_path(root, rel, cfg):
+def _base_safe_path(root, rel, cfg, trusted=False):
     """-> absolute path inside root, or raises ValueError with a plain-language reason."""
     rel = (rel or "").strip().strip("`'\"").replace("\\", "/")
     if not rel or rel.startswith("/") or re.match(r"^[A-Za-z]:", rel) or "\0" in rel:
@@ -317,7 +321,7 @@ def _base_safe_path(root, rel, cfg):
     if parts[-1] in PROTECTED_FILES or parts[-1].startswith("architect_config"):
         raise ValueError(f"'{rel}': the Architect's own settings are protected")
     ext = os.path.splitext(parts[-1])[1].lower()
-    if ext not in set(cfg["files"]["extensions"]) and parts[-1] not in ("Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".editorconfig", ".env.example"):
+    if not trusted and ext not in set(cfg["files"]["extensions"]) and parts[-1] not in ("Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".editorconfig", ".env.example"):
         raise ValueError(f"'{rel}': file type {ext or '(none)'} is not enabled (Settings > Files)")
     full = os.path.abspath(os.path.join(root, *parts))
     if os.path.commonpath([os.path.abspath(root), full]) != os.path.abspath(root):
@@ -907,7 +911,7 @@ def prepare_block(root, cfg, b):
         res["msg"] = "reply was cut off in the middle of this block; send one smaller change"
         return res
     try:
-        full = safe_path(root, b["path"], cfg)
+        full = safe_path(root, b["path"], cfg, bool(b.get("trusted")))
     except ValueError as e:
         res["msg"] = str(e)
         return res
@@ -919,7 +923,7 @@ def prepare_block(root, cfg, b):
         old, crlf = read_text(full)
     if b["kind"] == "file":
         new = b["code"]
-        if not new.strip():
+        if not new.strip() and not b.get("trusted"):          # a template may ship an empty __init__.py; a model's empty FILE block is still refused
             res["msg"] = "empty file content"
             return res
     elif b["kind"] == "def":
@@ -1730,11 +1734,12 @@ class Engine:
             arch_cloud.note_role(role)
         return m
 
-    def _model_for(self, role):
+    def _model_for(self, role, allow_cloud=True):
         if self.pins.get(role):
             return self.pins[role]
         ct = (self.cfg.get("online") or {}).get("cloud_tier")
-        if role != "router" and ct in ("all", "plan"):
+        # allow_cloud=False, or a role Claude already refused this run (a refusal is billed, so it is not asked twice): the local answer only
+        if allow_cloud and role not in self.__dict__.get("cloud_refused_roles", ()) and role != "router" and ct in ("all", "plan"):
             import arch_cloud
             if ct == "all" or role in arch_cloud.PLAN_ROLES:                     # plan = only the thinking roles; the rest stays local
                 if arch_cloud.mode(self.cfg) == ct:                              # Settings > Online > Use Claude = all / plan
@@ -2068,6 +2073,28 @@ class Engine:
             try:
                 return stream_chat(cur["model"], msgs, options, th, self._ka(), timeouts(), fmt, on_token=tok, host=cur["host"])
             except LLMError as ex:
+                if getattr(ex, "cloud_refused", False) and str(cur["model"]).startswith("claude:"):
+                    # Claude declined: answer THIS call with the role's own local model, and keep the role local for the rest of the run (a refusal
+                    # is billed, and the same request would be declined again). The reply is a local model's, so it is ordinary local work.
+                    try:
+                        local = self._model_for(role, allow_cloud=False)
+                    except LLMError:
+                        local = ""
+                    if local and not str(local).startswith("claude:"):
+                        self.__dict__.setdefault("cloud_refused_roles", set()).add(role)
+                        self.say(f"[!] Claude declined this request; {role} answers it with {local} here, and stays on {local} for the rest of this run")
+                        self.report(f"- Claude declined a `{role}` request: answered by the local model `{local}`; `{role}` stays local for this run.")
+                        cur.update(model=local, host=None, name=None)
+                        with self._lock:
+                            self._bring_back(local, allow=1)
+                            self._make_room(local)
+                        mo_loc = self._model_override(local)
+                        options["num_ctx"] = max(int(mo_loc.get("num_ctx", lim["num_ctx"])), self.ctx_floor.get(local, 0))
+                        est_loc = arch_tune.estimate_tokens(prompt_chars, arch_tune.cpt_for(self.stats, local))
+                        options["num_predict"] = arch_tune.clamp_num_predict(options["num_ctx"], est_loc, options["num_predict"])[0]
+                        self._note_ollama(local, None)
+                        return stream_chat(local, msgs, options, th, self._ka(), timeouts(), fmt, on_token=tok)
+                    raise
                 big = self.pins.get(role)
                 if big and cur["model"] == big:
                     # the larger model a stalled step was handed to could not answer (still loading beside the resident worker, or no
@@ -2939,18 +2966,18 @@ class Engine:
         except Exception as _swx:
             _tel_swallow("core.tools_changed", _swx)
 
-    def put_file(self, rel, text, label="", quiet=False):
+    def put_file(self, rel, text, label="", quiet=False, trusted=False):
         """Write a whole (document) file through the same safety + review path as model edits.
         An engine with an owned-file list refuses anything else (returns False)."""
         if not self._owned(rel):
             self.say(f"[-] refused: {rel} is not owned by this agent")
             return False
-        return self._put_file(rel, text, label, quiet)
+        return self._put_file(rel, text, label, quiet, trusted)
 
-    def _put_file(self, rel, text, label="", quiet=False):
+    def _put_file(self, rel, text, label="", quiet=False, trusted=False):
         """put_file without the ownership check (see put_file).
         quiet=True: no diff and no per-file question (the caller already got approval for the whole set)."""
-        p = prepare_block(self.root, self.cfg, {"kind": "file", "path": rel, "code": text.rstrip("\n") + "\n"})
+        p = prepare_block(self.root, self.cfg, {"kind": "file", "path": rel, "code": text.rstrip("\n") + "\n", "trusted": trusted})
         if p["status"] == "ok":
             p = self._commit(p, quiet)
         else:

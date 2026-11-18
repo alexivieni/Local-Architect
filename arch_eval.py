@@ -797,6 +797,8 @@ def start_oracle(tasks, wrong=False):
                 return orc.get("crosscheck") or "## Kept\n## Dropped\n- nothing\n"
             if "PROVE the ones marked" in user:
                 return _file_blocks(orc.get("hunt") or {})
+            if orc.get("bad_role") == role and orc.get("bad_always"):                              # a model that ruins the file on EVERY try (proves a failed try is undone)
+                return _file_blocks(orc["bad_always"])
             if "Fix this bug with the smallest correct change." in user and orc.get("bad_fix"):      # council_fix: a local try that fixes nothing, so the council is reached
                 return _file_blocks(orc["bad_fix"])
             if role == "evaluator":
@@ -805,6 +807,8 @@ def start_oracle(tasks, wrong=False):
                 if orc.get("tool") and "WHAT YOU HAVE DONE SO FAR" not in user:
                     return json.dumps({"tool": orc["tool"], "args": orc.get("tool_args") or {}})
                 return json.dumps({"final": orc.get("answer") or "nothing found"})
+            if "MATCHES FOUND BY CODE:" in user:                                                      # the ioc flow: the analyst explains matches code already made
+                return orc.get("ioc_notes") or "- nothing to explain"
             if "You just answered a question about this project" in user:
                 return json.dumps({"final": "nothing worth remembering"})
             if "Plan the work as small SPRINTS" in user or "Plan ONE feature" in user:

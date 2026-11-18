@@ -29,6 +29,7 @@ steps:
     context: {always: ["ctx:scope"], max_always: 4}
     verify: {gate: harden_fewer, run_tests: true}
     loop: {max: 3, coach: true, escalate: [heavy]}
+    rollback_on_fail: true            # a failed try is undone: the next starts from the original, never from a gutted file (seen live, 2026-11-17)
     on_fail: continue
     budget: {tokens: 110000, seconds: 1300}
 

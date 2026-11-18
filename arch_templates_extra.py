@@ -160,6 +160,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(data)
 
@@ -171,16 +173,19 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path != "/call":
-            return self._send(404, {"error": "not found"})
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
+            self.close_connection = True
             return self._send(400, {"error": "bad Content-Length"})
         if length > MAX_BODY:
+            self.close_connection = True
             return self._send(413, {"error": f"body larger than {MAX_BODY} bytes"})
+        raw = self.rfile.read(length) if length > 0 else b""   # ALWAYS read the body before answering: replying with it unread can reset the connection (seen on Windows)
+        if self.path != "/call":
+            return self._send(404, {"error": "not found"})
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(raw or b"{}")
         except ValueError:
             return self._send(400, {"error": "body is not JSON"})
         if not isinstance(body, dict) or not isinstance(body.get("name"), str):
@@ -323,6 +328,8 @@ def test_refusals_over_real_http(base):
     assert code == 422 and out["error"] == "missing argument 'b'"
     assert post(url + "/call", {"arguments": {}})[0] == 400
     assert post(url + "/elsewhere", {})[0] == 404
+    for _ in range(20):          # a refusal that leaves the request body unread resets the connection on some systems: a few KB, many times, makes that show
+        assert post(url + "/elsewhere", {"padding": "x" * 8000})[0] == 404
 '''
 
 _t('tool_server', 'Local tool server (HTTP, typed tools)',

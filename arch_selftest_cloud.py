@@ -241,6 +241,39 @@ def run():
               all(p in paths and in_defaults(p) for p in new) and core.DEFAULTS["online"]["cloud_cache"] is True
               and core.DEFAULTS["online"]["cloud_cache_ttl"] == "auto" and core.DEFAULTS["limits"]["cloud_usd_per_day"] == 5.0
               and core.DEFAULTS["online"]["ultra_skeptic"] == "claude:claude-haiku-5-5", [p for p in new if p not in paths or not in_defaults(p)])
+        # ---- 7. Claude declines a request: the same call is answered by the role's own local model, the role stays local for the run, nothing is faked
+        reset()
+        rr = tempfile.mkdtemp(prefix="rf_", dir=home)
+        rc = core.load_config(rr)
+        rc["online"] = dict(rc["online"], enabled=True, cloud_tier="plan", cloud_model="claude:claude-opus-5-5", cloud_cache=False)
+        rc["tiers"] = dict(rc["tiers"], worker="w:4b", router="r:1b", heavy="w:4b")
+        rc["roles"] = {r: "" for r in rc["roles"]}
+        rc["limits"] = dict(rc["limits"], cloud_usd_per_run=50, cloud_usd_per_day=1000)
+        refused_client, sent_to = _FakeClient(stop="refusal"), []
+
+        def fake_stream_chat(model, messages, options=None, think=None, keep_alive=None, timeout=900, fmt=None, on_token=None, host=None):
+            sent_to.append(model)
+            if str(model).startswith("claude:"):          # the REAL refusal path, with the suite's fake client (no network, no key)
+                return arch_cloud.chat(model, messages, cfg=rc, client=refused_client)
+            return {"text": "local answer", "thinking": "", "tok_s": 50.0, "gen_tokens": 5, "prompt_tokens": 20, "cached_tokens": 0,
+                    "done_reason": "stop", "prefill_tok_s": None, "load_s": None, "transport": "fake"}
+        real_stream, real_installed = core.stream_chat, core.list_models
+        core.stream_chat, core.list_models = fake_stream_chat, (lambda *a, **k: ["w:4b", "r:1b"])
+        try:
+            e2 = core.Engine(rr, "x", "g", rc, review="auto", say=lambda m: None, persist=False)
+            e2.cfg = rc
+            e2._make_room, e2._bring_back = (lambda *a, **k: None), (lambda *a, **k: None)
+            first = e2.call("planner", "plan something")
+            second = e2.call("planner", "plan something else")
+            check("a refused Claude call is answered by the role's local model (not an error, not Claude's text)",
+                  first["text"] == "local answer" and first["model"] == "w:4b" and sent_to[:2] == ["claude:claude-opus-5-5", "w:4b"], (first.get("text"), first.get("model"), sent_to))
+            check("after a refusal the role stays local for the run (a refusal is billed: Claude is not asked again), other roles are unaffected",
+                  second["model"] == "w:4b" and sent_to.count("claude:claude-opus-5-5") == 1 and "planner" in e2.cloud_refused_roles
+                  and e2.model_for("reviewer") == "claude:claude-opus-5-5", (sent_to, getattr(e2, "cloud_refused_roles", None)))
+            check("CloudRefused is still an LLMError (could not run, never an answer) and carries the flag the engine reads to fall back",
+                  issubclass(arch_cloud.CloudRefused, core.LLMError) and getattr(arch_cloud.CloudRefused("x"), "cloud_refused", False))
+        finally:
+            core.stream_chat, core.list_models = real_stream, real_installed
     finally:
         reset()
         core.set_home(old_home)

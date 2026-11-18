@@ -603,9 +603,10 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
      scope gate raised `AttributeError` on any finding; and the attack-path gate read the cited ids from `findings`/`evidence` while its own prompt asks for `finding_ids`, so a path
      citing an invented finding was never refused. Both fixed in `arch_gates.py` (argument order; `finding_ids` also read), with a regression test in `arch_selftest_eval`. They only ran
      under `flows.engine = data`: by default the Python `PentestFlow` runs and was fine.
-  2. **Open, not fixed:** `new` under the default settings silently drops template files the writer refuses: an empty `__init__.py` (rest_api, fullstack, data_sql, fastapi) and `.csv`/`.log`
-     samples ("file type is not enabled": etl_pipeline, data_cleaner, log_analyzer, ml_train, pdf_report, security_lab). `log_analyzer` then ships a failing test of its own. The `new`
-     family leaves those templates out (named in its source) rather than hide it. The choice (let the scaffold write its own files, or enable the types) is the person's.
+  2. **Fixed the same day:** `new` under the default settings silently dropped template files the writer refused: an empty `__init__.py` (rest_api, fullstack, data_sql, fastapi) and
+     `.csv`/`.log` samples ("file type is not enabled": etl_pipeline, data_cleaner, log_analyzer, ml_train, pdf_report, security_lab); `log_analyzer` then shipped a failing test of its own.
+     The scaffold now writes with `put_file(..., trusted=True)`: it skips only the enabled-file-types list and the empty-file refusal, for files the PRODUCT ships. A model's `.csv` or empty
+     FILE block is still refused, and a trusted write still cannot leave the project, enter a protected folder, touch the settings file or follow a symlink (all proven in `arch_selftest_eval`).
   3. By default `optimize`, `ml`, `new` and `pentest` run their Python classes; their YAML runs only with `flows.engine = data`. The families measure the default path.
 - **Batch 3, flows built from other flows or from a tool loop (YAML-backed, `ship` Python-backed):** `council_fix` (odd tasks make the scripted local fix fail, so the
   council step is reached; the tests still decide), `plan_local_build`, `scout_then_build` (the `feature` tasks, so the scout has a project to read; the scout's own trace is
@@ -621,3 +622,50 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   new family still generates for the right flow, ids are unique, a scan-backed goal names a file its fixture has, an untouched fixture fails a judge that could run.
 - **A weakness left alone in `build` (its baselines must not move):** the `cart` build task's hidden check never tests the accumulation its goal asks for and uses a 50% discount,
   which is the same either way round, so both planted cart bugs pass it. `plan_local_build` and `ship` use `_scanbank.build_hidden`, which adds the two checks for `cart`.
+
+## Follow-ups on the eval families (2026-11-17, same day)
+- **`arch_selftest_ourtasks` was asserting something about the person's data** (more than 20 kept messages and 4 intents in their real transcripts). That changes with how they write
+  (pasted blocks are dropped), so it failed in the real folder and passed in a clean checkout. It now asserts what must hold on ANY data: kept <= string messages <= entries, every
+  intent count within the kept messages, nothing secret-looking kept.
+- **The scaffold writes its own files** (see "Eval families", item 2): `put_file(..., trusted=True)`.
+- **Both engines are measured.** `optimize`, `ml`, `new` and `pentest` also pass with `flows.engine = data` (a throwaway home whose `architect_config.json` says `{"flows": {"engine": "data"}}`,
+  then `eval --fake --flow optimize,ml,new,pentest`). The pentest family holds both implementations to the same facts (their reports differ in form).
+- **`markets.*` settings** are in `arch_core.DEFAULTS` and the settings schema (`arch_params`, group "Markets (strategy audits)"), with the gates' own ranges; `arch_selftest_markets` holds the three
+  (gate defaults, config defaults, schema) equal, so they cannot drift. The Markets hub page and on/off switch are still slice M2 and wait for a yes.
+- **A refused Claude call falls back to the role's local model.** `arch_cloud` raises `CloudRefused` (still an `LLMError`); `Engine._call` answers THAT call with the role's own local model
+  (`_model_for(role, allow_cloud=False)`), says so in the run report, and keeps the role local for the rest of the run (`cloud_refused_roles`): a refusal is billed and the same request would be
+  declined again. Other roles are unaffected. With no local model to fall back on it is still "could not run". Proven with the suite's fake client (no network, no key).
+- **The 21 roles named in no flow file are not dead.** `tools/role_coverage.py` lists, per role, its flows, its agent profile (`agents/*.md`) and its job (`arch_jobs.JOBS`, where models are chosen per job
+  by measurement): none has no use at all. Only five have neither a flow nor an agent profile (`architect_dev`, `iot_dev`, `market_data_engineer`, `protocol_engineer`, `pentester`); that set is a ratchet in
+  `arch_selftest_eval` and may only shrink. Nothing was retired: a role you may have assigned a model to is yours.
+- **The `ioc` flow (the 32nd).** `iocs.txt`/`iocs.json` against evidence you name (or `evidence/`): the match is exact and made by code (`arch_ioc.py`: IP, CIDR, domain and its subdomains but not `notevil.x` or
+  `evil.x.example.com`, file hashes in any case plus each evidence file's own md5/sha1/sha256, URLs, defanged forms read normally); the `ioc_analyst` only explains each code-found match, cited by id, and the
+  `ioc_cited` gate refuses an id that is not a match, a match with no note, or an indicator the evidence does not hold. No socket is opened (proven). Zero matches is an answer, not a failure. Eval family `ioc`;
+  `arch_selftest_ioc`. A bug found while hand-counting the family's expected matches: the domain pattern accepted `evil.x.example.com` as a match for `evil.x`.
+- **First live run on the 8B worker (2026-11-17) found three things, all fixed:**
+  1. *A failed fix left the project damaged.* On `document` the model replaced every function body with a docstring-only stub; the gates correctly said fail, but the five scan-fix flows
+     (`harden`, `types`, `a11y`, `document`, `migrate`) had no `rollback_on_fail`, so the gutted file stayed (and the next try built on it). They now undo a failed try like `bugfix`,
+     `council_fix` and `optimize`. Proven by `arch_selftest_eval`: a scripted model that ruins the file on every try leaves it byte-identical (and the same test FAILS with rollback off).
+  2. *The Python `PentestFlow` refused hosts that were in scope.* It compared the model's host with the scope entries as strings, so `10.20.0.7` inside `10.20.0.0/24` was refused three
+     times and the run stopped. It now uses `arch_pentest.in_scope` (CIDR-aware, honours `excluded`) and asks for ONE host; outside, excluded and list-of-hosts answers are still refused (tested).
+  3. *My `explore` judge was stricter than the question.* It demanded a function name the question itself gave and a tool call, and failed a correct answer. It now demands only the facts
+     asked for. Measured on the worker: 3 of 4 then 5 of 7 tasks passed on the first pass; `explore` takes about 8 minutes per question because its role (architect) runs on the heavy MoE model.
+  4. *`council_fix`'s local tries escalated on their own.* `Coach.after()` hands a stalled step to the next larger model (the engine-wide `behavior.escalate = stalled`) whatever the step's
+     `loop.escalate` says, so the flow's "local tries only, the council is the escalation" was not true: `fix-try3` ran on the 13 GB MoE (7 minutes), used one of the flow's three heavy
+     calls, and the council's third candidate was refused and died in its thread as a raw traceback. `loop: {escalate: []}` now means "none here" (absent = the engine's default, so no other
+     flow changes), `council_fix` sets it, and a candidate the budget or the model refuses is said in the run and skipped. Tested (Coach with and without; a refused candidate 3).
+  5. *Not changed, a tuning question for the person:* `ml` failed live because every reply ended `done=length`: `ml_engineer` and `planner` are `think=True`, and on the 8B worker and the MoE
+     the reasoning used the whole token allowance (10,000 characters of `<think>`, or nothing at all) before any `FILE:` block. The code-writing roles (`generator`, `type_engineer`, `docs_writer`,
+     `reliability_engineer`...) are `think=False` and finished in 10-30 s; `optimizer` is `think=True` and also passed (34 s), so this is not every thinking role. One task each; set
+     `ml_engineer` to `think=False`, or raise the reply budget for thinking roles, only after more runs. Also: `explore` (architect, on the MoE) took ~8 minutes per question, and on this
+     laptop the MoE is 0% on the GPU at an 8192 window (about 7 minutes per heavy call), so a council costs ~20 minutes here.
+  Live totals on the 8B worker, one task per family (the first pass of each; two judges and three flow defects were fixed between passes): ioc, a11y, deps, harden, migrate, types, new, explore,
+  document, pentest, optimize passed; council_fix, fanout_review (the model found the file but could not write a test that fails) and ml (thinking budget) did not. Not run live: plan_local_build,
+  scout_then_build, ship (a plan by the MoE alone is about 20 minutes).
+- **Full suite after all of this: two failures, handled honestly.** (a) `arch_selftest_ollamaidle` counts the engine's chat calls that pass the keep-alive setting (it expected exactly 4); the
+  refusal fallback is a fifth, and it passes the setting, so the count is now 5. (b) `arch_selftest_templates_catalog` failed twice on `tool_server`'s own test
+  (`test_refusals_over_real_http`, `ConnectionAborted`) while six suites ran side by side, then passed alone. It could NOT be reproduced afterwards: 25 runs of the template's tests, and 480
+  hostile POSTs (60 KB bodies, 8 threads) at an unknown path, gave no error on the old or the new handler. The template's `do_POST` did answer an unknown path (and a bad or huge length) before
+  reading the body, which can reset a connection on some systems, so it now reads the body first and sets `Connection: close` when it refuses without reading; the template test hits
+  that path 20 times with 8 KB bodies. That is HARDENING, not a proven fix for the failure seen: if it comes back under load, look at the machine (six suites plus a resident model server)
+  before the template.

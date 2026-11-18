@@ -1,6 +1,6 @@
 # Architect
 
-A local, offline agentic engineering team: 49 roles and 31 flows (every one a YAML file under `flows/`, `explore` being the tool loop; counted 2026-11-07), four model tiers on a resident local server (llama-server, Ollama as the fallback), run by the models on this machine. Python standard library only; no cloud
+A local, offline agentic engineering team: 49 roles and 32 flows (every one a YAML file under `flows/`, `explore` being the tool loop; counted 2026-11-07), four model tiers on a resident local server (llama-server, Ollama as the fallback), run by the models on this machine. Python standard library only; no cloud
 model on the default path (Claude is an optional tier behind `arch_cloud.allowed()`), no OpenAI-style endpoint. Code decides what passes (tests, AST checks, the verifier, the fake-code gate); a model's verdict is re-validated in code.
 
 ## Never break these (details: docs/claude/rules.md)
@@ -62,6 +62,5 @@ python architect_hub.py              # the hub (or START_HUB.bat)
 A comment in the code that cites "CLAUDE.md, <section>" means the section of that name in the page above.
 
 ## Open issues (known, not fixed)
-- `new` under the default settings drops template files the writer refuses (empty `__init__.py`; `.csv`/`.log` samples), so 10 of 46 templates come out incomplete and
-  `log_analyzer` ships a failing test: docs/claude/decisions.md, "Eval families for the flows that had none" (2026-11-17). Found by the `new` eval family; not fixed.
-- (The last earlier one, the escalation fallback ignoring `role_hosts`, was fixed on 2026-11-09: see docs/claude/decisions.md, "Tech-debt Phase 1 (second audit)".)
+- None open. (Found by the `new` eval family and fixed on 2026-11-17: the scaffold lost template files the writer refused; see docs/claude/decisions.md, "Eval families for the flows that had none".
+  The last earlier one, the escalation fallback ignoring `role_hosts`, was fixed on 2026-11-09: see docs/claude/decisions.md, "Tech-debt Phase 1 (second audit)".)

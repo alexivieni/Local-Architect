@@ -408,9 +408,11 @@ class PentestFlow(Flow):
                 continue
             ids = {f["id"] for f in findings}
             bad = next((it for it in items if not isinstance(it, dict) or any(i not in ids for i in (it.get("finding_ids") or []))
-                        or it.get("host") not in [h for h in hosts] or not (it.get("steps") and it.get("impact"))), None)
+                        or not isinstance(it.get("host"), str) or not pt.in_scope(scope, it.get("host")) or not (it.get("steps") and it.get("impact"))), None)
             if bad:
-                feedback = f"FEEDBACK: every item must cite only given finding ids, name only an authorized host, and include steps + impact. Rejected: {json.dumps(bad)[:300]}\n\n"
+                # in_scope, not "is one of the listed strings": a host INSIDE an authorized range (10.20.0.7 in 10.20.0.0/24) is authorized, an excluded one is not
+                feedback = (f"FEEDBACK: every item must cite only given finding ids, name ONE authorized host (a single address or name from the scope, not a list), and include "
+                            f"steps + impact. Rejected: {json.dumps(bad)[:300]}\n\n")
                 e.mark(r["id"], False, feedback)
                 continue
             e.mark(r["id"], True, f"{len(items)} attack path(s), all scope-checked")

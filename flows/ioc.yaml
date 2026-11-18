@@ -1,0 +1,50 @@
+id: ioc
+title: Indicator match
+kind: direct
+blurb: "Matches an indicator list YOU supply (IPs, CIDRs, domains, URLs, file hashes in iocs.txt or iocs.json) against evidence YOU supply (log lines, and the hashes of the files themselves). The match is exact and made by code; the analyst only explains each match that code found, citing it by id, and a cited id or indicator the evidence does not hold is refused. Nothing is looked up online and no host is contacted."
+domains: [security]
+produces: ["docs/ioc_report.md"]
+uses_roles: [ioc_analyst]
+budget: {calls: 6, tokens: 60000, seconds: 900}
+steps:
+  - id: match
+    kind: code
+    title: "Match the indicators against the evidence, with code"
+    gate: ioc_match
+    on_fail: stop
+
+  - id: triage
+    kind: generate
+    title: "Explain each match (cite it by id; invent nothing)"
+    role: ioc_analyst
+    tier: worker
+    prompt: triage
+    when: "match.hits > 0"
+    vars: {matches: "{hits_text}"}
+    apply: null
+    store_text: reply
+    verify: {gate: ioc_cited}
+    loop: {max: 3, coach: false}
+    on_fail: stop
+    budget: {tokens: 40000, seconds: 600}
+
+  - id: write
+    kind: report
+    title: "Write docs/ioc_report.md"
+    path: docs/ioc_report.md
+    label: indicator report
+    template: |
+      # Indicator match
+
+      Indicators: {match.indicators} (from {ioc_file}); evidence files: {ioc_files}
+
+      ## Matches found by code: {match.hits}
+
+      {hits_text}
+
+      ## Analyst notes
+
+      {reply}
+
+verdict:
+  pass_if: "match.ok and (match.hits == 0 or triage.ok) and write.ok"

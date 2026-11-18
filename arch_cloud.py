@@ -581,6 +581,12 @@ def _mutate(fn):
             return res, _write_spend(d)
 
 
+class CloudRefused(LLMError):
+    """Claude answered with stop_reason 'refusal'. Still an LLMError (could not run, never an answer); the engine reads `cloud_refused` to answer the
+    same call with the role's own local model instead (arch_core, Engine._call)."""
+    cloud_refused = True
+
+
 class SpendRefused(LLMError, RuntimeError):
     """A cap would be passed: refused before any money moves. Is an LLMError (could not run) and a RuntimeError (the hub's 'refused')."""
 
@@ -949,7 +955,7 @@ def chat(model, messages, options=None, think=None, keep_alive=None, timeout=900
     usd = _so_far()
     _release(usd)
     if stop == "refusal":                                            # a refusal is still billed for its tokens
-        raise LLMError("Claude declined this request (refusal); treated as could-not-run, not as an answer")
+        raise CloudRefused("Claude declined this request (refusal); treated as could-not-run, not as an answer")
     _SPENT["calls"] += 1
     if ckey and stop != "max_tokens" and text:                      # a cut-off reply is never kept
         _cache_put(ckey, {"t": time.time(), "model": api_model(model), "effort": eff, "text": "".join(text),

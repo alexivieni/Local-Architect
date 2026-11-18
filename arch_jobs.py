@@ -25,7 +25,7 @@ JOBS = {
     "test":     {"roles": ["tester", "test_author"], "families": ["test"], "prior_calls": 3},
     "fix":      {"roles": ["bug_hunter", "optimizer", "reliability_engineer", "type_engineer", "debugger", "refactorer", "perf_tuner"], "families": ["bugfix", "hunt", "refactor"], "prior_calls": 4},
     "review":   {"roles": ["reviewer", "evaluator", "architect_dev", "ux_reviewer", "backtest_auditor"], "families": ["review"], "prior_calls": 3},
-    "security": {"roles": ["security_engineer", "red_team", "blue_team", "pentester", "ioc_analyst"], "families": ["secure", "refusal"], "prior_calls": 2},
+    "security": {"roles": ["security_engineer", "red_team", "blue_team", "pentester", "ioc_analyst"], "families": ["secure", "refusal", "ioc", "pentest"], "prior_calls": 2},
     "infra":    {"roles": ["network_engineer", "ml_engineer", "config_engineer", "ci_engineer", "protocol_engineer", "iot_dev", "dependency_engineer", "dependency_auditor", "release_manager", "incident_responder"],
                  "families": ["cicd", "config", "network", "distributed"], "prior_calls": 2},
     "docs":     {"roles": ["docs_writer", "explainer", "summarizer"], "families": [], "prior_calls": 1},       # no docs eval family exists yet: never measured, never suggested

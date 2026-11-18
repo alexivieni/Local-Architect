@@ -448,7 +448,8 @@ class DataFlow:
         coach = None
         if loop and loop.get("coach", True):
             import arch_progress
-            coach = arch_progress.Coach(e, role)
+            # `loop: {escalate: []}` (the key present and empty) = no escalation in this step: the flow has its own (council_fix's council). Absent = the engine's default.
+            coach = arch_progress.Coach(e, role, escalate=not ("escalate" in loop and not loop["escalate"]))
         feedback, changed_all, out = "", [], {"ok": False, "changed": [], "tries": 0}
         apply_spec = step.get("apply")
         verify_spec = step.get("verify") or {}
@@ -736,7 +737,12 @@ class DataFlow:
 
             def one(i):
                 r_, text_, kw_ = ask(i)
-                replies[i] = e.call(r_, text_, **kw_)
+                try:
+                    replies[i] = e.call(r_, text_, **kw_)
+                except (core.BudgetExceeded, core.LLMError) as ex:
+                    # a candidate the budget or the model refused: said in the run, not left to die in its thread as a raw traceback (seen live, council_fix)
+                    e.say(f"[best of {n}] candidate {i + 1} was not generated: {str(ex)[:140]}")
+                    e.report(f"- Candidate {i + 1} of {n} was not generated: {str(ex)[:160]}")
 
             def alone(i):                                # the one-after-another path, exactly as it has always run
                 t = threading.Thread(target=one, args=(i,))

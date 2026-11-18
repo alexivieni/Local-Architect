@@ -117,8 +117,9 @@ HINTS = {
 
 
 class Coach:
-    def __init__(self, e, role):
+    def __init__(self, e, role, escalate=True):
         self.e, self.role = e, role
+        self.can_escalate = escalate          # False: this step says "no escalation here" (a flow's own later step is the escalation); a stalled try gets the FRESH-ATTEMPT hint instead
         self.replies, self.fails, self.files = [], [], set()
         self.stalled, self.pinned, self.notified = 0, False, False
 
@@ -143,7 +144,7 @@ class Coach:
 
     def escalate(self):
         """Pin the role to the next larger owned model. -> its name, or None (with the reason said once)."""
-        if self.e.cfg["behavior"].get("escalate", "stalled") != "stalled":
+        if self.e.cfg["behavior"].get("escalate", "stalled") != "stalled" or not getattr(self, "can_escalate", True):
             return None
         if self.pinned:                                          # already on the heavy tier: the cloud tier is the one step left
             import arch_cloud

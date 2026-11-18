@@ -6,17 +6,19 @@ arch_flows_pro.py); flows/new.yaml only runs with flows.engine = data."""
 import _bank as B
 
 FLOW = "new"
-DEFAULT_N = 6
+DEFAULT_N = 9
 NAME = "demo_app"
 
 # (goal of at most 24 characters, template the code must pick, params that name it explicitly or {})
-# Left out ON PURPOSE, a product gap this family does not hide: under the default settings the writer refuses some template files (an empty
-# __init__.py: rest_api, fullstack, data_sql, fastapi; a .csv or .log sample, "file type is not enabled": etl_pipeline, data_cleaner,
-# log_analyzer, ml_train, pdf_report, security_lab), so those projects come out incomplete and log_analyzer's own test fails. See
-# docs/claude/decisions.md, 2026-11-17. Once the scaffold writes its own files, add them here.
+# These three used to be left out: under the default settings the writer refused template files it ships itself (an empty __init__.py in
+# rest_api; a .csv or .log sample, "file type is not enabled", in etl_pipeline and log_analyzer), so those projects came out incomplete and
+# log_analyzer's own test failed. The scaffold now writes its own files (put_file trusted=True), and these tasks keep it that way.
 CASES = [
     ("a python library", "python_lib", {}),
     ("a CLI tool", "cli_tool", {}),
+    ("a REST API", "rest_api", {}),
+    ("an ETL pipeline", "etl_pipeline", {}),
+    ("a log analyzer", "log_analyzer", {}),
     ("a cache with TTL", "cache_layer", {}),
     ("a state machine", "state_machine", {}),
     ("an event bus", "event_bus", {}),

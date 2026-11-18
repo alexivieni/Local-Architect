@@ -32,7 +32,7 @@ pays (fee + slippage) bps. Costs of zero are refused.
 
 Defaults live in `markets_gates.DEFAULTS` and can be overridden per step or by a `markets` section in the config (`fee_bps`, `slippage_bps`,
 `oos_share`, `min_trades`, `dsr_min`, ...). They are placeholders: set what you really pay. A value that is not a number or is out of range (`oos_share` 5, `fee_bps` "abc") is refused by name and the gate answers
-"could not check" with that reason, never a silent default. There is no Settings page for them yet (slice M2). The trial ledger skips damaged lines but keeps the good ones (forgetting trials would flatter the result).
+"could not check" with that reason, never a silent default. They are in the settings schema (Markets (strategy audits)), held equal to `markets_gates.DEFAULTS` by `arch_selftest_markets`; the Markets hub page and its on/off switch are slice M2. The trial ledger skips damaged lines but keeps the good ones (forgetting trials would flatter the result).
 
 ## Defects versus verdicts (the rule that keeps a repair honest)
 `load` and `leak` are **defects in the code**; `costs`, `oos`, `trials` and `sensitivity` are **verdicts about the idea**. `backtest_fix` shows the model

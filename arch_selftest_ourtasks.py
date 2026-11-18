@@ -81,8 +81,13 @@ def run():
     check("intents cluster: cache, ui (message + run goal), gpu, add_command, add_tests",
           c["cache_more"] >= 1 and c["ui_clearer"] >= 2 and c["gpu_placement"] >= 1 and c["add_command"] >= 1 and c["add_tests"] >= 1, c)
     real = ot.mine()
-    check("the real transcripts (when present) give kept messages and several intents",
-          (real["messages_kept"] > 20 and sum(1 for v in real["intents"].values() if v["count"]) >= 4) or real["messages_seen"] == 0,
+    # What the person's real transcripts happen to hold (how many messages survive the filters, how many intents they voice) is a fact about
+    # their data and changes with how they write (pasted blocks are dropped), so it cannot be a pass/fail line. These hold on ANY data:
+    check("the real transcripts (when present) are read without error and the result is consistent: kept <= string messages <= entries, every intent count within the kept "
+          "messages, nothing that looks like a secret kept",
+          real["messages_seen"] == 0 or (0 <= real["messages_kept"] <= real["messages_string"] <= real["messages_seen"]
+                                         and all(0 <= v["count"] <= len(real["kept"]) for v in real["intents"].values())
+                                         and not any(re.search(r"sk-[A-Za-z0-9]{8}|api_key", k, re.I) for k in real["kept"])),
           {k: v["count"] for k, v in real["intents"].items()})
 
     print("\n== the tasks ==")

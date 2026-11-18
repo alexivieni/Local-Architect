@@ -56,7 +56,7 @@ def run():
                 verdicts = [E.JUDGES[j["type"]](proj, j, t, ctx) for j in t["judge"] if (j["type"] not in ("file_exists", "docs_structure") or which == "solution")
                             and j["type"] not in getattr(E, "TRACE_JUDGES", ())]   # a trace judge needs a run; arch_selftest_refusal proves it
                 ok = all(v[0] for v in verdicts)
-                if which == "solution" and not ok and t["family"] not in ("review", "design", "network", "hunt", "test", "deps", "pentest"):     # those need the flow's own output files
+                if which == "solution" and not ok and t["family"] not in ("review", "design", "network", "hunt", "test", "deps", "pentest", "ioc"):     # those need the flow's own output files
                     right_bad.append((t["id"], [v for v in verdicts if not v[0]]))
                 if which == "wrong" and ok and files:
                     wrong_ok.append(t["id"])
@@ -67,7 +67,7 @@ def run():
         # (a task whose starting state already passes proves nothing), and the scan judges must say "could run" about it
         untouched_ok = []
         for t in tasks:
-            if t["family"] not in ("harden", "typehints", "document", "a11y", "migrate", "deps", "optimize", "ml", "new", "pentest", "council_fix",
+            if t["family"] not in ("harden", "typehints", "document", "a11y", "migrate", "deps", "optimize", "ml", "new", "pentest", "ioc", "council_fix",
                                    "plan_local_build", "scout_then_build", "fanout_review", "ship") or t["kind"] != "flow":       # (explore: only a trace judge says anything)
                 continue
             proj = tempfile.mkdtemp(prefix="u_", dir=home)
@@ -86,7 +86,7 @@ def run():
 
         # ---- resilience of the new families: none may drop out unnoticed, ids stay unique, a goal names a file its fixture has, a scan cannot pass vacuously
         want = {"harden": "harden", "typehints": "types", "document": "document", "a11y": "a11y", "migrate": "migrate", "deps": "deps",
-                "optimize": "optimize", "ml": "ml", "new": "new", "pentest": "pentest", "council_fix": "council_fix", "plan_local_build": "plan_local_build",
+                "optimize": "optimize", "ml": "ml", "new": "new", "pentest": "pentest", "ioc": "ioc", "council_fix": "council_fix", "plan_local_build": "plan_local_build",
                 "scout_then_build": "scout_then_build", "explore": "explore", "fanout_review": "fanout_review", "ship": "ship"}
         got = {}
         for t in tasks:
@@ -105,6 +105,20 @@ def run():
               (("types", ["absent.py"]), ("docs", ["broken.py"]), ("harden", ["broken.py"]), ("a11y", ["absent.html"]), ("docs", ["ok.py"]))]
         check("scanner_zero never passes on a file it could not read or parse (missing, or a syntax error), and still passes a clean one",
               not any(v[0] for v in vs[:4]) and vs[4][0] and all(v[2] for v in vs), vs)
+
+        # ---- the `new` scaffold writes every file of every template (it used to lose an empty __init__.py and .csv/.log samples under the default settings),
+        # while what a MODEL writes is still held to the enabled file types, and a trusted write still cannot leave the project or touch the settings file
+        import arch_templates as _T
+        import arch_templates_more  # noqa: F401  (registers the extra templates)
+        tp = tempfile.mkdtemp(prefix="tpl_", dir=home)
+        tcfg = core.load_config(tp)
+        refused = [(tid, rel) for tid in _T.TEMPLATES for rel, text in _T.render(tid, "demo_app").items()
+                   if core.prepare_block(tp, tcfg, {"kind": "file", "path": rel, "code": text.rstrip("\n") + "\n", "trusted": True})["status"] not in ("ok", "identical")]
+        guards = [core.prepare_block(tp, tcfg, b)["status"] for b in (
+            {"kind": "file", "path": "x.csv", "code": "a\n"}, {"kind": "file", "path": "e.py", "code": "\n"},
+            {"kind": "file", "path": "../x.py", "code": "1\n", "trusted": True}, {"kind": "file", "path": "architect_config.json", "code": "{}\n", "trusted": True})]
+        check("every file of every template can be scaffolded; a model's .csv or empty file is still refused, and a trusted write cannot escape the project or touch the settings",
+              not refused and guards == ["error"] * 4, (refused[:3], guards))
 
         # ---- answer_mentions (explore, scout_then_build) reads the run's trace: a synthetic one, since the judge simulation above cannot run a trace judge
         def _trace(name, calls, tools):
@@ -129,6 +143,89 @@ def run():
               "the answer is the FIRST final (a later 'nothing worth remembering' is not it); no trace = could not run",
               r_ok[0] and r_ok[2] and not r_lack[0] and not r_forbid[0] and not r_blind[0] and not r_none[0] and all(r[2] for r in (r_lack, r_forbid, r_blind, r_none))
               and not r_notrace[0] and not r_notrace[2], (r_ok, r_lack, r_forbid, r_blind, r_none, r_notrace))
+
+        # ---- role coverage (tools/role_coverage.py): every role is used somewhere (a flow, an agent profile or a job), no job or fallback names a role that does not exist,
+        # and the roles with neither a flow nor an agent profile (live only as a job member, so a model can be assigned and measured but nothing calls them yet) are a
+        # known set that may only shrink: a new role must come with a flow or an agent profile
+        sys.path.insert(0, os.path.join(HERE, "tools"))
+        import role_coverage as RC
+        cov, unknown = RC.coverage()
+        orphans = [r for r, c in cov.items() if not (c["flow"] or c["agent"] or c["job"])]
+        job_only = {r for r, c in cov.items() if not c["flow"] and not c["agent"]}
+        KNOWN_JOB_ONLY = {"architect_dev", "iot_dev", "market_data_engineer", "protocol_engineer", "pentester"}      # ioc_analyst now has its flow (ioc)
+        check("every role is used by a flow, an agent profile or a job; no job or fallback names a role that does not exist; the job-only roles are the known five and may only shrink",
+              not orphans and not unknown and job_only <= KNOWN_JOB_ONLY and "ioc" in cov["ioc_analyst"]["flow"], (orphans, unknown, sorted(job_only - KNOWN_JOB_ONLY)))
+
+        # ---- a failed try is undone (seen live: an 8B model gutted every function of a module to add docstrings; the flow said fail but left the gutted file).
+        # A scripted model that ruins the file on EVERY try, in each of the five scan-fix flows: the folder must end exactly as it began.
+        import arch_dataflow as _df
+        import arch_flows_pro as _pro
+        steps_without = []
+        for fid in ("harden", "types", "a11y", "document", "migrate"):
+            doc = _df.load_all(say=lambda _m: None)[fid].doc
+            fix = next(s for s in doc["steps"] if s["id"] == "fix")
+            if not fix.get("rollback_on_fail"):
+                steps_without.append(fid)
+        check("the fix step of harden, types, a11y, document and migrate undoes a failed try (rollback_on_fail), like bugfix, council_fix and optimize", not steps_without, steps_without)
+        gut = next(t for t in tasks if t["family"] == "document")
+        mod = next(f for f in gut["fixture"]["files"] if not f.startswith("tests/"))
+        ruin = dict(gut, id=gut["id"] + "-ruin", judge=[{"type": "files_unchanged", "paths": [mod]}],
+                    oracle={"bad_role": "docs_writer", "bad_always": {mod: '"""Gutted."""\n\n\ndef everything(*a):\n    pass\n'}})
+        srv2, prev2 = E.start_oracle([ruin])
+        try:
+            res = E.run_task(ruin, fake_roles)
+        finally:
+            E.stop_oracle(srv2, prev2)
+        check("a model that ruins the module on every try leaves it exactly as it was (the flow fails, the work is not damaged)",
+              res["verdict"] == "pass" and not res["flow_ok"], (res["verdict"], res["flow_ok"], res["detail"]))
+
+        # ---- council_fix: the local tries must NOT escalate on their own (seen live: a stalled local try was handed to the 13 GB model, using one of the three heavy calls
+        # the council needs, so its third candidate was refused and died in its thread as a raw traceback)
+        import arch_progress as _ap
+
+        class _Eng:
+            cfg = {"behavior": {"escalate": "stalled"}}
+            def __init__(self): self.pins, self.said = {}, []
+            def model_for(self, role): return "small"
+            def say(self, m): self.said.append(m)
+            def report(self, *a): pass
+        real_next, real_ready = _ap.next_model, _ap.ready_now
+        _ap.next_model, _ap.ready_now = (lambda e, cur: "big"), (lambda e, m: (True, ""))
+        try:
+            e_on, e_off = _Eng(), _Eng()
+            on, off = _ap.Coach(e_on, "generator").escalate(), _ap.Coach(e_off, "generator", escalate=False).escalate()
+        finally:
+            _ap.next_model, _ap.ready_now = real_next, real_ready
+        fix_loop = next(s for s in _df.load_all(say=lambda _m: None)["council_fix"].doc["steps"] if s["id"] == "fix")["loop"]
+        check("a step with loop escalate: [] never hands its role to a bigger model (the default still does), and council_fix's local fix says so",
+              on == "big" and e_on.pins == {"generator": "big"} and off is None and e_off.pins == {} and fix_loop.get("escalate") == [], (on, off, fix_loop))
+        cf = next(t for t in tasks if t["family"] == "council_fix" and "council" in t["tags"])
+        lines = []
+        srv4, prev4 = E.start_oracle([cf])
+        try:
+            rc4 = E.run_task(cf, dict(fake_roles, limits={"max_calls": 5}), say=lines.append)
+        finally:
+            E.stop_oracle(srv4, prev4)
+        check("a council candidate the budget refuses is said in the run and skipped (no raw thread traceback, the flow carries on with the others)",
+              any("candidate 3 was not generated" in ln for ln in lines) and "harness itself failed" not in (rc4.get("error") or ""), (rc4.get("error"), [ln for ln in lines if "candidate" in ln]))
+
+        # ---- the pentest flow accepts a host INSIDE an authorized range (seen live: an 8B model named 10.20.0.7 for scope 10.20.0.0/24 and was refused three times, because the
+        # check compared strings), and still refuses every host that is not authorized: outside the scope, excluded, or a list of hosts
+        pt0 = next(t for t in tasks if t["family"] == "pentest" and t["id"].startswith("pentest-all-in-scope"))
+
+        def pentest_with(host):
+            att = [{"finding_ids": ["F1", "F2"], "host": host, "steps": "s", "impact": "i"}]
+            return dict(pt0, id=pt0["id"] + "-h", judge=[{"type": "file_exists", "paths": ["docs/pentest.md"]}], oracle=dict(pt0["oracle"], attack=json.dumps(att)))
+        outcomes = {}
+        for host in ("10.20.0.7", "app01.lab.internal", "192.0.2.50", "10.20.0.1", "10.20.0.7, 10.20.0.9"):
+            tk = pentest_with(host)
+            srv3, prev3 = E.start_oracle([tk])
+            try:
+                outcomes[host] = E.run_task(tk, fake_roles)["flow_ok"]
+            finally:
+                E.stop_oracle(srv3, prev3)
+        check("pentest: a host inside the authorized range or the listed name passes; an unauthorized host, the excluded host and a list of hosts are refused",
+              outcomes == {"10.20.0.7": True, "app01.lab.internal": True, "192.0.2.50": False, "10.20.0.1": False, "10.20.0.7, 10.20.0.9": False}, outcomes)
 
         # ---- flows/pentest.yaml's gates (they only run with flows.engine = data): the scope check takes (scope, host), and the attack-path check
         # holds the model to the `finding_ids` key its own prompt asks for

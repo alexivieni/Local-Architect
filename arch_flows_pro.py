@@ -164,7 +164,7 @@ class NewFlow(Flow):
                 e.report("- Stopped: not approved.")
                 return {"ok": False, "stopped": True}
         os.makedirs(e.root, exist_ok=True)
-        written = [p for p in todo if e.put_file(p, files[p], "template file", quiet=True)["status"] == "applied"]
+        written = [p for p in todo if e.put_file(p, files[p], "template file", quiet=True, trusted=True)["status"] == "applied"]
         e.say(f"[+] wrote {len(written)} file(s)")
         v = verify(e, [w for w in written if not w.startswith("tests/")], run_tests=True)
         log_checks(e, "template checks", v)

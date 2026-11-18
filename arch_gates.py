@@ -579,7 +579,7 @@ def g_template(e, ctx, step, changed):
         if a not in ("y", "yes", "a", "all"):
             return R(False, "not approved")
     os.makedirs(e.root, exist_ok=True)
-    written = [p for p in todo if e.put_file(p, files[p], "template file", quiet=True)["status"] == "applied"]
+    written = [p for p in todo if e.put_file(p, files[p], "template file", quiet=True, trusted=True)["status"] == "applied"]
     v = _flows().verify(e, [w for w in written if not w.startswith("tests/")], run_tests=True)
     ctx.update(template=tid, template_files=written, template_run=T.rendered_run(tid, name), domains=tpl["domains"])
     if tpl["needs"] and not all(core.has_module(m) for m in tpl["needs"]):
@@ -710,3 +710,5 @@ def g_determinism(e, ctx, step, changed):
 
 import arch_gates_more  # noqa: E402,F401  (harden/types/a11y/docs/migrate scan pairs and deps_check)
 import markets_gates  # noqa: E402,F401  (Markets pack: bt_* gates for strategy audits)
+
+import arch_ioc  # noqa: E402,F401  (ioc flow: indicator matching gates)

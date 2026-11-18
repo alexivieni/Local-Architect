@@ -420,6 +420,23 @@ def _registry_checks(check, G, arch_roles, arch_eval, df):
     check("routing: a lone word like 'sharpe' in an ordinary request does not pull it into the audit", _top(arch_flows, "improve the sharpe of the build") != "backtest_audit")
     check("routing: ordinary requests still go where they went",_top(arch_flows, "add tests for the parser") == "test" and _top(arch_flows, "audit the code for bugs") == "hunt")
     check("the flows load from their YAML files", all(f in df.load_all(say=lambda _m: None) for f in ("backtest_audit", "backtest_fix")))
+    # the markets.* settings: in the config defaults and the settings schema, equal to the gates' own defaults, and every schema range equals the gates' range
+    import arch_core as core
+    import arch_params
+    from types import SimpleNamespace
+    import markets_gates as mg
+    schema = {k: (t, rng) for g in arch_params.SETTINGS.values() for (k, t, _title, _help, rng) in g if k.startswith("markets.")}
+    check("markets.* settings: the config defaults equal markets_gates.DEFAULTS, and the schema lists every key with the gates' own range",
+          core.DEFAULTS["markets"] == mg.DEFAULTS and set(schema) == {"markets." + k for k in mg.DEFAULTS}
+          and all(tuple(schema["markets." + k][1]) == tuple(mg._RANGE[k]) for k in mg.DEFAULTS),
+          (sorted(set(schema) ^ {"markets." + k for k in mg.DEFAULTS}), core.DEFAULTS.get("markets")))
+    bad = mg._cfg(SimpleNamespace(cfg={"markets": {"fee_bps": 12.5}}), {})["fee_bps"], None
+    try:
+        mg._cfg(SimpleNamespace(cfg={"markets": {"oos_share": 5}}), {})
+    except ValueError as ex:
+        bad = (bad[0], str(ex))
+    check("a markets.* value from the settings is used, and an out-of-range one is refused by name (never silently defaulted)",
+          bad[0] == 12.5 and bad[1] and "oos_share" in bad[1], bad)
 
 
 def _top(arch_flows, goal):

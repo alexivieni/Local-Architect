@@ -752,11 +752,11 @@ def _owned_engine_class():
                         for p in bad]
             return super().apply(reply_text, label)
 
-        def put_file(self, rel, text, label="", quiet=False):
+        def put_file(self, rel, text, label="", quiet=False, trusted=False):
             if not self._mine(rel):
                 self.say(f"[-] refused: {rel} is not owned by this agent")
                 return False
-            return super().put_file(rel, text, label, quiet)
+            return super().put_file(rel, text, label, quiet, trusted)
     return OwnedEngine
 
 
