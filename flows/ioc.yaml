@@ -38,6 +38,10 @@ steps:
 
       Indicators: {match.indicators} (from {ioc_file}); evidence files: {ioc_files}
 
+      Not checked (a type this flow does not understand: only IPs, CIDRs, domains, URLs and md5/sha1/sha256 hashes are matched): {ioc_skipped}
+
+      Limits and problems while reading (files not read, lines or matches cut off): {ioc_notes}
+
       ## Matches found by code: {match.hits}
 
       {hits_text}

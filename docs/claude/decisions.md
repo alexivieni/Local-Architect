@@ -669,3 +669,9 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   reading the body, which can reset a connection on some systems, so it now reads the body first and sets `Connection: close` when it refuses without reading; the template test hits
   that path 20 times with 8 KB bodies. That is HARDENING, not a proven fix for the failure seen: if it comes back under load, look at the machine (six suites plus a resident model server)
   before the template.
+- **Asked "are we sure?" after the commit; the `ioc` matcher was not.** Two silent misses, both mine, found by testing instead of trusting the 14 checks that passed: (1) an IPv6 indicator
+  or range was accepted and then NEVER matched (the evidence scan only read IPv4), and the citation gate could not catch an invented IPv6; both now compare addresses as addresses (any
+  notation, any case; a range matches its members; `12:30:45` is not an address). (2) A line of `iocs.txt` that is not a supported type (an email, a file name; `malware.exe` was even labelled a
+  "domain") was dropped without a word; it is now listed in the report as NOT checked, and the console says so. A security check that quietly ignores part of its input is worse than one that refuses.
+  (3) Then every cap was audited for the same thing: more than 30 evidence files (the rest were never named), a file cut at 50,000 lines, an unreadable file and the 200-match limit are now all in the
+  report under "Limits and problems while reading", with "none" when there are none (the notes used to reach the run record only).

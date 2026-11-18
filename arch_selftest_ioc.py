@@ -70,6 +70,52 @@ def run():
               [h["id"] for h in hits] == [f"H{i}" for i in range(1, len(hits) + 1)] and "[H1]" in I.hits_text(hits) and "evidence/a.log:2" in I.hits_text(hits))
         check("an unreadable or missing evidence file is a note, not a crash and not a match", I.match(ev, iocs, ["evidence/nope.log"])[1] != [] and I.match(ev, iocs, ["evidence/nope.log"])[0] == [])
 
+        # IPv6 (found by asking "are we sure?": an IPv6 indicator used to be accepted and then never match, a silent miss)
+        v6 = tempfile.mkdtemp(prefix="v6_", dir=home)
+        open(os.path.join(v6, "a.log"), "w", newline="\n").write(
+            "1 conn from 2001:db8::bad:1 to 10.0.0.2\n2 conn from 2001:DB8:0:0:0:0:BAD:1 again\n3 at 12:30:45 nothing\n4 peer 2001:db8:1::77 in range\n"
+            "5 peer 2001:db9::1 outside\n6 v4 203.0.113.9 and ::ffff:10.0.0.2 mapped\n")
+        res = {}
+        for ind in ("2001:db8::bad:1", "2001:db8:1::/48", "203.0.113.9", "fe80::1"):
+            res[ind] = sorted(h["line"] for h in I.match(v6, [I.classify(ind)], ["a.log"])[0])
+        check("IPv6: an address matches in any notation (compressed or full, any case), a range matches its members only, a time of day is not read as an address, IPv4 still works, "
+              "and an absent address finds nothing",
+              res == {"2001:db8::bad:1": [1, 2], "2001:db8:1::/48": [4], "203.0.113.9": [6], "fe80::1": []}, res)
+        e6 = SimpleNamespace(root=v6, say=lambda *a, **k: None, report=lambda *a, **k: None)
+        c6 = {"ioc_hits": [{"id": "H1", "ioc": "2001:db8::bad:1", "kind": "ip", "file": "a.log", "line": 1, "text": "conn from 2001:db8::bad:1 to 10.0.0.2"}],
+              "iocs": [I.classify("2001:db8::bad:1"), I.classify("2001:db8:1::/48")]}
+        fine6 = G.GATES["ioc_cited"](e6, dict(c6, reply="- [H1] the host 2001:DB8:0:0:0:0:BAD:1 connected"), {}, [])
+        made6 = G.GATES["ioc_cited"](e6, dict(c6, reply="- [H1] seen from 2001:db8::bad:1, also 2001:db8:ffff::9 looks related"), {}, [])
+        check("ioc_cited accepts a listed IPv6 address in another notation and refuses an invented one",
+              fine6["ok"] is True and made6["ok"] is False and "2001:db8:ffff::9" in made6["text"], (fine6, made6))
+
+        # a line that is not an indicator type this flow understands (an email, a file name) is NOT checked, and must never look as if it was
+        sk_root = tempfile.mkdtemp(prefix="sk_", dir=home)
+        open(os.path.join(sk_root, "iocs.txt"), "w").write("# list\n203.0.113.9\nevil@bad.example.org\nmalware.exe\n")
+        os.makedirs(os.path.join(sk_root, "evidence"))
+        open(os.path.join(sk_root, "evidence", "a.log"), "w").write("203.0.113.9 and evil@bad.example.org and malware.exe\n")
+        sk = []
+        got_i, _src, _err = I.load_iocs(sk_root, None, sk)
+        skctx = {"goal": "match", "params": {}}
+        G.GATES["ioc_match"](SimpleNamespace(root=sk_root, say=lambda *a, **k: None, report=lambda *a, **k: None), skctx, {}, [])
+        check("lines that are not a supported indicator type are listed as NOT checked (in the gate's context, so in the report), not silently dropped; comments are not",
+              len(got_i) == 1 and sk == ["evil@bad.example.org", "malware.exe"] and "evil@bad.example.org" in skctx["ioc_skipped"] and "malware.exe" in skctx["ioc_skipped"]
+              and len(skctx["ioc_hits"]) == 1, (sk, skctx.get("ioc_skipped")))
+
+        # every cap says so: 41 evidence files -> 11 are named as NOT read; a file longer than the line cap says how much was read; both reach the report text
+        cap_root = tempfile.mkdtemp(prefix="cap_", dir=home)
+        os.makedirs(os.path.join(cap_root, "evidence"))
+        open(os.path.join(cap_root, "iocs.txt"), "w").write("203.0.113.9\n")
+        for k in range(40):
+            open(os.path.join(cap_root, "evidence", f"f{k:02d}.log"), "w").write("nothing here\n")
+        open(os.path.join(cap_root, "evidence", "big.log"), "w", newline="\n").write("x\n" * (I.MAX_LINES + 10))
+        capctx = {"goal": "match", "params": {}}
+        G.GATES["ioc_match"](SimpleNamespace(root=cap_root, say=lambda *a, **k: None, report=lambda *a, **k: None), capctx, {}, [])
+        check("a cap is never silent: evidence files beyond the limit are named as NOT read, a file cut at the line limit says so, and the notes are in the report text ('none' when there are none)",
+              "NOT read" in capctx["ioc_notes"] and "11 more" in capctx["ioc_notes"] and capctx["ioc_notes"] != "none"
+              and "only the first" in capctx["ioc_notes"] and "{ioc_notes}" in open(os.path.join(HERE, "flows", "ioc.yaml")).read()
+              and G.GATES["ioc_match"](SimpleNamespace(root=sk_root, say=lambda *a, **k: None, report=lambda *a, **k: None), {"goal": "m", "params": {}}, {}, [])["ok"], capctx.get("ioc_notes"))
+
         print("\n== the flow's gates ==")
         e = SimpleNamespace(root=ev, say=lambda *a, **k: None, report=lambda *a, **k: None)
         open(os.path.join(ev, "iocs.txt"), "w").write("203.0.113.9\nevil.example.org\n")
