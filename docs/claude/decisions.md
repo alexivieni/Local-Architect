@@ -570,3 +570,21 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   a repair that is another leak, or that adds look-ahead to a clean strategy, is refused. `sharpe` alone no longer routes to the audit.
 - **CI runtimes:** `actions/cache` v4 and `actions/upload-artifact` v5 still ran on Node 20 (the deprecation notice); moved to cache v5 and
   upload-artifact v6, both Node 24 (checked in each release's action.yml). checkout v5 and setup-python v6 were already Node 24.
+
+## Review follow-ups, Batch A (2026-11-17)
+- **The cloud price list knew no Mythos model**: `claude-mythos-5-2` and `-5-1` are added at their published prices (the same as Fable 5.2 and 5.1). Without
+  them `arch_augment` priced an unknown model at the default $4/$20, half the real cost of a Mythos call, so spend estimates and caps under-counted.
+- **Five scanner rules** in `arch_security.sec_scan`: `tar-slip` (tarfile `extractall` with no `filter=`/`members=`; zipfile is deliberately NOT flagged because its
+  `extract()` strips `..` and absolute parts, which would be a false positive), `tempfile-mktemp`, `xml-untrusted` (not for `defusedxml` aliases), `path-traversal`
+  (`send_file` on a run-time path) and `ssrf-candidate` (LOW: the fix flows use `include_low=False`, so a variable URL never makes a model "fix" a loopback call).
+  Receivers are resolved from the file itself (names bound to `tarfile.open`, `defusedxml` aliases). Every rule has a case it must stay quiet on
+  (`arch_selftest_secrules`). On the project's own code they add one finding (a test file parsing XML).
+- **A real crash fixed in `check_cidr_plan`**: an IPv6 subnet raised `TypeError` (comparing it with an IPv4 private range), so any plan with IPv6 became "the check
+  crashed". `fc00::/7` is now a private range, ranges of different versions never overlap, and `hosts: true` is not read as one host.
+- **Scanner scope, widened past Python (same day).** `sec_scan` now also reads JavaScript/TypeScript (`.js .jsx .mjs .cjs .ts .tsx`: eval/new Function, innerHTML and
+  document.write, exec with a built command, disabled TLS, literal secrets, Math.random for tokens, SQL by concatenation) and shell (`.sh .bash`: curl|sh, disabled TLS,
+  chmod 777, eval of a variable). These are LEXICAL rules, one line at a time with comment lines skipped, not a parse: a call split over lines or built in a helper can be
+  missed, so a clean result is not proof. Rule ids carry `js-` / `sh-`. The secure flow's file picker takes them too (Python first, then scripts, 40 at most, never
+  `node_modules`, `.min.js` or `.d.ts`).
+- **The repair loop is tested, not assumed:** `arch_selftest_secrules` runs the real secure flow against a scripted model for a Python tar-slip and a JavaScript
+  innerHTML case. A model that fixes it passes on the same scanner finding fewer; one that hands the file back does not pass and leaves the file as it was.

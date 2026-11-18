@@ -1493,7 +1493,7 @@ ALL_SUITES = ("pro", "sec", "agentlib", "cloud", "costs", "crew", "data2", "fast
               "effective", "playbook", "cacheplus", "overlap", "contracts", "curriculum", "harness2", "ourtasks", "reqcache",
               "cpuworker", "overlay", "mcpclient", "bundle", "gitflow", "onboard", "harness3", "replay", "finops", "review1", "review2",
               "review3", "review4", "custom", "docs", "uismoke", "swallow", "localintel", "cachestats", "honesty", "debt", "crawl",
-              "rules", "markets", "eol")
+              "rules", "markets", "eol", "secrules")
 FULL_ONLY = ("self",)       # the self-improvement pipeline runs nested self-tests, so it is not part of `all`
 
 

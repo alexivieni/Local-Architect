@@ -58,6 +58,9 @@ def scan_config_files(root, files):
     out.sort(key=lambda x: (x["file"], x["line"]))
     return out
 ANY = {"any", "0.0.0.0/0", "::/0", "*"}
+_XML_ROOTS = ("ET", "etree", "ElementTree", "minidom", "xml", "sax", "lxml", "pulldom", "expatbuilder")   # defusedxml is not here on purpose
+_XML_PARSE = ("parse", "fromstring", "XML", "parseString", "make_parser")
+_URL_CALLS = ("urllib.request.urlopen", "urlopen", "requests.get", "requests.post", "requests.put", "requests.delete", "requests.head", "httpx.get", "httpx.post")
 SECRET_KEY_RE = re.compile(r"(?i)\b(api[_-]?key|api[_-]?token|secret|password|passwd|access[_-]?key|private[_-]?key)\b")
 SECRET_VAL_RE = re.compile(r"""^['"]?(sk-[A-Za-z0-9_\-]{10,}|sk_live_[A-Za-z0-9]{10,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[abprs]-[A-Za-z0-9\-]{10,}|[A-Za-z0-9+/]{24,}={0,2})['"]?$""")
 
@@ -93,9 +96,12 @@ def _is_const(node, value=None):
 
 
 def sec_scan(root, files, include_low=True):
-    """-> [{"file","line","rule","cwe","msg","severity"}]. Python files only; everything else is skipped."""
+    """-> [{"file","line","rule","cwe","msg","severity"}]. Python files by AST; JavaScript/TypeScript and shell files by line patterns (_scan_script); everything else is skipped."""
     out = []
     for f in files:
+        if f.endswith(SCRIPT_EXTS):
+            _scan_script(root, f, out)
+            continue
         if not f.endswith(".py"):
             continue
         path = os.path.join(root, f)
@@ -108,6 +114,17 @@ def sec_scan(root, files, include_low=True):
         except SyntaxError as e:
             _add(out, f, e.lineno or 0, "syntax", "CWE-0", f"could not parse: {e.msg}", "high")
             continue
+        tar_names, safe_xml = set(), set()          # names bound to a tarfile object, and aliases of defusedxml: what a call's receiver is, from the file itself
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and (_dotted(node.value.func) or "").startswith("tarfile."):
+                tar_names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+            if isinstance(node, ast.withitem) and isinstance(node.context_expr, ast.Call) and (_dotted(node.context_expr.func) or "").startswith("tarfile.") \
+                    and isinstance(node.optional_vars, ast.Name):
+                tar_names.add(node.optional_vars.id)
+            if isinstance(node, ast.Import):
+                safe_xml |= {(a.asname or a.name).split(".")[0] for a in node.names if a.name.startswith("defusedxml")}
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("defusedxml"):
+                safe_xml |= {a.asname or a.name for a in node.names}
         for node in ast.walk(tree):
             # hardcoded secret-looking literal assigned to a secret-looking name
             if isinstance(node, ast.Assign):
@@ -161,6 +178,24 @@ def sec_scan(root, files, include_low=True):
                 # random module used for anything secret-looking (token/password/secret/key/nonce/salt)
                 if dotted and dotted.startswith("random.") and dotted not in ("random.seed",):
                     pass  # too noisy without the assignment target name; see the Assign check below for named cases
+                # tar extraction with no member filter: an entry named ../../x is written outside the target folder (tar-slip). zipfile is NOT
+                # flagged: its extract() strips '..' and absolute parts itself, so a finding there would be a false positive.
+                if isinstance(node.func, ast.Attribute) and node.func.attr == "extractall" and len(node.args) < 2 and \
+                        not any(isinstance(k, ast.keyword) and k.arg in ("members", "filter") for k in node.keywords):
+                    recv = node.func.value
+                    rname = recv.id if isinstance(recv, ast.Name) else (_dotted(recv.func) or "") if isinstance(recv, ast.Call) else (recv.attr if isinstance(recv, ast.Attribute) else "")
+                    is_tar = rname in tar_names or str(rname).startswith("tarfile.") or ("tar" in str(rname).lower() and "zip" not in str(rname).lower())
+                    if is_tar:
+                        _add(out, f, node.lineno, "tar-slip", "CWE-22", "tarfile .extractall() with no filter= or members= writes entry names as given, so '../' entries escape the folder; pass filter='data' (Python 3.12+) or check each name", "high")
+                if dotted == "tempfile.mktemp":
+                    _add(out, f, node.lineno, "tempfile-mktemp", "CWE-377", "tempfile.mktemp() only returns a name: another process can create that file first; use tempfile.mkstemp() or NamedTemporaryFile()", "medium")
+                parts = (dotted or "").split(".")
+                if len(parts) >= 2 and parts[0] in _XML_ROOTS and parts[0] not in safe_xml and parts[-1] in _XML_PARSE:
+                    _add(out, f, node.lineno, "xml-untrusted", "CWE-611", f"{dotted}() on untrusted XML allows entity-expansion attacks (and external entities in some parsers); use defusedxml", "medium")
+                if dotted in ("send_file", "flask.send_file") and node.args and not _is_const(node.args[0]):
+                    _add(out, f, node.lineno, "path-traversal", "CWE-22", "send_file() on a path built at run time: reject '..' and absolute paths, or use send_from_directory()", "medium")
+                if dotted in _URL_CALLS and node.args and not _is_const(node.args[0]):
+                    _add(out, f, node.lineno, "ssrf-candidate", "CWE-918", f"{dotted}() fetches a URL that is not a literal: if any part comes from a user, check the scheme and host against an allow-list", "low")
                 # insecure temp file path (hardcoded /tmp predictable name) is covered by tempfile usage elsewhere
             if isinstance(node, ast.Assign):
                 for t in node.targets:
@@ -174,6 +209,68 @@ def sec_scan(root, files, include_low=True):
     # stable order: by file, then line
     out.sort(key=lambda x: (x["file"], x["line"]))
     return out
+
+
+# ------------------------------------------------------------------------------------------------ JavaScript / TypeScript / shell
+# Lexical, not a parse: one line at a time, comment lines skipped. It finds the common, high-signal mistakes and can miss a call split over lines or
+# built in a helper; a finding is a place to look, and a clean result is NOT proof there is nothing there. Rule ids are prefixed js- and sh-.
+JS_EXTS = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx")
+SH_EXTS = (".sh", ".bash")
+SCRIPT_EXTS = JS_EXTS + SH_EXTS
+_Q = r"""(?:"[^"\n]*"|'[^'\n]*')"""          # a plain quoted literal: what a call is allowed to be given
+_JS_RULES = [
+    ("js-eval", "CWE-95", "high", re.compile(r"\b(?:eval|new\s+Function)\s*\((?!\s*" + _Q + r"\s*\))"),
+     "eval()/new Function() on a value that is not a literal is code injection"),
+    ("js-innerhtml", "CWE-79", "medium",
+     re.compile(r"(?:\.(?:innerHTML|outerHTML)\s*=(?!=)(?!\s*" + _Q + r"\s*;?\s*$)|document\.write(?:ln)?\s*\((?!\s*" + _Q + r"\s*\))|dangerouslySetInnerHTML)"),
+     "HTML built from a run-time value reaches the page unescaped: use textContent, or sanitize the value"),
+    ("js-exec", "CWE-78", "high", re.compile(r"\b(?:exec|execSync)\s*\(\s*(?:`[^`]*\$\{|[A-Za-z_][\w.]*\s*[,)+]|" + _Q + r"\s*\+)"),
+     "a shell command built from a variable or template is command injection: use execFile/spawn with an argument list"),
+    ("js-tls", "CWE-295", "high", re.compile(r"rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*[\"']?0"),
+     "TLS certificate verification is switched off"),
+    ("js-secret", "CWE-798", "high",
+     re.compile(r"(?i)\b(?:api[_-]?key|secret|passw(?:or)?d|access[_-]?token|private[_-]?key)\w*\s*[:=]\s*[\"'][A-Za-z0-9_\-+/=]{16,}[\"']"),
+     "a literal that looks like a real credential is assigned to a secret-looking name: read it from the environment"),
+    ("js-random", "CWE-330", "medium", re.compile(r"(?i)(?:token|secret|nonce|salt|session|passw)\w*[^\n]*\bMath\.random\s*\("),
+     "Math.random() is not cryptographically secure: use crypto.randomBytes()/crypto.randomUUID()"),
+    ("js-sql", "CWE-89", "high", re.compile(r"\.(?:query|execute|raw)\s*\(\s*(?:`[^`]*\$\{|" + _Q + r"\s*\+)"),
+     "SQL built by string concatenation or a template: use placeholders and pass the values separately"),
+]
+_SH_RULES = [
+    ("sh-pipe-to-shell", "CWE-494", "high", re.compile(r"\b(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba)?sh\b"),
+     "a download is piped straight into a shell: save it, check a checksum or signature, then run it"),
+    ("sh-tls", "CWE-295", "high", re.compile(r"\bcurl\b[^\n]*\s(?:-k|--insecure)\b|\bwget\b[^\n]*--no-check-certificate"),
+     "TLS certificate verification is switched off"),
+    ("sh-chmod-777", "CWE-732", "medium", re.compile(r"\bchmod\s+(?:-R\s+)?(?:0?777|a\+rwx)\b"),
+     "world-writable permissions: grant only the access that is needed"),
+    ("sh-eval", "CWE-78", "medium", re.compile(r"\beval\s+[\"']?\$"), "eval of a variable runs whatever the variable holds"),
+]
+
+
+def _scan_script(root, f, out):
+    rules = _JS_RULES if f.endswith(JS_EXTS) else _SH_RULES
+    try:
+        text = core.read_text(os.path.join(root, f), 200000)[0]
+    except OSError:
+        return
+    in_block = False
+    for i, line in enumerate(text.splitlines(), 1):
+        st = line.strip()
+        if f.endswith(JS_EXTS):
+            if in_block:
+                if "*/" in st:
+                    in_block = False
+                continue
+            if st.startswith("/*"):
+                in_block = "*/" not in st
+                continue
+            if st.startswith("//"):
+                continue
+        elif st.startswith("#"):
+            continue
+        for rule, cwe, sev, rx, msg in rules:
+            if rx.search(line):
+                _add(out, f, i, rule, cwe, msg, sev)
 
 
 # ------------------------------------------------------------------------------------------------ Dockerfile
@@ -215,11 +312,11 @@ def check_dockerfile(text):
 
 
 # ------------------------------------------------------------------------------------------------ network/CIDR plan
-PRIVATE = [ipaddress.ip_network(c) for c in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")]
+PRIVATE = [ipaddress.ip_network(c) for c in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")]   # RFC1918 and the IPv6 unique-local range
 
 
 def _private(net):
-    return any(net.subnet_of(p) for p in PRIVATE)
+    return any(net.version == p.version and net.subnet_of(p) for p in PRIVATE)   # a v6 plan used to raise TypeError comparing it with a v4 range
 
 
 def check_cidr_plan(text, filename=None):
@@ -246,7 +343,7 @@ def check_cidr_plan(text, filename=None):
         if not _private(net):
             out.append({"rule": "not-private", "msg": f"subnet '{name}' ({net}) is not inside an RFC1918 private range (10/8, 172.16/12, 192.168/16)", "severity": "high"})
         hosts = s.get("hosts")
-        if isinstance(hosts, (int, float)) and net.num_addresses - 2 < hosts:
+        if isinstance(hosts, (int, float)) and not isinstance(hosts, bool) and net.num_addresses - 2 < hosts:
             out.append({"rule": "too-small", "msg": f"subnet '{name}' ({net}) holds {max(net.num_addresses - 2, 0)} usable host(s) but needs {int(hosts)}", "severity": "high"})
         gw = s.get("gateway")
         if gw:
@@ -261,7 +358,7 @@ def check_cidr_plan(text, filename=None):
         for j in range(i + 1, len(parsed)):
             n1, net1 = parsed[i]
             n2, net2 = parsed[j]
-            if net1.overlaps(net2):
+            if net1.version == net2.version and net1.overlaps(net2):
                 out.append({"rule": "overlap", "msg": f"subnets '{n1}' ({net1}) and '{n2}' ({net2}) overlap", "severity": "high"})
     return out
 

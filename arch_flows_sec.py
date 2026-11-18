@@ -40,11 +40,14 @@ def _config_files(e):
 
 
 def _sec_files(e, goal):
-    exp = explicit_files(e, goal, (".py",))
+    import arch_security as sec
+    exp = explicit_files(e, goal, (".py",) + sec.SCRIPT_EXTS)
     if exp:
         return exp
-    py = [f for f in core.list_files(e.root, e.cfg) if f.endswith(".py") and not f.startswith(("tests/", "bench/"))]
-    return py[:40]
+    mine = [f for f in core.list_files(e.root, e.cfg) if f.endswith((".py",) + sec.SCRIPT_EXTS) and not f.startswith(("tests/", "bench/", "node_modules/"))
+            and "/node_modules/" not in f and not f.endswith((".min.js", ".d.ts"))]
+    mine.sort(key=lambda f: (not f.endswith(".py"), f))          # Python first, so a big script folder cannot crowd it out of the 40
+    return mine[:40]
 
 
 SEC_FIX = """These are STATIC security findings from a scanner (the CWE ids and the rule are trustworthy; a finding can

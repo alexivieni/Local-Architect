@@ -68,7 +68,7 @@ def from_code_scan(root, files):
     parsing, not pattern guessing) -> proposals, grouped by rule so ten hits on one rule are one proposal."""
     import arch_security as sec
     props = []
-    findings = sec.sec_scan(root, files)
+    findings = sec.sec_scan(root, files, include_low=False)       # the one LOW rule (ssrf-candidate) is a hint to review, not a proposal: a project that fetches variable URLs would get a pile of them
     by_rule = {}
     for f in findings:
         by_rule.setdefault(f["rule"], []).append(f)
