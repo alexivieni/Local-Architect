@@ -1671,6 +1671,7 @@ class Engine:
         try:
             return input(prompt)
         except EOFError:
+            self.no_terminal = True                                                # nobody can answer: a blank line from a person is not the same as no input at all
             return ""
 
     # --- budgets (flows as data): hard limits per flow and per step, checked before every call
@@ -2619,6 +2620,9 @@ class Engine:
             return
         st = arch_ollama.prepare(self.cfg, team, say=self.say)
         if not st["up"] and not st["port_open"]:
+            _rest = sorted(m for m in team if not m.startswith("tier:") and m not in served)
+            if served and _rest:                                                   # say why Ollama is wanted while llama-server is already serving the others
+                self.say(f"[ollama] {', '.join(_rest)} is not served by llama-server, so Ollama is needed for it")
             arch_ollama.wait_up(seconds=8, say=self.say)
         if st.get("freed"):
             self.report(f"- Freed memory before the run: unloaded {', '.join(st['freed'])} (not part of this team).")
@@ -2968,6 +2972,10 @@ class Engine:
         if self.review == "auto" or self.n_apply_all:
             return "yes"
         a = (self.ask(f"  Apply {rel}?  [y]es  [n]o  [a]ll remaining  [q]uit run > ") or "").strip().lower()
+        if getattr(self, "no_terminal", False) and not a:
+            self.say("  There is no terminal to answer the question, so nothing was applied and the run stops here. "
+                     "Run it again with `--review auto` to apply changes without asking, or `--review dry` to only see them.")
+            return "quit"
         if a in ("a", "all"):
             self.n_apply_all = True
             return "yes"

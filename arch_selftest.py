@@ -374,6 +374,21 @@ def run():
         e.ask = lambda prompt: next(answers, "")
         fl.run_flow(e, "build", {"domains": ["web"]})
         check("ask mode: answering 'n' (or nothing) applies nothing", not os.path.exists(os.path.join(y1, "index.html")))
+        import builtins
+        _said, _inp = [], builtins.input
+        e = eng(y1, "x", "build", review="ask")
+        e.say = lambda m, *_a, **_k: _said.append(str(m))
+        e.ask = e._ask
+        try:
+            builtins.input = lambda _p="": (_ for _ in ()).throw(EOFError())          # no terminal at all
+            no_tty = e._base_decide("a.py")
+            builtins.input = lambda _p="": ""                                         # a person pressing Enter
+            e.no_terminal = False                                                     # a fresh engine: this one saw EOF above
+            blank = e._base_decide("a.py")
+        finally:
+            builtins.input = _inp
+        check("ask mode with no terminal stops the run and says what to do instead of asking again", no_tty == "quit" and any("--review auto" in m for m in _said))
+        check("a blank answer from a person is still 'no', not a stop", blank == "no")
         run_dir = core.latest_run(f1)
         before = open(os.path.join(f1, "pricing.py")).read()
         check("undo restores edited files and removes created ones", core.undo_run(f1, run_dir) >= 2 and "if member:" in open(os.path.join(f1, "pricing.py")).read() and before != open(os.path.join(f1, "pricing.py")).read())
