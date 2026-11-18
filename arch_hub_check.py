@@ -520,12 +520,13 @@ def run():
                 _bad_ids += 1
         check("a run id of '.' or '..' is not a run id (it would resolve to .arch itself)", _bad_ids == 2)
         import architect_hub as _ah
-        rc1_ = _ah.restart_command(["C:/x/architect_hub.py", "--port", "8000", "--no-browser", "--foo"], port=8123)
+        _hub_abs = os.path.join(HERE, "architect_hub.py")          # absolute on every OS ("C:/x/..." is relative on Linux)
+        rc1_ = _ah.restart_command([_hub_abs, "--port", "8000", "--no-browser", "--foo"], port=8123)
         rc2_ = _ah.restart_command(["architect.py", "start"], port=8123)
         # started through `architect.py start` (START_HUB.bat), the restart is the hub itself: re-running `start` brought Ollama, the
         # servers and a second browser tab back and could land on another port
         check("the restart command relaunches the hub on its own port with no new tab, however it was started",
-              rc1_[1:] == ["C:/x/architect_hub.py", "--foo", "--port", "8123", "--no-browser"] and os.path.isabs(rc2_[1])
+              rc1_[1:] == [_hub_abs, "--foo", "--port", "8123", "--no-browser"] and os.path.isabs(rc2_[1])
               and os.path.basename(rc2_[1]) == "architect_hub.py" and rc2_[2:] == ["--port", "8123", "--no-browser"], (rc1_, rc2_))
         _t0_ = time.time() + 5
         os.utime(os.path.join(hubdir, "arch_usage.py"), (_t0_, _t0_))

@@ -675,3 +675,13 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   "domain") was dropped without a word; it is now listed in the report as NOT checked, and the console says so. A security check that quietly ignores part of its input is worse than one that refuses.
   (3) Then every cap was audited for the same thing: more than 30 evidence files (the rest were never named), a file cut at 50,000 lines, an unreadable file and the 200-match limit are now all in the
   report under "Limits and problems while reading", with "none" when there are none (the notes used to reach the run record only).
+- **Final verification (2026-11-18): what was run, and what it did not cover.**
+  - *Windows, in place:* the full suite twice more, 132/132 each time (the only NOT_SURE is `arch_selftest_templates_catalog`: `flask` is not installed). *A clean export of HEAD* (`git archive`,
+    under the temp folder, no `.git`): 130/132; the two failures are the checkout's location, not the code: `arch_selftest_outcomes` runs `git ls-files` (needs a repository) and `arch_selftest_provenance`
+    asserts that a project outside the temp folder keeps its prompt memory. Both pass in place.
+  - *Linux (WSL Ubuntu, Python 3.14.4, a git repository):* 129/132, 5 suites NOT_SURE (no browser, no flask). No product bug: `arch_selftest_sec` and two `arch_hub_check` checks ran `python`, which Ubuntu
+    does not ship (with a `python` on the PATH, `arch_selftest_sec` is 101/101); one `arch_hub_check` check and one provenance check used Windows-only literals (`C:/x/architect_hub.py` is a relative path on
+    Linux; a backslash path is a file NAME there). Both tests now build a path that means the same on both systems; the assertions are unchanged. `arch_selftest_provenance` 51/51 and `arch_hub_check` 224/224 on both.
+    **Not changed:** a run command that says `python` fails on a machine with only `python3` (the failure says "python: not found"); that is a product question for Linux users, not decided here.
+  - *Not done:* the live batch of the ten fast families at three tasks each was started and stopped by the person before it produced a report, so live pass rates remain ONE sample per family (above). Optimize's
+    ratio check under CPU load, and the cloud fallback against a real Claude (never in tests), are still unmeasured.

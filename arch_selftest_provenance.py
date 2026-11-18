@@ -162,9 +162,11 @@ def run():
         check("a header is read once per process: the second ask is answered from memory", P.header_facts(qz) is hq)
         win_dir = os.path.join(files, "llama-3b-q4_0-experiments")
         os.makedirs(win_dir)
-        f16 = _gguf(os.path.join(win_dir, "Qwen3-8B-F16.gguf"), F16_KV).replace("/", "\\")
+        f16 = _gguf(os.path.join(win_dir, "Qwen3-8B-F16.gguf"), F16_KV)
+        if os.name == "nt":
+            f16 = f16.replace("/", "\\")           # a backslash path only means a path on Windows; on Linux it is a file NAME
         wf = core.model_provenance(f16)
-        check("a Windows path (backslashes): the quantization comes from the file, never from a folder's name, and no size is guessed",
+        check("a path with a misleading folder name (backslashes on Windows): the quantization comes from the file, never from a folder's name, and no size is guessed",
               wf["source"] == "gguf" and wf["quant"] == "F16" and wf["params_b"] is None, wf)
         wn = core.model_provenance("C:\\models\\q8_0-old\\llama-3b\\Mistral-7B-Instruct-Q4_K_M.gguf")
         check("a .gguf path that is not there: the file name alone is read (Q4_K_M, 7B), not 'q8_0' or '3b' from its folders",
