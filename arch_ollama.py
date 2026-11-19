@@ -60,6 +60,18 @@ def find_exe():
     return None
 
 
+def serve_log():
+    """The file an `ollama serve` that Architect starts writes to (hub_data/server/ollama_serve.log, appended). It used to be thrown away,
+    so when that Ollama died in the middle of a long call (seen twice on 2026-11-19, no shutdown line anywhere) there was nothing to read.
+    -> an open binary file, or None when it cannot be opened (the caller then discards the output as before)."""
+    try:
+        import arch_server
+        os.makedirs(arch_server.server_dir(), exist_ok=True)
+        return open(os.path.join(arch_server.server_dir(), "ollama_serve.log"), "ab")
+    except OSError:
+        return None
+
+
 def ensure_running(say=print, wait_s=20):
     """Start `ollama serve` in the background when nothing answers on the local port, as its own process (not tied to the window or
     tool that started Architect: seen live, an Ollama started from a terminal stopped with that terminal, and every call to it
@@ -83,8 +95,13 @@ def ensure_running(say=print, wait_s=20):
         env = dict(os.environ, OLLAMA_HOST=f"{'[' + hn + ']' if ':' in hn else hn}:{port}")   # the port this install is set to use
         env.setdefault("OLLAMA_FLASH_ATTENTION", "1")
         env.setdefault("OLLAMA_KV_CACHE_TYPE", "q8_0")
-        proc = subprocess.Popen([exe, "serve"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         creationflags=flags, start_new_session=(os.name != "nt"), close_fds=True, env=env)
+        out = serve_log() or subprocess.DEVNULL
+        try:
+            proc = subprocess.Popen([exe, "serve"], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT if out is not subprocess.DEVNULL else subprocess.DEVNULL,
+                             creationflags=flags, start_new_session=(os.name != "nt"), close_fds=True, env=env)
+        finally:
+            if out is not subprocess.DEVNULL:
+                out.close()                                           # the child keeps its own copy of the handle
     except OSError as e:
         say(f"[ollama] could not start it ({e})")
         return False

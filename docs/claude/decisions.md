@@ -711,3 +711,10 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   "model ... not found" and "out of memory", which a task about models could produce itself (the test keeps `model.pkl not found` a fail). The test runs both paths and fails on the committed `94cc080`.
   What killed Ollama in the middle of that rerun is NOT known: its own `server.log` ends mid-generation (a planner call at 6.8 tokens/s) with no shutdown line, after the `ml-centroid` task had made two calls;
   the Ollama app's window was in use at 00:23. A hard stop from outside, not a crash it logged. The `ml` family has therefore still not been measured on the heavy model.
+- **The clean live baseline (2026-11-19) and what `ml` really does.** Ten families pass 30 of 30 on the 8B worker (three tasks each, seed 11, the GPU free). `ml` over five runs of the same three tasks on the
+  heavy MoE (planner) plus the worker: 4 pass, 2 fail, 1 not_sure (the heavy model's server was gone). The two fails are the model's: `centroid` returned a list where the hidden check wants an array
+  (`'list' object has no attribute 'shape'`), `splitter` failed 1 of 7 tests. So `ml` is a coin flip at this size (about 4 of 6 judged), not "broken" and not "fine"; three samples cannot say more.
+  The 17 Nov `done=length` failure did not recur in any of them, so no retry-without-thinking was built. The saved `baseline` has `ml` at 0 of 3 (2 fail, 1 not_sure): a LENIENT reference for that one flow.
+  **Ollama stopped on its own twice** (00:38 and between 01:28 and 01:39), each time during a long heavy call, with no shutdown line in its log. Not caused by Architect (it stops an Ollama only on hub exit).
+  Unknown cause. The `ollama serve` Architect starts used to send its output to nowhere; it now appends to `hub_data/server/ollama_serve.log` (`arch_ollama.serve_log`), so the next death can be read.
+  A second start of Ollama by the engine (`ensure_running` at the next task) is what kept later tasks running.

@@ -124,6 +124,14 @@ def run():
         check("no marker: a person's own Ollama is never planned for stopping", not any(i["kind"] == "ollama_service" for i in p["items"]))
         O._mark_started(777, "ollama.exe")
         check("ensure_running's marker is written under the data dir", os.path.isfile(os.path.join(tmp, "ollama_started.json")))
+        lf = O.serve_log()
+        try:
+            lf.write(b"probe\n")
+        finally:
+            lf.close()
+        check("the Ollama that Architect starts writes its output to a file (it was discarded, so a death left nothing to read)",
+              lf is not None and os.path.isfile(os.path.join(arch_server.server_dir(), "ollama_serve.log")) and os.path.commonpath([os.path.abspath(arch_server.server_dir()), os.path.abspath(tmp)]) == os.path.abspath(tmp),
+              arch_server.server_dir())
         ps["models"] = [{"name": "other-app:7b"}]
         C.run(C.plan(cfg), yes=True, say=lambda m: None)
         check("foreign model keeps our Ollama running and is not unloaded", killed == [] and "other-app:7b" not in unloaded, f"{killed} {unloaded}")
