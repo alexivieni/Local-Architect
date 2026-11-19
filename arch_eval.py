@@ -678,6 +678,17 @@ def keep_trace(run_dir, task, res, label=""):
     return dest
 
 
+_SERVER_DOWN = re.compile(r"is not reachable|connection refused|actively refused|no connection could be made", re.I)
+
+
+def server_down(text):
+    """True when a run stopped because the model server was not there (never started, or gone mid-run). Nothing was asked of the model, or
+    its answer was lost, so nothing is known about the model: such a task is not_sure, never a fail (a baseline built from machine
+    problems filed under the model would punish every later run for being better). Narrow on purpose: a missing model or a full disk
+    may be the setup's fault or the task's, and stays a fail until someone shows otherwise."""
+    return bool(_SERVER_DOWN.search(str(text or "")))
+
+
 def run_task(task, cfg_over=None, say=None, keep=False, keep_run=False, label=""):
     """-> result dict. Never raises for a model failure; a judge that cannot run yields verdict 'not_sure'.
     keep_run=True copies the task's trace to kept_runs_dir() before its folder is deleted (live runs; never the oracle fake)."""
@@ -710,15 +721,15 @@ def run_task(task, cfg_over=None, say=None, keep=False, keep_run=False, label=""
     except (core.LLMError, core.BudgetExceeded, core.LoopDetected) as ex:
         err = f"stopped: {str(ex)[:160]}"
         flow_out = {"ok": False, "error": err}
-        import arch_supervisor
-        if isinstance(ex, core.LLMError) and arch_supervisor.environmental(str(ex)):
-            # the model server was not there (or the model, or the memory): nothing was asked of the model, so nothing is known about it.
-            # A 'fail' here (three of three 'ml' tasks on 2026-11-18, the heavy tier was not running) would be a measurement of the machine
-            # filed under the model, and a baseline built from it would punish every later run for being better.
+        if isinstance(ex, core.LLMError) and server_down(str(ex)):
             flow_out["verdict"] = "not_sure"
     except Exception as ex:                                                   # a harness bug must be visible, never a silent fail
         err = f"the harness itself failed: {type(ex).__name__}: {str(ex)[:160]}"
         flow_out = {"ok": False, "error": err}
+    # A flow turns most errors into its own `{"ok": False, "error": ...}` (the run report's "Stopped: ..."), so the text is checked there too:
+    # seen live 2026-11-19, `ml` came back with the server's "not reachable" in `error` and was still filed as a fail.
+    if isinstance(flow_out, dict) and not flow_out.get("ok") and server_down(flow_out.get("error")):
+        flow_out["verdict"] = "not_sure"
     if e is not None:                                                         # a route/json task never finishes a run: what it moved off
         try:                                                                  # the graphics card comes back before the next task
             e._bring_back()

@@ -705,3 +705,9 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   without thinking (only a file cut off mid-block is handled). One run is not enough evidence to build a retry on; if a measured `ml` run shows it again, that is the fix to write.
   Also measured: with the GPU shared with a game, the worker has 0 GPU layers (`-ngl 0`) and generates 2.6-3.8 tokens/s instead of ~35; the plan is right to do that, and a baseline taken like that would record
   CPU latencies, so it was not kept.
+  **Correction, same day:** the first version of that fix (`94cc080`) only caught an error RAISED out of the flow, and its test injected it there, so it passed while the real path still failed: a flow
+  catches the server error and RETURNS `{"ok": False, "error": "Stopped: Ollama is not reachable..."}`, and the rerun of the baseline filed those `ml` tasks as fail again. It now also reads the returned text,
+  through one narrow check (`arch_eval.server_down`: not reachable, connection refused, actively refused, no connection could be made). It is narrow on purpose: the supervisor's wider list also matches
+  "model ... not found" and "out of memory", which a task about models could produce itself (the test keeps `model.pkl not found` a fail). The test runs both paths and fails on the committed `94cc080`.
+  What killed Ollama in the middle of that rerun is NOT known: its own `server.log` ends mid-generation (a planner call at 6.8 tokens/s) with no shutdown line, after the `ml-centroid` task had made two calls;
+  the Ollama app's window was in use at 00:23. A hard stop from outside, not a crash it logged. The `ml` family has therefore still not been measured on the heavy model.

@@ -213,15 +213,21 @@ def run():
         # three 'ml' tasks said "Ollama is not reachable" after 20 s, were scored FAIL, and a baseline was nearly built from them.
         import arch_flows as _af
         real_rf = _af.run_flow
+        down_msg = "Ollama is not reachable at http://127.0.0.1:11434 ([WinError 10061]). Start the Ollama app."
         try:
-            _af.run_flow = lambda *a, **k: (_ for _ in ()).throw(core.LLMError("Ollama is not reachable at http://127.0.0.1:11434 ([WinError 10061]). Start the Ollama app."))
+            _af.run_flow = lambda *a, **k: (_ for _ in ()).throw(core.LLMError(down_msg))             # raised out of the flow
             r_down = E.run_task(cf, fake_roles)
+            _af.run_flow = lambda *a, **k: {"ok": False, "error": "Stopped: " + down_msg}              # what a flow really does: it catches it and returns it
+            r_ret = E.run_task(cf, fake_roles)
             _af.run_flow = lambda *a, **k: (_ for _ in ()).throw(core.LLMError("the model returned an empty reply"))
             r_bad = E.run_task(cf, fake_roles)
+            _af.run_flow = lambda *a, **k: {"ok": False, "error": "Stopped: model.pkl not found in the project"}   # the word "model" and "not found" alone prove nothing
+            r_bad2 = E.run_task(cf, fake_roles)
         finally:
             _af.run_flow = real_rf
-        check("a run stopped because the model server is unreachable is not_sure; a model that failed its call is still a fail",
-              r_down["verdict"] == "not_sure" and r_bad["verdict"] == "fail" and "not reachable" in r_down["error"], (r_down["verdict"], r_bad["verdict"], r_down["error"]))
+        check("a run stopped because the model server is unreachable is not_sure, whether the flow raised it or returned it; any other failure is still a fail",
+              r_down["verdict"] == "not_sure" and r_ret["verdict"] == "not_sure" and r_bad["verdict"] == "fail" and r_bad2["verdict"] == "fail"
+              and "not reachable" in r_ret["error"], (r_down["verdict"], r_ret["verdict"], r_bad["verdict"], r_bad2["verdict"]))
 
         # ---- the pentest flow accepts a host INSIDE an authorized range (seen live: an 8B model named 10.20.0.7 for scope 10.20.0.0/24 and was refused three times, because the
         # check compared strings), and still refuses every host that is not authorized: outside the scope, excluded, or a list of hosts
