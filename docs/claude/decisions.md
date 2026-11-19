@@ -682,6 +682,17 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   - *Linux (WSL Ubuntu, Python 3.14.4, a git repository):* 129/132, 5 suites NOT_SURE (no browser, no flask). No product bug: `arch_selftest_sec` and two `arch_hub_check` checks ran `python`, which Ubuntu
     does not ship (with a `python` on the PATH, `arch_selftest_sec` is 101/101); one `arch_hub_check` check and one provenance check used Windows-only literals (`C:/x/architect_hub.py` is a relative path on
     Linux; a backslash path is a file NAME there). Both tests now build a path that means the same on both systems; the assertions are unchanged. `arch_selftest_provenance` 51/51 and `arch_hub_check` 224/224 on both.
-    **Not changed:** a run command that says `python` fails on a machine with only `python3` (the failure says "python: not found"); that is a product question for Linux users, not decided here.
+    A run command that said `python` failed on a machine with only `python3` ("python: not found"); decided and fixed the same day, below.
   - *Not done:* the live batch of the ten fast families at three tasks each was started and stopped by the person before it produced a report, so live pass rates remain ONE sample per family (above). Optimize's
     ratio check under CPU load, and the cloud fallback against a real Claude (never in tests), are still unmeasured.
+- **Tech-debt Phase 1 (2026-11-18): Linux and the two starters' packages.**
+  - *`python` on a python3-only system.* `arch_runner.start` already ran a leading `python`/`python3`/`py` with the interpreter Architect runs on, but only on Windows. On POSIX the string went to a shell
+    as written, so Ubuntu (which ships `python3` and no `python`) answered "python: not found", exit 127. It now does the same swap there, ONLY when that name is not on the PATH (`shutil.which`); a system
+    with a working `python` is unchanged. Checked on stock WSL Ubuntu with no `python` on the PATH: `arch_selftest_sec` 102/102 and `arch_hub_check` 224/224 (both failed before). The new check makes `which`
+    say "not there", so it means the same on every system. Not changed: the commands the Tune page PRINTS for you to type (`arch_autotune`) still say `python`; they are instructions, not something the app runs.
+  - *CI.* `ci.yml` has a second job, `selftest-linux` (ubuntu-latest, `tools/ci_parallel.py`, no must-run browser suites because no Linux browser has been checked). It has NOT been run on GitHub yet: the first run
+    is the proof. Both jobs install `flask fastapi uvicorn httpx` with pytest: two starters (`flask_app`, `fastapi`) only run their full tests with them, so `arch_selftest_templates_catalog` reported "could not run"
+    in CI as it does on this laptop; with them it is 64/64 (checked in a throwaway venv, nothing installed into your Python).
+  - *A load-only failure, not yet explained.* In the full run after these changes `arch_selftest_pro` failed once under load (394 s) and passed alone (261 s, 44/44): the `speed up` scoreboard check. The
+    check is already a same-process ratio (the rewrite is ~1000x faster), so the likely cause is a subprocess hitting its 25-second timeout on a saturated machine, which scores 0.4 "could not be measured";
+    but the check printed no detail, so that is a guess. It now prints the three scores when it fails; nothing else was changed. If it comes back, read them before touching the timeout.

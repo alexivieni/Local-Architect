@@ -37,8 +37,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install pytest (the only package the suites use)
-        run: python -m pip install --disable-pip-version-check pytest
+      # pytest runs the suites; flask, fastapi, uvicorn and httpx are only what two project starters (flask_app, fastapi) need so that
+      # arch_selftest_templates_catalog runs their full tests here instead of reporting "could not run" (checked: 64/64 with them)
+      - name: Install pytest and the two starters' packages
+        run: python -m pip install --disable-pip-version-check pytest flask fastapi uvicorn httpx
 
       - name: Throwaway home and data folder
         shell: pwsh
@@ -102,3 +104,30 @@ jobs:
           name: ci-report
           path: ${{ env.ARCHITECT_DATA_DIR }}/ci/*.json
           if-no-files-found: ignore
+
+  # The same suites on Linux (Ubuntu ships `python3` and no `python`; paths and process groups work differently). Not asked to run the
+  # two browser suites in full: no Linux browser has been checked, so they may say "could not run" here without making the job red.
+  selftest-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONUTF8: "1"
+      ARCHITECT_NO_CACHE: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest and the two starters' packages
+        run: python -m pip install --disable-pip-version-check pytest flask fastapi uvicorn httpx
+
+      - name: Throwaway home and data folder
+        run: |
+          mkdir -p "$RUNNER_TEMP/arch_home" "$RUNNER_TEMP/arch_data"
+          echo "ARCHITECT_HOME=$RUNNER_TEMP/arch_home" >> "$GITHUB_ENV"
+          echo "ARCHITECT_DATA_DIR=$RUNNER_TEMP/arch_data" >> "$GITHUB_ENV"
+
+      - name: Every suite (tools/ci_parallel.py)
+        run: python tools/ci_parallel.py --jobs 4 --timeout 1200

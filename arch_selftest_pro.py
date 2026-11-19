@@ -306,8 +306,11 @@ def run():
               bt(fenced("def test_bug():\n    assert paginate([1,2,3,4], 1, 2) == [1, 2]\n"))[0] == 1.0 and bt(fenced("def test_bug():\n    assert True\n"))[0] == 0.0
               and bt(fenced("def test_bug():\n    assert paginate([1,2,3,4], 1, 2) == [9]\n"))[0] == 0.3)
         ot = at.TASKS["optimize"][0]["check"]
+        _fast, _same, _wrong = (ot(fenced(at.DEDUPE_FAST if hasattr(at, "DEDUPE_FAST") else DEDUPE_FAST)), ot(fenced(at.DEDUPE)),
+                                ot(fenced("def dedupe(items):\n    return sorted(set(items))\n")))
         check("scoreboard 'speed up': a correct much faster rewrite scores 1.0; the unchanged code scores low; a wrong rewrite scores 0",
-              ot(fenced(at.DEDUPE_FAST if hasattr(at, "DEDUPE_FAST") else DEDUPE_FAST))[0] == 1.0 and ot(fenced(at.DEDUPE))[0] <= 0.3 and ot(fenced("def dedupe(items):\n    return sorted(set(items))\n"))[0] == 0.0)
+              _fast[0] == 1.0 and _same[0] <= 0.3 and _wrong[0] == 0.0,
+              {"fast": _fast, "unchanged": _same, "wrong": _wrong})        # a failure under load says which of the three and why (a subprocess timeout reads "could not be measured")
 
         # ---- --set overrides and settings defaults
         c = core.load_config()

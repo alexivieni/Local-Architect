@@ -304,6 +304,16 @@ def run():
         write(sdir2, {"hello.py": "print('hi')\n"})
         r3 = runner.start(sdir2, cmd="python hello.py")
         check("runner: a one-shot command (not a server) runs to completion and records a real exit code", r3.get("ok") and r3.get("mode") == "oneshot" and r3.get("exit_code") == 0, r3)
+        # a machine with `python3` and no `python` (Ubuntu): the command still runs, with this interpreter. `which` is made to say
+        # `python` is not there, so the check means the same on every system.
+        _which = runner.shutil.which
+        runner.shutil.which = lambda name, *a, **k: None if name in ("python", "python3") else _which(name, *a, **k)
+        try:
+            r3b = runner.start(sdir2, cmd="python hello.py")
+        finally:
+            runner.shutil.which = _which
+        check("runner: a run command starting with `python` still runs when no `python` is on the PATH (python3-only systems)",
+              r3b.get("ok") and r3b.get("exit_code") == 0, r3b)
 
         # ---- arch_doctor.py: real environment preflight, no mocks
         import arch_doctor as doctor

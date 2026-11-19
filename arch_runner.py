@@ -16,6 +16,7 @@ exactly what the socket/HTTP call returned, including "not running" and "port cl
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -189,6 +190,12 @@ def start(root, cmd=None, port=None, extra_env=None, timeout_oneshot=600, networ
             p = subprocess.Popen(argv, cwd=root, env=env, stdout=logf, stderr=subprocess.STDOUT,
                                  creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         else:
+            if os.name != "nt":
+                # Ubuntu and Debian ship `python3` and no `python`: a run command that starts with a name that is not on the PATH
+                # ("python: not found", exit 127) runs with the interpreter this process runs on. A `python` that exists is left alone.
+                _first = cmd.lstrip().split(None, 1)
+                if _first and _first[0] in ("python", "python3") and shutil.which(_first[0]) is None:
+                    cmd = _shlex.quote(sys.executable) + (" " + _first[1] if len(_first) > 1 else "")
             p = subprocess.Popen(cmd, shell=True, cwd=root, env=env, stdout=logf, stderr=subprocess.STDOUT, **popen_kwargs)
     except OSError as e:
         logf.close()
