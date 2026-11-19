@@ -696,3 +696,12 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   - *A load-only failure, not yet explained.* In the full run after these changes `arch_selftest_pro` failed once under load (394 s) and passed alone (261 s, 44/44): the `speed up` scoreboard check. The
     check is already a same-process ratio (the rewrite is ~1000x faster), so the likely cause is a subprocess hitting its 25-second timeout on a saturated machine, which scores 0.4 "could not be measured";
     but the check printed no detail, so that is a guess. It now prints the three scores when it fails; nothing else was changed. If it comes back, read them before touching the timeout.
+- **A task whose model server was not there is not_sure, not fail (2026-11-19).** The first live baseline scored all three `ml` tasks FAIL: with Ollama stopped (the heavy MoE, which the planner role uses, is
+  served by Ollama; `server start` only brings up the resident router and worker, and `ensure` skips a non-resident tier) every call died in ~20 s with "Ollama is not reachable", `calls: 0`.
+  `arch_eval.run_task` filed every `LLMError` as a fail; it now asks `arch_supervisor.environmental()` (the supervisor's own list: not reachable, connection refused, model not found, out of memory...) and
+  answers `not_sure` for those, so a baseline cannot be built from measuring the machine. Tested both ways; the test fails without the change. Not a defect, a precondition: for a setup whose heavy tier is
+  on Ollama, Ollama has to be running for the flows that use it (`ml`, `explore`, the council).
+  Also found while looking: the earlier `ml` failure on 2026-11-17 (`done=length`) is a different one. A thinking role whose reasoning fills the reply cap leaves no `FILE:` block, and nothing retries it
+  without thinking (only a file cut off mid-block is handled). One run is not enough evidence to build a retry on; if a measured `ml` run shows it again, that is the fix to write.
+  Also measured: with the GPU shared with a game, the worker has 0 GPU layers (`-ngl 0`) and generates 2.6-3.8 tokens/s instead of ~35; the plan is right to do that, and a baseline taken like that would record
+  CPU latencies, so it was not kept.

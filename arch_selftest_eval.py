@@ -209,6 +209,20 @@ def run():
         check("a council candidate the budget refuses is said in the run and skipped (no raw thread traceback, the flow carries on with the others)",
               any("candidate 3 was not generated" in ln for ln in lines) and "harness itself failed" not in (rc4.get("error") or ""), (rc4.get("error"), [ln for ln in lines if "candidate" in ln]))
 
+        # ---- a task the model server could not be asked is NOT a failure of the model (three outcomes). Seen live 2026-11-18: with the heavy tier not running, all
+        # three 'ml' tasks said "Ollama is not reachable" after 20 s, were scored FAIL, and a baseline was nearly built from them.
+        import arch_flows as _af
+        real_rf = _af.run_flow
+        try:
+            _af.run_flow = lambda *a, **k: (_ for _ in ()).throw(core.LLMError("Ollama is not reachable at http://127.0.0.1:11434 ([WinError 10061]). Start the Ollama app."))
+            r_down = E.run_task(cf, fake_roles)
+            _af.run_flow = lambda *a, **k: (_ for _ in ()).throw(core.LLMError("the model returned an empty reply"))
+            r_bad = E.run_task(cf, fake_roles)
+        finally:
+            _af.run_flow = real_rf
+        check("a run stopped because the model server is unreachable is not_sure; a model that failed its call is still a fail",
+              r_down["verdict"] == "not_sure" and r_bad["verdict"] == "fail" and "not reachable" in r_down["error"], (r_down["verdict"], r_bad["verdict"], r_down["error"]))
+
         # ---- the pentest flow accepts a host INSIDE an authorized range (seen live: an 8B model named 10.20.0.7 for scope 10.20.0.0/24 and was refused three times, because the
         # check compared strings), and still refuses every host that is not authorized: outside the scope, excluded, or a list of hosts
         pt0 = next(t for t in tasks if t["family"] == "pentest" and t["id"].startswith("pentest-all-in-scope"))

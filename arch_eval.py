@@ -710,6 +710,12 @@ def run_task(task, cfg_over=None, say=None, keep=False, keep_run=False, label=""
     except (core.LLMError, core.BudgetExceeded, core.LoopDetected) as ex:
         err = f"stopped: {str(ex)[:160]}"
         flow_out = {"ok": False, "error": err}
+        import arch_supervisor
+        if isinstance(ex, core.LLMError) and arch_supervisor.environmental(str(ex)):
+            # the model server was not there (or the model, or the memory): nothing was asked of the model, so nothing is known about it.
+            # A 'fail' here (three of three 'ml' tasks on 2026-11-18, the heavy tier was not running) would be a measurement of the machine
+            # filed under the model, and a baseline built from it would punish every later run for being better.
+            flow_out["verdict"] = "not_sure"
     except Exception as ex:                                                   # a harness bug must be visible, never a silent fail
         err = f"the harness itself failed: {type(ex).__name__}: {str(ex)[:160]}"
         flow_out = {"ok": False, "error": err}
