@@ -20,7 +20,7 @@ model on the default path (Claude is an optional tier behind `arch_cloud.allowed
 9. **Test with `py -3.12`** (on this laptop `py -3` is 3.15 without pytest; `architect.py doctor` says which Python runs the tests).
 
 Before handing off: `py -3.12 tools/ci_parallel.py` (a suite that fails only under load is rerun alone and listed apart),
-`py -3.12 architect.py flows --validate`, `py -3.12 tools/doc_counts.py`, `py -3.12 tools/swallow_audit.py` (no new `except Exception: pass`), `py -3.12 tools/eol_audit.py` (no file changed its CRLF/LF style: edit with the Edit tool, never rewrite a file in text mode), `py -3.12 arch_lessons.py`, then `self-verify --write`.
+`py -3.12 architect.py flows --validate`, `py -3.12 tools/doc_counts.py`, `py -3.12 tools/swallow_audit.py` (no new `except Exception: pass`), `py -3.12 tools/eol_audit.py` (no file changed its CRLF/LF style: edit with the Edit tool, never rewrite a file in text mode), `py -3.12 arch_lessons.py`, `py -3.12 architect.py fakecode` (0 gate-level findings: a bare `pass` body in a test double counts; CI stops on it before any suite runs), then `self-verify --write` and, once committed, `py -3.12 tools/ci_manifest_check.py` (CI runs both; the list above used to leave them out).
 
 ## How to run
 ```bash

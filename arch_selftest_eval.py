@@ -188,7 +188,7 @@ def run():
             def __init__(self): self.pins, self.said = {}, []
             def model_for(self, role): return "small"
             def say(self, m): self.said.append(m)
-            def report(self, *a): pass
+            def report(self, *a): self.said.append(" ".join(str(x) for x in a))
         real_next, real_ready = _ap.next_model, _ap.ready_now
         _ap.next_model, _ap.ready_now = (lambda e, cur: "big"), (lambda e, m: (True, ""))
         try:

@@ -718,3 +718,6 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   **Ollama stopped on its own twice** (00:38 and between 01:28 and 01:39), each time during a long heavy call, with no shutdown line in its log. Not caused by Architect (it stops an Ollama only on hub exit).
   Unknown cause. The `ollama serve` Architect starts used to send its output to nowhere; it now appends to `hub_data/server/ollama_serve.log` (`arch_ollama.serve_log`), so the next death can be read.
   A second start of Ollama by the engine (`ensure_running` at the next task) is what kept later tasks running.
+- **CI failed on `cd895b7` before any suite ran (2026-11-19), and the handoff list was why.** Step 11, `architect.py fakecode`, found one gate-level stub: a test double in `arch_selftest_eval.py` (`def report(self, *a): pass`,
+  added with the council-escalation test on 2026-11-17). CI runs two checks the "Before handing off" list in CLAUDE.md did not name: `fakecode` and `tools/ci_manifest_check.py`; both are in the list now. The double
+  records what it is told instead of discarding it. Every CI step was then run locally, in CI's order, before pushing.
