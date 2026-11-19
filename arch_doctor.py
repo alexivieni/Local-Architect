@@ -72,10 +72,12 @@ def check_module(mod, advisory=True):
 
 
 def check_ollama(host=None, timeout=3):
-    host = (host or os.environ.get("OLLAMA_HOST", "127.0.0.1:11434")).strip()
+    import arch_core as core
+    # OLLAMA_HOST=0.0.0.0:11434 is how Ollama is told to LISTEN on every interface; nobody can connect TO 0.0.0.0 (Windows: WinError 10049,
+    # "Not ready" on a working install). Every other caller goes through core.ollama_host(), which says 127.0.0.1; so does this one.
+    host = host.strip().replace("0.0.0.0", "127.0.0.1") if host else core.ollama_host()
     url = (host if "://" in host else "http://" + host).rstrip("/") + "/api/tags"
     t0 = time.time()
-    import arch_core as core
     if core.loopback_down(host):                          # stopped locally: no 1-2 s wait for Windows to report the refusal
         return _ok(f"Ollama reachable at {host}", False, "nothing is listening there -- start it with `ollama serve`, or set OLLAMA_HOST")
     try:

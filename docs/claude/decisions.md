@@ -721,3 +721,11 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
 - **CI failed on `cd895b7` before any suite ran (2026-11-19), and the handoff list was why.** Step 11, `architect.py fakecode`, found one gate-level stub: a test double in `arch_selftest_eval.py` (`def report(self, *a): pass`,
   added with the council-escalation test on 2026-11-17). CI runs two checks the "Before handing off" list in CLAUDE.md did not name: `fakecode` and `tools/ci_manifest_check.py`; both are in the list now. The double
   records what it is told instead of discarding it. Every CI step was then run locally, in CI's order, before pushing.
+- **CI was still red on `d9dd42c` for two other reasons (2026-11-19), found by reading the run and reproducing it from a clean clone.** (1) *Windows, "Manifest matches the tracked files":* I had run
+  `self-verify --write` while someone else's uncommitted edit to `arch_cleanup.py` was in the working tree, so the committed manifest held that edit's hash while git held the original; my own
+  post-commit check passed only because the edit was still on disk. The handoff list now says to write the manifest only from a tree with nothing unintended in it, and to run
+  `ci_manifest_check` in a clean clone. (2) *Linux job:* it failed in both runs where it ran; in a clean WSL clone with CI's packages every suite passes (132/132, 4 not sure: no browser; Python 3.14, CI uses
+  3.12), a missing git identity and CI-only environment flags are not the difference (checked), and the job printed only "exit code 1". It now saves its output, annotates the failing suites like the Windows job
+  and uploads the suite table, so the next run says what failed.
+  Also: `architect.py doctor` said "Not ready" on a working install because `OLLAMA_HOST=0.0.0.0:11434` (how Ollama is told to listen on every interface) was used as an address to connect to (WinError 10049).
+  `core.ollama_host()` and `arch_cleanup` already read it as 127.0.0.1; `arch_doctor.check_ollama` now does too (test: fails without the change, with the exact error).

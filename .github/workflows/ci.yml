@@ -129,5 +129,22 @@ jobs:
           echo "ARCHITECT_HOME=$RUNNER_TEMP/arch_home" >> "$GITHUB_ENV"
           echo "ARCHITECT_DATA_DIR=$RUNNER_TEMP/arch_data" >> "$GITHUB_ENV"
 
+      # The job's log is visible only to signed-in users, so (as on Windows) the output is kept in a file and turned into public
+      # annotations; the first runs of this job failed with only "exit code 1" to show for it.
       - name: Every suite (tools/ci_parallel.py)
-        run: python tools/ci_parallel.py --jobs 4 --timeout 1200
+        run: |
+          python tools/ci_parallel.py --jobs 4 --timeout 1200 > "$RUNNER_TEMP/ci_out.txt" 2>&1; rc=$?
+          cat "$RUNNER_TEMP/ci_out.txt"
+          exit $rc
+
+      - name: Report failing suites as annotations
+        if: always()
+        run: python tools/ci_annotate.py "$RUNNER_TEMP/ci_out.txt"
+
+      - name: Keep the suite table
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ci-report-linux
+          path: ${{ env.ARCHITECT_DATA_DIR }}/ci/*.json
+          if-no-files-found: ignore

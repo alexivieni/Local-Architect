@@ -157,6 +157,15 @@ def run():
         check("doctor has the self-code check and it passes here", d["ok"] and "compiles and imports" in d["name"])
         p = doc.check_ollama_port()
         check("doctor's port check shows the version and what is loaded", p["ok"] and "0.12.1" in p["detail"] and "mine:8b" in p["detail"], p)
+        # OLLAMA_HOST=0.0.0.0:PORT (how Ollama is told to listen on all interfaces) is a working setup: doctor reported "not valid in its
+        # context" (WinError 10049) and "Not ready" while Ollama answered. Both the environment and a Settings value are read as 127.0.0.1.
+        port_ = srv.server_address[1]
+        os.environ["OLLAMA_HOST"] = f"0.0.0.0:{port_}"
+        c_env = doc.check_ollama()
+        os.environ["OLLAMA_HOST"] = url.replace("http://", "")
+        c_cfg = doc.check_ollama(f"0.0.0.0:{port_}")
+        check("doctor reaches an Ollama whose address is 0.0.0.0 (from the environment, and from Settings)",
+              c_env["ok"] and c_cfg["ok"] and "0.0.0.0" not in c_env["name"] and "0.0.0.0" not in c_cfg["name"], (c_env, c_cfg))
         Srv.like_ollama = False
         p2 = doc.check_ollama_port()
         check("doctor tells you when another program owns the Ollama port", not p2["ok"] and "another program" in p2["detail"], p2)
