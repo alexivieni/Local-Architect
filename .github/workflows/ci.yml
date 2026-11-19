@@ -113,6 +113,7 @@ jobs:
     env:
       PYTHONUTF8: "1"
       ARCHITECT_NO_CACHE: "1"
+      ARCHITECT_BROWSER_NO_SANDBOX: "1"   # Ubuntu 24.04 will not let an unprivileged Chrome build its sandbox (arch_browser.launch_args)
     steps:
       - uses: actions/checkout@v5
 

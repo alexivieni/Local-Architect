@@ -320,6 +320,12 @@ def run():
               ign.returncode == 0 and not shipped_ignored, shipped_ignored)
         check("CI workflow: one check per step (in a multi-line PowerShell step only the last exit code counts)",
               not re.search(r"run: \|\n(?:\s+python [^\n]+\n){2,}", wf))
+        import arch_browser as _ab
+        a_default, a_ci = _ab.launch_args("chrome", "/p", environ={}), _ab.launch_args("chrome", "/p", environ={"ARCHITECT_BROWSER_NO_SANDBOX": "1"})
+        linux_job = wf.split("selftest-linux:", 1)[1] if "selftest-linux:" in wf else ""
+        check("the test browser keeps its sandbox unless ARCHITECT_BROWSER_NO_SANDBOX=1; only the Linux CI job sets it (Ubuntu 24.04 cannot build the sandbox)",
+              "--no-sandbox" not in a_default and "--no-sandbox" in a_ci and a_ci[0] == "chrome" and "--headless=new" in a_ci
+              and "ARCHITECT_BROWSER_NO_SANDBOX" in linux_job and "ARCHITECT_BROWSER_NO_SANDBOX" not in wf.split("selftest-linux:", 1)[0], (a_default[:3], a_ci[:4]))
 
         # ==== the read cache never hands back an old copy of a file just written (GitHub's runner lost memory counts) ====
         fp = os.path.join(tmp, "cache_probe.md")

@@ -134,6 +134,20 @@ class WS:
             pass
 
 
+def launch_args(exe, profile, width=1280, height=900, environ=None):
+    """The command line that starts the headless test browser. ARCHITECT_BROWSER_NO_SANDBOX=1 adds --no-sandbox and --disable-dev-shm-usage:
+    off by default (the sandbox stays on), set only where it cannot work, namely CI runners where an unprivileged user may not create the
+    sandbox's namespaces (Ubuntu 24.04: Chrome exits at once, seen on GitHub's Linux runner 2026-11-19) or /dev/shm is tiny."""
+    env = os.environ if environ is None else environ
+    args = [exe, "--headless=new", "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1",
+            f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
+            "--disable-component-update", "--disable-sync", "--disable-extensions", "--disable-default-apps",
+            "--metrics-recording-only", "--mute-audio", f"--window-size={width},{height}", "about:blank"]
+    if str(env.get("ARCHITECT_BROWSER_NO_SANDBOX", "")).strip().lower() in ("1", "true", "yes"):
+        args[1:1] = ["--no-sandbox", "--disable-dev-shm-usage"]
+    return args
+
+
 class Browser:
     def __init__(self, proc, profile, port, ws, job=None):
         self.proc, self.profile, self.port, self.ws, self.job = proc, profile, port, ws, job
@@ -147,12 +161,14 @@ class Browser:
         if not exe:
             return None
         profile = tempfile.mkdtemp(prefix="arch_browser_")
-        args = [exe, "--headless=new", "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1",
-                f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
-                "--disable-component-update", "--disable-sync", "--disable-extensions", "--disable-default-apps",
-                "--metrics-recording-only", "--mute-audio", f"--window-size={width},{height}", "about:blank"]
+        args = launch_args(exe, profile, width, height)
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform.startswith("win") else 0
-        proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, creationflags=flags)
+        err_path = os.path.join(profile, "launch.err")          # the browser's own words, kept for the error below (they were thrown away)
+        err_f = open(err_path, "wb")
+        try:
+            proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=err_f, stdin=subprocess.DEVNULL, creationflags=flags)
+        finally:
+            err_f.close()                                       # the child keeps its own copy of the handle
         job = None
         try:
             import arch_sandbox
@@ -174,8 +190,13 @@ class Browser:
                 time.sleep(0.1)
         if not port:
             cls._kill(proc, job)
+            try:
+                with open(err_path, "rb") as f:
+                    said = f.read()[-400:].decode("utf-8", errors="replace").strip().replace("\n", " | ")
+            except OSError:
+                said = ""
             shutil.rmtree(profile, ignore_errors=True)
-            raise RuntimeError("the browser did not open its debugging port")
+            raise RuntimeError("the browser did not open its debugging port" + (f" (it said: {said})" if said else ""))
         page = None
         while time.time() - t0 < timeout:
             try:

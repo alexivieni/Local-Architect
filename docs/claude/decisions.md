@@ -729,3 +729,9 @@ Approved by the owner after a written proposal (pack inside Architect, `markets_
   and uploads the suite table, so the next run says what failed.
   Also: `architect.py doctor` said "Not ready" on a working install because `OLLAMA_HOST=0.0.0.0:11434` (how Ollama is told to listen on every interface) was used as an address to connect to (WinError 10049).
   `core.ollama_host()` and `arch_cleanup` already read it as 127.0.0.1; `arch_doctor.check_ollama` now does too (test: fails without the change, with the exact error).
+- **Result of the pushed fixes (2026-11-19, run `1596b89`).** The Windows job went green: the first full suite on GitHub since `428e7fc` (two warnings: `arch_selftest_templates_catalog` failed one check
+  under load and passed alone, the known load-only class; `arch_selftest_redact` could not run one check). The Linux job, now annotating, named its failures: only `arch_selftest_uismoke` and `arch_selftest_crawl`,
+  "the browser did not open its debugging port". GitHub's Ubuntu runner HAS a browser (my WSL has none, which is why a local Linux run could not show it), and Chrome run by an unprivileged user cannot build its
+  sandbox on Ubuntu 24.04 and exits at once. `arch_browser.launch_args` adds `--no-sandbox --disable-dev-shm-usage` only when `ARCHITECT_BROWSER_NO_SANDBOX=1`; only the Linux CI job sets it; the default keeps
+  the sandbox (tested both ways). The launch also kept the browser's stderr in a file and now puts its last words in the error ("it said: ..."): it was `DEVNULL`, which is why the first two runs showed nothing.
+  This is a hypothesis until the next Linux run: if those two suites still fail, the error now carries the browser's own message.
